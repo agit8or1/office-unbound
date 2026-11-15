@@ -2,7 +2,7 @@
 
 > Generated from [`docs/progress.json`](docs/progress.json) by `scripts/render_roadmap.py` — edit the JSON, not this file. Last updated **2026-11-15** · stage: **pre-alpha (lab)**.
 
-Core platform components are integrated and tested in an isolated lab: own source build of Exchange-compatible groupware, single sign-on, file sync and browser document editing, backup/restore drills, and an infrastructure control server with monitoring and self-healing. Proxmox provisioning, the deployment wizard and the redesigned console are in progress.
+Core platform components are integrated and tested in an isolated lab: own source build of Exchange-compatible groupware with single sign-on webmail, Keycloak SSO, file sync and browser document editing, backup/restore drills, chat and video meetings, and an infrastructure control server with monitoring, self-healing and a real Proxmox integration (VM lifecycle verified on a live cluster). Guided deployment wizards, provisioning automation and the credential vault are being integrated.
 
 **Principles**
 
@@ -30,7 +30,7 @@ Core platform components are integrated and tested in an isolated lab: own sourc
 | P1.4 | Single user directory: OpenLDAP authoritative for Keycloak SSO, files and groupware | 🧪 Integrated in lab | [`docs/status/identity-files-lab-results.md`](docs/status/identity-files-lab-results.md), [`docs/status/groupware-ldap-results.md`](docs/status/groupware-ldap-results.md) |
 | P1.5 | Files: OpenCloud with WebDAV, versions, desktop sync engine (offline, conflicts) | 🧪 Integrated in lab | [`docs/status/identity-files-lab-results.md`](docs/status/identity-files-lab-results.md) |
 | P1.6 | Documents: browser editing via WOPI with verified save/reopen and restart persistence <br><sub>Lab uses vendor CODE packages for functional tests only</sub> | 🧪 Integrated in lab | [`docs/status/identity-files-lab-results.md`](docs/status/identity-files-lab-results.md) |
-| P1.7 | Documents: own unlimited, rebranded Collabora Online source build | 🛠️ Implementing | [`docs/status/docengine-source-eval.md`](docs/status/docengine-source-eval.md) |
+| P1.7 | Documents: own unlimited, rebranded Collabora Online source build <br><sub>Own source build, rebranded, no connection/document caps: 30 concurrent documents and 60 sessions verified; edit/save via WOPI verified</sub> | 🧪 Integrated in lab | [`docs/status/docengine-build-results.md`](docs/status/docengine-build-results.md) |
 | P1.8 | User lifecycle: provision and deprovision across all services with measured revocation <br><sub>Open gaps: OpenCloud app-token revocation, ActiveSync remote wipe, per-user IMAP session termination</sub> | 🧪 Integrated in lab | [`docs/status/user-lifecycle-results.md`](docs/status/user-lifecycle-results.md) |
 | P1.9 | Backup and restore drills to separate machines (files, identity, ICS controller) | 🧪 Integrated in lab | [`docs/status/restore-drill-results.md`](docs/status/restore-drill-results.md), [`docs/runbooks/ics-recovery.md`](docs/runbooks/ics-recovery.md) |
 | P1.10 | Groupware restore to a separate machine and clean-room rebuild <br><sub>Online logical backup; point-in-time consistency across mailboxes needs snapshots</sub> | 🧪 Integrated in lab | [`docs/status/restore-drill-results.md`](docs/status/restore-drill-results.md) |
@@ -40,10 +40,10 @@ Core platform components are integrated and tested in an isolated lab: own sourc
 
 | | Item | Status | Evidence |
 |---|---|---|---|
-| P2.1 | Provider adapter with Proxmox VE as first provider (discovery, metrics, scoped VM lifecycle) | 🛠️ Implementing | [`docs/adr/0009-infrastructure-orchestration.md`](docs/adr/0009-infrastructure-orchestration.md) |
+| P2.1 | Provider adapter with Proxmox VE as first provider (discovery, metrics, scoped VM lifecycle) <br><sub>Real PVE 9.2 cluster: scope refusals, clone, tag, configure, resize, start, snapshot, stop, destroy verified</sub> | 🧪 Integrated in lab | [`docs/status/provider-proxmox-real.md`](docs/status/provider-proxmox-real.md), [`docs/status/provider-proxmox.md`](docs/status/provider-proxmox.md) |
 | P2.2 | Deployment engine: profiles, sizing, dependency graph, plans, desired vs actual state, drift | 🛠️ Implementing | [`docs/status/deployment-engine.md`](docs/status/deployment-engine.md) |
 | P2.3 | Guest bootstrap: cloud-init, rootless Podman, signed digest-pinned images, agent enrollment <br><sub>Tested in lab containers; real VM boot pending</sub> | 🧪 Integrated in lab | [`docs/status/guest-bootstrap-results.md`](docs/status/guest-bootstrap-results.md) |
-| P2.4 | Setup, deployment and change wizards backed by approval-gated plans <br><sub>Wizards built; integration into the console in progress</sub> | 🛠️ Implementing | — |
+| P2.4 | Setup, deployment and change wizards backed by approval-gated plans <br><sub>Setup/deployment/change wizards deployed as the default first-run path; end-to-end deployment run in progress</sub> | 🧪 Integrated in lab | — |
 | P2.5 | Build and release pipeline for own distributions (signed packages/images, SBOM, staged channels) | ⚪ Planned | [`docs/adr/0008-build-release-pipeline.md`](docs/adr/0008-build-release-pipeline.md) |
 | P2.6 | Continuous integration (tests, secret scanning, license checks) | 🛠️ Implementing | [`.github/workflows/`](.github/workflows/) |
 
@@ -52,7 +52,7 @@ Core platform components are integrated and tested in an isolated lab: own sourc
 | | Item | Status | Evidence |
 |---|---|---|---|
 | P3.1 | Redesigned infrastructure console (dashboard, infrastructure views, operations, monitoring) <br><sub>Redesigned console deployed; infrastructure views await Proxmox provider integration</sub> | 🧪 Integrated in lab | [`docs/screenshots/`](docs/screenshots/) |
-| P3.2 | Unified user portal (mail, calendar, contacts, files, documents) with SSO <br><sub>SSO launcher, recent files, new documents; webmail still has its own login</sub> | 🧪 Integrated in lab | [`docs/status/portal-results.md`](docs/status/portal-results.md) |
+| P3.2 | Unified user portal (mail, calendar, contacts, files, documents) with SSO <br><sub>SSO launcher, recent files, new documents; webmail single sign-on proven on a lab node</sub> | 🧪 Integrated in lab | [`docs/status/portal-results.md`](docs/status/portal-results.md) |
 | P3.3 | Guided desktop and mobile onboarding | ⚪ Planned | — |
 
 ## P4 — MSP and organization administration  (⚪ Planned)
@@ -71,18 +71,20 @@ Core platform components are integrated and tested in an isolated lab: own sourc
 | P5.2 | Capacity analytics and scaling plans | ⚪ Planned | — |
 | P5.3 | Encrypted off-host backups with measured RPO/RTO | ⚪ Planned | — |
 
-## P6 — Chat, meetings and telephony  (🔎 Researching)
+## P6 — Chat, meetings and telephony  (🛠️ Implementing)
 
 | | Item | Status | Evidence |
 |---|---|---|---|
-| P6.1 | Zero-cost collaboration stack evaluation (Matrix, Jitsi/LiveKit, Asterisk) | 🔎 Researching | [`docs/status/collaboration-eval.md`](docs/status/collaboration-eval.md) |
+| P6.1 | Zero-cost collaboration stack evaluation (Matrix, Jitsi/LiveKit, Asterisk) | ✅ Tested | [`docs/status/collaboration-eval.md`](docs/status/collaboration-eval.md) |
+| P6.2 | Chat (Synapse + MAS + Element) and meetings (Jitsi with SSO-issued tokens) | 🧪 Integrated in lab | [`docs/status/collaboration-lab-results.md`](docs/status/collaboration-lab-results.md) |
+| P6.3 | Business telephony (Asterisk + browser softphone) | 🛠️ Implementing | — |
 
 ## P7 — Migration Center (Microsoft 365, Google Workspace)  (🛠️ Implementing)
 
 | | Item | Status | Evidence |
 |---|---|---|---|
 | P7.1 | Read-only migration readiness assessment <br><sub>Implemented and tested against API-shaped fixtures; awaiting a real tenant</sub> | 🛠️ Implementing | [`docs/status/migration-assessment.md`](docs/status/migration-assessment.md) |
-| P7.2 | Mail, calendar, contacts and file migration engine | ⚪ Planned | — |
+| P7.2 | Mail, calendar, contacts and file migration engine <br><sub>IMAP to groupware mail migration verified in lab (incremental, resumable); merge pending</sub> | 🧪 Integrated in lab | — |
 
 ## P8 — MSP pilot and production hardening  (⚪ Planned)
 
@@ -94,7 +96,7 @@ Core platform components are integrated and tested in an isolated lab: own sourc
 
 | | Test | Status | Note |
 |---|---|---|---|
-| A1 | ICS deploys the required components into approved lab infrastructure | 🛠️ Implementing |  |
+| A1 | ICS deploys the required components into approved lab infrastructure | 🛠️ Implementing | Real VM lifecycle on Proxmox verified; full ICS-driven component deployment in progress |
 | A2 | Services reachable through correctly configured TLS endpoints | 🧪 Integrated in lab | Lab CA |
 | A3 | Keycloak login and user provisioning | 🧪 Integrated in lab |  |
 | A4 | User can enter the Office Unbound portal | 🧪 Integrated in lab | Portal with Keycloak SSO in lab |

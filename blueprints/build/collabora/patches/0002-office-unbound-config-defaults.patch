@@ -1,0 +1,26 @@
+diff --git a/configure.ac b/configure.ac
+index d62770019..300020409 100644
+--- a/configure.ac
++++ b/configure.ac
+@@ -1497,7 +1497,7 @@ else
+       <enable type=\"bool\" desc=\"Controls whether the welcome screen should be shown to the users on new install and updates. When enabled, your custom welcome screen must be created at /usr/share/coolwsd/browser/dist/welcome/welcome.html.\" default=\"false\">false</enable>
+     </welcome>"
+     CONFIG_INTERFACE_FRAGMENT="<brandProductName desc=\"Change the displayed name the application will have for the user.\" type=\"string\"></brandProductName>
+-    <brandProductURL desc=\"Change the product URL, empty makes disable the link\" type=\"string\">https://www.collaboraonline.com</brandProductURL>
++    <brandProductURL desc=\"Change the product URL, empty makes disable the link\" type=\"string\">https://officeunbound.com</brandProductURL>
+     <logoURL desc=\"Change the URL of the logo used by Collabora Online, use none to hide it.\" type=\"string\"></logoURL>"
+ fi
+ 
+diff --git a/coolwsd.xml.in b/coolwsd.xml.in
+index dd7c49823..8cdb32043 100644
+--- a/coolwsd.xml.in
++++ b/coolwsd.xml.in
+@@ -116,7 +116,7 @@
+     <memproportion desc="The maximum percentage of available memory consumed by all of the @APP_NAME@ processes, after which we start cleaning up idle documents. If cgroup memory limits are set, this is the maximum percentage of that limit to consume." type="double" default="80.0"></memproportion>
+     <num_prespawn_children desc="Number of child processes to keep started in advance and waiting for new clients." type="uint" default="@NUM_PRESPAWN_CHILDREN@">@NUM_PRESPAWN_CHILDREN@</num_prespawn_children>
+     <fetch_update_check desc="Every number of hours will fetch latest version data. Defaults to 10 hours." type="uint" default="10">10</fetch_update_check>
+-    <allow_update_popup desc="Allows notification about an update in the editor" type="bool" default="true">true</allow_update_popup>
++    <allow_update_popup desc="Allows notification about an update in the editor" type="bool" default="false">false</allow_update_popup>
+     <hide_legacy_script_warning desc="Suppresses the notice normally shown to users when a script - an embedded document macro or a JS extension - touches the legacy com.sun.star UNO API. That notice is the only warning that such a script may stop working after a future upgrade removes the legacy API; setting this hides the warning without changing whether the script will actually keep working." type="bool" default="false">false</hide_legacy_script_warning>
+     <per_document desc="Document-specific settings, including LO Core settings.">
+         <max_concurrency desc="The maximum number of threads to use while processing a document." type="uint" default="4">4</max_concurrency>

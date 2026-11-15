@@ -72,13 +72,13 @@ const notReady = computed(() => ready.data.value && !ready.data.value.ready ? Ob
     <div v-if="notReady.length" class="alert warn" role="alert"><Icon name="alert" /><span>ICS service component not ready: {{ notReady.join(', ').replace('_', ' ') }}. Operations may be delayed.</span></div>
 
     <div v-if="loaded && !i.connected" class="card">
-      <EmptyState icon="cluster" title="Connect your first Proxmox cluster" text="Once a cluster is connected, this dashboard fills with live node, VM and storage status, utilization charts and a health matrix. Health checks and jobs already work.">
-        <Button variant="primary" icon="plus" :to="hasPath('/setup') ? '/setup' : '/endpoints'">Connect Proxmox</Button>
+      <EmptyState icon="cluster" title="Connect your first Proxmox cluster" text="The guided setup walks you through connecting Proxmox in a few steps — it checks the connection and permissions and shows everything before anything is saved. Afterwards this dashboard fills with live node, VM and storage status, utilization charts and a health matrix.">
+        <Button variant="primary" icon="plus" :to="hasPath('/setup') ? '/setup' : '/endpoints'">Start guided setup</Button>
       </EmptyState>
     </div>
     <div v-else-if="loaded && deployments.data.value && !deployments.data.value.data.length && hasPath('/deployments/new')" class="card">
       <EmptyState icon="rocket" title="Deploy Office Unbound" text="Your cluster is connected. Pick a size and ICS plans the virtual machines, shows you exactly what it will create, and runs it after approval.">
-        <Button variant="primary" icon="plus" to="/deployments/new">Deploy Office Unbound</Button>
+        <Button variant="primary" icon="plus" to="/deployments/new">Start deployment wizard</Button>
       </EmptyState>
     </div>
 
