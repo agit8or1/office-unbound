@@ -1,0 +1,19 @@
+# Office Unbound softphone web app (blueprints/lab/spike-pbx/phone/{phone_app.py,static/}, copied into app/ by build.sh; the static dir carries the
+# lockfile-pinned JsSIP 3.13.9 bundle). The app only talks to the PBX helper over a unix socket (mount OU_HELPER_SOCKET). Non-root uid 10050.
+ARG BASE=localhost/ou-base-noble:latest
+FROM ${BASE}
+ARG DEBIAN_FRONTEND=noninteractive
+RUN apt-get -o APT::Sandbox::User=root update && apt-get -o APT::Sandbox::User=root install -y --no-install-recommends \
+      python3 python3-fastapi python3-uvicorn python3-httpx python3-jwt ca-certificates \
+ && rm -rf /var/lib/apt/lists/* /var/cache/apt/archives/* \
+ && groupadd -g 10050 ouphone && useradd -u 10050 -g 10050 -d /opt/ou-phone -M -s /usr/sbin/nologin ouphone
+COPY app/ /opt/ou-phone/
+COPY healthcheck.py /usr/local/bin/ou-healthcheck
+RUN chmod 0755 /usr/local/bin/ou-healthcheck && chmod -R a+rX /opt/ou-phone
+ENV CLIENT_SECRET_FILE=/run/secrets/client-secret STATIC_DIR=/opt/ou-phone/static
+LABEL org.opencontainers.image.title="Office Unbound softphone" org.opencontainers.image.version="0.1.0-ou1" org.opencontainers.image.licenses="LicenseRef-Office-Unbound-TBD; JsSIP MIT"
+USER 10050:10050
+WORKDIR /opt/ou-phone
+EXPOSE 8095
+HEALTHCHECK --interval=30s --timeout=5s --start-period=10s --retries=3 CMD ["/usr/local/bin/ou-healthcheck", "http://127.0.0.1:8095/healthz"]
+ENTRYPOINT ["python3","-m","uvicorn","phone_app:app","--host","0.0.0.0","--port","8095","--no-access-log"]

@@ -21,6 +21,7 @@ def pinned(cat=None):
         for a in comp.artifacts:
             if a.kind == "oci":
                 a.digest = DIGEST
+                a.signed = True
     return c
 
 

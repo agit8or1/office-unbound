@@ -1,0 +1,18 @@
+# Office Unbound PBX helper (blueprints/lab/spike-pbx/pbx/{ou_pbx.py,ou_pbx_helper.py}, copied into app/ by build.sh). Non-root uid 10060.
+# LIMITATION (recorded in the results doc): ou_pbx runs `/usr/sbin/asterisk -rx` and writes /etc/asterisk/ou; this image has NO Asterisk. It is only usable with the
+# host's asterisk binary + control socket + /etc/asterisk/ou bind-mounted and the asterisk gid added (podman --group-add). Not exercised against a real PBX here.
+ARG BASE=localhost/ou-base-noble:latest
+FROM ${BASE}
+ARG DEBIAN_FRONTEND=noninteractive
+RUN apt-get -o APT::Sandbox::User=root update && apt-get -o APT::Sandbox::User=root install -y --no-install-recommends python3 python3-ldap3 ca-certificates openssl \
+ && rm -rf /var/lib/apt/lists/* /var/cache/apt/archives/* \
+ && groupadd -g 10060 oupbx && useradd -u 10060 -g 10060 -d /opt/ou-pbx -M -s /usr/sbin/nologin oupbx
+COPY app/ /opt/ou-pbx/
+COPY healthcheck.py /usr/local/bin/ou-healthcheck
+RUN chmod 0755 /usr/local/bin/ou-healthcheck && chmod -R a+rX /opt/ou-pbx
+ENV OU_PBX_LIB=/opt/ou-pbx OU_HELPER_SOCKET=/run/ou-pbx/helper.sock
+LABEL org.opencontainers.image.title="Office Unbound PBX helper" org.opencontainers.image.version="0.1.0-ou1" org.opencontainers.image.licenses="LicenseRef-Office-Unbound-TBD"
+USER 10060:10060
+WORKDIR /opt/ou-pbx
+HEALTHCHECK --interval=30s --timeout=5s --start-period=10s --retries=3 CMD ["/usr/local/bin/ou-healthcheck", "unix:/run/ou-pbx/helper.sock"]
+ENTRYPOINT ["python3","/opt/ou-pbx/ou_pbx_helper.py"]

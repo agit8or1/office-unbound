@@ -48,6 +48,7 @@ class OciArtifact(_M):
     image: str = Field(pattern=r"^[a-z0-9][a-z0-9.:/_-]{2,200}$")
     digest: str = Field(description="sha256:<64 hex>, or exactly 'sha256:' as an explicit unpinned placeholder")
     version: str = Field(pattern=PIN_RE)
+    signed: bool = Field(default=True, description="false = digest is pinned but the image has NOT been signed through the hardened signing path; plans containing it are refused (artifact_unsigned)")
 
     @field_validator("digest")
     @classmethod

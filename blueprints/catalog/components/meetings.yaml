@@ -8,7 +8,7 @@ artifacts:
   - {name: prosody, kind: oci, image: registry.ou.invalid/ou/jitsi-prosody, digest: "sha256:", version: "0.12.4"}
   - {name: jicofo, kind: oci, image: registry.ou.invalid/ou/jicofo, digest: "sha256:", version: "1.0.1205"}
   - {name: jvb, kind: oci, image: registry.ou.invalid/ou/jitsi-videobridge, digest: "sha256:", version: "2.3.318"}
-  - {name: meet-token-service, kind: oci, image: registry.ou.invalid/ou/meet-token-service, digest: "sha256:", version: "0.1.0-spike"}
+  - {name: meet-token-service, kind: oci, image: registry.ou.invalid/ou/meet-token-service, digest: "sha256:69b20d09d661d29ad5482e9603dfe628d5ca176925513c5d312ba04513e1e283", version: "0.1.0-ou1", signed: false}
   - {name: nginx, kind: package, package: nginx, version: "1.24.0", repo: ubuntu-noble}
 resources:
   cores:     {base: 2,    per_user: 0.01, source: "ASSUMPTION: JVB is CPU/bandwidth bound; lab ran 2 video participants only (collaboration-lab-results.md); 1 core per 100 users planning value"}

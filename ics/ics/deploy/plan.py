@@ -571,6 +571,9 @@ def generate_plan(inp: PlanInput, cap: Capacity, cat: Catalog | None = None, exi
             if not a.pinned:
                 errors.append(_err("artifact_unpinned", f"{cn}/{a.name}: OCI digest is the unpinned placeholder 'sha256:'; the artifact must be built, signed and pinned before this plan can execute",
                                    component=cn, artifact=a.name))
+            elif getattr(a, "signed", True) is False:
+                errors.append(_err("artifact_unsigned", f"{cn}/{a.name}: the OCI image is built and pinned by digest but not signed through the hardened signing path; this plan cannot execute until it is signed",
+                                   component=cn, artifact=a.name))
     for cn in sorted(present):
         comp = cat.components[cn]
         for n in comp.notices:

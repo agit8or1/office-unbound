@@ -29,10 +29,12 @@ def test_catalog_declares_collab_components_with_evidence():
     ast = next(a for a in c.components["telephony"].artifacts if a.name == "asterisk")
     assert ast.kind == "package" and ast.version == "22.12.0-ou1" and ast.repo == "ob-apt-dev"
     for n in COLLAB:
-        assert c.components[n].unpinned, n
+        assert c.components[n].unpinned or any(getattr(a, "signed", True) is False for a in c.components[n].artifacts), n
         for a in c.components[n].artifacts:
             if a.kind == "oci":
-                assert a.digest == "sha256:"      # never an invented digest
+                # either an explicit placeholder (not built: MAS, Jitsi) or a real digest of an UNSIGNED own build (signed: false); never an invented digest
+                assert a.digest == "sha256:" or (a.signed is False and len(a.digest) == 71)
+    assert {a.name for n in COLLAB for a in c.components[n].artifacts if a.kind == "oci" and not a.pinned} >= {"mas", "jitsi-web", "prosody", "jicofo", "jvb"}
     kinds = {h.kind for n in COLLAB for h in c.components[n].health_checks}
     assert {"http", "jitsi_jwt", "sip_options_tls"} <= kinds
     assert any(h.body_contains == "m.login.sso" for h in c.components["chat"].health_checks)
@@ -71,10 +73,12 @@ def test_unpinned_collab_artifacts_block_execution():
     unpinned = {e["component"] for e in p["errors"] if e["code"] == "artifact_unpinned"}
     assert {"chat", "meetings"} <= unpinned and not p["executable"]
     assert p["vms"] and p["steps"]                         # still previewable
-    # enabling telephony adds ITS unpinned artifacts (the ou-asterisk package alone is pinned)
+    # own builds (synapse, element-web, token service, PBX helper, softphone) are pinned but UNSIGNED: blocking artifact_unsigned, not unpinned
+    unsigned = {(e["component"], e["artifact"]) for e in p["errors"] if e["code"] == "artifact_unsigned"}
+    assert {("chat", "synapse"), ("chat", "element-web"), ("meetings", "meet-token-service")} <= unsigned
+    assert ("chat", "mas") not in unsigned
     p2 = generate_plan(inp(profile="medium", users=100, optional={"telephony": True}), cap(3), load_catalog())
-    assert {"component": "telephony", "artifact": "pbx-helper"}.items() <= next(
-        e for e in p2["errors"] if e.get("component") == "telephony").items()
+    assert {("telephony", "pbx-helper"), ("telephony", "softphone-web")} <= {(e["component"], e["artifact"]) for e in p2["errors"] if e["code"] == "artifact_unsigned"}
     # a fully pinned catalog is executable
     assert generate_plan(inp(profile="medium", users=100), cap(3), pinned())["executable"]
 
