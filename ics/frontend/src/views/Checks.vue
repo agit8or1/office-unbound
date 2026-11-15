@@ -9,6 +9,7 @@ import EmptyState from '../ui/EmptyState.vue'
 import Skeleton from '../ui/Skeleton.vue'
 import Segmented from '../ui/Segmented.vue'
 import Button from '../ui/Button.vue'
+import TechText from '../ui/TechText.vue'
 
 const checks = useLoad(() => get<Check[]>('checks'), 5000)
 const selId = computed(() => route.value.arg)
@@ -36,7 +37,7 @@ const counts = computed(() => {
     <Skeleton v-if="!checks.data.value && !checks.error.value" />
     <div class="split">
       <section class="card flush">
-        <div class="scroll">
+        <div class="scroll" tabindex="0" role="region" aria-label="Scrollable table">
           <table v-if="checks.data.value?.length">
             <thead><tr><th>Check</th><th>Kind</th><th>State</th><th>Last result</th><th>Every</th><th>Auto-fix</th></tr></thead>
             <tbody>
@@ -44,7 +45,7 @@ const counts = computed(() => {
                 <td><a :href="'#/checks/' + c.id">{{ c.name }}</a><span v-if="!c.enabled" class="muted"> (disabled)</span></td>
                 <td class="mono">{{ c.kind }}</td>
                 <td><Status :s="c.state" /></td>
-                <td class="wrap">{{ c.last_message ?? 'not run yet' }}<span v-if="c.last_run_at" class="muted small"> · {{ fmtTime(c.last_run_at) }}</span></td>
+                <td class="wrap"><TechText :text="c.last_message" fallback="not run yet" /><span v-if="c.last_run_at" class="muted small"> · {{ fmtTime(c.last_run_at) }}</span></td>
                 <td class="num">{{ c.interval_seconds }} s</td>
                 <td>{{ c.remediation ? String(c.remediation.runbook) + ' ' + String(c.remediation.unit ?? c.remediation.path ?? '') : '-' }}</td>
               </tr>
@@ -76,10 +77,10 @@ const counts = computed(() => {
           </table>
           <p v-else class="muted">No attempts.</p>
           <h3>Recent results</h3>
-          <div class="scroll short">
+          <div class="scroll short" tabindex="0" role="region" aria-label="Scrollable table">
             <table v-if="results.data.value?.length">
               <thead><tr><th>Time</th><th>Result</th><th class="num">ms</th><th>Message</th></tr></thead>
-              <tbody><tr v-for="r in results.data.value" :key="r.id"><td>{{ fmtTime(r.at) }}</td><td><Status :s="r.status" /></td><td class="num">{{ r.latency_ms ?? '-' }}</td><td class="wrap">{{ r.message }}</td></tr></tbody>
+              <tbody><tr v-for="r in results.data.value" :key="r.id"><td>{{ fmtTime(r.at) }}</td><td><Status :s="r.status" /></td><td class="num">{{ r.latency_ms ?? '-' }}</td><td class="wrap"><TechText :text="r.message" /></td></tr></tbody>
             </table>
             <p v-else class="muted">No results yet.</p>
           </div>

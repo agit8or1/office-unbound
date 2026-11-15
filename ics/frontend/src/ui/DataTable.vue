@@ -6,7 +6,7 @@ const props = defineProps<{ cols: Col[]; rows: T[]; rowKey: (r: T) => string; hr
 function open(r: T) { const h = props.href?.(r); if (h) location.hash = '#' + h }
 </script>
 <template>
-  <div class="tablewrap">
+  <div class="tablewrap" tabindex="0" role="region" aria-label="Scrollable table">
     <table :class="{ dense }">
       <thead><tr><th v-for="c in cols" :key="c.key" :class="{ num: c.num }" scope="col">{{ c.label }}</th></tr></thead>
       <tbody>

@@ -49,20 +49,20 @@ function onDone() { emit('changed') }
       </div>
     </div>
     <div class="ux-card">
-      <div class="ux-scroll">
-        <table v-if="rows.length" class="ux-table">
+      <div class="ux-scroll" tabindex="0" role="region" aria-label="Scrollable table">
+        <table v-if="rows.length" class="ux-table stack">
           <thead><tr><th>User</th><th>Role</th><th>Status</th><th>Last sign-in</th><th class="ux-hide-sm">MFA</th><th class="ux-hide-sm">Sessions</th><th class="ux-hide-sm">Created by</th><th><span class="sr">Actions</span></th></tr></thead>
           <tbody>
             <tr v-for="u in rows" :key="u.id" :class="{ sel: u.id === selected }">
               <td><a :href="'#/users/directory/' + u.id" class="ux-user" @click.prevent="open(u)"><strong>{{ u.username }}</strong></a>
                 <span v-if="u.username === me" class="ux-you">you</span>
                 <span v-if="u.pending_plans" class="chip warn" title="Plans waiting for approval">{{ u.pending_plans }} pending</span></td>
-              <td><span class="chip" :class="u.privileged ? 'warn' : 'info'">{{ u.role }}</span></td>
-              <td><StatusChip :status="u.status" /></td>
-              <td :title="fmtTime(u.last_login_at)">{{ ago(u.last_login_at) }}<span v-if="u.last_login_ip" class="muted mono"> {{ u.last_login_ip }}</span></td>
-              <td class="ux-hide-sm">{{ u.mfa_enrolled ? 'Enrolled' : 'Not enrolled' }}</td>
-              <td class="ux-hide-sm">{{ u.active_sessions }}</td>
-              <td class="ux-hide-sm">{{ u.created_by ?? 'host CLI' }}</td>
+              <td data-label="Role"><span class="chip" :class="u.privileged ? 'warn' : 'info'">{{ u.role }}</span></td>
+              <td data-label="Status"><StatusChip :status="u.status" /></td>
+              <td data-label="Last sign-in" :title="fmtTime(u.last_login_at)">{{ ago(u.last_login_at) }}<span v-if="u.last_login_ip" class="muted mono"> {{ u.last_login_ip }}</span></td>
+              <td data-label="MFA" class="ux-hide-sm">{{ u.mfa_enrolled ? 'Enrolled' : 'Not enrolled' }}</td>
+              <td data-label="Sessions" class="ux-hide-sm">{{ u.active_sessions }}</td>
+              <td data-label="Created by" class="ux-hide-sm">{{ u.created_by ?? 'host CLI' }}</td>
               <td class="ux-actions">
                 <template v-if="isAdmin && u.username !== me">
                   <button v-if="u.status === 'active' || u.status === 'locked'" class="ghost" @click="ask(u, 'disable')">Disable</button>

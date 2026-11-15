@@ -10,6 +10,7 @@ import Icon from './ui/Icon.vue'
 import ToastHost from './ui/ToastHost.vue'
 
 const route = useRoute()
+function focusMain() { const m = document.getElementById('main'); m?.focus(); m?.scrollIntoView?.() }
 const router = useRouter()
 
 const theme = ref<'auto' | 'light' | 'dark'>('auto')
@@ -82,8 +83,8 @@ watch(() => route.meta.title, (t) => { document.title = (t ? t + ' - ' : '') + '
 </script>
 
 <template>
-  <a class="skip" href="#main" @click.prevent="($refs.main as HTMLElement)?.focus()">Skip to content</a>
-  <div v-if="!session.ready" class="center muted" role="status">Loading…</div>
+  <a class="skip" href="#main" @click.prevent="focusMain">Skip to content</a>
+  <main v-if="!session.ready" class="center muted" role="status">Loading…</main>
   <router-view v-else-if="bare || !session.user" />
   <div v-else class="shell">
     <aside class="side" :class="{ open: navOpen }">

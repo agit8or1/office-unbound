@@ -51,7 +51,13 @@ export async function bodyText(page: Page) {
   return (await page.locator('body').innerText()).replace(/\s+/g, ' ')
 }
 
+/** The seed has no Proxmox endpoint, so admins are (correctly) sent to the first-run wizard; read-only specs skip it as an operator would. */
+export async function skipFirstRun(page: Page) {
+  await page.addInitScript(() => { try { sessionStorage.setItem('ics-setup-skipped', '1') } catch { /* */ } })
+}
+
 export async function gotoRoute(page: Page, hash: string) {
+  await skipFirstRun(page)
   await page.goto(`/ui/#/${hash}`)  // direct: setting the hash after load races the app's own login/overview redirect
   await expect(page.locator('main h1, .center h1, h1').first()).toBeVisible()
   await page.waitForLoadState('networkidle')

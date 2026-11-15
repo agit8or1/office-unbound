@@ -88,3 +88,21 @@
   .ux-search { max-width: none; }
   .ux-inline-form label { max-width: none; }
 }
+
+/* Responsive tables: below 1100px each row becomes a stacked card (no sideways scrolling); the actions wrap everywhere */
+.ux-table td.ux-actions { white-space: normal; }
+.ux-table td.ux-actions > * { margin: 2px; }
+@media (max-width: 1100px) {
+  .ux-scroll:has(.stack) { overflow: visible; }
+  .ux-table.stack, .ux-table.stack tbody, .ux-table.stack tr, .ux-table.stack td { display: block; width: 100%; }
+  .ux-table.stack thead { position: absolute; width: 1px; height: 1px; overflow: hidden; clip: rect(0 0 0 0); }
+  .ux-table.stack tr { padding: 10px 14px; border-bottom: 1px solid var(--line, #d8d2c6); }
+  .ux-table.stack tbody tr:last-child { border-bottom: 0; }
+  .ux-table.stack td { border: 0; padding: 3px 0; white-space: normal; display: flex; gap: 10px; align-items: baseline; justify-content: space-between; text-align: right; }
+  .ux-table.stack td::before { content: attr(data-label); color: var(--muted, #566070); font-size: 12px; font-weight: 600; text-align: left; flex: none; }
+  .ux-table.stack td.ux-actions::before, .ux-table.stack td:first-child::before { content: none; }
+  .ux-table.stack td.ux-actions { justify-content: flex-start; flex-wrap: wrap; text-align: left !important; padding-top: 8px; }
+  .ux-table.stack td:first-child { justify-content: flex-start; text-align: left; font-size: 15px; }
+  .ux-table.stack tbody tr:hover td { background: transparent; }
+  .ux-hide-sm { display: flex !important; }
+}

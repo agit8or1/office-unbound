@@ -71,7 +71,7 @@ function cell(r: Row, c: readonly string[]) {
           <template v-for="k in kinds" :key="k">
             <details v-if="n[k]" :open="k !== 'network'">
               <summary>{{ titles[k] }} ({{ n[k]!.length }})</summary>
-              <div class="scroll short">
+              <div class="scroll short" tabindex="0" role="region" aria-label="Scrollable table">
                 <table v-if="n[k]!.length">
                   <thead><tr><th v-for="c in cols[k]" :key="c[0]">{{ c[1] }}</th></tr></thead>
                   <tbody><tr v-for="(r, i) in n[k]" :key="i"><td v-for="c in cols[k]" :key="c[0]" :class="{ num: c[2] === 'b' }">{{ cell(r, c) }}</td></tr></tbody>

@@ -51,17 +51,17 @@ const tokenText: Record<string, string> = { not_issued: 'Not issued yet', issued
     </div>
 
     <div class="ux-card">
-      <div class="ux-scroll">
-        <table v-if="invitations.length" class="ux-table">
+      <div class="ux-scroll" tabindex="0" role="region" aria-label="Scrollable table">
+        <table v-if="invitations.length" class="ux-table stack">
           <thead><tr><th>Username</th><th>Role</th><th>Status</th><th>One-time token</th><th class="ux-hide-sm">Invited by</th><th class="ux-hide-sm">Invited</th><th><span class="sr">Actions</span></th></tr></thead>
           <tbody>
             <tr v-for="i in invitations" :key="i.id">
               <td><strong>{{ i.username }}</strong></td>
-              <td><span class="chip" :class="i.privileged ? 'warn' : 'info'">{{ i.role }}</span></td>
-              <td><StatusChip :status="i.status" /></td>
-              <td>{{ tokenText[i.token] }}<span v-if="i.token === 'issued'" class="muted"> until {{ fmtTime(i.token_expires_at) }}</span></td>
-              <td class="ux-hide-sm">{{ i.invited_by ?? 'host CLI' }}</td>
-              <td class="ux-hide-sm">{{ ago(i.invited_at) }}</td>
+              <td data-label="Role"><span class="chip" :class="i.privileged ? 'warn' : 'info'">{{ i.role }}</span></td>
+              <td data-label="Status"><StatusChip :status="i.status" /></td>
+              <td data-label="One-time token">{{ tokenText[i.token] }}<span v-if="i.token === 'issued'" class="muted"> until {{ fmtTime(i.token_expires_at) }}</span></td>
+              <td data-label="Invited by" class="ux-hide-sm">{{ i.invited_by ?? 'host CLI' }}</td>
+              <td data-label="Invited" class="ux-hide-sm">{{ ago(i.invited_at) }}</td>
               <td class="ux-actions">
                 <button v-if="i.status !== 'revoked'" class="ghost" @click="copy(i.username)">{{ copied === i.username ? 'Copied' : 'Copy token command' }}</button>
                 <button v-if="isAdmin && i.status !== 'revoked'" class="ghost" @click="revoking = i.username">Revoke</button>

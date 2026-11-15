@@ -41,7 +41,7 @@ async function setWindow(n: number) { window_.value = n; page.value = 0; await l
     </div>
     <ErrorBox :error="log.error.value" />
     <section class="card flush">
-      <div class="scroll">
+      <div class="scroll" tabindex="0" role="region" aria-label="Scrollable table">
         <table v-if="rows.length">
           <thead><tr><th>Seq</th><th>Time</th><th>Action</th><th>Actor</th><th>IP</th><th>Resource</th><th><span class="sr">Details</span></th></tr></thead>
           <tbody>

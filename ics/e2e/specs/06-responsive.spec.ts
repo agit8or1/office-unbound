@@ -39,6 +39,7 @@ test.describe('layout', () => {
     if (await menu.isVisible()) {
       await menu.click()
       await expect(menu).toHaveAttribute('aria-expanded', 'true')
+      await page.waitForTimeout(500) // let the drawer finish sliding in before measuring overlaps
     }
     await expect(nav.getByRole('link', { name: 'Health checks' })).toBeVisible()
     const p = await layoutProblems(page)

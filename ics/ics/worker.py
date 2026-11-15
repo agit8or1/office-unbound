@@ -40,7 +40,8 @@ class Worker(threading.Thread):
         super().__init__(daemon=True, name="ics-worker")
         self.rt, self.interval, self._stop_evt = rt, interval, threading.Event()
         now = time.monotonic()
-        self.progress = {"jobs": now, "monitor": now}
+        self.progress = {"jobs": now, "monitor": now, "inventory": now}
+        self.threads: dict[str, threading.Thread] = {}
         self.job_stall_seconds = rt.settings.job_timeout_seconds + 30.0
         self.monitor_stall_seconds = float(rt.settings.monitor_stall_seconds)
 
@@ -90,16 +91,21 @@ class Worker(threading.Thread):
         """Inventory/metrics collection on its own thread: a slow provider can never stall checks, jobs or the heartbeat."""
         while not self._stop_evt.is_set():
             try:
+                self.progress["inventory"] = time.monotonic()
                 collector.tick(self.rt)
+                self.progress["inventory"] = time.monotonic()
             except Exception:  # noqa: BLE001
                 log.exception("inventory loop error")
             self._stop_evt.wait(self.interval)
 
     def run(self) -> None:
-        threading.Thread(target=self._beat, daemon=True, name="ics-heartbeat").start()
+        self.threads["jobs"] = threading.current_thread()
+        self.threads["heartbeat"] = threading.Thread(target=self._beat, daemon=True, name="ics-heartbeat")
+        self.threads["heartbeat"].start()
         if self.rt.settings.monitor_enabled:
-            threading.Thread(target=self._monitor_loop, daemon=True, name="ics-monitor").start()
-            threading.Thread(target=self._inventory_loop, daemon=True, name="ics-inventory").start()
+            self.threads["monitor"] = threading.Thread(target=self._monitor_loop, daemon=True, name="ics-monitor")
+            self.threads["inventory"] = threading.Thread(target=self._inventory_loop, daemon=True, name="ics-inventory")
+            self.threads["monitor"].start(); self.threads["inventory"].start()
         self._job_loop()
 
     def stop(self) -> None:

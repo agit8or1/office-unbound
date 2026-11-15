@@ -199,7 +199,7 @@ button:disabled { opacity: .5; cursor: not-allowed; }
 .emptystate { display: flex; flex-direction: column; align-items: center; text-align: center; gap: 6px; padding: 36px 24px; }
 .emptystate .ico { width: 52px; height: 52px; border-radius: 16px; background: var(--accent-soft); color: var(--accent); display: grid; place-items: center; margin-bottom: 6px; }
 .emptystate .ico svg { width: 26px; height: 26px; }
-.emptystate h3 { margin: 0; font-size: 16px; letter-spacing: 0; text-transform: none; color: var(--text); }
+.emptystate h2 { margin: 0; font-size: 16px; letter-spacing: 0; text-transform: none; color: var(--text); }
 .emptystate p { color: var(--muted); max-width: 52ch; margin: 0 0 8px; }
 .emptystate.compact { padding: 20px 16px; }
 .skel { display: block; border-radius: 8px; background: linear-gradient(90deg, var(--sunken) 25%, var(--surface2) 50%, var(--sunken) 75%); background-size: 200% 100%; animation: sh 1.4s infinite linear; height: 14px; }
@@ -300,3 +300,18 @@ button:disabled { opacity: .5; cursor: not-allowed; }
 @media (max-width: 1100px) { .statgrid { grid-template-columns: repeat(2, minmax(0, 1fr)); } }
 .cell b { font-weight: 600; color: var(--muted); }
 @media (max-width: 860px) { .crumbs > :nth-child(-n+2) { display: none; } .split:has(> .detail) { grid-template-columns: minmax(0, 1fr); } }
+
+/* ---------- accessibility polish ---------- */
+.navitem .tag { background: transparent; border-radius: 999px; }
+button.help { min-height: 24px; min-width: 24px; padding: 3px; border: 0; background: transparent; color: var(--muted); vertical-align: middle; border-radius: 50%; cursor: help; }
+button.help:hover { background: var(--sunken); color: var(--text); }
+.helptext { margin: 6px 0 0; padding: 8px 12px; max-width: 70ch; background: var(--info-bg); color: var(--info); border-radius: var(--radius-sm); font-size: 13px; }
+/* links inside running text are underlined, so colour is never the only cue */
+p a, li a, dd a, .sub a, .hint a, .alert a, td > a:not(.ux-user):not(.ux-btn):not(.btn) { text-decoration: underline; text-underline-offset: 2px; }
+a.btn, a.ux-btn, a.stat, a.cell, .crumbs a, .navitem, .ux-tabs a { text-decoration: none; }
+.techd { margin: 4px 0 0; font-size: 12.5px; } .techd summary { font-weight: 550; color: inherit; min-height: 24px; }
+.techd code { display: block; margin-top: 4px; padding: 8px 10px; background: var(--sunken); color: var(--text); border-radius: var(--radius-sm); }
+.alert .grow { flex: 1; }
+.scroll:focus-visible, .ux-scroll:focus-visible, .tablewrap:focus-visible { outline: 2px solid var(--focus); outline-offset: -2px; }
+dl.sys { display: grid; grid-template-columns: minmax(150px, max-content) 1fr; gap: 8px 20px; margin: 0; } dl.sys dt { color: var(--muted); } dl.sys dd { margin: 0; min-width: 0; overflow-wrap: anywhere; }
+@media (max-width: 600px) { dl.sys { grid-template-columns: minmax(0, 1fr); gap: 0; } dl.sys dd { margin-bottom: 8px; } }

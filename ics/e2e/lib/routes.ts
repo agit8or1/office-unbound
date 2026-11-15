@@ -9,6 +9,7 @@ export const ROUTES: R[] = [
   { id: 'infrastructure/storage', title: 'Storage', min: 'viewer' },
   { id: 'infrastructure/networks', title: 'Networks', min: 'viewer' },
   { id: 'deployments', title: 'Deployments', min: 'viewer' },
+  { id: 'deployments/history', title: 'Deployment history', min: 'viewer' },
   { id: 'jobs', title: 'Jobs', min: 'viewer' },
   { id: 'plans', title: 'Approvals', min: 'viewer', key: true },
   { id: 'maintenance', title: 'Maintenance', min: 'viewer' },
@@ -24,6 +25,7 @@ export const ROUTES: R[] = [
   { id: 'inventory', title: 'Inventory snapshots', min: 'viewer' },
   { id: 'preview', title: 'Plan preview', min: 'operator' },
   { id: 'audit', title: 'Audit log', min: 'approver' },
+  { id: 'system', title: 'System', min: 'admin' },
 ]
 /** Routes that exist only once their feature branch is merged (wizards, /infra/*): probed, tested when present, skipped when "not found". */
 export const OPTIONAL_ROUTES: string[] = ['setup', 'deployments/new']
