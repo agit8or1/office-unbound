@@ -73,7 +73,8 @@ sudo -u keycloak env KC_DB=postgres KC_HEALTH_ENABLED=true /opt/keycloak/bin/kc.
 log "render realm import (bind password injected at runtime)"
 install -d -o keycloak -g keycloak -m 0700 /opt/keycloak/data/import
 BINDPW="$(secret_get ldap-bind-password)"
-sed "s/__LDAP_BIND_PASSWORD__/${BINDPW}/" "${HERE}/realm-ou-lab.json" > /opt/keycloak/data/import/realm-ou-lab.json
+# lab-domain parametrisation (clean-room run): the realm file carries the default ou-lab.internal names
+sed -e "s/__LDAP_BIND_PASSWORD__/${BINDPW}/" -e "s#dc=ou-lab,dc=internal#${LDAP_BASE_DN}#g" -e "s#ou-lab\.internal#${LAB_DOMAIN}#g" "${HERE}/realm-ou-lab.json" > /opt/keycloak/data/import/realm-ou-lab.json
 chown -R keycloak:keycloak /opt/keycloak-${KC_VERSION}/data   # data/ was created root-owned by install -d (found in lab run: truststore write EACCES)
 chmod 0600 /opt/keycloak/data/import/realm-ou-lab.json
 

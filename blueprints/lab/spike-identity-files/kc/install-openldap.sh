@@ -165,10 +165,13 @@ LDIF
 
 test_users() {
   export LDAPTLS_CACERT="${TLS_DIR}/ca.crt"
-  out="${SECRETS_DIR}/test-users.env"; : > "${out}"; chmod 0600 "${out}"
+  out="${SECRETS_DIR}/test-users.env"; touch "${out}"; chmod 0600 "${out}"   # never truncated: a re-run keeps existing users and their passwords
   n=2000
   for spec in alice:opencloudAdmin bob:opencloudUser carol:opencloudSpaceAdmin dave:opencloudGuest erin:; do
     u="${spec%%:*}"; g="${spec#*:}"; U="$(echo "$u" | tr a-z A-Z)"; n=$((n+1))
+    if ldapsearch -LLL -x -H "ldaps://${HOST_LDAP}" -D "${ADMIN_DN}" -y <(printf '%s' "${ADMIN_PW}") -b "uid=${u},ou=people,${BASE}" -s base dn 2>/dev/null | grep -q '^dn:'; then
+      log "test user ${u} exists, skipped"; continue
+    fi
     pw="$(gen_secret)"
     dat <<LDIF
 dn: uid=${u},ou=people,${BASE}
