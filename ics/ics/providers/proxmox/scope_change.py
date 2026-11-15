@@ -60,6 +60,19 @@ def direction(old: Policy, new: Policy, all_nodes: set[str]) -> str:
     return "widen" if wider else ("narrow" if narrower else "same")
 
 
+def _covers(old: tuple, new: tuple) -> bool:
+    """an old entry covers a new one when subject and role are the same and the new path is the old path or below a propagating old path"""
+    (p0, s0, r0, prop0), (p1, s1, r1, _prop1) = old, new
+    if s0 != s1 or r0 != r1:
+        return False
+    return p0 == p1 or (bool(prop0) and (p0 == "/" or p1.startswith(p0.rstrip("/") + "/")))
+
+
+def _new_reach(added: set[tuple], old: set[tuple]) -> bool:
+    """True if any added ACL entry is NOT already covered by the old design (narrowing whole-cluster to one node re-adds /nodes/<n>, covered by /nodes)"""
+    return any(not any(_covers(o, a) for o in old) for a in added)
+
+
 def _entries(d: pp.Design) -> set[tuple]:
     return {tuple(e) for e in pp.acl_entries(d)}
 
@@ -148,8 +161,8 @@ def build_from(old: Policy, stored_design: dict, new: Policy, facts: pp.Facts | 
         elif o[1] != n[1] or o[0] != n[0]:
             role_changes.append({"capability": cap, "role": n[0], "change": "privileges", "added": sorted(n[1] - o[1]), "removed": sorted(o[1] - n[1])})
     o_s, n_s = scope_summary(old), scope_summary(new)
-    if dirn != "widen" and (e_new - e_old or any(c["change"] == "added" or (c["change"] == "privileges" and c["added"]) for c in role_changes)):
-        dirn = "widen"       # review 5 M3: any new ACL entry (path) or role privilege is a widening, whatever else is dropped in the same change
+    if dirn != "widen" and (_new_reach(e_new - e_old, e_old) or any(c["change"] == "added" or (c["change"] == "privileges" and c["added"]) for c in role_changes)):
+        dirn = "widen"       # review 5 M3: any ACL entry that grants something the old design did not already cover, or any added role privilege, is a widening
     diff = {"acl_add": rows(e_new - e_old), "acl_remove": rows(e_old - e_new), "roles": role_changes,
             "ics_allowlist": {"nodes": {"before": o_s["nodes"], "after": n_s["nodes"]}, "storages": {"before": o_s["storages"], "after": n_s["storages"]}},
             "nodes_added": sorted(set(n_s["nodes"]) - set(o_s["nodes"])), "nodes_removed": sorted(set(o_s["nodes"]) - set(n_s["nodes"])),

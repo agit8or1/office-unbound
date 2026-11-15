@@ -179,7 +179,7 @@ def handle_report(rt, body: ReportIn, src: str) -> dict:
             # valid proof but not pending: a replay (a clone, or someone who read the secret) or an expired attempt -> ALARM, nothing accepted
             audit.append(db, "guest.bootstrap_replay_alarm", actor_name="guest", resource="guest_bootstrap", resource_id=body.bid, ip=src,
                          details={"state": row.state, "expired": row.expires_at <= now, "reported_address": a.address})
-            if row.state in ("pending", "reported"):
+            if row.state == "reported":
                 # review 5 M2: a second valid proof before enrollment finished means two parties hold the secret: the deployment must STOP.
                 # The record fails and its material is wiped; await_callback / the enrollment step see `failed` and fail the VM closed.
                 db.execute(text("UPDATE guest_bootstrap SET state = 'failed', secret_enc = NULL, ssh_key_enc = NULL, token_enc = NULL, secret_deleted_at = now() "

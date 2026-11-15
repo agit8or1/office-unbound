@@ -738,8 +738,8 @@ def exec_scope_change(rt: Runtime, db: Session, m: ScopeChange, plan, known: lis
         sc = sc_mod.build_from(old, stored.design, new, facts, managed, detach_requested=detach_req, db_guests=dbg, guest_storages=gst, node_rows=rows)
         if sc.direction != art.data["scope"]["direction"]:
             raise ProxmoxError("the scope change no longer matches the approved preview")
-        if sc.blocked:
-            raise ProxmoxError("scope change is blocked now (guests would be orphaned or the plan is blocked): " + "; ".join(sc.blocked))
+        if sc.impact["managed_guests_outside"] and not sc.detach:     # orphans re-checked now; other plan blockers refer to a cluster the package already changed
+            raise ProxmoxError("scope change is blocked now: managed guests would be left outside the new scope (" + "; ".join(b for b in sc.blocked if "outside the new scope" in b)[:300] + ")")
         d = pp.design_from_stored(new, stored.design)
         verification = _verify_all(rt, base_url, ca, fp, new, d, _vault_secrets(rt, ep, stored, known), facts, known)
         if not verification["ok"]:
