@@ -206,14 +206,14 @@ def test_maintenance_suppresses_notifications_and_remediation(env, smtp):
     env.ok("maintenance.create", {"name": "patching", "check_id": cid, "duration_minutes": 30, "reason": "kernel update"})
     assert env.op[0].get(f"{H}/maintenance").json()[0]["active"] is True
     feed(env, cid, "critical")
-    n = env.q("SELECT status, detail FROM notifications")
+    n = env.q("SELECT status, detail FROM notifications WHERE incident_id IS NOT NULL")
     assert [(r.status, r.detail) for r in n] == [("suppressed", "maintenance window")]
     env.tick()
-    assert smtp.messages == []
+    assert len(smtp.messages) == 1 and "MAINTENANCE STARTED" in smtp.messages[0]   # only the non-suppressible start notice (review M4)
     # a window for one check does not cover another
     other = smtp_check(env, 1, name="other", fail_threshold=1)
     feed(env, other, "critical")
-    assert env.q("SELECT status FROM notifications ORDER BY id")[-1][0] == "pending"
+    assert env.q("SELECT status FROM notifications WHERE incident_id IS NOT NULL ORDER BY id")[-1][0] == "pending"
     # maintenance validation
     c, h = env.op
     assert c.post(f"{H}/plans", json={"action": "maintenance.create", "params": {"name": "x", "duration_minutes": 9999}}, headers=h).status_code == 422
@@ -394,10 +394,10 @@ def test_end_to_end_detect_alert_auto_restart_verify_recover(env, fake_agent, sm
         def exec_and_heal(action, params):
             res = real(action, params)
             if action == "service.restart" and params["unit"] == "gromox-imap":
-                imap.password = "good-password-1"   # the restart "fixes" the service
+                imap.down = False   # the restart "fixes" the service
             return res
         monkeypatch.setattr(fake_agent.runbooks, "execute", exec_and_heal)
-        imap.password = "service-is-broken"
+        imap.down = True    # a real outage (a rejected login is an auth failure and must NOT restart anything: review M1)
         env.tick()
         assert env.op[0].get(f"{H}/checks").json()[0]["state"] == "ok"          # 1 failure < threshold 2 (flap damping)
         env.tick()                                                              # 2nd failure -> critical -> incident -> remediation queued
@@ -506,7 +506,10 @@ def test_remediation_runs_nothing_for_disabled_checks_or_in_maintenance(env, fak
     env.ok("maintenance.create", {"name": "m", "check_id": cid, "duration_minutes": 10})
     feed(env, cid, "critical", remediate=True)
     assert env.q("SELECT count(*) FROM remediation_attempts")[0][0] == 0
-    env.ok("check.set_enabled", {"check_id": cid, "enabled": False})
+    c, h = env.op
+    pid = c.post(f"{H}/plans", json={"action": "check.set_enabled", "params": {"check_id": cid, "enabled": False}}, headers=h).json()["plan_id"]
+    assert env.ap1[0].post(f"{H}/plans/{pid}/approve", headers=env.ap1[1]).status_code == 200   # disabling needs a second person (review M4)
+    env.run_jobs()
     assert env.q("SELECT enabled FROM checks")[0][0] is False
     env.due()
     assert monitor.run_due_checks(env.rt) == 0

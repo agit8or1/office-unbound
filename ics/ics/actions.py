@@ -8,6 +8,7 @@ import time
 import uuid
 from datetime import datetime, timezone
 from enum import StrEnum
+from types import SimpleNamespace
 from typing import Literal, Self
 from urllib.parse import urlparse
 from uuid import UUID
@@ -266,7 +267,7 @@ class RunbookExecute(BaseModel):
     path: str | None = Field(default=None, pattern=r"^/[A-Za-z0-9_./-]{0,200}$")
     check_id: UUID | None = Field(default=None, description="re-run this check after the runbook and record verified recovery")
     attempt_id: int | None = None
-    verify_timeout_seconds: int = Field(default=0, ge=0, le=45)
+    verify_timeout_seconds: int = Field(default=0, ge=0, le=monitor.MAX_VERIFY_TIMEOUT)
     require_approval: bool = Field(default=False, description="policy mode=approval: never auto-approve (review H2)")
 
     @model_validator(mode="after")
@@ -355,9 +356,13 @@ def _guard(rt: Runtime, host: str | None) -> list[str]:
         raise PlanError(422, str(e)) from None
 
 
-def _validate_remediation(db: Session, rem) -> None:
+def _validate_remediation(db: Session, rem, rt: Runtime | None = None) -> None:
     if rem is None:
         return
+    if rt is not None and (rem.backoff_seconds < rt.settings.remediation_min_backoff_seconds
+                           or rem.window_seconds < rt.settings.remediation_min_window_seconds):
+        raise PlanError(422, f"remediation needs backoff_seconds >= {rt.settings.remediation_min_backoff_seconds} "
+                             f"and window_seconds >= {rt.settings.remediation_min_window_seconds}")
     node = db.execute(text("SELECT capabilities FROM nodes WHERE id = :i"), {"i": str(rem.node_id)}).first()
     if node is None:
         raise PlanError(404, "remediation node not found (enroll it first)")
@@ -384,7 +389,13 @@ def _pre_node_enroll(db, rt, p: NodeEnroll):
 def _pre_check_create(db, rt, p: CheckCreate):
     if db.execute(text("SELECT 1 FROM checks WHERE name = :n"), {"n": p.name}).first():
         raise PlanError(409, "check name already exists")
-    _validate_remediation(db, p.remediation)
+    s = rt.settings
+    if db.execute(text("SELECT count(*) FROM checks")).scalar() >= s.max_checks:
+        raise PlanError(409, f"check limit reached ({s.max_checks}); remove unused checks first")
+    floor = s.check_min_interval_credentialed_seconds if p.kind in checkmod.NEEDS_PASSWORD else s.check_min_interval_seconds
+    if p.interval_seconds < floor:
+        raise PlanError(422, f"interval_seconds must be >= {floor} for {p.kind} checks")
+    _validate_remediation(db, p.remediation, rt)
     return {"resolved_ips": _guard(rt, checkmod.config_host(p.kind, p.config))}
 
 
@@ -394,7 +405,7 @@ def _pre_check_set_enabled(db, rt, p: CheckSetEnabled):
 
 def _pre_check_bind(db, rt, p: CheckBindRemediation):
     _need(db, "checks", p.check_id, "check")
-    _validate_remediation(db, p.remediation)
+    _validate_remediation(db, p.remediation, rt)
 
 
 def _pre_maintenance(db, rt, p: MaintenanceCreate):
@@ -486,6 +497,7 @@ def create_plan(db: Session, rt: Runtime, user, action: ActionType, params: dict
             full[k] = p.__dict__[k].get_secret_value()
     secret_part = {k: full.pop(k) for k in spec["secrets"] if k in full}
     risk = spec["risk"](p) if callable(spec["risk"]) else spec["risk"]
+    risk = _silencing_risk(db, rt, action, p, user, risk)
     binding = None
     extra: dict = {}
     if action in _IDM:
@@ -536,6 +548,37 @@ def create_plan(db: Session, rt: Runtime, user, action: ActionType, params: dict
     db.commit()
     return {"plan_id": str(pid), "status": "approved" if auto else "pending_approval", "risk": risk, "job_id": job_id,
             "params_hash": digest, "approvals_required": rt.settings.required_approvals_high if risk == "high" else 1, **extra}
+
+
+_RISK_ORDER = {"low": 0, "normal": 1, "high": 2}
+
+
+def _silencing_risk(db: Session, rt: Runtime, action: ActionType, p, user, risk: str) -> str:
+    """Review M4: one operator must not be able to silence alerting alone. A global or long maintenance window needs two approvers;
+    disabling a check needs one (not the requester); a burst of acknowledgements needs one."""
+    new = risk
+    if action == ActionType.maintenance_create and (p.check_id is None or p.duration_minutes > rt.settings.maintenance_max_unapproved_minutes):
+        new = "high"
+    elif action == ActionType.check_set_enabled and not p.enabled:
+        new = "normal"
+    elif action == ActionType.incident_ack:
+        n = db.execute(text("SELECT count(*) FROM plans WHERE action = 'incident.ack' AND requested_by = :u AND created_at > now() - interval '1 hour'"),
+                       {"u": user.id}).scalar()
+        if n >= rt.settings.ack_burst_limit:
+            new = "normal"
+    return new if _RISK_ORDER[new] > _RISK_ORDER[risk] else risk
+
+
+def _stale_remediation(db: Session, params: dict) -> str | None:
+    """Review M3: a remediation plan is only valid while its check is still critical and its attempt was not superseded."""
+    aid = params.get("attempt_id")
+    if aid is None:
+        return None
+    r = db.execute(text("SELECT a.status, c.state, c.enabled FROM remediation_attempts a JOIN checks c ON c.id = a.check_id WHERE a.id = :a"),
+                   {"a": aid}).first()
+    if r is None or r.status == "superseded" or r.state != "critical" or not r.enabled:
+        return "remediation is stale: the check is no longer critical (or was disabled); nothing was executed"
+    return None
 
 
 def _enqueue(db: Session, plan_id, action, user, ip, auto: bool = False) -> str:
@@ -594,6 +637,11 @@ def decide_plan(db: Session, rt: Runtime, user, plan_id: UUID, approve: bool, ip
         audit.append(db, "plan.expired", actor_name="system", resource="plan", resource_id=str(plan_id))
         db.commit()
         raise PlanError(409, "plan expired")
+    if approve and plan.action == ActionType.runbook_execute.value and (why := _stale_remediation(db, plan.params)):
+        db.execute(text("UPDATE plans SET status = 'rejected', decided_at = now(), secret_enc = NULL WHERE id = :i"), {"i": str(plan_id)})
+        audit.append(db, "plan.superseded", actor_name="system", resource="plan", resource_id=str(plan_id), details={"reason": why})
+        db.commit()
+        raise PlanError(409, why)
     if not approve:
         db.execute(text("UPDATE plans SET status = 'rejected', decided_by = :u, decided_at = now(), secret_enc = NULL WHERE id = :i"),
                    {"u": user.id, "i": str(plan_id)})
@@ -916,6 +964,12 @@ def _exec_check_create(rt: Runtime, db: Session, m: CheckCreate, plan, known: li
 def _exec_check_set_enabled(rt, db, m: CheckSetEnabled, plan, known) -> dict:
     db.execute(text("UPDATE checks SET enabled = :e, next_run_at = now() WHERE id = :i"), {"e": m.enabled, "i": str(m.check_id)})
     audit.append(db, "check.enabled_set", actor_name="worker", resource="check", resource_id=str(m.check_id), details={"enabled": m.enabled})
+    if not m.enabled:
+        inc = db.execute(text("SELECT id FROM incidents WHERE check_id = :c AND status IN ('open','acked')"), {"c": str(m.check_id)}).first()
+        if inc:
+            who = db.execute(text("SELECT username FROM users WHERE id = :u"), {"u": str(plan.requested_by)}).scalar()
+            monitor.enqueue_notifications(db, SimpleNamespace(id=m.check_id), inc.id, "check_disabled",
+                                          detail=f"disabled by {who} while the incident is open", force=True)
     return {"check_id": str(m.check_id), "enabled": m.enabled}
 
 
@@ -935,6 +989,11 @@ def _exec_maintenance(rt, db, m: MaintenanceCreate, plan, known) -> dict:
         {"n": m.name, "c": str(m.check_id) if m.check_id else None, "d": m.duration_minutes, "r": m.reason, "u": str(plan.requested_by)}).scalar()
     audit.append(db, "maintenance.created", actor_name="worker", resource="maintenance", resource_id=str(wid),
                  details={"name": m.name, "check_id": str(m.check_id) if m.check_id else None, "minutes": m.duration_minutes, "reason": m.reason})
+    who = db.execute(text("SELECT username FROM users WHERE id = :u"), {"u": str(plan.requested_by)}).scalar()
+    scope = db.execute(text("SELECT name FROM checks WHERE id = :c"), {"c": str(m.check_id)}).scalar() if m.check_id else "ALL checks"
+    detail = (f"Maintenance window '{m.name}' started by {who} for {m.duration_minutes} min; scope: {scope}; reason: {m.reason or '-'}. "
+              "Alerts and automatic remediation for this scope are suppressed until it ends.")
+    monitor.enqueue_notifications(db, SimpleNamespace(id=None), None, "maintenance_started", re.sub(r"[^\x20-\x7e]", "?", detail)[:400], force=True)
     return {"maintenance_id": str(wid)}
 
 
@@ -963,7 +1022,7 @@ def _exec_channel_test(rt, db, m: AlertChannelTest, plan, known) -> dict:
 
 
 def _exec_ack(rt, db, m: IncidentAck, plan, known) -> dict:
-    r = db.execute(text("UPDATE incidents SET status = 'acked', acked_by = :u, acked_at = now(), ack_note = :n "
+    r = db.execute(text("UPDATE incidents SET status = 'acked', acked_by = :u, acked_at = now(), ack_note = :n, escalated_at = NULL "
                         "WHERE id = :i AND status = 'open' RETURNING id"), {"u": str(plan.requested_by), "n": m.note, "i": str(m.incident_id)}).first()
     if r is None:
         raise PlanIntegrityError("incident is not open")
@@ -977,6 +1036,8 @@ class AgentRejected(AgentError):
 
 
 def _exec_runbook(rt: Runtime, db: Session, m: RunbookExecute, plan, known: list[str]) -> dict:
+    if m.attempt_id is not None and (why := _stale_remediation(db, {"attempt_id": m.attempt_id})):
+        raise PlanIntegrityError(why)
     node = db.execute(text("SELECT * FROM nodes WHERE id = :i"), {"i": str(m.node_id)}).first()
     if node is None:
         raise PlanIntegrityError("node not found")
