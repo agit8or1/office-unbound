@@ -8,6 +8,7 @@ from sqlalchemy import text
 from sqlalchemy.orm import Session
 
 from ..auth import User, get_db, require
+from ..tenancy import scope as tscope
 from . import ops, state
 from .catalog import describe_component, describe_profile, get_catalog
 from .plan import PlanInput
@@ -42,6 +43,9 @@ def register_routes(app: FastAPI, rt) -> None:
     @app.post(f"{API}/deployments/plan")
     def plan_preview(spec: PlanInput, user: User = Depends(require("operator")), db: Session = Depends(get_db)):
         """Dry run: generate the plan against the latest inventory snapshot. Writes nothing."""
+        ep = db.execute(text("SELECT id FROM endpoints WHERE name = :n"), {"n": spec.endpoint}).first()
+        if ep is not None:
+            tscope.assert_endpoint(db, user, ep.id)   # a scoped operator may only plan against its own customers' endpoints
         try:
             return ops.build_plan(db, spec)
         except KeyError:
@@ -50,11 +54,12 @@ def register_routes(app: FastAPI, rt) -> None:
     @app.get(f"{API}/deployments")
     def list_deployments(user: User = Depends(require("viewer")), db: Session = Depends(get_db)):
         rows = db.execute(text("SELECT id, slug, customer_id, profile, profile_version, endpoint_id, status, current_revision, created_at, updated_at "
-                               "FROM deployments ORDER BY slug")).all()
+                               f"FROM deployments WHERE {tscope.endpoint_clause(db)} ORDER BY slug")).all()
         return [_clean(r) for r in rows]
 
     def _get(db, slug: str):
-        d = db.execute(text("SELECT * FROM deployments WHERE slug = :s"), {"s": slug}).first()
+        # operator <-> customer scope (tenant isolation): a deployment belongs to the customer that owns its endpoint
+        d = db.execute(text(f"SELECT * FROM deployments WHERE slug = :s AND {tscope.endpoint_clause(db)}"), {"s": slug}).first()
         if d is None:
             raise HTTPException(404, "deployment not found")
         return d
@@ -98,6 +103,7 @@ def register_routes(app: FastAPI, rt) -> None:
 
     @app.post(f"{API}/deployments/{{slug}}/changes/preview")
     def change_preview(slug: str, body: ChangePreviewIn, user: User = Depends(require("operator")), db: Session = Depends(get_db)):
+        _get(db, slug)
         try:
             return ops.change_preview(db, slug, body.changes)
         except KeyError:
@@ -110,6 +116,7 @@ def register_routes(app: FastAPI, rt) -> None:
     @app.post(f"{API}/deployments/{{slug}}/destroy/preview")
     def destroy_preview(slug: str, user: User = Depends(require("operator")), db: Session = Depends(get_db)):
         """Dry run: the VMs a destroy would remove (applied revision + owned resources) and the plan_hash an approval binds to."""
+        _get(db, slug)
         try:
             return ops.destroy_preview(db, slug)
         except KeyError:
@@ -119,7 +126,8 @@ def register_routes(app: FastAPI, rt) -> None:
 
     @app.get(f"{API}/jobs/{{job_id}}/steps")
     def job_steps(job_id: UUID, user: User = Depends(require("viewer")), db: Session = Depends(get_db)):
-        if db.execute(text("SELECT 1 FROM jobs WHERE id = :j"), {"j": str(job_id)}).first() is None:
+        if db.execute(text("SELECT 1 FROM jobs j JOIN plans p ON p.id = j.plan_id WHERE j.id = :j AND " + tscope.clause(db, "p.customer_id")),
+                      {"j": str(job_id)}).first() is None:
             raise HTTPException(404, "job not found")
         rows = db.execute(text("SELECT seq, step_key, kind, target, op, depends_on, disruptive, est_seconds, status, attempts, progress, "
                                "log_excerpt, error_message, error_explanation, started_at, finished_at, carried_from_job FROM job_steps "

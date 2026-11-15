@@ -490,7 +490,8 @@ def create_app(settings: Settings | None = None, runtime: Runtime | None = None)
 
     @app.get(f"{API}/identity/stacks")
     def idm_stacks(user: User = Depends(require("viewer")), db: Session = Depends(get_db)):
-        rows = db.execute(text("SELECT id, name, config, last_reconcile_at, created_at FROM idm_stacks ORDER BY name")).all()
+        rows = db.execute(text("SELECT id, name, config, last_reconcile_at, created_at FROM idm_stacks "
+                               f"WHERE {tscope.clause(db, 'config->>' + chr(39) + 'customer_id' + chr(39))} ORDER BY name")).all()   # a stack belongs to one customer (tenant isolation)
         hide = {"identity_ca_pem", "mail_ca_pem"}
         return [{**_row(r, "config"), "config": {k: v for k, v in r.config.items() if k not in hide}} for r in rows]
 
@@ -499,14 +500,15 @@ def create_app(settings: Settings | None = None, runtime: Runtime | None = None)
         rows = db.execute(text(
             "SELECT u.id, s.name AS stack, u.uid, u.entry_uuid, u.mail, u.display_name, u.groups, u.state, u.created_at, u.disabled_at, "
             "u.last_verification FROM idm_users u JOIN idm_stacks s ON s.id = u.stack_id WHERE (CAST(:s AS text) IS NULL OR s.name = :s) "
-            "ORDER BY u.uid LIMIT 500"), {"s": stack}).all()
+            f"AND {tscope.clause(db, 's.config->>' + chr(39) + 'customer_id' + chr(39))} ORDER BY u.uid LIMIT 500"), {"s": stack}).all()
         return [_row(r) for r in rows]
 
     @app.get(f"{API}/identity/reconcile")
     def idm_reconcile_runs(stack: str | None = None, limit: int = 10, user: User = Depends(require("viewer")), db: Session = Depends(get_db)):
         rows = db.execute(text(
             "SELECT r.id, s.name AS stack, r.at, r.trigger, r.ok, r.findings FROM idm_reconcile_runs r JOIN idm_stacks s ON s.id = r.stack_id "
-            "WHERE (CAST(:s AS text) IS NULL OR s.name = :s) ORDER BY r.at DESC LIMIT :n"), {"s": stack, "n": min(max(limit, 1), 100)}).all()
+            "WHERE (CAST(:s AS text) IS NULL OR s.name = :s) "
+            f"AND {tscope.clause(db, 's.config->>' + chr(39) + 'customer_id' + chr(39))} ORDER BY r.at DESC LIMIT :n"), {"s": stack, "n": min(max(limit, 1), 100)}).all()
         return [{**_row(r), "id": r.id} for r in rows]
 
     # ---- backup product (mutations are typed plans backup.*; these are read-only views; ADR-0010) ----
