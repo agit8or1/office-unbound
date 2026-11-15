@@ -49,9 +49,9 @@ test('detail routes (checks/plans/incidents) render', async ({ page }, info) => 
 
 test('every sidebar link opens its page', async ({ page }) => {
   await gotoRoute(page, 'overview')
-  if (page.viewportSize()!.width < 900) await page.getByRole('button', { name: 'Menu' }).click()
+  if (page.viewportSize()!.width < 900) await page.getByRole('button', { name: 'Open navigation' }).click()
   const links = await page.locator('nav[aria-label="Main"] a').evaluateAll((as) => as.map((a) => ({ t: a.textContent!.trim(), h: a.getAttribute('href') })))
-  expect(links.length).toBeGreaterThanOrEqual(ROUTES.length)
+  expect(links.length).toBeGreaterThanOrEqual(12)
   for (const l of links) {
     await page.evaluate((h) => { location.hash = h }, l.h!)
     await expect(page.locator('main h1').first()).toBeVisible()

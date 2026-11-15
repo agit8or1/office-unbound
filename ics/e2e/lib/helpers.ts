@@ -12,17 +12,25 @@ export function finding(category: string, route: string, detail: string, info?: 
 }
 
 /** Collect console errors, page errors, CSP violations and failed/4xx/5xx requests for the lifetime of the page. */
+/** API groups the integration agent has not merged yet: the UI must degrade gracefully, so a 404 here is recorded as 'pending API', not as a defect. */
+const PENDING_API = /\/api\/v1\/(infra|setup|catalog|deployments)\b/
 export function watch(page: Page, allow: RegExp[] = []) {
   const issues: string[] = []
   const ok = (s: string) => allow.some((r) => r.test(s))
   const add = (s: string) => { if (!ok(s)) issues.push(s) }
   page.on('console', (m) => {
     const t = m.text()
+    if (/Failed to load resource.*404/.test(t) && !/Content Security/.test(t)) return // the response handler attributes real 404s
     if (m.type() === 'error' || /Content Security Policy|Refused to/.test(t)) add(`console.${m.type()}: ${t}`)
   })
   page.on('pageerror', (e) => add(`pageerror: ${e.message}`))
   page.on('requestfailed', (r) => add(`requestfailed: ${r.method()} ${r.url()} ${r.failure()?.errorText}`))
-  page.on('response', (r) => { if (r.status() >= 400) add(`http ${r.status()} ${r.request().method()} ${new URL(r.url()).pathname}`) })
+  page.on('response', (r) => {
+    if (r.status() < 400) return
+    const p = new URL(r.url()).pathname
+    if (r.status() === 404 && PENDING_API.test(p)) { finding('pending API', p, `404 until merged (UI degrades gracefully)`, undefined, 'review'); return }
+    add(`http ${r.status()} ${r.request().method()} ${p}`)
+  })
   void page.addInitScript(() => {
     document.addEventListener('securitypolicyviolation', (e) => {
       console.error(`CSP violation: ${e.violatedDirective} ${e.blockedURI}`)
@@ -45,7 +53,7 @@ export async function bodyText(page: Page) {
 
 export async function gotoRoute(page: Page, hash: string) {
   await page.goto(`/ui/#/${hash}`)  // direct: setting the hash after load races the app's own login/overview redirect
-  await expect(page.locator('main h1, .center h1').first()).toBeVisible()
+  await expect(page.locator('main h1, .center h1, h1').first()).toBeVisible()
   await page.waitForLoadState('networkidle')
 }
 
@@ -57,7 +65,7 @@ export async function setTheme(page: Page, theme: Theme) {
 export function shotPath(project: string, theme: string, id: string) {
   const dir = process.env.SHOT_DIR ?? path.resolve('../../docs/screenshots/e2e')
   fs.mkdirSync(dir, { recursive: true })
-  return path.join(dir, `${project}-${theme}-${id}.png`)
+  return path.join(dir, `${project}-${theme}-${id.replace(/\//g, '_')}.png`)
 }
 
 /** Runs in the page: horizontal overflow and overlapping controls. */

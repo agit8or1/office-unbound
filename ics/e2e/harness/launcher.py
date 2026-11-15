@@ -196,7 +196,7 @@ def main():
         r = client.post("/api/v1/plans", json={"action": action, "params": params})
         r.raise_for_status()
         return r.json()
-    base_chk = {"interval_seconds": 5, "fail_threshold": 1, "recover_threshold": 1, "kind": "tcp_tls"}
+    base_chk = {"interval_seconds": 15, "fail_threshold": 1, "recover_threshold": 1, "kind": "tcp_tls"}
     p1 = plan(op, "check.create", {**base_chk, "name": "e2e-tls-ok", "config": {"host": "127.0.0.1", "port": tls_port, "ca_pem": crt}})
     p2 = plan(op, "check.create", {**base_chk, "name": "e2e-listener-down", "config": {"host": "127.0.0.1", "port": plain_port, "ca_pem": crt}})
     for p in (p1, p2):  # low-risk plans may be auto-approved by the server; only approve those still pending

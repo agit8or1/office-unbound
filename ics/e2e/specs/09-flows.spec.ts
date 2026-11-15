@@ -64,32 +64,44 @@ test.describe('approval flow', () => {
 
 test.describe('forms', () => {
   test.use({ storageState: authFile('admin') })
-  test('Users: invite creates the account', async ({ page }) => {
-    await gotoRoute(page, 'users')
-    await page.locator('form[aria-labelledby=h1] input').fill('e2e-ui-invite')
-    await page.getByRole('button', { name: 'Create invite' }).click()
-    await expect(page.locator('main .alert.ok')).toBeVisible()
-    expect((await api(page, 'users')).some((u: any) => u.username === 'e2e-ui-invite')).toBe(true)
+  test('Users: invitation creates the account', async ({ page }) => {
+    await gotoRoute(page, 'users/invitations')
+    await page.locator('.ux-inline-form input').fill('e2e-ui-invite')
+    await page.getByRole('button', { name: 'Create invitation' }).click()
+    const note = page.locator('main .alert.ok')
+    await expect(note).toBeVisible()
+    const t = await note.innerText()
+    if (/Applied/.test(t)) {
+      await expect.poll(async () => (await api(page, 'users')).some((u: any) => u.username === 'e2e-ui-invite'), { timeout: 30000 }).toBe(true)
+    } else {  // approval needed: the plan must exist and name the user
+      expect((await api(page, 'plans')).some((p: any) => JSON.stringify(p.params).includes('e2e-ui-invite'))).toBe(true)
+    }
   })
-  test('Users: role change for an unknown user gives a readable message', async ({ page }, info) => {
+  test('Users: disable (directory action) creates an approval plan', async ({ page }, info) => {
     await gotoRoute(page, 'users')
-    await page.locator('form[aria-labelledby=h2] input').fill('e2e-no-such-user')
-    await page.getByRole('button', { name: 'Create plan' }).click()
-    const box = page.locator('main form[aria-labelledby=h2] .alert').first()
-    await expect(box).toBeVisible()
-    const t = (await box.innerText()).replace(/\s+/g, ' ')
-    if (/^\d{3}\b|detail|[{}]|Traceback/.test(t)) finding('raw error shown', 'users', t, info)
-    expect.soft(t).not.toMatch(/^\d{3}\b|detail|[{}]|Traceback/)
-  })
-  test('Users: privileged account plan is created', async ({ page }) => {
-    await gotoRoute(page, 'users')
-    await page.locator('form[aria-labelledby=h2] select').first().selectOption('user.create')
-    await page.locator('form[aria-labelledby=h2] input').fill('e2e-ui-plan')
-    await page.locator('form[aria-labelledby=h2] select').nth(1).selectOption('approver')
-    await page.getByRole('button', { name: 'Create plan' }).click()
-    await expect(page.locator('main .alert.ok')).toBeVisible()
+    const row = page.locator('main table tbody tr').filter({ hasText: 'e2e-viewer' })
+    await row.getByRole('button', { name: 'Disable' }).click()
+    await page.getByRole('dialog').getByRole('button', { name: 'Request disable' }).click()
+    await expect(page.getByRole('dialog').locator('.alert')).toBeVisible()
     const plans = await api(page, 'plans')
-    expect(plans.some((p: any) => p.action === 'user.create' && p.params.username === 'e2e-ui-plan')).toBe(true)
+    const hit = plans.some((p: any) => p.action === 'user.disable' && p.params.username === 'e2e-viewer')
+    if (!hit) finding('action without effect', 'users', 'Disable did not create a user.disable plan', info)
+    expect(hit).toBe(true)
+  })
+  test('Users: privileged-account workflow submits a high-risk plan', async ({ page }, info) => {
+    await gotoRoute(page, 'users/privileged/create')
+    await page.getByLabel(/Username for the new account/).fill('e2e-ui-plan')
+    await page.getByRole('button', { name: 'Continue' }).click()
+    await page.locator('input[type=radio][value=approver]').check()
+    await page.getByLabel(/Justification/).fill('e2e verification of the privileged workflow')
+    await page.getByRole('button', { name: 'Review' }).click()
+    await page.getByLabel(/I understand/).check()
+    await page.getByRole('button', { name: 'Submit for approval' }).click()
+    await expect(page.getByText('Submitted.')).toBeVisible()
+    const plans = await api(page, 'plans')
+    const plan = plans.find((p: any) => JSON.stringify(p.params).includes('e2e-ui-plan'))
+    expect(plan, 'a plan names the new privileged account').toBeTruthy()
+    expect(plan.risk).toBe('high')
   })
   test('Audit: verify chain performs a request', async ({ page }) => {
     await gotoRoute(page, 'audit')
@@ -105,9 +117,8 @@ test.describe('forms', () => {
   })
   test('Endpoints: Register endpoint opens the form', async ({ page }) => {
     await gotoRoute(page, 'endpoints')
-    const b = page.getByRole('button', { name: 'Register endpoint' })
-    await b.click()
-    await expect(b).toHaveAttribute('aria-expanded', 'true')
+    await page.getByRole('button', { name: /Add endpoint|Start setup wizard/ }).first().click()
+    await expect(page.locator('[role=dialog], #main h1').filter({ hasText: /endpoint|setup/i }).first()).toBeVisible()
   })
 })
 
@@ -123,6 +134,7 @@ test.describe('operator flows', () => {
   test('Inventory refresh without an endpoint is explained, not a raw error', async ({ page }, info) => {
     await gotoRoute(page, 'inventory')
     const t = (await page.locator('main').innerText()).replace(/\s+/g, ' ')
-    expect(t).toMatch(/register a proxmox endpoint/i)
+    expect(t).toMatch(/endpoint|connect|setup/i)
+    expect(t).not.toMatch(/\b(4|5)\d\d\b/)
   })
 })

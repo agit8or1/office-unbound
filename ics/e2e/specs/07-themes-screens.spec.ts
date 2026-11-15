@@ -32,18 +32,15 @@ for (const theme of ['light', 'dark'] as Theme[]) {
 
 test.describe('theme toggle', () => {
   test.use({ storageState: authFile('admin') })
-  test('cycles auto -> light -> dark and persists', async ({ page }, info) => {
+  test('toggle switches light/dark, persists across reload', async ({ page }, info) => {
     test.skip(info.project.name !== 'desktop')
+    await page.emulateMedia({ colorScheme: 'light' })
     await gotoRoute(page, 'overview')
-    const btn = page.getByRole('button', { name: /^Theme:/ })
-    await expect(btn).toContainText('auto')
-    await btn.click()
-    await expect(page.locator('html')).toHaveAttribute('data-theme', 'light')
-    await btn.click()
+    await page.getByRole('button', { name: 'Switch to dark theme' }).click()
     await expect(page.locator('html')).toHaveAttribute('data-theme', 'dark')
     await page.reload()
     await expect(page.locator('html')).toHaveAttribute('data-theme', 'dark')
-    await btn.click()
-    await expect(page.locator('html')).not.toHaveAttribute('data-theme', /.+/)
+    await page.getByRole('button', { name: 'Switch to light theme' }).click()
+    await expect(page.locator('html')).toHaveAttribute('data-theme', 'light')
   })
 })

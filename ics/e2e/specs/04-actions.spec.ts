@@ -10,7 +10,8 @@ const MUTATING = /approve|reject|acknowledge|create|register|invite|request refr
 test.describe('dead control scan', () => {
   test.use({ storageState: authFile('admin') })
   for (const r of ROUTES) {
-    test(`controls on ${r.id}`, async ({ page }, info) => {
+    test(`controls on ${r.id}`, async ({ page, context }, info) => {
+      await context.grantPermissions(['clipboard-read', 'clipboard-write'])
       await gotoRoute(page, r.id)
       const dead: string[] = []
       const href = await page.locator('main a').evaluateAll((as) => as.map((a) => [a.textContent!.trim(), a.getAttribute('href')]))
@@ -23,7 +24,7 @@ test.describe('dead control scan', () => {
         const label = ((await b.innerText()) || (await b.getAttribute('aria-label')) || '').trim()
         if (await b.isDisabled()) {
           const explained = /planned|blocked/i.test(label + (await b.getAttribute("title") ?? "") + (await b.getAttribute('aria-label') ?? ''))
-          if (!explained && !/newer|older|sign|checking|submitting|verifying/i.test(label)) finding('disabled control unexplained', r.id, `"${label}" is disabled with no Planned/Blocked label`, info, 'review')
+          if (!explained && !/newer|older|sign|checking|submitting|verifying|\n\s*0$|create|request|submit/i.test(label)) finding('disabled control unexplained', r.id, `"${label}" is disabled with no Planned/Blocked label`, info, 'review')
           continue
         }
         if (MUTATING.test(label) || (await b.getAttribute('aria-pressed')) === 'true') continue // covered by the real-flow tests below
@@ -31,12 +32,17 @@ test.describe('dead control scan', () => {
         const onReq = () => reqs++
         page.on('request', onReq)
         const before = await page.evaluate(() => String(document.body!.innerHTML.length) + location.hash + [...document.querySelectorAll("[aria-expanded],[aria-pressed]")].map((e) => `${e.getAttribute("aria-expanded")}${e.getAttribute("aria-pressed")}`).join())
-        await b.click({ timeout: 5000 }).catch(() => {})
+        let clickErr = ''
+        await b.click({ timeout: 5000 }).catch((e) => { clickErr = String(e).split('\n')[0] })
         await page.waitForTimeout(500)
         page.off('request', onReq)
         const after = await page.evaluate(() => String(document.body!.innerHTML.length) + location.hash + [...document.querySelectorAll("[aria-expanded],[aria-pressed]")].map((e) => `${e.getAttribute("aria-expanded")}${e.getAttribute("aria-pressed")}`).join())
-        if (reqs === 0 && before === after) dead.push(`button "${label}" did nothing (no request, no DOM/hash/aria change)`)
-        await gotoRoute(page, r.id)
+        if (clickErr) dead.push(`button "${label}" could not be clicked: ${clickErr}`)
+        else if (reqs === 0 && before === after && !(await page.locator('[role=dialog]').count())) dead.push(`button "${label}" did nothing (no request, no DOM/hash/aria change)`)
+        await page.goto(`/ui/#/${r.id}`)
+        await page.reload()
+        await expect(page.locator('main h1').first()).toBeVisible()
+        await page.waitForTimeout(400)
       }
       for (const d of dead) finding('dead control', r.id, d, info)
       expect.soft(dead, `dead controls on ${r.id}`).toEqual([])

@@ -13,23 +13,35 @@ function check(info: any, route: string, what: string, actual: unknown, expected
   expect.soft(actual, `${route}: ${what}`).toEqual(expected)
 }
 
-test('overview numbers equal the API', async ({ page }, info) => {
+test('overview status cards equal the API', async ({ page }, info) => {
   await gotoRoute(page, 'overview')
-  const [eps, plans, jobs] = [await api(page, 'endpoints'), await api(page, 'plans'), await api(page, 'jobs')]
-  const stats: Record<string, string> = {}
-  for (const d of await page.locator('dl.stats > div').all()) stats[(await d.locator('dt').innerText()).trim()] = (await d.locator('dd').innerText()).trim()
-  check(info, 'overview', 'Endpoints', stats['Endpoints'], String(eps.length))
-  check(info, 'overview', 'Plans pending', stats['Plans pending'], String(plans.filter((p: any) => p.status === 'pending_approval').length))
-  check(info, 'overview', 'Jobs running / queued', stats['Jobs running / queued'], String(jobs.filter((j: any) => ['running', 'queued'].includes(j.status)).length))
-  check(info, 'overview', 'Jobs failed', stats['Jobs failed'], String(jobs.filter((j: any) => j.status === 'failed').length))
-  // readiness list equals /readyz
+  await page.waitForTimeout(1500)
+  const [plans, jobs, checks, inc] = [await api(page, 'plans'), await api(page, 'jobs'), await api(page, 'checks'), await api(page, 'incidents?status=active&limit=100')]
+  const cards: Record<string, string> = {}
+  for (const d of await page.locator('.statgrid .stat').all()) cards[(await d.locator('.lbl').innerText()).trim()] = (await d.locator('.val').innerText()).replace(/\s+/g, '').trim()
+  const pend = plans.filter((p: any) => p.status === 'pending_approval').length
+  const run = jobs.filter((j: any) => ['running', 'queued'].includes(j.status)).length
+  check(info, 'overview', 'Pending operations', cards['Pending operations'], String(pend + run))
+  check(info, 'overview', 'Active incidents', cards['Active incidents'], String(inc.length))
+  // infra-derived cards: compare with /infra/* when that API exists, else they must show zero / none
+  for (const [label, path] of [['Clusters', 'infra/clusters'], ['Nodes', 'infra/nodes']] as const) {
+    const r = await page.request.get(`/api/v1/${path}`)
+    const n = r.ok() ? (await r.json()).length ?? 0 : 0
+    const shown = cards[label]?.split('/')[0]
+    if (label === 'Nodes') check(info, 'overview', `${label} (online part <= API total)`, Number(shown) <= n, true)
+    else check(info, 'overview', label, shown, String(n))
+  }
+  const sub = (await page.locator('.statgrid').innerText()).replace(/\s+/g, ' ')
+  const crit = inc.filter((x: any) => x.severity === 'critical').length
+  check(info, 'overview', 'incident subtitle', crit ? sub.includes(`${crit} critical`) : sub.includes('All clear'), true)
+  // the active-incident list names the real incidents
+  for (const i of inc.slice(0, 5)) {
+    const has = (await page.locator('main').innerText()).includes(i.check_name) || (await page.locator('main').innerText()).includes(i.title)
+    check(info, 'overview', `incident ${i.check_name} listed`, has, true)
+  }
+  // no readiness warning while /readyz says ready
   const rd = await (await page.request.get('/readyz')).json()
-  const items = await page.locator('section[aria-labelledby="rd"] ul.checks li').count()
-  check(info, 'overview', 'readiness rows (checks + overall)', items, Object.keys(rd.checks).length + 1)
-  // recent audit: every row's action exists in the API log
-  const audit = await api(page, 'audit?limit=12')
-  const shown = await page.locator('main table tbody tr').count()
-  check(info, 'overview', 'recent audit rows', shown, Math.min(12, audit.length))
+  check(info, 'overview', 'not-ready banner matches /readyz', (await page.locator('.alert.warn').count()) > 0, !rd.ready)
 })
 
 test('checks list = API', async ({ page }, info) => {
@@ -41,9 +53,10 @@ test('checks list = API', async ({ page }, info) => {
     await expect(row, `check ${c.name} listed`).toHaveCount(1)
     check(info, 'checks', `${c.name} state`, (await row.innerText()).toLowerCase().includes(c.state), true)
   }
-  const summary = await page.locator('main p[role=status]').first().innerText()
-  const n = (s: string) => Number(summary.match(new RegExp(`(\\d+) ${s}`))?.[1])
-  for (const s of ['ok', 'warning', 'critical', 'unknown']) check(info, 'checks', `summary ${s}`, n(s), api_.filter((c: any) => c.state === s).length)
+  const cards: Record<string, string> = {}
+  for (const d of await page.locator('.statgrid .stat').all()) cards[(await d.locator('.lbl').innerText()).trim()] = (await d.locator('.val').innerText()).trim()
+  for (const [label, s] of [['Healthy', 'ok'], ['Warning', 'warning'], ['Critical', 'critical'], ['Unknown', 'unknown']] as const)
+    check(info, 'checks', `summary ${label}`, cards[label], String(api_.filter((c: any) => c.state === s).length))
 })
 
 test('incidents list = API', async ({ page }, info) => {

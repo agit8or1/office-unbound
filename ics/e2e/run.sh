@@ -44,7 +44,8 @@ done
 echo "[e2e] running specs"
 cd "$HERE"
 [ -d node_modules ] || npm ci --no-audit --no-fund >/dev/null
-rm -rf results; mkdir -p results
+[ $# -eq 0 ] && rm -rf results   # a custom selection keeps earlier findings.jsonl (the summary de-duplicates)
+mkdir -p results
 export E2E_STATE="$WORK/state.json" PLAYWRIGHT_BROWSERS_PATH="$E2E_ROOT/browsers"
 export SHOT_DIR=${SHOT_DIR:-$HERE/../../docs/screenshots/e2e}
 [ -d "$PLAYWRIGHT_BROWSERS_PATH" ] || npx playwright install chromium

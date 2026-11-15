@@ -9,7 +9,7 @@ test('invite enrollment (password + TOTP) then login through the UI', async ({ p
   const u = state().users['e2e-invitee']
   await page.goto('/ui/')
   await expect(page.getByRole('heading', { name: 'Sign in' })).toBeVisible()
-  await page.getByRole('link', { name: 'Enroll your account' }).click()
+  await page.getByRole('link', { name: 'Set up your account' }).click()
   await expect(page.getByRole('heading', { name: 'Enroll account' })).toBeVisible()
 
   // step 1: wrong token is refused with a human message (no raw JSON / status text only)
@@ -46,8 +46,8 @@ test('invite enrollment (password + TOTP) then login through the UI', async ({ p
   await page.getByLabel('Authenticator code').fill(next.code)
   await page.getByRole('button', { name: 'Sign in' }).click()
   await expect(page.getByRole('heading', { name: 'Overview' })).toBeVisible()
-  await expect(page.locator('.who')).toContainText('e2e-invitee')
-  await expect(page.locator('.who .chip')).toHaveText('viewer')
+  await expect(page.locator('.userchip')).toContainText('e2e-invitee')
+  await expect(page.locator('.userchip')).toContainText('viewer')
 
   // a viewer must not see admin/approver pages in the navigation
   const nav = (await page.locator('nav[aria-label="Main"]').innerText()).toLowerCase()

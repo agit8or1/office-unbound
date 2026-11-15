@@ -35,17 +35,17 @@ test.describe('layout', () => {
     await gotoRoute(page, 'overview')
     const w = page.viewportSize()!.width
     const nav = page.locator('nav[aria-label="Main"]')
-    const menu = page.getByRole('button', { name: 'Menu' })
+    const menu = page.getByRole('button', { name: 'Open navigation' })
     if (await menu.isVisible()) {
       await menu.click()
       await expect(menu).toHaveAttribute('aria-expanded', 'true')
     }
-    await expect(nav.getByRole('link', { name: 'Checks' })).toBeVisible()
+    await expect(nav.getByRole('link', { name: 'Health checks' })).toBeVisible()
     const p = await layoutProblems(page)
     for (const x of p) finding('layout', `nav@${w}`, x, info)
     expect.soft(p).toEqual([])
-    await nav.getByRole('link', { name: 'Checks' }).click()
-    await expect(page.getByRole('heading', { name: 'Checks' })).toBeVisible()
+    await nav.getByRole('link', { name: 'Health checks' }).click()
+    await expect(page.getByRole('heading', { name: 'Health checks' })).toBeVisible()
   })
 })
 
