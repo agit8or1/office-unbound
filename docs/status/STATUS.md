@@ -1,26 +1,38 @@
 # Office Unbound — status
 
-**Milestone:** Phase 0 complete → Phase 1 (ICS foundation + spike preparation) in progress. Updated 2026-11-15.
+**Milestone:** Phase 1 (ICS foundation + core platform proof) — in progress. Updated 2026-11-15.
+**Constraints:** ADR-0007 zero mandatory licensing cost / no artificial limits. Proxmox out of scope until owner re-enables (lab = isolated systemd-nspawn on ICS host, zone `oulab`).
 
 ## Component status (ADR-0000)
-| Component | Status | Evidence / notes |
+| Component | Status | Evidence |
 |---|---|---|
-| ICS backend (auth, vault, audit, jobs, PVE read-only client) | Implementing | `ics/` — see test results in this file when recorded |
-| ICS UI | Planned | after backend API contract stabilises |
-| Proxmox inventory against a real cluster | Blocked | owner deferred token (proxmox-setup.md §1) |
-| grommunio groupware | Researching | groupware-eval.md; licensing gate open (ADR-0003) |
-| Keycloak + lldap identity | Researching | files-identity-eval.md, ADR-0004 |
-| OpenCloud + Collabora | Researching | files-identity-eval.md, ADR-0005 |
-| Lab spike blueprints | Implementing (not executable: no lab pool) | `blueprints/lab/` |
-| Chat/meetings, migration, MSP center | Planned | per roadmap phases 4–7 |
+| ICS backend (auth/TOTP, vault, HMAC hash-chained audit, typed actions, 2-approver plans, jobs, PVE read-only client) | Tested (unit/integration, 79 tests) | security-review-ics-2026-11-15.md incl. remediation; service `ics` on 127.0.0.1:8088 |
+| ICS console (Vue) | Integrated in lab | /ui, vitest 7/7, headless browser smoke |
+| ICS monitoring, alerts, node agent, remediation | Implementing | ics-monitoring-results.md (pending) |
+| Proxmox inventory vs real cluster | Blocked (owner: no Proxmox now) | fixtures + TLS-pinning mock tests only |
+| Groupware: own source build of gromox 3.13 + sync/dav/web | Integrated in lab | groupware-lab-results.md — 57 automated checks pass (lead re-run): MAPI/HTTP Connect, EWS, ActiveSync, Autodiscover, IMAP/SMTP, CalDAV/CardDAV, shared mailbox, restart, export/import restore; 7 users (no cap) |
+| Groupware ↔ OpenLDAP single user store | Implementing | groupware-ldap-results.md (pending) |
+| Identity: OpenLDAP + Keycloak 26.8.2 | Integrated in lab | identity-files-lab-results.md (T01 36/0) |
+| Files: OpenCloud 9.1.0 | Integrated in lab | T02 11/0 incl. restart, T05 versions 9/0 |
+| Documents: Collabora via WOPI | Integrated in lab with vendor CODE (lab-only) | T03 28/0 standalone, T04 13/0 (real edit → PutFile → content verified). KI-1 below |
+| Collabora own source build (unlimited, rebranded) | Implementing | docengine-build-results.md (pending) |
+| Desktop sync / offline / conflicts, mobile, real Outlook clients | Planned (manual) | blueprints/lab/tests/MANUAL-CHECKLIST.md |
+| Build/release pipeline | Implementing (design ADR-0008; first recipe = Collabora) | |
+| MSP center, migration, chat/meetings | Planned | |
 
-## Open owner decisions / approvals
-1. Proxmox: create `ou-lab` pool + scoped token (approved in principle) and later read-only inventory token — procedure in `proxmox-setup.md`. Need node/storage/bridge names.
-2. grommunio licensing: Community is "up to 5 users, no support"; >5 users and rebranding unclear → written answer from grommunio GmbH or subscription/partner decision.
-3. Collabora production licensing (CODE is lab-only).
-4. Gateway resolver 192.168.22.1 SERVFAILs officeunbound.com — fix on gateway, then drop the local workaround (host-changes.md).
+## Known issues
+- KI-1: document open via Collabora returns 500 for a window after OpenCloud restart.
+- KI-2: LDAP lock alone does not end Keycloak SSO/offline refresh tokens (>420 s). Deprovisioning must revoke in Keycloak (<1 s measured).
+- KI-3: Collabora CODE in nspawn runs without chroot jails (unshare fails in unprivileged container) — lab-only acceptable; production VM must have jails.
+- Lab install scripts were fixed incrementally; clean-room re-runs pending.
+
+## Open owner items
+1. Gateway resolver 192.168.22.1 SERVFAILs officeunbound.com (local workaround in host-changes.md).
+2. Counsel questions consolidated in third-party-inventory.md (GPL-2.0-only gromox files, trademarks, AGPL §13, ONLYOFFICE §7, fonts).
+3. Proxmox access when ready (proxmox-setup.md).
 
 ## Next tasks
-- Integrate & review ICS backend slice (independent security review, Opus).
-- ICS minimal UI on the backend API.
-- When lab pool exists: run `blueprints/lab` spikes and record results in the capability matrix.
+- Integrate monitoring/remediation demo (acceptance 15–16), Collabora own build, Gromox↔LDAP.
+- ICS provisioning action: one user lifecycle (LDAP → Keycloak/OpenCloud/Gromox) incl. revoke.
+- Backup/restore drill to a separate machine (acceptance 17); clean-room reinstall (22).
+- Rebranding patch queues + package recipes for gromox stack (ADR-0008).
