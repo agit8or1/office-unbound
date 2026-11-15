@@ -52,6 +52,8 @@ def stack_params(**over):
 
 
 # ---- in-memory systems ----------------------------------------------------------------------------------------------------------------
+_REAL_MAS_ACTIVE = identity.Mas.active_sessions
+_REAL_MAS_KINDS = identity.Mas.KINDS
 _REAL_PROFILE_CHECK = identity.Keycloak.profile_check            # captured before the fixtures replace identity.Keycloak
 _PROFILE_LOCKED = identity.Keycloak.PROFILE_LOCKED
 
@@ -839,3 +841,17 @@ def test_reconcile_alerts_when_email_or_username_become_user_editable(env, rt, w
     del world.profile[0]                                                              # username attribute missing: cannot verify -> warning
     r = env.run(env.plan("idm.reconcile", {"stack": "acme"}))["result"]
     assert [f["kind"] for f in r["findings"] if f["kind"].startswith("kc_profile")] == ["kc_profile_attribute_missing"]
+
+
+def test_mas_active_sessions_follows_cursor_pages():
+    """Review 4, L5: more than 100 sessions must all be listed (and ended), not just the first page."""
+    ids = {"oauth2-sessions": [f"o{i:03d}" for i in range(230)], "compat-sessions": ["c1"]}
+
+    def req(method, path, **kw):
+        p = kw["params"]
+        allids = ids[path.lstrip("/")]
+        start = allids.index(p["page[after]"]) + 1 if p.get("page[after]") else 0
+        return types.SimpleNamespace(json=lambda: {"data": [{"id": i} for i in allids[start:start + 100]]})
+    fake = types.SimpleNamespace(req=req, KINDS=_REAL_MAS_KINDS)
+    got = _REAL_MAS_ACTIVE(fake, "user1")
+    assert len([g for g in got if g[0] == "oauth2-sessions"]) == 230 and ("compat-sessions", "c1") in got

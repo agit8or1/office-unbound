@@ -116,11 +116,19 @@ def load_state():
         return {"devices": {}, "vm_pin": {}}
 
 
+def _inherit_owner(path, dirpath):
+    """Run as root (admin CLI) the new file would be root-owned and lock the service user (ou-pbx) out of its own state: give it the directory's owner."""
+    if os.geteuid() == 0:
+        d = os.stat(dirpath)
+        os.chown(path, d.st_uid, d.st_gid)
+
+
 def save_state(st):
     fd, tmp = tempfile.mkstemp(dir=cfg()["state_dir"])
     with os.fdopen(fd, "w") as f:
         json.dump(st, f, indent=1)
     os.chmod(tmp, 0o600)
+    _inherit_owner(tmp, cfg()["state_dir"])
     os.replace(tmp, _state_path())
 
 
@@ -189,6 +197,7 @@ def write_if_changed(path, data, mode=0o640):
     with os.fdopen(fd, "w") as f:
         f.write(data)
     os.chmod(tmp, mode)
+    _inherit_owner(tmp, d)
     os.replace(tmp, path)
     return True
 
@@ -240,7 +249,9 @@ def sync(users=None):
               write_if_changed(os.path.join(c["ast_dir"], "extensions_ou.conf"), dp),
               write_if_changed(c["voicemail_conf"], vm)]
         save_state(st)
-        json.dump(endpoints, open(os.path.join(c["state_dir"], "endpoints.json"), "w"))
+        ep_path = os.path.join(c["state_dir"], "endpoints.json")
+        json.dump(endpoints, open(ep_path, "w"))
+        _inherit_owner(ep_path, c["state_dir"])
         if ch[0]:
             ast("module reload res_pjsip.so")
         if ch[1]:

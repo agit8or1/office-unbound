@@ -135,7 +135,7 @@ ListenStream=/run/ou-pbx/helper.sock
 SocketUser=ou-pbx
 SocketGroup=ou-phone
 SocketMode=0660
-DirectoryMode=0750
+DirectoryMode=0755   # socket itself is 0660 ou-pbx:ou-phone + SO_PEERCRED
 [Install]
 WantedBy=sockets.target
 EOF
@@ -214,7 +214,8 @@ server { listen 80 default_server; return 444; }
 EOF
 rm -f /etc/nginx/sites-enabled/default; ln -sf /etc/nginx/sites-available/phone.conf /etc/nginx/sites-enabled/phone.conf
 systemctl daemon-reload
-systemctl enable --now ou-pbx-helper.socket ou-phone ou-pbx-sync.timer
+systemctl enable ou-pbx-helper.socket ou-phone ou-pbx-sync.timer
+systemctl stop ou-phone ou-pbx-helper.service ou-pbx-helper.socket 2>/dev/null; systemctl start ou-pbx-helper.socket ou-phone ou-pbx-sync.timer   # stop+start: a re-deploy must pick up the new code/units (restart of a socket whose service runs is refused)
 sed -i "s/^worker_processes.*/worker_processes 1;/" /etc/nginx/nginx.conf
 nginx -t && systemctl restart nginx
 sleep 2; curl -s http://127.0.0.1:8095/healthz; echo

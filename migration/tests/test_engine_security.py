@@ -97,3 +97,15 @@ def test_bad_internaldate_does_not_crash_or_reach_the_target():
     assert internaldate_epoch("31-Feb-2025 10:00:00 +0000") == 0
     assert safe_internaldate('03-Mar-2025 10:00:00 +0000" x\\') is None
     assert safe_internaldate(D1) == D1
+
+
+def test_state_file_refuses_symlinks(tmp_path):
+    from ou_migration.engine.state import State
+    victim = tmp_path / "victim"
+    victim.write_text("x")
+    victim.chmod(0o644)
+    link = tmp_path / "st.db"
+    link.symlink_to(victim)
+    with pytest.raises(OSError):
+        State(str(link), "job")
+    assert oct(victim.stat().st_mode & 0o777) == "0o644" and victim.read_text() == "x"      # not chmod-ed, not written

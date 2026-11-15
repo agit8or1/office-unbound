@@ -571,9 +571,19 @@ class Mas:
 
     def active_sessions(self, mid: str) -> list[tuple[str, str]]:
         out: list[tuple[str, str]] = []
-        for kind in self.KINDS:
-            r = self.req("GET", f"/{kind}", params={"filter[user]": mid, "filter[status]": "active", "page[first]": 100})
-            out += [(kind, x["id"]) for x in r.json().get("data", [])]
+        for kind in self.KINDS:                       # cursor pagination: a user with > 100 sessions must not leave any behind (review 4, L5)
+            after, seen = None, set()
+            for _ in range(50):
+                params = {"filter[user]": mid, "filter[status]": "active", "page[first]": 100}
+                if after:
+                    params["page[after]"] = after
+                data = self.req("GET", f"/{kind}", params=params).json().get("data", [])
+                new = [x["id"] for x in data if x["id"] not in seen]
+                out += [(kind, i) for i in new]
+                seen.update(new)
+                if len(data) < 100 or not new:
+                    break
+                after = data[-1]["id"]
         return out
 
     def end_sessions(self, mid: str) -> int:
