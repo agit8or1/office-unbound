@@ -1323,6 +1323,5 @@ _EXEC = {ActionType.endpoint_register: endpoint_actions.exec_register, ActionTyp
          **{ActionType(k): v for k, v in deploy_ops.EXECUTORS.items()},
          **{ActionType(k): v for k, v in endpoint_actions.EXECUTORS.items()},
          **{ActionType(k): v for k, v in prov_actions.EXECUTORS.items()},
-         **{ActionType(k): v for k, v in {**cred_actions.EXECUTORS, **ten_actions.EXECUTORS}.items()}}
-         **{ActionType(k): v for k, v in backup_ops.EXECUTORS.items()},
-         **{ActionType(k): v for k, v in endpoint_actions.EXECUTORS.items()}}
+         **{ActionType(k): v for k, v in {**cred_actions.EXECUTORS, **ten_actions.EXECUTORS}.items()},
+         **{ActionType(k): v for k, v in backup_ops.EXECUTORS.items()}}
