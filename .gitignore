@@ -1,0 +1,9 @@
+reference/
+**/.venv/
+**/__pycache__/
+**/node_modules/
+**/dist/
+*.pyc
+.env
+*.key
+secrets/
