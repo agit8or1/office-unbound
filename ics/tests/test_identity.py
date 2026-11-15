@@ -36,7 +36,7 @@ def _pem() -> str:
 
 
 PEM = _pem()
-LDAP_PW, KC_SECRET = "ldap-service-pw-12345", "kc-service-secret-12345"
+LDAP_PW, KC_SECRET, MAS_SECRET = "ldap-service-pw-12345", "kc-service-secret-12345", "mas-service-secret-12345"
 
 
 def stack_params(**over):
@@ -60,6 +60,7 @@ class World:
         self.stuck_imap = False
         self.passwords: dict = {}
         self.calls: list = []
+        self.mas: dict = {}  # uid -> {"id","locked","deactivated","sessions"}
 
     def entitled(self, uid):
         e = self.ldap.get(uid)
@@ -117,6 +118,25 @@ def world(monkeypatch):
         def offline_sessions(self, kid, extra=()): return [u["offline"] for u in w.kc.values() if u["id"] == kid][0]
         def delete(self, kid): [w.kc.pop(k) for k in [k for k, u in w.kc.items() if u["id"] == kid]]
 
+    class FakeMas:
+        def __init__(self, rt, stack): assert stack.mas_secret == MAS_SECRET
+        def close(self): pass
+        def probe(self): pass
+        def find(self, uid):
+            m = w.mas.get(uid)
+            return {"id": m["id"], "locked": m["locked"], "deactivated": m["deactivated"]} if m else None
+        def _by(self, mid): return [m for m in w.mas.values() if m["id"] == mid][0]
+        def lock(self, mid): w.calls.append(("mas.lock", mid)); self._by(mid)["locked"] = True
+        def unlock(self, mid): w.calls.append(("mas.unlock", mid)); self._by(mid)["locked"] = False
+        def deactivate(self, mid): w.calls.append(("mas.deactivate", mid)); self._by(mid).update(deactivated=True, locked=True)
+        def active_sessions(self, mid): return [("oauth2-sessions", str(i)) for i in range(self._by(mid)["sessions"])]
+        def end_sessions(self, mid): n = self._by(mid)["sessions"]; self._by(mid)["sessions"] = 0; return n
+        def state(self, uid):
+            m = w.mas.get(uid)
+            return {"user_present": False} if not m else {"user_present": True, "locked": m["locked"], "deactivated": m["deactivated"], "active_sessions": m["sessions"]}
+
+    w.FakeMas = FakeMas
+
     def fake_agent(rt, node_id, action, uid, known):
         e = w.ldap.get(uid)
         w.calls.append((action, uid))
@@ -143,6 +163,7 @@ def world(monkeypatch):
 
     monkeypatch.setattr(identity, "Directory", FakeDir)
     monkeypatch.setattr(identity, "Keycloak", FakeKC)
+    monkeypatch.setattr(identity, "Mas", FakeMas)
     monkeypatch.setattr(identity, "agent_user", fake_agent)
     monkeypatch.setattr(identity.time, "sleep", lambda s: None)
     return w
@@ -151,9 +172,10 @@ def world(monkeypatch):
 def add_stack(rt, **over):
     p = stack_params(**over)
     m = identity.StackRegister.model_validate(p)
-    cfg = m.model_dump(mode="json", exclude={"ldap_bind_password", "kc_client_secret"})
+    cfg = m.model_dump(mode="json", exclude={"ldap_bind_password", "kc_client_secret", "mas_client_secret"})
     sid = str(uuid.uuid4())
-    enc = rt.vault.encrypt(json.dumps({"ldap_bind_password": LDAP_PW, "kc_client_secret": KC_SECRET}).encode(), identity.stack_aad(sid, cfg))
+    sec = {"ldap_bind_password": LDAP_PW, "kc_client_secret": KC_SECRET, **({"mas_client_secret": MAS_SECRET} if m.mas_client_secret else {})}
+    enc = rt.vault.encrypt(json.dumps(sec).encode(), identity.stack_aad(sid, cfg))
     with rt.session() as d:
         d.execute(text("INSERT INTO idm_stacks (id, name, config, secret_enc) VALUES (:i, :n, CAST(:c AS jsonb), :s)"),
                   {"i": sid, "n": cfg["name"], "c": json.dumps(cfg), "s": enc})
@@ -652,3 +674,110 @@ def test_polkit_rule_only_starts_the_fixed_templates(tmp_path):
     from ou_agent import runbooks
     with pytest.raises(ValueError):
         runbooks.validate_config(json.loads(bad.read_text()))
+
+
+# ---- Matrix (MAS) downstream -------------------------------------------------------------------------------------------------------------
+MAS = {"mas_url": "https://mas.example.test", "mas_client_id": "ou-ics", "mas_client_secret": MAS_SECRET}
+
+
+def test_mas_parameters_come_together_and_secret_is_a_secret():
+    with pytest.raises(ValidationError):
+        identity.StackRegister.model_validate(stack_params(mas_url="https://mas.example.test"))
+    with pytest.raises(ValidationError):
+        identity.StackRegister.model_validate(stack_params(mas_url="http://mas.example.test", mas_client_id="x1", mas_client_secret=MAS_SECRET))
+    m = identity.StackRegister.model_validate(stack_params(**MAS))
+    assert MAS_SECRET not in repr(m)
+
+
+def test_disable_locks_matrix_ends_sessions_enable_unlocks_delete_deactivates(env, rt, world, monkeypatch):
+    add_stack(rt, probe_client_id="probe", **MAS)
+    patch_probes(monkeypatch, world)
+    create_user(env)
+    world.kc["alice"] = {"id": "k1", "username": "alice", "enabled": True, "sessions": 1, "offline": 0}
+    world.mas["alice"] = {"id": "m1", "locked": False, "deactivated": False, "sessions": 2}
+    job = env.run(env.plan("idm.user.disable", {"stack": "acme", "uid": "alice", "verify_timeout_seconds": 5, "reason": "leaver"}))
+    assert job["status"] == "succeeded", job["error"]
+    v = job["result"]["verification"]
+    assert v["overall"] == "PASS" and v["paths"]["matrix_access"]["status"] == "refused"
+    assert v["state"]["matrix"] == {"user_present": True, "locked": True, "deactivated": False, "active_sessions": 0}
+    step = [x for x in job["result"]["steps"] if x["step"] == "matrix.lock"][0]
+    assert step["sessions_ended"] == 2 and step["locked"]
+    assert MAS_SECRET not in json.dumps(job)
+    e = env.run(env.plan("idm.user.enable", {"stack": "acme", "uid": "alice"}))
+    assert e["status"] == "succeeded" and world.mas["alice"]["locked"] is False
+    env.run(env.plan("idm.user.disable", {"stack": "acme", "uid": "alice", "verify_timeout_seconds": 5, "reason": "leaver"}))
+    d = env.run(env.plan("idm.user.delete", {"stack": "acme", "uid": "alice", "reason": "gone"}))
+    assert d["status"] == "succeeded", d["error"]
+    assert world.mas["alice"]["deactivated"] and ("mas.deactivate", "m1") in world.calls
+
+
+def test_disable_ok_for_user_without_matrix_and_fails_loud_when_a_session_survives(env, rt, world, monkeypatch):
+    add_stack(rt, **MAS)
+    create_user(env)
+    j = env.run(env.plan("idm.user.disable", {"stack": "acme", "uid": "alice", "verify_timeout_seconds": 5, "reason": "leaver"}))
+    assert j["status"] == "succeeded" and j["result"]["verification"]["state"]["matrix"] == {"user_present": False}
+    env.run(env.plan("idm.user.enable", {"stack": "acme", "uid": "alice"}))
+    world.mas["alice"] = {"id": "m1", "locked": False, "deactivated": False, "sessions": 1}
+
+    class Sticky(world.FakeMas):
+        def end_sessions(self, mid): return 0  # sessions cannot be ended
+    monkeypatch.setattr(identity, "Mas", Sticky)
+    j = env.run(env.plan("idm.user.disable", {"stack": "acme", "uid": "alice", "verify_timeout_seconds": 5, "reason": "leaver"}))
+    assert j["status"] == "failed" and "VERIFY FAILED" in j["error"]["message"]
+
+
+def test_classify_matrix():
+    row = {"uid": "a", "state": "disabled", "entry_uuid": "u", "groups": []}
+    ldap = {"entry_uuid": "u", "locked": True, "groups": []}
+    cfg = {"entitlement_group": "mail-users"}
+
+    def kinds(mx, st="disabled"):
+        return {f["kind"] for f in identity.classify({**row, "state": st}, ldap if st != "deleted" else None, None, None, None, cfg, mx)}
+    assert kinds({"user_present": True, "locked": False, "deactivated": False, "active_sessions": 1}) == {"matrix_not_locked", "matrix_sessions_remain"}
+    assert kinds({"user_present": True, "locked": True, "deactivated": False, "active_sessions": 0}) == set()
+    assert kinds({"user_present": False}) == set()
+    assert "matrix_active" in kinds({"user_present": True, "locked": True, "deactivated": False, "active_sessions": 0}, "deleted")
+    assert "matrix_locked" in kinds({"user_present": True, "locked": True, "deactivated": False, "active_sessions": 0}, "active")
+    assert {"matrix_not_locked", "matrix_sessions_remain", "matrix_active"} <= identity.DESTRUCTIVE
+
+
+def test_reconcile_reports_matrix_drift(env, rt, world):
+    add_stack(rt, **MAS)
+    create_user(env)
+    env.run(env.plan("idm.user.disable", {"stack": "acme", "uid": "alice", "verify_timeout_seconds": 5, "reason": "leaver"}))
+    world.mas["alice"] = {"id": "m1", "locked": False, "deactivated": False, "sessions": 1}   # injected drift
+    r = identity.reconcile(rt, "acme")
+    assert {"matrix_not_locked", "matrix_sessions_remain"} <= {f["kind"] for f in r["findings"]} and r["critical"] >= 2
+
+
+def test_mas_client_calls_exact_endpoints(rt):
+    """The real Mas class against a fake transport: client-credentials token, only the whitelisted admin endpoints."""
+    import httpx
+    seen = []
+
+    def handler(req: httpx.Request):
+        seen.append((req.method, req.url.path))
+        if req.url.path == "/oauth2/token":
+            assert req.headers["authorization"].startswith("Basic ") and b"urn%3Amas%3Aadmin" in req.content
+            return httpx.Response(200, json={"access_token": "t", "expires_in": 300})
+        assert req.headers["authorization"] == "Bearer t"
+        if req.url.path.endswith("/by-username/alice"):
+            return httpx.Response(200, json={"data": {"id": "M1", "attributes": {"locked_at": "2026-01-01T00:00:00Z", "deactivated_at": None}}})
+        if req.url.path.endswith("/by-username/ghost"):
+            return httpx.Response(404, json={})
+        if req.url.path in ("/api/admin/v1/oauth2-sessions", "/api/admin/v1/compat-sessions"):
+            return httpx.Response(200, json={"data": [{"id": "S1"}]})
+        return httpx.Response(200, json={})
+
+    cfg = {**stack_params(**{**MAS, "mas_url": "https://127.0.0.1"})}
+    cfg.pop("mas_client_secret")
+    stack = identity.Stack(type("R", (), {"id": uuid.uuid4(), "name": "acme", "config": cfg}),
+                           {"ldap_bind_password": LDAP_PW, "kc_client_secret": KC_SECRET, "mas_client_secret": MAS_SECRET})
+    mas = identity.Mas(rt, stack)
+    mas.http = httpx.Client(transport=httpx.MockTransport(handler))
+    assert mas.find("alice") == {"id": "M1", "locked": True, "deactivated": False} and mas.find("ghost") is None
+    assert mas.end_sessions("M1") == 2
+    mas.lock("M1")
+    assert ("POST", "/api/admin/v1/oauth2-sessions/S1/finish") in seen and ("POST", "/api/admin/v1/compat-sessions/S1/finish") in seen
+    assert ("POST", "/api/admin/v1/users/M1/lock") in seen
+    assert all(p.startswith("/api/admin/v1/") or p == "/oauth2/token" for _, p in seen)

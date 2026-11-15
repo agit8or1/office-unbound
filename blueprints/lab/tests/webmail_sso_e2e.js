@@ -5,7 +5,8 @@ const { chromium } = require('playwright');
 const { execFileSync } = require('child_process');
 const fs = require('fs');
 const IP = process.env.SSO_IP, SHOTS = process.env.SHOTS;
-const WEB = 'https://sso.ou-lab.internal', KC = 'https://auth.ou-lab.internal';
+const WH = process.env.WEB_HOST || 'sso.ou-lab.internal';
+const WEB = 'https://' + WH, KC = 'https://auth.ou-lab.internal';
 fs.mkdirSync(SHOTS, { recursive: true });
 const out = execFileSync('sudo', ['systemd-run', '-M', 'ou-id1', '-P', '--wait', '-q', '/bin/cat', '/root/ou-lab-secrets/test-users.env']).toString();
 const PW = out.split('\n').find(l => l.startsWith('OU_PASSWORD_BOB=')).split('=')[1].trim();
@@ -13,12 +14,12 @@ let pass = 0, fail = 0;
 const check = (n, ok, d) => { ok ? pass++ : fail++; console.log((ok ? 'PASS ' : 'FAIL ') + n + (d ? ' - ' + d : '')); };
 const sleep = ms => new Promise(r => setTimeout(r, ms));
 (async () => {
-  const browser = await chromium.launch({ args: [`--host-resolver-rules=MAP sso.ou-lab.internal ${IP}`], env: { ...process.env, HOME: process.env.E2E_HOME } });
+  const browser = await chromium.launch({ args: [`--host-resolver-rules=MAP ${WH} ${IP}`], env: { ...process.env, HOME: process.env.E2E_HOME } });
   const ctx = await browser.newContext({ viewport: { width: 1400, height: 900 } });
   const page = await ctx.newPage(); globalThis.__page = page;
   const authPosts = [];
   page.on('request', r => { if (r.method() === 'POST' && /login-actions\/authenticate/.test(r.url())) authPosts.push(r.url()); });
-  const ready = async () => { try { const b = await page.locator('text=Get Started').first().boundingBox({ timeout: 10000 }); if (b) await page.mouse.click(b.x + b.width / 2, b.y + b.height / 2); } catch (_) {} await page.waitForFunction(() => typeof container !== 'undefined' && container.getHierarchyStore && container.getHierarchyStore().getDefaultStore && container.getHierarchyStore().getDefaultStore(), null, { timeout: 60000 }); await sleep(2000); };
+  const ready = async () => { try { const b = await page.locator('text="Get Started"').first().boundingBox({ timeout: 10000 }); if (b) await page.mouse.click(b.x + b.width / 2, b.y + b.height / 2); } catch (_) {} await page.waitForFunction(() => typeof container !== 'undefined' && container.getHierarchyStore && container.getHierarchyStore().getDefaultStore && container.getHierarchyStore().getDefaultStore(), null, { timeout: 60000 }); await sleep(2000); };
   const ctxName = () => page.evaluate(() => container.getCurrentContext().getName());
 
   // 1. one Keycloak login (account console)
@@ -52,7 +53,7 @@ const sleep = ms => new Promise(r => setTimeout(r, ms));
   }
 
   // 4. deep link survives the SSO round trip from a signed-out webmail (new browser context, Keycloak SSO cookie still valid? use same ctx, drop webmail cookies)
-  await ctx.clearCookies({ domain: 'sso.ou-lab.internal' });
+  await ctx.clearCookies({ domain: WH });
   await page.goto(WEB + '/web/?action=context&view=calendar'); await ready();
   const c2 = await ctxName();
   check('deep link survives OIDC redirect (fresh webmail session, Keycloak SSO)', c2 === 'calendar' && authPosts.length === 1, 'context=' + c2 + ' authPosts=' + authPosts.length);
