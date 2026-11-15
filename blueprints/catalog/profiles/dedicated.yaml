@@ -1,0 +1,19 @@
+name: dedicated
+version: 1.0.0
+title: Dedicated (one component per VM on nodes with no foreign guests)
+description: For customers requiring physical separation. Nodes that host guests outside this deployment are refused.
+maturity: experimental
+max_users: 1000
+min_nodes: 1
+ha: false
+tenancy: single
+dedicated_nodes: true
+vms:
+  - {name: identity, components: [identity]}
+  - {name: edge, components: [edge]}
+  - {name: groupware, components: [groupware]}
+  - {name: files, components: [files]}
+  - {name: office, components: [office]}
+optional_components: [office]
+default_optional: [office]
+backup: {schedule: daily, retention_days: 30, snapshot_before_change: true, offsite: true}

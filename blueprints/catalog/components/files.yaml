@@ -1,0 +1,28 @@
+name: files
+version: 1.0.0
+title: Files (OpenCloud)
+description: File sync and share (OpenCloud + collaboration service), OIDC against identity. ADR-0005.
+artifacts:
+  # placeholder: upstream digest pinned at release
+  - {name: opencloud, kind: oci, image: docker.io/opencloudeu/opencloud-rolling, digest: "sha256:", version: "9.1.0"}
+resources:
+  cores:     {base: 1,    per_user: 0.004, source: "identity-files-lab-results.md: ou-files1 light; scale is a planning assumption"}
+  memory_mb: {base: 1024, per_user: 1,     source: "identity-files-lab-results.md: ou-files1 0.23 GB idle, 0.57 GB peak, MemoryMax 2G"}
+  disk_gb:   {base: 4,    per_user: 0,     source: "OS + container image (assumption)"}
+volumes:
+  - {name: files-data, path: /var/lib/opencloud, size_gb: {base: 10, per_user: 5, source: "PLANNING ASSUMPTION: 5 GB default per user; the lab data tree backup was ~17 MB"}, backup: true}
+ports:
+  - {name: opencloud, port: 9200, proto: tcp, exposure: edge}
+  - {name: collaboration, port: 9300, proto: tcp, exposure: edge}
+depends_on: [identity]
+dns:
+  - {host: cloud, type: A, target: edge}
+health_checks:
+  - {name: opencloud-tls, kind: tcp_tls, port: 9200}
+backup:
+  method: tar_xattr
+  description: "tar with user.* xattrs + ACLs, numeric owners; brief stop of opencloud+collaboration; config dir included"
+  quiesce: stop_service
+  rpo_hours: 24
+  evidence: "docs/status/restore-drill-results.md (ou-files1 drill: 143 xattr entries restored)"
+upgrade: {downtime_seconds: 60}

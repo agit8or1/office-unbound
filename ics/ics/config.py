@@ -48,7 +48,7 @@ class Settings:
     plan_expiry_seconds: int = 7 * 24 * 3600
     enrollment_ttl_seconds: int = 24 * 3600
     max_body_bytes: int = 256 * 1024
-    job_timeout_seconds: int = 120
+    job_timeout_seconds: int = 180               # >= agent deadline (90) + max verify (45) + one check timeout (30) + slack (review L3)
     job_lease_slack_seconds: int = 60
     pve_request_deadline_seconds: float = 30.0
     pve_max_response_bytes: int = 16 * 1024 * 1024
@@ -62,6 +62,26 @@ class Settings:
     notify_max_attempts: int = 5
     incident_renotify_seconds: int = 3600        # re-notify unacknowledged incidents; 0 = never
     allow_loopback_agents: bool = False
+    # review 2026-11-15 (M1) remediation bounds
+    remediation_unit_budget: int = 3             # service.restart attempts per (node, unit) across ALL checks ...
+    remediation_unit_budget_window_seconds: int = 3600   # ... per this window
+    remediation_min_backoff_seconds: int = 30
+    remediation_min_window_seconds: int = 300
+    remediation_plan_ttl_seconds: int = 4 * 3600  # (M3) a pending remediation plan older than this is superseded
+    # (M2) a worker component that has not made progress for this long stops the heartbeat (readyz goes red)
+    monitor_stall_seconds: int = 300
+    # (L5) quotas
+    max_checks: int = 200
+    check_min_interval_seconds: int = 15
+    check_min_interval_credentialed_seconds: int = 30
+    check_results_max_per_check: int = 20000
+    # (M4) alert silencing needs a second person beyond these bounds
+    maintenance_max_unapproved_minutes: int = 60
+    ack_burst_limit: int = 5                     # incident.ack plans per user per hour before approval is required
+    inventory_discovery_seconds: int = 300
+    metrics_interval_seconds: int = 60
+    metrics_retention_days: int = 30
+    inventory_stale_seconds: int = 900
     trusted_proxy: str | None = None             # exact IP of a local reverse proxy whose X-Forwarded-For is honoured (e.g. 127.0.0.1); None = ignore XFF
 
 

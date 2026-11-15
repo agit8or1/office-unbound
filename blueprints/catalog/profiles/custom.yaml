@@ -1,0 +1,14 @@
+name: custom
+version: 1.0.0
+title: Custom (operator-defined layout from catalog components)
+description: The operator supplies the VM layout (`custom_layout`); components, sizing, dependencies and policy checks still come from the catalog.
+maturity: experimental
+max_users: 1000
+min_nodes: 1
+ha: false
+tenancy: single
+custom: true
+vms: []
+optional_components: []
+default_optional: []
+backup: {schedule: daily, retention_days: 14, snapshot_before_change: true, offsite: false}

@@ -89,10 +89,13 @@ class ImapMock:
     def __init__(self, user="mon", password="s3cret-pw!", days: float = 30, mailbox_ok=True):
         ctx, self.pem, self.fp = server_ctx(days)
         self.user, self.password, self.mailbox_ok = user, password, mailbox_ok
+        self.down = False   # simulate a service outage: accept the TLS connection, then hang up without a greeting
         outer = self
 
         class H(socketserver.StreamRequestHandler):
             def handle(self):
+                if outer.down:
+                    return
                 self.wfile.write(b"* OK mock IMAP ready\r\n")
                 while True:
                     line = self.rfile.readline().decode(errors="replace").strip()

@@ -4,6 +4,11 @@ import { get, type Attempt, type Check, type CheckResult } from '../api'
 import { fmtTime, go, pretty, route, short, useLoad } from '../store'
 import ErrorBox from '../components/ErrorBox.vue'
 import Status from '../components/Status.vue'
+import PageHeader from '../ui/PageHeader.vue'
+import EmptyState from '../ui/EmptyState.vue'
+import Skeleton from '../ui/Skeleton.vue'
+import Segmented from '../ui/Segmented.vue'
+import Button from '../ui/Button.vue'
 
 const checks = useLoad(() => get<Check[]>('checks'), 5000)
 const selId = computed(() => route.value.arg)
@@ -18,14 +23,19 @@ const counts = computed(() => {
 </script>
 <template>
   <div class="page">
-    <div class="head"><h1>Checks</h1><button class="ghost" @click="checks.reload()" :disabled="checks.loading.value">Refresh</button></div>
+    <PageHeader title="Health checks" sub="Continuous checks of your services, with automatic remediation where a policy exists." help="Each check runs on an interval. Flap damping requires several consecutive failures before an incident opens.">
+      <template #actions><Button size="sm" icon="refresh" :loading="checks.loading.value" @click="checks.reload()">Refresh</Button></template>
+    </PageHeader>
     <ErrorBox :error="checks.error.value" />
-    <p v-if="checks.data.value" class="muted small" role="status">
-      {{ counts.ok }} ok, {{ counts.warning }} warning, {{ counts.critical }} critical, {{ counts.unknown }} unknown.
-      Checks and remediation policies are created through typed plans (Plans page); this page shows live results only.
-    </p>
+    <div v-if="checks.data.value?.length" class="statgrid" role="status">
+      <div class="stat ok"><div class="lbl">Healthy</div><div class="val">{{ counts.ok }}</div></div>
+      <div class="stat warn"><div class="lbl">Warning</div><div class="val">{{ counts.warning }}</div></div>
+      <div class="stat" :class="counts.critical ? 'bad' : 'idle'"><div class="lbl">Critical</div><div class="val">{{ counts.critical }}</div></div>
+      <div class="stat idle"><div class="lbl">Unknown</div><div class="val">{{ counts.unknown }}</div></div>
+    </div>
+    <Skeleton v-if="!checks.data.value && !checks.error.value" />
     <div class="split">
-      <section class="panel fill">
+      <section class="card flush">
         <div class="scroll">
           <table v-if="checks.data.value?.length">
             <thead><tr><th>Check</th><th>Kind</th><th>State</th><th>Last result</th><th>Every</th><th>Auto-fix</th></tr></thead>
@@ -40,11 +50,11 @@ const counts = computed(() => {
               </tr>
             </tbody>
           </table>
-          <p v-else-if="checks.data.value" class="empty">No checks yet. Create one with a <span class="mono">check.create</span> plan.</p>
+          <EmptyState v-else-if="checks.data.value" icon="check" title="No health checks yet" text="Checks you create appear here with live results, latency and remediation history." />
         </div>
       </section>
-      <section v-if="selId" class="panel detail" aria-label="Check details">
-        <div class="head"><h2>{{ sel?.name ?? short(selId) }}</h2><button class="ghost" @click="go('checks')">Close</button></div>
+      <section v-if="selId" class="card detail" aria-label="Check details">
+        <div class="head"><h2>{{ sel?.name ?? short(selId) }}</h2><Button size="sm" variant="ghost" icon="x" @click="go('checks')">Close</Button></div>
         <template v-if="sel">
           <dl class="kv">
             <dt>State</dt><dd><Status :s="sel.state" /> <span class="muted small">flap damping: {{ sel.fail_threshold }} failures to alert, {{ sel.recover_threshold }} ok to recover</span></dd>

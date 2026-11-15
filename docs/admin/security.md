@@ -1,0 +1,37 @@
+# Security
+
+Evidence: ADR-0002, [ics/README.md](../../ics/README.md), [security-review-ics-2026-11-15.md](../status/security-review-ics-2026-11-15.md),
+[security-review-ics-monitoring-2026-11-15.md](../status/security-review-ics-monitoring-2026-11-15.md). Open findings are published, not hidden.
+
+## What is enforced where
+| Control | Enforced by |
+|---|---|
+| Closed action catalog; plan hash bound to approvals; two approvers for high risk; requester never approves own plan | ICS app + insert-only `plan_approvals` table (the `ics_app` DB role has no UPDATE/DELETE) |
+| Audit: SHA-256 hash chain + per-row HMAC (`audit.key`, never in the DB); trigger forces `prev_hash`, sequence, MAC | ICS + Postgres trigger |
+| Passwords argon2id, mandatory TOTP, throttled login (per user+IP, exponential), session cookie `__Host-`, CSRF header, strict CSP | ICS |
+| TLS always verified (CA bundle or SHA-256 pin); no trust-on-first-use; SSRF guard on destinations (loopback/link-local/metadata refused, resolved IP pinned for checks) | ICS |
+| Node agent: Ed25519-signed single-use requests, replay journal, allowlist from a root-owned file, polkit limits systemd actions to listed units, no shell | agent + host polkit |
+| Service hardening (NoNewPrivileges, ProtectSystem=strict, empty capability set, syscall filter) | systemd units in `ics/deploy/` |
+| Console exposure limited to admin ranges | nginx allow/deny + nftables (`ics-admin-fw`), lab-built by hand |
+
+## Secrets handling
+- Stored secrets are AES-256-GCM encrypted with `vault.key`; AAD binds each secret to its endpoint/check/stack config, so re-pointing it voids it. Decryption failure is a hard error.
+- Secrets never appear in logs, audit details, plans, job results or API responses (asserted by tests and scans in the lab runs).
+- Key files are root-owned `root:ics 0640`, regular files only; `ics-migrate.env` (DB owner) is root 0600 and unreadable by the app. Never paste secrets in chat.
+- Compromise of the running app yields `ics_app`, vault and audit keys: it can read secrets and append valid audit entries, but cannot alter or delete audit rows or approvals.
+
+## Verifying the audit chain
+```
+sudo -u ics /opt/office-unbound/ics/.venv/bin/python -m ics.cli verify-chain
+```
+Exit 1 if broken. Problem kinds: `bad_mac`, `altered`, `broken_link`, `details_mismatch`. Also `GET audit/verify` (approver). Run it after every restore and on a schedule you choose (no scheduler exists).
+**Limit:** off-host export of a signed head does not exist, so tail truncation by the database owner is undetectable from the DB alone (**Planned**).
+
+## Open and accepted items
+- Review of the monitoring slice: H1 (agent idle-connection stall), H2 (approval mode), M1-M4 and L1-L4 are recorded as fixed with tests; H2 depended on the `normal` risk tier. M5 (demo approver credentials on disk) is an accepted lab risk. Remaining Lows (L5 quotas, L6 node revoke, DNS pinning for non-check paths, TOTP one-step skew) are open.
+- Separate privileged executor process (ADR-0001) is not implemented; jobs run in-process.
+- Break-glass by host root is unpreventable by design.
+- Pre-alpha: no external penetration test, no production hardening review.
+
+## Reporting a vulnerability
+Privately via GitHub: Security, Report a vulnerability (see [SECURITY.md](../../SECURITY.md)). Do not open public issues. Acknowledgement target: 5 business days.

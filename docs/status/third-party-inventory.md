@@ -26,6 +26,13 @@ Conventions: "OU-UNASSIGNED" = no Office Unbound maintenance owner is named in a
 | St0r code to adapt (`drills/proxmox.ts` pattern, Python port planned) | St0r clone under `reference/` (commit not recorded) | UNVERIFIED | MIT (per reuse audit) | Source: concept/port, not yet done | Pinned-fingerprint TLS pattern only | Keep MIT notice | MIT permits | None (snapshot) | Not adopted | OU-UNASSIGNED | UNCLEAR (not adopted; commit unpinned) |
 | rem0te audit hash-chain algorithm (`apps/api/src/audit/chain.ts`, port planned) | rem0te clone under `reference/` (commit not recorded) | UNVERIFIED | MIT (per reuse audit) | Source: algorithm port, not yet done | None | Keep MIT notice | MIT permits | None (snapshot) | Not adopted | OU-UNASSIGNED | UNCLEAR (not adopted; commit unpinned) |
 
+### 1a. Console frontend (ics/frontend, bundled at build time; nothing loaded at runtime from a CDN, ADR-0002)
+
+| Component | Repository | Pinned version | License | Use | Notes | Gate |
+|---|---|---|---|---|---|---|
+| vue-router | npmjs `vue-router` (github.com/vuejs/router) | 4.6.5 (lockfile) | MIT | Hash-history routing and a route registry (`src/routes.ts`) so wizards can register routes | Chosen over a hand-rolled router because nested detail routes, lazy chunks and guards are needed; adds ~10 kB gzip | PASS |
+| Charts (in-repo, no library) | `ics/frontend/src/charts/` | n/a | Office Unbound code | SVG line/area and donut charts | Evaluated uPlot (MIT) and Chart.js (MIT). Rejected both: the console needs only line/area, donut and bars; Chart.js is canvas-based (about 70 kB gzip) and uPlot sets inline styles that conflict with the CSP (`style-src 'self'`); own SVG uses attributes and classes only, themes through CSS variables, and the geometry is unit-tested. Revisit if heatmaps or dense zoomable series are needed (uPlot is the candidate) | PASS |
+
 ## 2. Groupware (grommunio / Gromox stack; ADR-0003)
 
 | Component | Repository | Pinned version | License (as found in source) | Build method | Runtime/user/connection restrictions | Branding obligations | Commercial use / redistribution | Update source | Fork/patch status | Maintenance owner | Gate |
@@ -67,6 +74,45 @@ Conventions: "OU-UNASSIGNED" = no Office Unbound maintenance owner is named in a
 | lldap (NOT ADOPTED: superseded by OpenLDAP in the 2026-11-15 lab, see identity-files-lab-results.md) | github.com/lldap/lldap | 0.6.3 (amd64 tarball; SHA256 computed by us, upstream publishes none) | UNVERIFIED (no source report states it) | Vendor binary, hash pinned by us | Not evaluated beyond "lightest option" | UNVERIFIED | UNVERIFIED | GitHub releases | None | lldap project (upstream); OU-UNASSIGNED | UNCLEAR (licence not verified; upstream checksum absent) |
 | OpenJDK 21 headless (Keycloak runtime) | Ubuntu 24.04 archive, `openjdk-21-jre-headless` | 21 (package version UNVERIFIED) | UNVERIFIED | Vendor pkg (Ubuntu archive) | None | None | UNVERIFIED | Ubuntu archive | None | Canonical / OpenJDK; OU-UNASSIGNED | UNCLEAR (licence not verified) |
 
+## 5a. Collaboration spike (chat + meetings; lab prototype 2026-11-15, `docs/status/collaboration-lab-results.md`)
+
+Licenses below were read from the installed packages / release artifacts in the lab machines (package `copyright` files, release `LICENSE`, upstream README) on 2026-11-15, not from vendor marketing.
+
+| Component | Source | Pinned version | License (as found) | Build method (lab) | Restrictions found | Branding | Commercial use / redistribution | Gate |
+|---|---|---|---|---|---|---|---|---|
+| Synapse (`matrix-synapse-py3`) | github.com/element-hq/synapse; packages.matrix.org/debian noble | 1.165.0+noble1 | AGPL-3.0-or-later OR Element Commercial License (dual; Debian copyright file `License: AGPL-3.0-or-later or LicenseRef-Element-Commercial`; older files Apache-2.0) | Vendor deb (lab). Production per ADR-0007: own build from pinned source | None in the AGPL source (no user/room caps found); AGPL s.13 network-source duty for modified versions | Element trademarks not used in code path | AGPL: yes, source offer for modifications | PASS-with-obligations (AGPL) |
+| matrix-authentication-service (MAS) | github.com/element-hq/matrix-authentication-service | 1.29.0 (`mas-cli-x86_64-linux.tar.gz`, sha256 d233fd94...e02f93, equals GitHub asset digest) | AGPL-3.0 (LICENSE file) OR Element commercial (README: "dual-licensed by Element Creations Ltd") | Vendor release binary (lab). Production: build from source (Rust) | None found | - | AGPL | PASS-with-obligations (AGPL) |
+| Element Web | github.com/element-hq/element-web | 1.12.35 (tarball sha256 5aaff32e...bba5, detached .asc verified against Element release key 712BFBEE...A179B100) | AGPL-3.0-or-later OR Element commercial (README "multi licensed by New Vector Ltd") | Vendor release tarball (lab). Production: build from source (node/yarn) | None found | Element name/logo: rebrand required for our distribution (trademark) | AGPL | PASS-with-obligations (AGPL + rebrand) |
+| Jitsi Meet (`jitsi-meet`, `jitsi-meet-web`, `-web-config`, `-prosody`, `-tokens`) | github.com/jitsi/jitsi-meet; download.jitsi.org stable | jitsi-meet 2.0.11248-1; web/config/prosody/tokens 1.0.9442-1 | Apache-2.0 (package copyright files) | Vendor debs (lab) | None found; no participant caps in source | Jitsi/8x8 name and logos (trademark) | Apache-2.0 | PASS |
+| Jicofo | github.com/jitsi/jicofo | 1.0-1205-1 | Apache-2.0 | Vendor deb | None found | - | Apache-2.0 | PASS |
+| Jitsi Videobridge (`jitsi-videobridge2`) | github.com/jitsi/jitsi-videobridge | 2.3-318-gbf271b11f-1 | Apache-2.0 | Vendor deb | None found | - | Apache-2.0 | PASS |
+| Prosody | prosody.im; Ubuntu 24.04 archive | 0.12.4-1build3 | MIT/X11 ("Expat") | Ubuntu archive | None | - | Permitted | PASS |
+| lua-cjson / lua-basexx (Jitsi builds `-jitsi1`) | download.jitsi.org | 2.1.0.10-jitsi1 / 0.4.1-jitsi1 | MIT (UNVERIFIED in package copyright; upstream projects are MIT) | Vendor debs | - | - | - | PASS (verify copyright files) |
+| nginx | Ubuntu archive | 1.24.0-2ubuntu7 | BSD-2-Clause (upstream; not re-read in the lab) | Ubuntu archive | None | - | Permitted | PASS |
+| PostgreSQL 16 | Ubuntu archive | 16.15-0ubuntu0.24.04.1 | PostgreSQL License (permissive; from upstream, not re-read in the lab) | Ubuntu archive | None | - | Permitted | PASS |
+| Office Unbound Jitsi token service (`blueprints/lab/spike-collab/meet-token/app.py`) | this repo | n/a | Ours (FastAPI/httpx/PyJWT from Ubuntu archive: MIT/BSD/MIT) | Source | - | - | - | PASS |
+
+Note (ADR-0007): the Element Commercial License / "ESS Pro" features (LDAP/SCIM, S3 media, HA) are NOT used; everything exercised in the lab is the AGPL source path. Element's AGPL builds carry no user caps in the source we read, but the AGPL s.13 duty (offer source of modified network-served versions) applies to Synapse, MAS and Element Web if we patch them.
+
+## 5b. Telephony spike (PBX + softphone; lab prototype 2026-11-15, `docs/status/telephony-lab-results.md`)
+
+Licenses read from the installed packages' `/usr/share/doc/*/copyright` in `ou-pbx1` and from the npm packages, 2026-11-15.
+
+| Component | Source | Pinned version | License (as found) | Build method (lab) | Restrictions found | Branding | Commercial use / redistribution | Gate |
+|---|---|---|---|---|---|---|---|---|
+| Asterisk (`asterisk`, `asterisk-modules`, `asterisk-config`, `asterisk-core-sounds-en`) | asterisk.org; Ubuntu 24.04 universe (not in Debian 12/13, only sid 22.10.1) | 1:20.6.0~dfsg+~cs6.13.40431414-2build5 (held) | GPL-2.0 (copyright file mix: GPL-2-Asterisk, GPL-2+, LGPL-2.1+, Expat, public-domain; sounds CC-BY-SA/GPL per package, not re-read); bundles pjproject (BSD/GPL-2 mix) | Ubuntu package (lab). Production: own build of Asterisk 22 LTS from pinned source | No per-seat/call limits found; GPL source duty for modified builds; Sangoma offers a commercial alternative licence (not used) | "Asterisk" is a Sangoma trademark: name use in docs only, rebrand if we modify | GPL-2: yes, source offer for modifications | PASS-with-obligations (GPL-2) |
+| baresip (`baresip-core`, test client only) | github.com/baresip/baresip; Ubuntu universe | 1.0.0-4build14 | BSD-3-Clause (some GPL-2/GPL-3+ files listed in debian/copyright: modules not loaded here) | Ubuntu package | None | - | Permitted (BSD) | PASS (lab test tool; not shipped) |
+| libre / librem (baresip deps) | github.com/baresip/re | 1.1.0 / 0.6.0 | BSD-3-Clause (not re-read) | Ubuntu package | - | - | Permitted | PASS (UNVERIFIED copyright read) |
+| JsSIP | github.com/versatica/JsSIP, npm | 3.13.9 (tarball sha512 tJ7pCFj5...HYB/gA== matches registry) | MIT (LICENSE.md) | esbuild 0.25.4 bundle (`blueprints/lab/spike-pbx/phone/bundle-src`), bundle vendored in the repo | None | - | MIT | PASS |
+| debug 4.4.3, ms 2.1.3, events 3.3.0, sdp-transform 2.15.0 (JsSIP deps, bundled) | npm | as listed | MIT (package.json license fields; text in `phone/static/jssip-3.13.9.bundle.LICENSES.txt`) | esbuild | None | - | MIT | PASS |
+| esbuild (build tool, not shipped) | npm | 0.25.4 | MIT (UNVERIFIED: not re-read) | npm | - | - | - | PASS (verify) |
+| libsrtp2, libopus (dep, unused codec), libspandsp, libgsm, libspeex | Ubuntu archive | libsrtp2-1 2.5.0, libopus0 1.4, spandsp 0.0.6, gsm 1.0.22, speex 1.2.1 | BSD-style / permissive (from upstream knowledge; **UNVERIFIED** in the lab; spandsp is LGPL-2.1 + GPL parts per upstream - check before shipping) | Ubuntu packages | codec patents: G.711/GSM expired; Opus not used | - | - | PASS-with-flag (verify spandsp/codec licences) |
+| nginx-light | Ubuntu archive | 1.24.0-2ubuntu7.19 | BSD-2-Clause (upstream; not re-read) | Ubuntu package | None | - | Permitted | PASS |
+| python3-ldap3 | Ubuntu archive | 2.9.1-2 | LGPL-3.0 (upstream; used as a library via import, not modified) | Ubuntu package | LGPL relink/replace duty if shipped bundled | - | Permitted | PASS-with-obligations (LGPL) |
+| Office Unbound PBX provisioner + softphone service (`blueprints/lab/spike-pbx/pbx`, `phone/`) | this repo | n/a | Ours (FastAPI 0.101.0, uvicorn 0.27.1, httpx 0.26.0, PyJWT from Ubuntu archive: MIT/BSD) | Source | - | - | - | PASS |
+
+Note: PSTN/SIP trunks are optional, default off, customer-chosen and $0 to us (ADR-0007); emergency-calling obligations are flagged in the lab results and require legal review before any trunk is offered.
+
 ## 6. Lab-only tooling
 
 | Component | Repository | Pinned version | License (as found in source) | Build method | Runtime/user/connection restrictions | Branding obligations | Commercial use / redistribution | Update source | Fork/patch status | Maintenance owner | Gate |
@@ -75,6 +121,9 @@ Conventions: "OU-UNASSIGNED" = no Office Unbound maintenance owner is named in a
 | grommunio-setup (installer) | github.com/grommunio/grommunio-setup | 1.8.4 (`GROMMUNIO_SETUP_PKG_VERSION`) | NOASSERTION (LICENSE.txt is AGPLv3 text) | Lab only — not shipped | Hardwired to download.grommunio.com; subscription prompts | Rebrand if reused | Not shipped | Community repo | None | grommunio GmbH (upstream); OU-UNASSIGNED | UNCLEAR (not shipped) |
 | grommunio-setup-deb (community Debian installer) | github.com/grommunio/grommunio-setup-deb | Not pinned | AGPL-3.0 per GitHub metadata (file-level check not done) | Lab only — not shipped | Depends on download.grommunio.com | — | Not shipped | GitHub | None | Third-party community; OU-UNASSIGNED | UNCLEAR (not shipped) |
 | opencloud-compose (reference only) | github.com/opencloud-eu/opencloud-compose | Commit `d4695d2` (`OC_COMPOSE_COMMIT`) | UNVERIFIED (not read) | Reference only; env semantics copied, not run. Not shipped | n/a | n/a | Not shipped | GitHub | None | OpenCloud (upstream); OU-UNASSIGNED | UNCLEAR (not shipped; licence not read) |
+| Playwright test runner (`@playwright/test`, `playwright-core`) + headless Chromium (UI verification harness `ics/e2e`) | npm `@playwright/test` (github.com/microsoft/playwright) | 1.65.1 (lockfile pinned; browsers under the run's `E2E_ROOT`, not system-wide) | Apache-2.0 (package.json; the Chromium build Playwright downloads carries its own BSD-style and third-party licences and is not redistributed) | Vendor pkg (npm). Test-only, not shipped | None | None | Not shipped | npm | None | Upstream; OU-UNASSIGNED | PASS (not shipped) |
+| axe-core + `@axe-core/playwright` (accessibility checks in `ics/e2e`) | npm `axe-core`, `@axe-core/playwright` (Deque Systems) | 4.14.0 / 4.14.0 (lockfile pinned) | MPL-2.0 (package.json). File-level copyleft; used unmodified as a test tool, no source embedded in shipped code | Vendor pkg (npm). Test-only, not shipped | None | None | Not shipped | npm | None | Upstream; OU-UNASSIGNED | PASS (not shipped) |
+| TypeScript, `@types/node` (typechecking of `ics/e2e`) | npm | 5.9.3 (Apache-2.0) / 22.20.5 (MIT) | as stated | Vendor pkg (npm). Test-only, not shipped | None | None | Not shipped | npm | None | Upstream; OU-UNASSIGNED | PASS (not shipped) |
 | Reference source clones (Depl0y, St0r, rem0te, clientst0r, Collabora, grommunio, ONLYOFFICE) | `reference/` (gitignored) | Various (see component rows) | MIT for Depl0y, St0r, rem0te, clientst0r (per reuse audit); AGPL/MPL per rows above for the rest | Read-only analysis. Not shipped | n/a | n/a | Not shipped | Snapshots | None (unmodified) | OU-UNASSIGNED | n/a (not shipped) |
 
 ## 7. Migration assessment tooling (`migration/`, Phase 7 step 1)

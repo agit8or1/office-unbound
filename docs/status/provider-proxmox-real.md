@@ -22,3 +22,30 @@ Endpoint `https://192.168.22.17:8006`, token `officeunbound@pam!ics` (privsep). 
 4. Drop `VM.Console` from the role.
 5. A cloud-init **template** inside the pool (Debian 12 / Ubuntu 24.04 cloud image, checksum-verified), or a directory storage with `import,snippets` content for the ICS to build its own.
 Privsep reminder: token permissions are the intersection of the user's and the token's ACLs — grant to both.
+
+## Owner remediation applied (2026-11-15) — verified
+Owner ran the ACL changes on pve06; effective token permissions (`pveum user token permissions officeunbound@pam ics`) and the ICS probe now show:
+- `/vms/126` (the ICS VM): **audit-only** (Datastore/Mapping/Pool/SDN/Sys/VM/GuestAgent .Audit). VM 126 removed from pool `officeunbound-pve06`, so pool rights no longer propagate to it.
+- `/sdn/zones/localnetwork/vmbr0`: SDN.Use + SDN.Audit. `/pool/officeunbound-pve06`: Pool.Audit + VM lifecycle set. `VM.Console` removed from role `OfficeUnboundDeploy`.
+- Template **VM 131 `ou-debian12-template`** (Debian 12 genericcloud, image SHA-512 verified on the node) in the pool — clone source.
+- Probe: **missing for provisioning: none; unnecessary: none.**
+Remaining owner items: rotate the token (secret was pasted in chat); later a VLAN-aware bridge or SDN zone for tenant isolation; thin-pool overcommit (15.17 TiB provisioned / 10.91 TiB physical, autoextend off).
+
+## First real mutation test (lead, 2026-11-15 ~19:23 UTC) — owner authorized test VMs
+Harness: agent A's provider (branch worktree-agent-a31f4b7a5376f1798) inside an explicit `job_execution()` context; scope = pool officeunbound-pve06, storage PVE06-Storage, bridge vmbr0, protected VM 126.
+| Check | Result |
+|---|---|
+| Clone into unauthorized pool | refused by ICS (ScopeViolation) before any API call |
+| Clone onto unauthorized storage `ha-zfs` | refused by ICS |
+| Power-off / snapshot of the ICS VM 126 | refused by ICS (protected) |
+| Clone to unauthorized node pve05 | refused — **but only by Proxmox** ("storage not available on node"); **GAP: ICS has no node allowlist** → assigned to integration (EndpointScope.nodes, deny-by-default) |
+| Full clone of template 131 | OK, new VM 136 in 6 s, in the pool |
+| Ownership tagging after clone | **BUG**: `finalize_clone()` requires UPID id == new vmid, but real PVE 9.2 qmclone UPIDs carry the **source** vmid (`qmclone:131:officeunbound@pam!ics`); simulator modelled it wrong → assigned to integration with regression test |
+| Untagged guest guard | worked as designed: provider refused to configure *or destroy* the untagged VM 136 |
+| Cleanup | lead deleted VM 136 via direct API after 7 explicit safety checks (name prefix, pool, untagged, not template, stopped, own clone task of 131 exists, not ICS); task OK; guests back to [126, 131] |
+Remaining verbs (configure, resize, start, snapshot, stop, destroy via provider) to be re-run after the integration fixes land.
+
+## Real lifecycle re-run after integration (lead, 2026-11-15 ~19:55 UTC) — 14/15 PASS, then fixed
+Merged main (node allowlist + real-UPID finalize_clone). Scope: pool officeunbound-pve06, storage PVE06-Storage, bridge vmbr0, nodes {pve06}, protected {126}.
+PASS: refuse unauthorized pool; refuse storage ha-zfs; **refuse target node pve05 — now ICS-enforced** (ScopeViolation, no API call); refuse power-off/snapshot of ICS VM 126; full clone of template 131 → VM 136 (12 s); **finalize_clone tags the VM using the real source-vmid UPID**; tags `ou-managed;ou-deployment-<id>` present; refuse NIC on unapproved bridge; configure 2 cores / 2048 MiB / vmbr0 / cloud-init user + DHCP; resize scsi0 to 8 GiB; start (running in 4 s); snapshot; stop.
+FAIL → FIXED: destroy right after a successful stop was refused ("is running") because `/cluster/resources` lagged behind the stop by a few seconds. `destroy_vm` now confirms with the authoritative `/status/current`; simulator models the cache lag (`cached_status`); regression test `test_destroy_uses_live_status_when_cluster_cache_lags` fails on the old code. Test VM 136 destroyed through the provider; guests back to [126, 131].

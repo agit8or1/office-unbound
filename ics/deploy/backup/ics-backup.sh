@@ -7,9 +7,12 @@ DEST_ROOT="${1:-/var/backups/office-unbound/ics}"; TS="$(date -u +%Y%m%dT%H%M%SZ
 install -d -m 0700 "$DEST"; umask 077; W="$(mktemp -d)"; trap 'rm -rf "$W"' EXIT
 sudo -u postgres pg_dump -Fc ics > "$W/ics.dump"
 sudo -u postgres pg_dumpall --globals-only | grep -E '^(CREATE|ALTER) ROLE (ics_owner|ics_app)( |;)' > "$W/roles.sql"
-tar --numeric-owner -cpzf "$W/etc.tgz" -C / etc/office-unbound/ics.env etc/office-unbound/ics-migrate.env etc/office-unbound/vault.key \
-    etc/office-unbound/audit.key etc/office-unbound/ics-signing.key etc/office-unbound/tls etc/office-unbound/ics-admin-fw.nft \
-    etc/systemd/system/ics.service etc/systemd/system/ics-migrate.service etc/systemd/system/ics-admin-fw.service etc/nginx/sites-available/ics.conf
+# optional front-end files exist only on hosts installed with TLS (bootstrap.sh --skip-tls has none)
+FILES=(etc/office-unbound/ics.env etc/office-unbound/ics-migrate.env etc/office-unbound/vault.key etc/office-unbound/audit.key etc/office-unbound/ics-signing.key
+       etc/systemd/system/ics.service etc/systemd/system/ics-migrate.service)
+for f in etc/office-unbound/tls etc/office-unbound/ics-admin-fw.nft etc/systemd/system/ics-admin-fw.service etc/nginx/sites-available/ics.conf; do
+  [ -e "/$f" ] && FILES+=("$f"); done
+tar --numeric-owner -cpzf "$W/etc.tgz" -C / "${FILES[@]}"
 # the deployed release that produced this DB schema (code only; the venv is rebuilt from requirements.lock with --require-hashes)
 tar -cpzf "$W/release.tgz" -C /opt/office-unbound --exclude .venv --exclude __pycache__ ics
 ( cd "$W" && sha256sum ./* > SHA256SUMS ) && tar -cf "$DEST/ics-backup.tar" -C "$W" .

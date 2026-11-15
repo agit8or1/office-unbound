@@ -1,0 +1,18 @@
+name: ha
+version: 1.0.0
+title: High availability (replicated VMs, anti-affinity)
+description: Every VM replicated on distinct nodes. Replication of the stateful tiers (LDAP multi-provider, PostgreSQL streaming, gromox/MariaDB, OpenCloud storage) is NOT yet validated; plans carry a warning.
+maturity: experimental
+max_users: 1000
+min_nodes: 2
+ha: true
+tenancy: single
+vms:
+  - {name: identity, components: [identity], replicas: 2, anti_affinity: true}
+  - {name: edge, components: [edge], replicas: 2, anti_affinity: true}
+  - {name: groupware, components: [groupware], replicas: 2, anti_affinity: true}
+  - {name: files, components: [files], replicas: 2, anti_affinity: true}
+  - {name: office, components: [office], replicas: 2, anti_affinity: true}
+optional_components: [office]
+default_optional: [office]
+backup: {schedule: hourly, retention_days: 30, snapshot_before_change: true, offsite: true}

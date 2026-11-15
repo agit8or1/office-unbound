@@ -52,23 +52,49 @@ def test_enrollment_is_single_use_and_pins(fake_agent):
     assert not os.path.exists(os.path.join(fake_agent.state, "enroll.json"))
 
 
-def test_enrollment_token_burns_after_repeated_failures(fake_agent):
+def test_wrong_guesses_throttle_the_source_but_never_burn_the_token(fake_agent):
+    """Review L1: unauthenticated guesses must not be able to deny enrollment; the offending source is throttled instead."""
     priv = Ed25519PrivateKey.generate()
     ident = agentclient.identity("127.0.0.1", fake_agent.port, fake_agent.tls_fp, allow_loopback=True)
+    kw = dict(ics_pubkey_b64=agentclient.pub_b64(priv.public_key()), node_id=NODE, expect_agent_pubkey_b64=ident["agent_pubkey"], allow_loopback=True)
     for _ in range(5):
-        with pytest.raises(agentclient.AgentError):
-            agentclient.enroll("127.0.0.1", fake_agent.port, fake_agent.tls_fp, token="y" * 43, ics_pubkey_b64=agentclient.pub_b64(priv.public_key()),
-                               node_id=NODE, expect_agent_pubkey_b64=ident["agent_pubkey"], allow_loopback=True)
-    with pytest.raises(agentclient.AgentError, match="refused"):  # even the right token no longer works
-        agentclient.enroll("127.0.0.1", fake_agent.port, fake_agent.tls_fp, token=fake_agent.token,
-                           ics_pubkey_b64=agentclient.pub_b64(priv.public_key()), node_id=NODE,
-                           expect_agent_pubkey_b64=ident["agent_pubkey"], allow_loopback=True)
+        with pytest.raises(agentclient.AgentError, match="bad_token"):
+            agentclient.enroll("127.0.0.1", fake_agent.port, fake_agent.tls_fp, token="y" * 43, **kw)
+    with pytest.raises(agentclient.AgentError, match="throttled"):   # this source is now locked out, even with the right token
+        agentclient.enroll("127.0.0.1", fake_agent.port, fake_agent.tls_fp, token=fake_agent.token, **kw)
+    assert os.path.exists(os.path.join(fake_agent.state, "enroll.json"))     # the token is intact
+    fake_agent.agent._enroll_fails.clear()                                   # ... a different source / later time works
+    assert agentclient.enroll("127.0.0.1", fake_agent.port, fake_agent.tls_fp, token=fake_agent.token, **kw)["type"] == "enroll"
+
+
+def test_unauthenticated_requests_get_unsigned_answers_and_nothing_is_echoed(fake_agent):
+    """Review L2: no signing oracle over attacker-chosen job_id/nonce."""
+    _, d = agentclient._post("127.0.0.1", fake_agent.port, fake_agent.tls_fp, "/v1/exec",
+                             {"req": {"job_id": "attacker-chosen", "nonce": "n"}, "sig": "AAAA"}, allow_loopback=True, deadline=5)
+    assert "resp" not in d and "sig" not in d and "attacker-chosen" not in json.dumps(d)
+
+
+def test_enrolled_agent_unauth_requests_are_unsigned_too(enrolled):
+    fa = enrolled[0]
+    _, d = agentclient._post("127.0.0.1", fa.port, fa.tls_fp, "/v1/exec", {"req": {"job_id": "attacker-chosen", "nonce": "n"}, "sig": "AAAA"},
+                             allow_loopback=True, deadline=5)
+    assert d == {"error": "bad_signature"}
+
+
+def test_replay_journal_fsyncs_the_directory(tmp_path, monkeypatch):
+    from ou_agent import state
+    synced = []
+    real = os.fsync
+    monkeypatch.setattr(state.os, "fsync", lambda fd: (synced.append(os.fstat(fd).st_mode), real(fd)))
+    import stat as _st
+    state.Journal(str(tmp_path / "j")).accept("nonce-1", str(uuid.uuid4()))
+    assert any(_st.S_ISDIR(m) for m in synced)
 
 
 def test_unenrolled_agent_executes_nothing(fake_agent):
     code, d = agentclient._post("127.0.0.1", fake_agent.port, fake_agent.tls_fp, "/v1/exec", {"req": {}, "sig": "AAAA"},
                                 allow_loopback=True, deadline=5)
-    assert code == 403 and d["resp"]["code"] == "not_enrolled" and fake_agent.calls() == []
+    assert code == 403 and d == {"error": "not_enrolled"} and "resp" not in d and fake_agent.calls() == []   # unsigned (review L2)
 
 
 def test_signed_restart_runs_systemctl_with_argv_only(enrolled):
@@ -140,11 +166,12 @@ def test_tampered_or_foreign_signature_rejected(enrolled):
     fa, priv, node = enrolled
     body = agentclient.build_request(priv, action="service.status", params={"unit": "nginx"}, node_id=NODE, job_id=str(uuid.uuid4()))
     body["req"]["params"]["unit"] = "mariadb"   # tamper after signing
-    r = agentclient.call(node, priv, action="", params={}, job_id="", req_override=body, allow_loopback=True)[1]
-    assert r["code"] == "bad_signature"
+    with pytest.raises(agentclient.AgentError, match="before authentication: bad_signature"):
+        agentclient.call(node, priv, action="", params={}, job_id="", req_override=body, allow_loopback=True)
     other = Ed25519PrivateKey.generate()        # signed by a key the agent never enrolled
-    r = agentclient.call(node, other, action="service.status", params={"unit": "nginx"}, job_id=str(uuid.uuid4()), allow_loopback=True)[1]
-    assert r["code"] == "bad_signature" and fa.calls() == []
+    with pytest.raises(agentclient.AgentError, match="before authentication: bad_signature"):
+        agentclient.call(node, other, action="service.status", params={"unit": "nginx"}, job_id=str(uuid.uuid4()), allow_loopback=True)
+    assert fa.calls() == []
 
 
 def test_request_for_another_node_rejected(enrolled):

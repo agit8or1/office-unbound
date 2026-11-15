@@ -11,6 +11,7 @@ import re
 import smtplib
 import socket
 import ssl
+import threading
 import time
 from dataclasses import dataclass, field
 from typing import Any, Literal, Self
@@ -26,6 +27,82 @@ KINDS = ("http", "tcp_tls", "imap_login", "smtp_banner", "ews_getfolder")
 HOST_RE = r"^[A-Za-z0-9]([A-Za-z0-9.-]{0,251}[A-Za-z0-9])?$"
 USER_RE = r"^[A-Za-z0-9][A-Za-z0-9._@+-]{0,127}$"
 MAX_BODY = 1024 * 1024
+MAX_TIMEOUT_SECONDS = 30
+MAX_STUCK_CHECKS = 32   # abandoned (deadline-exceeded) runner threads still alive; beyond this new checks fail fast instead of piling up
+
+
+class DeadlineExceeded(Exception):
+    pass
+
+
+class _Ctx:
+    """Per-check wall-clock budget (review M2). `timeout_seconds` is the budget of the WHOLE check, not of one read."""
+
+    def __init__(self, end: float):
+        self.end, self.socks = end, []
+
+    def abandon(self) -> None:
+        for s in list(self.socks):   # unblocks a runner thread stuck in recv()
+            try:
+                s.close()
+            except Exception:  # noqa: BLE001
+                pass
+
+
+_tls = threading.local()
+_stuck: list[threading.Thread] = []
+_stuck_lock = threading.Lock()
+
+
+def _check_deadline() -> None:
+    c = getattr(_tls, "ctx", None)
+    if c is not None and time.monotonic() > c.end:
+        raise DeadlineExceeded
+
+
+def _track(sock) -> None:
+    c = getattr(_tls, "ctx", None)
+    if c is not None:
+        c.socks.append(sock)
+
+
+def _pinned_ip(host: str, allow_loopback: bool) -> str:
+    """SSRF guard + DNS pinning (review L4): the connection goes to the address that was validated, never to a second lookup."""
+    return check_destination(host, allow_loopback)[0]
+
+
+def _pin_url(url: str, ip: str) -> tuple[str, dict, dict]:
+    u = urlparse(url)
+    netloc = (f"[{ip}]" if ":" in ip else ip) + (f":{u.port}" if u.port else "")
+    return u._replace(netloc=netloc).geturl(), {"Host": u.netloc}, {"sni_hostname": u.hostname}
+
+
+class _PinnedIMAP(imaplib.IMAP4_SSL):
+    def __init__(self, host, port, ip, ctx, timeout):
+        self._ip = ip
+        super().__init__(host, port, ssl_context=ctx, timeout=timeout)
+
+    def _create_socket(self, timeout):
+        raw = socket.create_connection((self._ip, self.port), timeout)
+        _track(raw)
+        try:
+            s = self.ssl_context.wrap_socket(raw, server_hostname=self.host)
+        except BaseException:
+            raw.close()
+            raise
+        _track(s)
+        return s
+
+
+class _PinnedSMTP(smtplib.SMTP):
+    def __init__(self, ip, timeout):
+        self._ip = ip
+        super().__init__(timeout=timeout)
+
+    def _get_socket(self, host, port, timeout):
+        s = socket.create_connection((self._ip, port), timeout)
+        _track(s)
+        return s
 
 
 @dataclass
@@ -167,11 +244,12 @@ def _fail(t0, msg, secret=None, status="critical", **d) -> Outcome:
 
 def run_http(cfg: HttpCheck, allow_loopback: bool) -> Outcome:
     t0 = time.monotonic()
-    check_destination(cfg.host, allow_loopback)
+    url, hdrs, ext = _pin_url(cfg.url, _pinned_ip(cfg.host, allow_loopback))
     buf = bytearray()
     with httpx.Client(verify=cfg.ctx(), timeout=httpx.Timeout(cfg.timeout_seconds), follow_redirects=False, trust_env=False) as c:
-        with c.stream("GET", cfg.url) as r:
+        with c.stream("GET", url, headers=hdrs, extensions=ext) as r:
             for ch in r.iter_raw():
+                _check_deadline()
                 buf += ch
                 if len(buf) > MAX_BODY:
                     return _fail(t0, "response body exceeds 1 MiB")
@@ -198,9 +276,10 @@ def run_http(cfg: HttpCheck, allow_loopback: bool) -> Outcome:
 
 def run_tcp_tls(cfg: TcpTlsCheck, allow_loopback: bool) -> Outcome:
     t0 = time.monotonic()
-    check_destination(cfg.host, allow_loopback)
+    ip = _pinned_ip(cfg.host, allow_loopback)
     ctx = cfg.ctx()
-    with socket.create_connection((cfg.host, cfg.port), timeout=cfg.timeout_seconds) as raw:
+    with socket.create_connection((ip, cfg.port), timeout=cfg.timeout_seconds) as raw:
+        _track(raw)
         with ctx.wrap_socket(raw, server_hostname=cfg.host) as s:
             der = s.getpeercert(binary_form=True)
     cert = x509.load_der_x509_certificate(der)
@@ -216,13 +295,18 @@ def run_tcp_tls(cfg: TcpTlsCheck, allow_loopback: bool) -> Outcome:
 
 def run_imap(cfg: ImapLoginCheck, password: str, allow_loopback: bool) -> Outcome:
     t0 = time.monotonic()
-    check_destination(cfg.host, allow_loopback)
-    m = imaplib.IMAP4_SSL(cfg.host, cfg.port, ssl_context=cfg.ctx(), timeout=cfg.timeout_seconds)
+    ip = _pinned_ip(cfg.host, allow_loopback)
+    m = _PinnedIMAP(cfg.host, cfg.port, ip, cfg.ctx(), cfg.timeout_seconds)
     try:
-        m.login(cfg.username, password)
+        try:
+            m.login(cfg.username, password)
+        except imaplib.IMAP4.abort:   # connection lost mid-login: an outage, not an auth failure
+            raise
+        except imaplib.IMAP4.error:   # the server answered and said no: credentials/account problem, not a service outage
+            return _fail(t0, "IMAP login rejected by the server", password, cause="auth")
         typ, data = m.select(cfg.mailbox, readonly=True)
         if typ != "OK":
-            return _fail(t0, f"SELECT {cfg.mailbox} failed", password)
+            return _fail(t0, f"SELECT {cfg.mailbox} failed", password, cause="config")
         n = int(data[0]) if data and data[0] and data[0].isdigit() else None
         return Outcome("ok", f"login + SELECT {cfg.mailbox} ok ({n} messages)", _ms(t0), {"exists": n})
     finally:
@@ -234,8 +318,7 @@ def run_imap(cfg: ImapLoginCheck, password: str, allow_loopback: bool) -> Outcom
 
 def run_smtp(cfg: SmtpBannerCheck, allow_loopback: bool) -> Outcome:
     t0 = time.monotonic()
-    check_destination(cfg.host, allow_loopback)
-    s = smtplib.SMTP(timeout=cfg.timeout_seconds)
+    s = _PinnedSMTP(_pinned_ip(cfg.host, allow_loopback), cfg.timeout_seconds)
     try:
         code, banner = s.connect(cfg.host, cfg.port)
         b = banner.decode("ascii", "replace")
@@ -264,20 +347,21 @@ _SOAP = ('<?xml version="1.0" encoding="utf-8"?><soap:Envelope xmlns:soap="http:
 
 def run_ews(cfg: EwsGetFolderCheck, password: str, allow_loopback: bool) -> Outcome:
     t0 = time.monotonic()
-    check_destination(cfg.host, allow_loopback)
+    url, hdrs, ext = _pin_url(cfg.url, _pinned_ip(cfg.host, allow_loopback))
     buf = bytearray()
     with httpx.Client(verify=cfg.ctx(), timeout=httpx.Timeout(cfg.timeout_seconds), follow_redirects=False, trust_env=False,
                       auth=httpx.BasicAuth(cfg.username, password)) as c:
-        with c.stream("POST", cfg.url, content=_SOAP.replace("{folder}", cfg.folder).encode(),
-                      headers={"Content-Type": "text/xml; charset=utf-8"}) as r:
+        with c.stream("POST", url, content=_SOAP.replace("{folder}", cfg.folder).encode(),
+                      headers={"Content-Type": "text/xml; charset=utf-8", **hdrs}, extensions=ext) as r:
             for ch in r.iter_raw():
+                _check_deadline()
                 buf += ch
                 if len(buf) > MAX_BODY:
                     return _fail(t0, "EWS response exceeds 1 MiB", password)
             code = r.status_code
     text = bytes(buf).decode("utf-8", "replace")
     if code != 200:
-        return _fail(t0, f"EWS HTTP {code}", password, status_code=code)
+        return _fail(t0, f"EWS HTTP {code}", password, status_code=code, **({"cause": "auth"} if code in (401, 403) else {}))
     if "<!DOCTYPE" in text or "<!ENTITY" in text:
         return _fail(t0, "EWS response contains a DTD; refusing to parse", password)
     ok = 'ResponseClass="Success"' in text and "NoError" in text
@@ -287,7 +371,35 @@ def run_ews(cfg: EwsGetFolderCheck, password: str, allow_loopback: bool) -> Outc
 
 
 def run_check(kind: str, cfg: dict, password: str | None, allow_loopback: bool = False) -> Outcome:
-    """Never raises. Any exception becomes a critical Outcome carrying the class name (and a scrubbed message for TLS/connect errors)."""
+    """Never raises and never takes longer than the check's `timeout_seconds` of wall clock (review M2): the runner executes in its
+    own daemon thread; on expiry its sockets are closed and it is abandoned (bounded: MAX_STUCK_CHECKS)."""
+    t0 = time.monotonic()
+    try:
+        deadline = float(MODELS[kind].model_validate(cfg).timeout_seconds)  # type: ignore[attr-defined]
+    except Exception as e:  # noqa: BLE001
+        return _fail(t0, f"check error: {type(e).__name__}", password, cause="config")
+    with _stuck_lock:
+        _stuck[:] = [t for t in _stuck if t.is_alive()]
+        if len(_stuck) >= MAX_STUCK_CHECKS:
+            return _fail(t0, "too many checks are stuck; not starting another", password, cause="timeout")
+    ctx, box = _Ctx(t0 + deadline), {}
+
+    def work() -> None:
+        _tls.ctx = ctx
+        box["o"] = _run_check_inner(kind, cfg, password, allow_loopback)
+
+    th = threading.Thread(target=work, daemon=True, name=f"ics-check-{kind}")
+    th.start()
+    th.join(deadline + 0.25)
+    if th.is_alive():
+        ctx.abandon()
+        with _stuck_lock:
+            _stuck.append(th)
+        return _fail(t0, f"check exceeded its overall deadline of {int(deadline)} s", password, cause="timeout")
+    return box.get("o") or _fail(t0, "check runner failed", password)
+
+
+def _run_check_inner(kind: str, cfg: dict, password: str | None, allow_loopback: bool = False) -> Outcome:
     t0 = time.monotonic()
     try:
         m = MODELS[kind].model_validate(cfg)
@@ -298,14 +410,16 @@ def run_check(kind: str, cfg: dict, password: str | None, allow_loopback: bool =
         if kind == "smtp_banner":
             return run_smtp(m, allow_loopback)  # type: ignore[arg-type]
         if password is None:
-            return _fail(t0, "no password stored for this check")
+            return _fail(t0, "no password stored for this check", cause="config")
         if kind == "imap_login":
             return run_imap(m, password, allow_loopback)  # type: ignore[arg-type]
         if kind == "ews_getfolder":
             return run_ews(m, password, allow_loopback)  # type: ignore[arg-type]
         return _fail(t0, "unknown check kind")
     except ProxmoxError as e:  # destination guard / pin errors
-        return _fail(t0, str(e), password)
+        return _fail(t0, str(e), password, cause="config")
+    except DeadlineExceeded:
+        return _fail(t0, "check exceeded its overall deadline", password, cause="timeout")
     except imaplib.IMAP4.error as e:
         return _fail(t0, "IMAP error: " + str(e), password)
     except (ssl.SSLError, socket.timeout, TimeoutError, ConnectionError, OSError) as e:

@@ -1,16 +1,16 @@
 # Office Unbound — status
 
-**Milestone:** Phase 1 (ICS foundation + core platform proof) — in progress. Updated 2026-11-15.
+**Milestone:** Phase 1 core proof largely done; Phase 2 (orchestration) + Phase 3 (UX) in progress. Updated 2026-11-15. Public roadmap: ROADMAP.md / docs/progress.json.
 **Constraints:** ADR-0007 zero mandatory licensing cost / no artificial limits. Proxmox out of scope until owner re-enables (lab = isolated systemd-nspawn on ICS host, zone `oulab`).
 
 ## Component status (ADR-0000)
 | Component | Status | Evidence |
 |---|---|---|
-| ICS backend (auth/TOTP, vault, HMAC hash-chained audit, typed actions, 2-approver plans, jobs, PVE read-only client) | Tested (unit/integration, 79 tests) | security-review-ics-2026-11-15.md incl. remediation; service `ics` on 127.0.0.1:8088 |
-| ICS console (Vue) | Integrated in lab | /ui, vitest 7/7, headless browser smoke |
-| ICS monitoring, alerts, node agent, remediation | Implementing | ics-monitoring-results.md (pending) |
+| ICS backend (auth/TOTP, vault, HMAC hash-chained audit, typed actions, 2-approver plans, jobs, PVE read-only client) | Tested (unit/integration; 329 tests on main as of 2026-11-15 19:05 UTC) | security-review-ics-2026-11-15.md incl. remediation; service `ics` on 127.0.0.1:8088 |
+| ICS console (Vue, redesigned shell/dashboard/users) | Integrated in lab — deployed 2026-11-15 | vitest 32/32, typecheck, build; screenshots docs/screenshots/ |
+| ICS monitoring, alerts, node agent, remediation | Integrated in lab | ics-monitoring-results.md; review fixes H1, H2, M1–M4, Lows merged |
 | ICS identity lifecycle (create / update_groups / disable+VERIFY / enable / delete / reconcile) | Integrated in lab | user-lifecycle-results.md: acceptance script PASS (all paths refused <= 7 s), pytest suite; open gaps: OpenCloud app tokens resurrect on enable, ActiveSync wipe, Gromox open-session kill is a quarantine workaround |
-| Proxmox inventory vs real cluster | Blocked (owner: no Proxmox now) | fixtures + TLS-pinning mock tests only |
+| Proxmox pve06 (real) | Read-only probe verified; provider broker + mutations implemented vs simulator, integration in progress | provider-proxmox-real.md, provider-proxmox.md |
 | Groupware: own source build of gromox 3.13 + sync/dav/web | Integrated in lab | groupware-lab-results.md — 57 automated checks pass (lead re-run): MAPI/HTTP Connect, EWS, ActiveSync, Autodiscover, IMAP/SMTP, CalDAV/CardDAV, shared mailbox, restart, export/import restore; 7 users (no cap) |
 | Groupware ↔ OpenLDAP single user store | Implementing | groupware-ldap-results.md (pending) |
 | Identity: OpenLDAP + Keycloak 26.8.2 | Integrated in lab | identity-files-lab-results.md (T01 36/0) |

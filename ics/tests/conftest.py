@@ -44,7 +44,10 @@ def base_settings(tmp_path_factory):
         (d / n).chmod(0o600)
     return Settings(database_url=env["ICS_TEST_DATABASE_URL"], vault_key_file=str(d / "vault.key"),
                     audit_key_file=str(d / "audit.key"), worker_enabled=False, allow_loopback_endpoints=True,
-                    signing_key_file=str(d / "signing.key"), incident_renotify_seconds=0, notify_max_attempts=2)
+                    signing_key_file=str(d / "signing.key"), incident_renotify_seconds=0, notify_max_attempts=2,
+                    # the production floors (30 s backoff, 300 s window, 15/30 s check intervals) are exercised explicitly in tests/test_review_fixes.py
+                    remediation_min_backoff_seconds=0, remediation_min_window_seconds=60, check_min_interval_seconds=5,
+                    check_min_interval_credentialed_seconds=5)
 
 
 @pytest.fixture(scope="session")
@@ -157,6 +160,7 @@ class FakeAgent:
         self.token = cli.arm_enroll(self.state)
         _, self.key_fp = cli.fingerprints(self.state)
         self.srv, self.agent = server.build_server(self.cfg, self.state)
+        self.agent.enroll_fail_delay = 0.0
         self.port = self.srv.server_address[1]
         threading.Thread(target=self.srv.serve_forever, daemon=True).start()
 

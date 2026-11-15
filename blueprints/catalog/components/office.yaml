@@ -1,0 +1,26 @@
+name: office
+version: 1.0.0
+title: Office (Collabora Online, OB-built)
+description: Browser document editing via WOPI, built by Office Unbound from pinned source (ADR-0008, blueprints/build/collabora).
+artifacts:
+  # placeholder until the OB build pipeline publishes the signed image
+  - {name: collabora, kind: oci, image: registry.ou.invalid/ou/collabora-online, digest: "sha256:", version: "26.04.6-ou1"}
+resources:
+  cores:     {base: 2,    per_user: 0.02, source: "identity-files-lab-results.md: document load + conversion bursts; 1 core per 50 users is an assumption (no concurrency test)"}
+  memory_mb: {base: 2048, per_user: 15,   source: "identity-files-lab-results.md: ou-office1 0.29 GB idle, 1.7 GB peak at a handful of sessions, MemoryMax 3G; ~10% concurrency x ~150 MB/doc assumed"}
+  disk_gb:   {base: 6,    per_user: 0,    source: "CODE packages + fonts (lab estimate)"}
+volumes: []
+ports:
+  - {name: coolwsd, port: 9980, proto: tcp, exposure: edge}
+depends_on: [files]
+dns:
+  - {host: office, type: A, target: edge}
+health_checks:
+  - {name: wopi-discovery, kind: http, port: 9980, path: /hosting/discovery, expect_status: 200}
+backup:
+  method: stateless
+  description: "no persistent data; redeploy from catalog"
+  quiesce: online
+  rpo_hours: 0
+  evidence: "stateless by design"
+upgrade: {downtime_seconds: 60}

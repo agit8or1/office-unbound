@@ -1,0 +1,1 @@
+import{o as e,p as t,x as n}from"./Icon-BOj2LBK0.js";import{t as r}from"./StatusBadge-DyiPcIoI.js";var i=t({__name:`Status`,props:{s:{}},setup(t){return(i,a)=>(n(),e(r,{s:t.s},null,8,[`s`]))}});export{i as t};

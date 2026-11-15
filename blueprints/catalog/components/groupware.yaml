@@ -1,0 +1,38 @@
+name: groupware
+version: 1.0.0
+title: Groupware (gromox stack, package-based)
+description: Mail/calendar/contacts (gromox + web + postfix + MariaDB), built by Office Unbound and installed from the OB apt repo (ADR-0003/0008).
+artifacts:
+  - {name: gromox, kind: package, package: ou-gromox, version: "2.40-ou1", repo: ob-apt-stable}
+  - {name: groupware-web, kind: package, package: ou-groupware-web, version: "1.0-ou1", repo: ob-apt-stable}
+  - {name: mariadb, kind: package, package: mariadb-server, version: "10.11.13", repo: ubuntu-noble}
+  - {name: postfix, kind: package, package: postfix, version: "3.8.6", repo: ubuntu-noble}
+resources:
+  cores:     {base: 2,    per_user: 0.01, source: "groupware-lab-results.md: 8 mailboxes, light load; 1 core per 100 users is a planning assumption (no load test yet)"}
+  memory_mb: {base: 3072, per_user: 6,    source: "groupware-lab-results.md: idle stack ~1.3 GB incl page cache; gromox-imap 123 MB, mariadb 112 MB, gromox-http 85 MB, php-fpm ~35 MB/worker; 6 MB/user assumed"}
+  disk_gb:   {base: 8,    per_user: 0,    source: "groupware-lab-results.md: machine image 3.5 GB + web 105 MB (sources deletable)"}
+volumes:
+  - {name: mailstore, path: /var/lib/gromox/user, size_gb: {base: 10, per_user: 2, source: "PLANNING ASSUMPTION: 2 GB default mailbox quota per user; lab measured only 26 MB for 8 mailboxes"}, backup: true}
+  - {name: mariadb-data, path: /var/lib/mysql, size_gb: {base: 2, per_user: 0.01, source: "lab: MariaDB 128 MB for 8 users incl. schema"}, backup: true}
+ports:
+  - {name: smtp, port: 25, proto: tcp, exposure: public}
+  - {name: submission, port: 587, proto: tcp, exposure: public}
+  - {name: imaps, port: 993, proto: tcp, exposure: public}
+  - {name: web-https, port: 8447, proto: tcp, exposure: edge}
+depends_on: [identity]
+dns:
+  - {host: mail, type: A, target: vm}
+  - {host: "@", type: MX, target: "10 mail"}
+  - {host: autodiscover, type: CNAME, target: mail}
+  - {host: "@", type: TXT, target: "v=spf1 mx -all"}
+health_checks:
+  - {name: smtp-banner, kind: smtp_banner, port: 25}
+  - {name: imaps-tls, kind: tcp_tls, port: 993}
+  - {name: web-tls, kind: tcp_tls, port: 8447}
+backup:
+  method: logical_export
+  description: "gromox-exm2mt per mailbox (-s, IPM_SUBTREE) + mariadb dump; ACLs are NOT exported (documented gap)"
+  quiesce: online
+  rpo_hours: 24
+  evidence: "docs/status/groupware-lab-results.md GW07 (in place); separate-machine drill still open"
+upgrade: {downtime_seconds: 300}

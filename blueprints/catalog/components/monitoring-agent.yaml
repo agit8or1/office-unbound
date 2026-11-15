@@ -1,0 +1,24 @@
+name: monitoring-agent
+version: 1.0.0
+title: Node agent (monitoring + runbooks)
+description: ICS node agent installed on every VM by cloud-init; required for enrollment, runbooks and checks (ADR-0002, ics/agent).
+placement: every_vm
+artifacts:
+  - {name: ou-agent, kind: package, package: ou-agent, version: "0.1.0-ou1", repo: ob-apt-stable}
+resources:
+  cores:     {base: 0,  per_user: 0, source: "negligible"}
+  memory_mb: {base: 64, per_user: 0, source: "Python stdlib HTTPS server (ics/agent)"}
+  disk_gb:   {base: 1,  per_user: 0, source: "assumption"}
+volumes: []
+ports:
+  - {name: agent, port: 8443, proto: tcp, exposure: ics}
+depends_on: []
+dns: []
+health_checks: []
+backup:
+  method: stateless
+  description: "re-enrolled on restore"
+  quiesce: online
+  rpo_hours: 0
+  evidence: "stateless"
+upgrade: {downtime_seconds: 5}

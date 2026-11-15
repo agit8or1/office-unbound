@@ -17,7 +17,10 @@ from . import audit, auth, identity
 from .actions import CATALOG, ActionType, PlanError, create_plan, decide_plan
 from .auth import ROLES, User, client_ip, cookie_name, get_db, require
 from .blueprint import preview
+from . import userdir
 from .config import Settings
+from .deploy.api import register_routes as register_deploy_routes
+from .inventory import api as inventory_api
 from .runtime import Runtime
 from .worker import Worker
 
@@ -242,11 +245,7 @@ def create_app(settings: Settings | None = None, runtime: Runtime | None = None)
             raise HTTPException(409, "could not create user (duplicate username?)") from e
         return {"username": body.username, "role": body.role, "invite": True}
 
-    @app.get(f"{API}/users")
-    def list_users(user: User = Depends(require("admin")), db: Session = Depends(get_db)):
-        rows = db.execute(text("SELECT u.id, u.username, u.role, u.enrolled, u.disabled, u.created_at, cu.username AS created_by_username "
-                               "FROM users u LEFT JOIN users cu ON cu.id = u.created_by ORDER BY u.username")).all()
-        return [_row(r) for r in rows]
+    userdir.register(app, rt, API)  # GET users, users/{id}, invitations, access-policy (read-only)
 
     # ---- plans / jobs ----
     @app.get(f"{API}/actions")
@@ -314,11 +313,7 @@ def create_app(settings: Settings | None = None, runtime: Runtime | None = None)
         return _row(r)
 
     # ---- endpoints / inventory (token secret never selected) ----
-    @app.get(f"{API}/endpoints")
-    def list_endpoints(user: User = Depends(require("viewer")), db: Session = Depends(get_db)):
-        rows = db.execute(text("SELECT id, name, type, base_url, token_id, fingerprint_sha256, (ca_pem IS NOT NULL) AS has_ca_bundle, "
-                               "created_at FROM endpoints ORDER BY name")).all()
-        return [_row(r) for r in rows]
+    inventory_api.mount(app)  # GET /endpoints[/{id}], /infra/*, /setup/*
 
     @app.get(f"{API}/endpoints/{{endpoint_id}}/inventory")
     def latest_inventory(endpoint_id: UUID, user: User = Depends(require("viewer")), db: Session = Depends(get_db)):
@@ -363,6 +358,8 @@ def create_app(settings: Settings | None = None, runtime: Runtime | None = None)
                      details={"valid": out["valid"], "sha256": hashlib.sha256(body.blueprint_yaml.encode()).hexdigest()})
         db.commit()
         return out
+
+    register_deploy_routes(app, rt)  # catalog, deployments, drift, change preview, job steps (deploy/api.py)
 
     # ---- monitoring (read-only views; every mutation is a typed plan) ----
     def _strip_cfg(cfg: dict) -> dict:

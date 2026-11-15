@@ -23,6 +23,11 @@ class Journal:
             os.fsync(fd)
         finally:
             os.close(fd)
+        dfd = os.open(self.dir, os.O_RDONLY)   # review L6: the directory entry must survive a power loss too
+        try:
+            os.fsync(dfd)
+        finally:
+            os.close(dfd)
 
     def accept(self, nonce: str, job_id: str) -> None:
         """Record nonce and job id, or raise Reject(replay_nonce|replay_job). Nonce first: a replay of a whole request is a nonce replay."""

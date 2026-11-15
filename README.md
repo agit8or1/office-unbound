@@ -9,5 +9,9 @@ Open-source, self-hosted alternative to Microsoft 365 / Google Workspace for bus
 - `blueprints/build/` — source-build recipes for components we distribute ourselves
 - `docs/` — ADRs, evaluations, test evidence, security reviews
 
+## Documentation
+- [Administrator guide](docs/admin/index.md): install, operate, back up and secure the ICS (only procedures executed in the lab; the rest marked Planned)
+- [Architecture](docs/ARCHITECTURE.md), [ADRs](docs/adr/), [status](docs/status/STATUS.md)
+
 ## License
 Office Unbound's own code is licensed under the **GNU Affero General Public License v3.0** ([LICENSE](LICENSE)). Third-party components keep their own licenses; see [docs/status/third-party-inventory.md](docs/status/third-party-inventory.md).

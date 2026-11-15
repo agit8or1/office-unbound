@@ -3,6 +3,11 @@ import { computed, ref } from 'vue'
 import { ApiError, get, type AuditEvent, type ChainResult } from '../api'
 import { fmtTime, pretty, useLoad } from '../store'
 import ErrorBox from '../components/ErrorBox.vue'
+import PageHeader from '../ui/PageHeader.vue'
+import EmptyState from '../ui/EmptyState.vue'
+import Skeleton from '../ui/Skeleton.vue'
+import Segmented from '../ui/Segmented.vue'
+import Button from '../ui/Button.vue'
 
 // The API only supports `limit` (max 500), newest first; pages are cut client-side from that window.
 const PAGE = 25
@@ -22,12 +27,12 @@ async function setWindow(n: number) { window_.value = n; page.value = 0; await l
 </script>
 <template>
   <div class="page">
-    <div class="head"><h1>Audit</h1>
-      <div class="row">
-        <button class="ghost" @click="log.reload()">Refresh</button>
-        <button class="primary" :disabled="verifying" @click="verify">{{ verifying ? 'Verifying…' : 'Verify chain' }}</button>
-      </div>
-    </div>
+    <PageHeader title="Audit log" sub="Tamper-evident record of every sign-in, plan, approval and change." help="Entries are hash-chained. Verify chain checks the whole log for gaps or edits.">
+      <template #actions>
+        <Button size="sm" icon="refresh" @click="log.reload()">Refresh</Button>
+        <Button variant="primary" size="sm" icon="shield" :loading="verifying" @click="verify">{{ verifying ? 'Verifying…' : 'Verify chain' }}</Button>
+      </template>
+    </PageHeader>
     <ErrorBox :error="cerr" />
     <div v-if="chain" class="alert" :class="chain.ok ? 'ok' : 'bad'" role="status">
       <strong>{{ chain.ok ? 'Chain intact' : 'Chain problems found' }}</strong>: {{ chain.checked }} entries checked, MACs {{ chain.mac_checked ? 'checked' : 'not checked' }},
@@ -35,7 +40,7 @@ async function setWindow(n: number) { window_.value = n; page.value = 0; await l
       <ul v-if="chain.problems.length" class="plain"><li v-for="p in chain.problems" :key="p.seq + p.kind">#{{ p.seq }} {{ p.kind }}: {{ p.detail }}</li></ul>
     </div>
     <ErrorBox :error="log.error.value" />
-    <section class="panel fill">
+    <section class="card flush">
       <div class="scroll">
         <table v-if="rows.length">
           <thead><tr><th>Seq</th><th>Time</th><th>Action</th><th>Actor</th><th>IP</th><th>Resource</th><th><span class="sr">Details</span></th></tr></thead>
@@ -50,7 +55,7 @@ async function setWindow(n: number) { window_.value = n; page.value = 0; await l
             </template>
           </tbody>
         </table>
-        <p v-else-if="log.data.value" class="empty">No audit entries.</p>
+        <EmptyState v-else-if="log.data.value" icon="file" title="No audit entries" />
       </div>
       <div class="row pager">
         <button class="ghost" :disabled="page === 0" @click="page--">Newer</button>

@@ -1,0 +1,12 @@
+{% from "_icons.html" import icon %}
+<details class="card plat" id="ios" {% if hint == 'ios' or not hint %}open{% endif %}>
+  <summary><span class="pt">{{ icon('devices') }}iPhone and iPad</span><span class="ps">Mail, calendar, contacts, files</span></summary>
+  <ol class="steps">
+    <li>Open this page on your iPhone or iPad and tap <b>Download profile</b>. Allow the download when asked.</li>
+    <li>Open <b>Settings</b>. Tap <b>Profile Downloaded</b>, then <b>Install</b>.</li>
+    <li>Type your password when iOS asks. It goes straight to your device, not into the profile.</li>
+    <li>For files, install the OpenCloud app and sign in with your organisation's address: <a href="{{ apps.ios }}">OpenCloud on the App Store</a>.</li>
+  </ol>
+  <p><a class="btn primary" href="/devices/apple.mobileconfig" download>{{ icon('download') }}Download profile (.mobileconfig)</a></p>
+  <p class="hint">Unsigned profile: iOS will label it "Not Signed". That is expected until your administrator signs profiles for production. The profile adds Mail (IMAP/SMTP), Calendar (CalDAV) and Contacts (CardDAV).</p>
+</details>

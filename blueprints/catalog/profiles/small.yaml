@@ -1,0 +1,16 @@
+name: small
+version: 1.0.0
+title: Small (up to 50 users, 3 VMs)
+description: Identity+edge, groupware, and files+office on separate VMs (ADR-0006 lightweight layout).
+maturity: lab-validated
+max_users: 50
+min_nodes: 1
+ha: false
+tenancy: single
+vms:
+  - {name: id, components: [identity, edge]}
+  - {name: groupware, components: [groupware]}
+  - {name: files, components: [files, office]}
+optional_components: [office]
+default_optional: [office]
+backup: {schedule: daily, retention_days: 14, snapshot_before_change: true, offsite: false}
