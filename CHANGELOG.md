@@ -10,7 +10,7 @@ isolated lab; nothing is production supported ([ROADMAP.md](ROADMAP.md)).
 
 ## [Unreleased]
 
-Merged on integration branch `integration-5` (not yet released). The release-engineering pipeline branch (`release-ag`) is **not** included.
+Merged on integration branches `integration-5` and `integration-6` (not yet released).
 
 ### Added
 - **Provider scope modes**: `single_node` / `whole_cluster` permission plans and the `provider.scope.change` flow (Mode A/B), console UI. [provider-scope-modes](docs/status/provider-scope-modes.md)
@@ -18,6 +18,10 @@ Merged on integration branch `integration-5` (not yet released). The release-eng
 - **Guest bootstrap v2**: no-SSH golden-image path with HMAC callback `POST /api/v1/guest-bootstrap/report`, `guest.await_callback` step, `image.import` verb, migration `0009b`; the SSH path is lab-only behind `ICS_LAB_SSH_BOOTSTRAP` (default off). [bootstrap-v2](docs/status/bootstrap-v2.md), [SSH bootstrap review](docs/status/review-ssh-bootstrap-2026-11-15.md)
 - **Quick-start fixes**: `bootstrap.sh` supports Debian 12, `--check-os`, waits for the apt lock; documentation corrections from a dry run.
 - **Version information in System**: `/api/v1/system` (admin) now also reports build commit, schema heads, component versions and a read-only pending-updates comparison.
+- **Warm-standby ICS (ADR-0012, agent AW)**: physical streaming replication, key bundle, `ICS_ROLE=standby`, fenced promotion CLI (`python -m ics.cli promote`), controller epoch in signed agent requests (optional field; agents refuse a lower epoch than they have seen), migration `0009a`. ICS falls back to the pre-epoch request format for agents deployed before this release (tested with an old-agent fake), so lab agents keep working until upgraded. [ics-standby-results](docs/status/ics-standby-results.md)
+- **Golden guest image recipe (agent AT)**: Debian image from the signed archive via mmdebstrap + systemd-repart, pinned Ubuntu key, `ou-image-sign` signer, TCG boot proof. [golden-image-results](docs/status/golden-image-results.md)
+- **Clean-room installer re-runs (agent AO)**: 12 installer fixes in the lab blueprints, parametrised lab domain/realm. [clean-room-results](docs/status/clean-room-results.md)
+- **Document engine ou2 (agent AZ)**: `ou-docs` 26.04.6-ou2 (product name Office Unbound Docs) with a new signed OCI image digest in the `office` catalog component. [docengine-ou2-results](docs/status/docengine-ou2-results.md)
 
 ### Security
 - **Tenant isolation (agent AS, T20 suite 153/155)**: two scoping holes fixed. Customer-scoped operators could list and read all deployments (deployment list/detail, plan, change/destroy preview and job steps are now filtered by the owning customer's endpoint); identity stacks had no customer binding (stacks carry a `customer_id`, the identity stack/user/reconcile lists and identity actions are scoped to it). [tenant-isolation-results](docs/status/tenant-isolation-results.md)
