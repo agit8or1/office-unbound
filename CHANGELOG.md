@@ -10,13 +10,22 @@ isolated lab; nothing is production supported ([ROADMAP.md](ROADMAP.md)).
 
 ## [Unreleased]
 
-Work that exists on branches but is **not yet on `main`** (reviewed and merged by the lead before it is listed under a release).
+Merged on integration branch `integration-5` (not yet released). The release-engineering pipeline branch (`release-ag`) is **not** included.
 
 ### Added
-- Release engineering branch (`release-ag`): Gromox `ou2` package carrying both patches, libexmdbpp / admin-web / Collabora components, hardened package pipeline, upgrade-drill scripts. See [security review 4](docs/status/security-review-4-2026-11-15.md) for the pipeline findings it targets.
+- **Provider scope modes**: `single_node` / `whole_cluster` permission plans and the `provider.scope.change` flow (Mode A/B), console UI. [provider-scope-modes](docs/status/provider-scope-modes.md)
+- **Telephony productization**: Asterisk 22 built from signed source (`ou-asterisk` recipe) and ICS telephony downstream: `idm.user.set_extension`, `idm.user.issue_sip_credential` (one-time SIP credentials, encrypted at rest until revealed), `pbx.*` agent runbooks, migration `0009`. [telephony-productization](docs/status/telephony-productization.md)
+- **Guest bootstrap v2**: no-SSH golden-image path with HMAC callback `POST /api/v1/guest-bootstrap/report`, `guest.await_callback` step, `image.import` verb, migration `0009b`; the SSH path is lab-only behind `ICS_LAB_SSH_BOOTSTRAP` (default off). [bootstrap-v2](docs/status/bootstrap-v2.md), [SSH bootstrap review](docs/status/review-ssh-bootstrap-2026-11-15.md)
+- **Quick-start fixes**: `bootstrap.sh` supports Debian 12, `--check-os`, waits for the apt lock; documentation corrections from a dry run.
+- **Version information in System**: `/api/v1/system` (admin) now also reports build commit, schema heads, component versions and a read-only pending-updates comparison.
 
 ### Security
-- Security review 4 findings H1, H2, M3, M7, M8, M9 are addressed on the release-engineering branch; the rest of the review 4 findings (M1, M2, M4, M5, M6, M10, M11, L1-L9) are open. See [security review 4](docs/status/security-review-4-2026-11-15.md).
+- Security review 4 fixes (AL) and lifecycle gaps (AC) from main remain; telephony runbook user names are validated with a full-match regex.
+- The SSH guest bootstrap path no longer runs by default (fail-open finding in the SSH bootstrap review).
+- Security review 4 findings still open on the release-engineering branch (M4-M6, M10, M11 partly, L-series): see [security review 4](docs/status/security-review-4-2026-11-15.md).
+
+### Fixed
+- Production monitor loop (`_next_vault`): failure-based worker health and thread joins on stop.
 
 ## [0.1.0] - 2026-11-15
 

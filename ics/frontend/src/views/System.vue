@@ -35,7 +35,7 @@ const tone = (s: string) => (s === 'ok' ? 'ok' : s === 'off' ? 'idle' : 'critica
         <Card title="Status">
           <dl class="sys">
             <dt>Overall</dt><dd><StatusBadge :s="sys.data.value.ready ? 'ok' : 'critical'" :text="sys.data.value.ready ? 'Ready' : 'Not ready'" /></dd>
-            <template v-for="(ok, k) in sys.data.value.checks" :key="k"><dt>{{ CHECK[k] ?? k }}</dt><dd><StatusBadge :s="ok ? 'ok' : 'critical'" :text="ok ? 'Healthy' : 'Needs attention'" /></dd></template>
+            <template v-for="(ok, k) in (sys.data.value.checks ?? {})" :key="k"><dt>{{ CHECK[k] ?? k }}</dt><dd><StatusBadge :s="ok ? 'ok' : 'critical'" :text="ok ? 'Healthy' : 'Needs attention'" /></dd></template>
             <dt>Last heartbeat</dt><dd>{{ sys.data.value.heartbeat_age_seconds === null ? 'none yet' : sys.data.value.heartbeat_age_seconds + ' s ago' }}</dd>
           </dl>
         </Card>
@@ -54,15 +54,15 @@ const tone = (s: string) => (s === 'ok' ? 'ok' : s === 'off' ? 'idle' : 'critica
         <Card title="Background services" hint="Each service reports progress; a stalled one turns the readiness check red.">
           <p v-if="!sys.data.value.worker_enabled" class="muted">The worker is not running inside this server process.</p>
           <dl v-else class="sys">
-            <template v-for="t in sys.data.value.threads" :key="t.name"><dt>{{ THREAD[t.name] ?? t.name }}</dt>
+            <template v-for="t in (sys.data.value.threads ?? [])" :key="t.name"><dt>{{ THREAD[t.name] ?? t.name }}</dt>
               <dd><StatusBadge :s="tone(t.state)" :text="t.state === 'ok' ? 'Running' : t.state === 'off' ? 'Off' : 'Stalled'" />
                 <span v-if="t.last_progress_seconds !== null" class="muted small"> last progress {{ t.last_progress_seconds }} s ago</span></dd></template>
           </dl>
         </Card>
         <Card title="Backups">
-          <p v-if="!sys.data.value.backup.known" class="muted">The backup folder cannot be read by the console service, so the last run is unknown. Run backups with the host script and check the folder on the server.</p>
-          <p v-else-if="!sys.data.value.backup.at" class="muted">No backup has been found yet.</p>
-          <dl v-else class="sys"><dt>Last backup</dt><dd><span :title="fmtTime(sys.data.value.backup.at)">{{ ago(sys.data.value.backup.at) }}</span></dd></dl>
+          <p v-if="!sys.data.value.backup?.known" class="muted">The backup folder cannot be read by the console service, so the last run is unknown. Run backups with the host script and check the folder on the server.</p>
+          <p v-else-if="!sys.data.value.backup?.at" class="muted">No backup has been found yet.</p>
+          <dl v-else class="sys"><dt>Last backup</dt><dd><span :title="fmtTime(sys.data.value.backup?.at ?? null)">{{ ago(sys.data.value.backup?.at ?? null) }}</span></dd></dl>
         </Card>
       </div>
       <Card title="Pending updates" hint="Read-only comparison with the release list bundled at install time. No network check is made.">
