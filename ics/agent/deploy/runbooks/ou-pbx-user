@@ -6,7 +6,7 @@ validates, drops privileges, and writes the result file the agent returns to the
   sync   -> ou-pbx report --user U   (LDAP -> pjsip/dialplan/voicemail config, reload only if changed; this user's state)
   kick   -> ou-pbx kick --user U     (sync from the directory, delete registrations, hang up live calls)
   state  -> ou-pbx state --user U    (read-only)
-  issue  -> ou-pbx issue --user U --device D   (credential returned ONCE; written 0600 to /run/ou-rb-secret for the agent only, never to /run/ou-rb)
+  issue  -> ou-pbx issue --user U --device D   (credential returned ONCE; written 0600 to /run/ou-rb-secret (a 0700 directory owned by ou-agent) for the agent only, never to /run/ou-rb)
 """
 import json, os, pwd, re, subprocess, sys, time
 
@@ -33,13 +33,20 @@ def main():
             sys.exit(2)
         data = run(["issue", "--user", uid, "--device", dev])
         data.update({"uid": uid, "device": dev, "ts": int(time.time())})
-        os.makedirs(SECRET, mode=0o711, exist_ok=True)
-        os.chmod(SECRET, 0o711)
+        ag = pwd.getpwnam("ou-agent")
+        os.makedirs(SECRET, mode=0o700, exist_ok=True)
+        os.chown(SECRET, ag.pw_uid, ag.pw_gid)     # the AGENT must own the directory: it unlinks the file after reading it (a root-owned dir kept the secret on disk)
+        os.chmod(SECRET, 0o700)
+        for f in os.listdir(SECRET):                # leftovers of a crashed run never live longer than the next issue
+            try:
+                if time.time() - os.stat(os.path.join(SECRET, f)).st_mtime > 60:
+                    os.unlink(os.path.join(SECRET, f))
+            except OSError:
+                pass
         path = os.path.join(SECRET, "pbx-issue-%s.%s.json" % (uid, dev))
         fd = os.open(path, os.O_WRONLY | os.O_CREAT | os.O_TRUNC, 0o600)
         with os.fdopen(fd, "w") as f:
             json.dump(data, f)
-        ag = pwd.getpwnam("ou-agent")
         os.chown(path, ag.pw_uid, ag.pw_gid)
         return
     uid = arg

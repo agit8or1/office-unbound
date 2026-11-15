@@ -28,7 +28,7 @@ USER_RUNBOOKS = {
     "pbx.issue_credential": ("ou-rb-pbx-issue", "pbx-issue"),   # params {user, device}: new SIP credential, returned ONCE (PBX keeps an md5 digest)
 }
 SIP_DEVICES = ("web", "native", "desk")
-SECRET_DIR = "/run/ou-rb-secret"   # 0711 root dir; the helper writes the credential result 0600 owned by ou-agent, the agent unlinks it after reading
+SECRET_DIR = "/run/ou-rb-secret"   # 0700 dir owned by ou-agent (made by the helper); the credential result is 0600, the agent unlinks it after reading
 UID_RE = re.compile(r"^[a-z][a-z0-9._-]{1,31}$")
 RESULT_DIR = "/run/ou-rb"
 MAX_RESULT = 24576

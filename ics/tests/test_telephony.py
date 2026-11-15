@@ -294,6 +294,11 @@ def test_polkit_rule_covers_pbx_templates(tmp_path):
     for t in ("ou-rb-pbx-sync", "ou-rb-pbx-kick", "ou-rb-pbx-state", "ou-rb-pbx-issue"):
         assert t in rule
     assert "{1,40}" in rule      # uid.device instance names
+    # the generated JavaScript regex must actually match the unit names the agent starts (a doubled backslash once made it match nothing: polkit "Access denied")
+    import re as _re
+    rx = _re.search(r"var m = /(.*)/\.exec", rule).group(1)
+    assert _re.fullmatch(rx, "ou-rb-pbx-sync@lt1dora.service") and _re.fullmatch(rx, "ou-rb-pbx-issue@lt1dora.native.service")
+    assert not _re.fullmatch(rx, "ou-rb-pbx-sync@lt1dora\\xservice") and not _re.fullmatch(rx, "ou-rb-pbx-sync@Lt1dora.service")
 
 
 # ---- the PBX provisioner (blueprints/telephony/pbx/ou_pbx.py) ------------------------------------------------------------------------------------

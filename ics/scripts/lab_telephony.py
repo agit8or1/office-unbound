@@ -23,13 +23,15 @@ import time
 
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 sys.path.insert(0, os.path.join(os.path.dirname(os.path.abspath(__file__)), "..", "..", "blueprints", "telephony", "tests"))
+os.environ.setdefault("PBX_HOST", "pbx2.ou-lab.internal")   # ou-pbx2 has its own names/address (blueprints/telephony/05-own-identity.sh)
+os.environ.setdefault("PBX_IP", "192.168.186.248")
 import lab_user_lifecycle as lul  # noqa: E402  (Api login, plan runner, secret_file helpers)
 from sip_probe import register  # noqa: E402
 
 demo, log, sh, secret_file, run_plan = lul.demo, lul.log, lul.sh, lul.secret_file, lul.run_plan
 STACK = "lab-tel"
 MACHINE = os.environ.get("PBX_MACHINE", "ou-pbx2")
-UID = "lt1dora"
+UID = os.environ.get("OU_TEL_UID", "lt1" + "".join(__import__("random").choices("abcdefghjkmnpqrstuvwxyz", k=6)))   # a deleted uid can never be reused (mailbox retained)
 EXT = "1030"
 BASE_DN = "dc=ou-lab,dc=internal"
 H = "http://127.0.0.1"
@@ -53,7 +55,7 @@ def mint_pbx_node(op, aps):
     rc, out = sh(MACHINE, "rm -f /var/lib/ou-agent/trust.json; setpriv --reuid=ou-agent --regid=ou-agent --clear-groups env PYTHONPATH=/opt/ou-agent python3 -m ou_agent arm-enroll")
     tok = re.search(r"TOKEN[^:]*: (\S+)", out).group(1)
     fps = dict(re.findall(r"(tls_fingerprint_sha256|agent_key_fingerprint_sha256)=([0-9a-f]{64})", out))
-    _, j = run_plan(op, aps, "node.enroll", {"name": MACHINE, "address": "192.168.186.247", "port": 8443,
+    _, j = run_plan(op, aps, "node.enroll", {"name": MACHINE, "address": os.environ["PBX_IP"], "port": 8443,
                                               "tls_fingerprint_sha256": fps["tls_fingerprint_sha256"],
                                               "agent_key_fingerprint_sha256": fps["agent_key_fingerprint_sha256"], "enrollment_token": tok})
     return j["result"]["node_id"]
@@ -73,7 +75,7 @@ def setup():
         "entitlement_group": "mail-users", "allowed_groups": ["mail-users"], "privileged_groups": [],
         "kc_url": "https://auth.ou-lab.internal", "kc_realm": "ou-lab", "kc_client_id": "ou-ics",
         "kc_client_secret": secret_file("ou-id1", "/root/ou-lab-secrets/kc-ics-client-secret"), "kc_offline_clients": [],
-        "identity_ca_pem": secret_file("ou-id1", "/etc/ou-lab/tls/ca.crt"), "pbx_node_id": node, "pbx_domain": "pbx.ou-lab.internal",
+        "identity_ca_pem": secret_file("ou-id1", "/etc/ou-lab/tls/ca.crt"), "pbx_node_id": node, "pbx_domain": os.environ["PBX_HOST"],
         "reconcile_interval_seconds": 0})
     log("stack registered")
 
@@ -99,9 +101,12 @@ def main():
     ca = tempfile.NamedTemporaryFile("w", suffix=".crt", delete=False)
     ca.write(secret_file("ou-id1", "/etc/ou-lab/tls/ca.crt"))
     ca.close()
-    if any(u["uid"] == UID and u["state"] != "deleted" for u in op.get("identity/users")):
-        raise SystemExit(f"{UID} exists: run cleanup first")
-    _, j = run_plan(op, aps, "idm.user.create", {"stack": STACK, "uid": UID, "display_name": "Lab Dora", "mail": f"{UID}@ou-lab.internal",
+    for u in op.get("identity/users"):   # leftovers of an aborted earlier run: disable (if needed) and delete
+        if u["stack"] == STACK and u["uid"] == UID and u["state"] != "deleted":
+            if u["state"] == "active":
+                run_plan(op, aps, "idm.user.disable", {"stack": STACK, "uid": UID, "rotate_credentials": False, "verify_timeout_seconds": 20, "reason": "lab leftover"})
+            run_plan(op, aps, "idm.user.delete", {"stack": STACK, "uid": UID, "reason": "lab leftover"})
+    _, j = run_plan(op, aps, "idm.user.create", {"stack": STACK, "uid": UID, "display_name": "Lab Dora Phone", "mail": f"{UID}@ou-lab.internal",
                                                   "groups": [], "mailbox": False, "extension": EXT})
     step = [s for s in j["result"]["steps"] if s["step"] == "pbx.sync"][0]
     check("create with extension: LDAP telephoneNumber set and PBX knows the extension", step.get("known_to_pbx") is True, step)
@@ -123,7 +128,7 @@ def main():
     bout = {}
 
     def call():
-        p = subprocess.run(["sudo", "systemd-run", "-M", MACHINE, "--quiet", "--pipe", "--wait", "bash", "/root/native-baresip.sh", "600", "80"],
+        p = subprocess.run(["sudo", "systemd-run", "-M", MACHINE, "--quiet", "--pipe", "--wait", "env", "PBX_HOST=" + os.environ["PBX_HOST"], "PBX_IP=" + os.environ["PBX_IP"], "bash", "/root/native-baresip.sh", "600", "80"],
                            input=f"{native['username']} {native['password']}\n", capture_output=True, text=True, timeout=150)
         bout["o"] = p.stdout
 

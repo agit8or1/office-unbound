@@ -27,7 +27,7 @@ print("  // identity runbooks: START exactly the fixed template units with a low
 print('  if (action.id == "org.freedesktop.systemd1.manage-units" && action.lookup("verb") == "start") {')
 # <uid>.<device> instance names (pbx.issue_credential) are up to 32 + 1 + 6 characters; every other runbook keeps the plain uid limit
 maxlen = 40 if "pbx.issue_credential" in cfg["runbooks"] else 31
-print('    var m = /^(ou-rb-[a-z-]+)@[a-z][a-z0-9._-]{1,%d}\\\\.service$/.exec(action.lookup("unit") || "");' % maxlen)
+print('    var m = /^(ou-rb-[a-z-]+)@[a-z][a-z0-9._-]{1,%d}\\.service$/.exec(action.lookup("unit") || "");' % maxlen)
 print("    if (m && tmpl.indexOf(m[1]) >= 0) return polkit.Result.YES;")
 print("  }")
 print("  return polkit.Result.NO;")

@@ -37,6 +37,7 @@ override_dh_auto_install:
 	find $(PKG)/usr/share/asterisk/static-http -type f ! -name 'core-*.xml' ! -name 'appdocsxml.xslt' -delete
 	install -d $(PKG)/etc/asterisk/ou $(PKG)/usr/share/doc/ou-asterisk
 	for f in asterisk modules logger pjsip http rtp extensions voicemail cdr manager; do install -m0640 debian/conf/$$f.conf $(PKG)/etc/asterisk/$$f.conf; done
+	install -m0640 configs/samples/stasis.conf.sample $(PKG)/etc/asterisk/stasis.conf
 	install -D -m0644 debian/ou-asterisk.service $(PKG)/lib/systemd/system/ou-asterisk.service
 	install -D -m0644 debian/ou-asterisk.sysusers $(PKG)/usr/lib/sysusers.d/ou-asterisk.conf
 	install -D -m0644 debian/ou-asterisk.tmpfiles $(PKG)/usr/lib/tmpfiles.d/ou-asterisk.conf
