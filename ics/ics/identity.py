@@ -48,7 +48,7 @@ class IdentityError(Exception):
 
 
 ACTIONS = ("idm.stack.register", "idm.user.create", "idm.user.update_groups", "idm.user.disable", "idm.user.enable", "idm.user.delete",
-           "idm.reconcile")
+           "idm.reconcile", "idm.user.devices")
 
 
 # ---- typed parameters --------------------------------------------------------------------------------------------------------------------
@@ -192,6 +192,19 @@ class UserDisable(_UserRef):
     rotate_credentials: bool = Field(default=True, description="replace the password with a random one known only to the VERIFY step (enables active probes with a baseline)")
     verify_timeout_seconds: int = Field(default=45, ge=5, le=75)
     reason: str = Field(default="", max_length=200)
+    wipe_devices: bool = Field(default=False, description="request an ActiveSync remote wipe for ALL of the user's devices BEFORE the account is suspended "
+                               "(destructive: plan risk is high, two approvers). A device can only receive it while it can still authenticate")
+    wipe_wait_seconds: int = Field(default=0, ge=0, le=300, description="how long to wait (before the lock) for devices to pick the wipe up; 0 = request only")
+
+    @model_validator(mode="after")
+    def _wipe(self) -> Self:
+        if self.wipe_wait_seconds and not self.wipe_devices:
+            raise ValueError("wipe_wait_seconds needs wipe_devices")
+        return self
+
+
+class UserDevices(_UserRef):
+    """Read only: the user's ActiveSync devices with wipe status and acknowledgement history."""
 
 
 class UserEnable(_UserRef):
@@ -616,8 +629,10 @@ def risk_for(db, action: str, p) -> str:
     """normal = one approver other than the requester; high = two. Privileged groups raise create/update to high."""
     if action in ("idm.stack.register", "idm.user.delete"):
         return "high"
-    if action == "idm.reconcile":
+    if action in ("idm.reconcile", "idm.user.devices"):
         return "low"
+    if action == "idm.user.disable" and getattr(p, "wipe_devices", False):
+        return "high"
     if action in ("idm.user.create", "idm.user.update_groups"):
         priv = set(_stack_row(db, p.stack).config.get("privileged_groups", []))
         touched = set(p.groups) if action == "idm.user.create" else set(p.add) | set(p.remove)
@@ -662,8 +677,14 @@ def precheck(db, rt: Runtime, action: str, p) -> dict:
         if bad:
             raise ValueError("group not allowed for this stack: " + ",".join(sorted(bad)))
         return {"privileged": sorted((set(p.add) | set(p.remove)) & set(cfg.get("privileged_groups", [])))}
+    if action == "idm.user.devices":
+        if not cfg.get("gromox_node_id"):
+            raise ValueError("this stack has no Gromox node")
+        _user_row(db, row.id, p.uid, ("active", "disabled"))
     if action == "idm.user.disable":
         _user_row(db, row.id, p.uid, ("active",))
+        if p.wipe_devices and not cfg.get("gromox_node_id"):
+            raise ValueError("wipe_devices needs a Gromox node in the stack")
     elif action == "idm.user.enable":
         _user_row(db, row.id, p.uid, ("disabled",))
     elif action == "idm.user.delete":
@@ -854,6 +875,38 @@ def _probe_cfg(rt: Runtime, stack: Stack) -> idprobe.ProbeConfig | None:
                                mail_ca_pem=c.get("mail_ca_pem"), allow_loopback=rt.settings.allow_loopback_endpoints)
 
 
+WIPE_POLL_SECONDS = 5.0
+WIPE_DELIVERED = 4          # user_devices.status: >= 4 means the device fetched the wipe instruction (REQUESTED 4, WIPED 8, account-only 32/64)
+
+
+def _devices_brief(r: dict) -> list[dict]:
+    return [{"device": d["device"], "status": d["status_name"], "last_sync": d.get("last_sync")} for d in r.get("devices", [])]
+
+
+def _wipe_devices(rt, stack, uid: str, wait_s: int, known, steps: list) -> dict:
+    """Request the wipe for every device and (optionally) wait until the devices picked it up. Runs BEFORE the lock: a suspended account cannot authenticate."""
+    t = time.monotonic()
+    nid = stack.cfg.get("gromox_node_id")
+    r = agent_user(rt, nid, "gromox.wipe_devices", uid, known)
+    devs = r.get("devices", [])
+    deadline = t + wait_s
+    while devs and any(d["status"] < WIPE_DELIVERED for d in devs) and time.monotonic() < deadline:
+        time.sleep(min(WIPE_POLL_SECONDS, max(0.0, deadline - time.monotonic())))
+        devs = agent_user(rt, nid, "gromox.devices", uid, known).get("devices", [])
+    pending = [d["device"] for d in devs if d["status"] < WIPE_DELIVERED]
+    out = {"requested": len(devs), "delivered": len(devs) - len(pending), "undelivered_devices": pending, "waited_s": round(time.monotonic() - t, 1),
+           "devices": _devices_brief({"devices": devs})}
+    _step(steps, "gromox.wipe_devices", t, **{k: v for k, v in out.items() if k != "devices"}, devices=out["devices"])
+    return out
+
+
+def exec_devices(rt: Runtime, db, m: UserDevices, plan, known: list[str]) -> dict:
+    stack = load_stack(rt, m.stack)
+    known.extend([stack.ldap_pw, stack.kc_secret])
+    r = agent_user(rt, stack.cfg["gromox_node_id"], "gromox.devices", m.uid, known)
+    return {"uid": m.uid, "devices": r.get("devices", [])}
+
+
 def exec_disable(rt: Runtime, db, m: UserDisable, plan, known: list[str]) -> dict:
     t_job = time.monotonic()
     stack = load_stack(rt, m.stack)
@@ -892,6 +945,14 @@ def exec_disable(rt: Runtime, db, m: UserDisable, plan, known: list[str]) -> dic
                 sessions["imap"] = idprobe.imap_open(pc, mail, canary)
                 baseline["imap_open_session"] = bool(sessions["imap"] and idprobe.imap_session_alive(sessions["imap"]))
             _step(steps, "verify.baseline", t, accepted_before_revocation={k: v for k, v in baseline.items()})
+        # 1b. things that need the account to be fully alive: device wipe delivery, OpenCloud app-token revocation (OpenCloud cannot resolve a locked user)
+        wipe = _wipe_devices(rt, stack, uid, m.wipe_wait_seconds, known, steps) if m.wipe_devices else None
+        oc_tokens = None
+        if stack.cfg.get("files_node_id"):
+            t = time.monotonic()
+            oc_tokens = agent_user(rt, stack.cfg["files_node_id"], "opencloud.revoke_app_tokens", uid, known)
+            _step(steps, "opencloud.revoke_app_tokens", t, resolved=oc_tokens.get("resolved"), listed=oc_tokens.get("listed"), revoked=oc_tokens.get("revoked"),
+                  remaining=oc_tokens.get("remaining"), ok=oc_tokens.get("ok"))
         # 2. revocation, timed from the moment the account is locked
         t = time.monotonic()
         t_lock = time.monotonic()
@@ -904,6 +965,9 @@ def exec_disable(rt: Runtime, db, m: UserDisable, plan, known: list[str]) -> dic
         gq = None
         if g is not None:
             _step(steps, "gromox.suspend", t, sync=[x["action"] for x in g.get("sync", [])], at=round(time.monotonic() - t_lock, 1))
+            t = time.monotonic()
+            gk = _gromox(rt, stack, "gromox.kill_sessions", uid, known)  # USER-KICK: the (patched) gromox-imap closes the user's open sessions
+            _step(steps, "gromox.kill_sessions", t, kick_sent=gk.get("kick_sent"), at=round(time.monotonic() - t_lock, 1))
             t = time.monotonic()
             gq = _gromox(rt, stack, "gromox.kick_user", uid, known)  # freeze store + unload midb + chmod 000: ends access of open IMAP sessions
             _step(steps, "gromox.quarantine_mailbox", t, frozen=gq.get("frozen"), midb_unloaded=gq.get("midb_unloaded"),
@@ -948,9 +1012,13 @@ def exec_disable(rt: Runtime, db, m: UserDisable, plan, known: list[str]) -> dic
         ok_states = (st["ldap"]["locked"] and (not kcs["id"] or (st["keycloak"]["online_sessions"] == 0 and st["keycloak"]["offline_sessions"] == 0))
                      and (not st.get("gromox") or (st["gromox"]["address_status"] == 1)))
         not_revoked = sorted(n for n, o in measured.items() if o["status"] != "refused" or (o["seconds"] or 0) > TARGET_SECONDS)
+        if oc_tokens is not None and oc_tokens.get("resolved") and not oc_tokens.get("ok"):
+            not_revoked.append("oc_app_tokens")       # the user was resolvable but the revoke did not finish cleanly
         verdict = {"mode": "canary_probe" if canary else "state_only", "target_seconds": TARGET_SECONDS, "measured_from": "LDAP lock applied", "lock_applied_epoch": lock_epoch,
                    "revocation_steps_complete_after_s": round(time.monotonic() - t_lock - 0, 1), "paths": measured,
                    "no_baseline_not_probed": not_probed, "state": st, "not_revoked": not_revoked,
+                   "oc_app_tokens": None if oc_tokens is None else {k: oc_tokens.get(k) for k in ("resolved", "listed", "revoked", "remaining", "temp_token_dead", "ok")},
+                   "device_wipe": wipe,
                    "overall": "PASS" if (ok_states and not not_revoked) else "FAIL"}
         with rt.session() as s:
             s.execute(text("UPDATE idm_users SET last_verification = CAST(:v AS jsonb) WHERE id = :i"), {"v": audit.canon(audit.sanitize(verdict)), "i": str(u.id)})
@@ -1183,8 +1251,8 @@ def reconcile_due(rt: Runtime) -> int:
     return n
 
 
-MODELS = {"idm.stack.register": StackRegister, "idm.user.create": UserCreate, "idm.user.update_groups": UserUpdateGroups,
+MODELS = {"idm.user.devices": UserDevices, "idm.stack.register": StackRegister, "idm.user.create": UserCreate, "idm.user.update_groups": UserUpdateGroups,
           "idm.user.disable": UserDisable, "idm.user.enable": UserEnable, "idm.user.delete": UserDelete, "idm.reconcile": Reconcile}
-EXECUTORS = {"idm.stack.register": exec_register, "idm.user.create": exec_create, "idm.user.update_groups": exec_update_groups,
+EXECUTORS = {"idm.user.devices": exec_devices, "idm.stack.register": exec_register, "idm.user.create": exec_create, "idm.user.update_groups": exec_update_groups,
              "idm.user.disable": exec_disable, "idm.user.enable": exec_enable, "idm.user.delete": exec_delete, "idm.reconcile": exec_reconcile}
 SECRETS = {"idm.stack.register": ("ldap_bind_password", "kc_client_secret")}

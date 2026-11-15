@@ -3,6 +3,7 @@
   "runbooks": {
     "service.status":  {"units": ["opencloud", "opencloud-collaboration", "nginx"]},
     "disk.usage":      {"paths": ["/", "/var/lib/opencloud"]},
-    "opencloud.check_user": {"enabled": true}
+    "opencloud.check_user": {"enabled": true},
+    "opencloud.revoke_app_tokens": {"enabled": true}
   }
 }

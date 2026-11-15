@@ -42,6 +42,11 @@ if grep -q '"gromox\.\|"opencloud\.' /etc/ou-agent/agent.json; then
   done
   grep -q '"gromox\.' /etc/ou-agent/agent.json && install -m 0755 -o root -g root "$D/runbooks/ou-gw-user" /usr/local/sbin/ou-gw-user
   grep -q '"opencloud\.' /etc/ou-agent/agent.json && install -m 0755 -o root -g root "$D/runbooks/ou-oc-check" /usr/local/sbin/ou-oc-check
+  grep -q '"opencloud\.' /etc/ou-agent/agent.json && install -m 0755 -o root -g root "$D/runbooks/ou-oc-revoke" /usr/local/sbin/ou-oc-revoke
+  if grep -q '"gromox\.wipe_devices' /etc/ou-agent/agent.json; then   # grommunio-sync wipe contract (runbooks/ou-wipe-api); its DB account is created by the operator
+    install -m 0755 -o root -g root "$D/runbooks/ou-wipe-api" /usr/local/sbin/ou-wipe-api
+    install -m 0644 "$D/runbooks/ou-wipe-api.service" /etc/systemd/system/ou-wipe-api.service
+  fi
   [ -n "${OU_MAIL_DOMAIN:-}" ] && printf '{"mail_domain": "%s"}\n' "$OU_MAIL_DOMAIN" > /etc/ou-rb/gromox.json
 fi
 python3 "$D/render_polkit.py" /etc/ou-agent/agent.json > /etc/polkit-1/rules.d/50-ou-agent.rules
