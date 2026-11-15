@@ -64,6 +64,14 @@ class FakeProvider:
             del self.vms[vmid]
         return t
 
+    def recover_clone_task(self, template_vmid, template_node, new_vmid, name, deployment_id):
+        """Real provider: newest OK qmclone task of this token on the template's node (read-only task list)."""
+        self._rec("recover_clone", name)
+        v = self.vms.get(new_vmid)
+        if v is None or v["name"] != name or template_vmid != 9000:
+            return None
+        return TaskRef(template_node, f"rec{new_vmid}", new_vmid, "qmclone", deployment_id, template_vmid, name)
+
     def finalize_clone(self, task):
         v = self.vms[task.vmid]
         assert task.template_vmid == 9000 and task.name == v["name"] and task.upid  # the persisted clone TaskRef round-trips intact

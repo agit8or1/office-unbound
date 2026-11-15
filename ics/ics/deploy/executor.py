@@ -168,6 +168,19 @@ def _require_owned(ctx: StepCtx, ref: VmRef, name: str):
     return g
 
 
+def _intent(ctx: StepCtx, vm: str) -> dict | None:
+    with ctx.rt.session() as db:
+        r = db.execute(text("SELECT actual FROM deployment_resources WHERE deployment_id = :d AND kind = 'vm' AND logical_name = :n"),
+                       {"d": ctx.deployment_id, "n": vm}).first()
+    return ((r.actual or {}).get("clone_intent")) if r else None
+
+
+def _record_intent(ctx: StepCtx, vm: str, intent: dict) -> None:
+    """Durable 'about to clone' marker written before the provider call; the first attempt's marker is kept on retries."""
+    if _intent(ctx, vm) is None:
+        ctx.resource("vm", vm, actual={"clone_intent": intent})
+
+
 def h_provider_task(ctx: StepCtx) -> dict:
     s, p, vm = ctx.step, ctx.step["params"], ctx.step["target"]
     prov, op = ctx.env.provider, s["op"]
@@ -183,16 +196,32 @@ def h_provider_task(ctx: StepCtx) -> dict:
             ctx.log(f"adopted existing tagged guest vmid {g['vmid']} left by an interrupted attempt")
             return {"node": g["node"], "vmid": g["vmid"], "adopted": True}
         d = prov.discover()
-        stray = next((x for x in d.guests if x["name"] == vm), None)
-        if stray is not None:  # same name, no ownership tags: a crash between clone and tagging, or somebody else's guest
-            raise StepFailed(f"a guest named {vm} (vmid {stray['vmid']}) already exists and is not tagged as owned by this deployment",
-                             "ICS never adopts or overwrites an untagged guest. If it is a leftover of an interrupted deployment, remove it in "
-                             f"Proxmox (or tag it ou-managed + ou-deployment-{ctx.slug}), then re-run.", retryable=False)
         tpl = next((t for t in d.templates if t["name"] == p["template"]), None)
+        stray = next((x for x in d.guests if x["name"] == vm), None)
+        if stray is not None:
+            # crash window between the clone and the ownership tag: the clone intent (with the VM ids that existed before) was recorded
+            # BEFORE the provider call, so an untagged guest of that name with a NEW vmid is our own clone. Recover its clone task from the
+            # provider and tag it via finalize_clone; anything else (no intent, vmid already existed, no task) is never adopted.
+            intent = _intent(ctx, vm)
+            recover = getattr(prov, "recover_clone_task", None)
+            task = None
+            if (intent and tpl is not None and int(stray["vmid"]) not in set(intent.get("pre_vmids", [])) and recover is not None
+                    and "ou-managed" not in stray["tags"] and not any(t.startswith("ou-deployment-") for t in stray["tags"])):
+                task = recover(int(tpl["vmid"]), tpl["node"], int(stray["vmid"]), vm, ctx.slug)
+            if task is None:
+                raise StepFailed(f"a guest named {vm} (vmid {stray['vmid']}) already exists and is not tagged as owned by this deployment",
+                                 "ICS never adopts or overwrites an untagged guest. If it is a leftover of an interrupted deployment, remove it in "
+                                 f"Proxmox (or tag it ou-managed + ou-deployment-{ctx.slug}), then re-run.", retryable=False)
+            ctx.resource("vm", vm, state="creating", provider_ref={"node": stray["node"], "vmid": stray["vmid"]})
+            ctx.log(f"recovered the clone task of an interrupted attempt for vmid {stray['vmid']}; it will be tagged next")
+            return {"node": stray["node"], "vmid": stray["vmid"], "recovered": True,
+                    "task": {"node": task.node, "upid": task.upid, "vmid": task.vmid, "kind": task.kind,
+                             "template_vmid": task.template_vmid, "name": task.name}}
         if tpl is None:
             raise StepFailed(f"template {p['template']!r} was not found in the approved pool(s)",
                              "The OS image template is not visible to the provisioning credential; add it to an allowed pool "
                              "(or list its VM id in the endpoint's allowed templates).", retryable=False)
+        _record_intent(ctx, vm, {"pre_vmids": sorted(int(x["vmid"]) for x in d.guests), "template_vmid": int(tpl["vmid"])})
         spec = VmCloneSpec(template_vmid=int(tpl["vmid"]), template_node=tpl["node"], new_vmid=None, name=vm, pool=p["pool"],
                            storage=p["storage"], deployment_id=ctx.slug, target_node=p["node"])
         task = _poll(ctx, prov.clone_vm(spec), f"clone {vm}")

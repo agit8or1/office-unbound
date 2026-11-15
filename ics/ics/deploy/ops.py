@@ -441,10 +441,18 @@ def exec_destroy(rt, db, m: DeploymentDestroy, plan_row, known) -> dict:
     names = [v["name"] for v in plan["vms"]]
 
     def verify_gone(env: ExecEnv) -> None:
-        guests = env.provider.discover().guests
         tag = f"ou-deployment-{dep.slug}"
-        left = [n for n in names if refs.get(n) and refs[n].get("vmid") is not None
-                and any(int(g.vmid) == int(refs[n]["vmid"]) and tag in g.tags for g in guests)]
+        for attempt in range(4):  # /cluster/resources lags behind a destroy by a few seconds (real-cluster lesson): re-check before failing
+            lease = getattr(env, "lease", None)
+            if lease is not None:
+                lease.check()
+            guests = env.provider.discover().guests  # guests are dicts (providers.base.Discovery)
+            left = [n for n in names if refs.get(n) and refs[n].get("vmid") is not None
+                    and any(int(g["vmid"]) == int(refs[n]["vmid"]) and tag in g["tags"] and g["name"] == n for g in guests)]
+            if not left:
+                break
+            if attempt < 3:
+                env.sleep(env.poll_interval)
         if left:
             with rt.session() as d3:  # the surviving VMs stay tracked (not 'removed')
                 for n in left:
