@@ -73,10 +73,14 @@ def verify(pub: Ed25519PublicKey, prefix: bytes, obj, sig: str) -> bool:
 
 
 def build_request(priv, *, action: str, params: dict, node_id: str, job_id: str, ttl: int = 60, now: int | None = None,
-                  nonce: str | None = None) -> dict:
+                  nonce: str | None = None, epoch: int | None = None) -> dict:
+    """`epoch` is the controller epoch (ADR-0012): agents refuse a request whose epoch is lower than the highest they have seen.
+    None omits the field (pre-epoch wire format; accepted by agents only until they have seen any epoch)."""
     now = int(time.time()) if now is None else now
     req = {"v": 1, "action": action, "params": params, "node_id": node_id, "job_id": job_id,
            "issued_at": now, "expires_at": now + ttl, "nonce": nonce or secrets.token_urlsafe(24)}
+    if epoch is not None:
+        req["epoch"] = int(epoch)
     return {"req": req, "sig": sign(priv, REQ_PREFIX, req)}
 
 
@@ -145,7 +149,16 @@ def call(node, priv, *, action: str, params: dict, job_id: str, ttl: int = 60, d
         raise AgentError("agent response has the wrong type")
     if resp.get("nonce") != req.get("nonce") or resp.get("job_id") != req.get("job_id") or resp.get("node_id") != str(node.id):
         raise AgentError("agent response does not match the request (nonce/job/node)")
+    if resp.get("code") in ("stale_epoch", "epoch_required") and stale_epoch_hook is not None:
+        try:
+            stale_epoch_hook(resp.get("agent_epoch"))
+        except Exception:  # noqa: BLE001 - never mask the refusal itself
+            pass
     return req, resp
+
+
+# Set by Runtime: called with the agent's highest-seen epoch when an agent refuses us as stale (we were fenced).
+stale_epoch_hook = None
 
 
 def new_job_id() -> str:

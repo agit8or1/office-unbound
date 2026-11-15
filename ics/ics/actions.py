@@ -1234,7 +1234,7 @@ def _exec_runbook(rt: Runtime, db: Session, m: RunbookExecute, plan, known: list
     priv = agentclient.load_signing_key(rt.settings.signing_key_file)
     params = {"unit": m.unit} if m.unit else {"path": m.path}
     body = agentclient.build_request(priv, action=m.runbook, params=params, node_id=str(node.id), job_id=jid,
-                                     ttl=rt.settings.agent_request_ttl_seconds)
+                                     ttl=rt.settings.agent_request_ttl_seconds, epoch=rt.agent_epoch())
     req = body["req"]
     with rt.session() as d2:  # persisted BEFORE the call, independent of this job's transaction
         d2.execute(text("INSERT INTO agent_requests (node_id, job_id, nonce, action, issued_at, expires_at) "

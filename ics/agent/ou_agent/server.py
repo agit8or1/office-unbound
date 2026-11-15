@@ -53,6 +53,7 @@ class Agent:
         self.key = load_agent_key(state_dir)
         self.pub_b64 = b64pub(self.key)
         self.journal = Journal(os.path.join(state_dir, "journal"))
+        self.epochs = proto.EpochGate(os.path.join(state_dir, "epoch.json"))
         self.exec_lock = threading.Lock()
         self.enroll_lock = threading.Lock()
         self.enroll_fail_delay = ENROLL_FAIL_DELAY
@@ -127,6 +128,7 @@ class Agent:
         now = int(time.time()) if now is None else now
         tr = self.trust()
         base = {"v": 1, "type": "exec", "node_id": tr["node_id"] if tr else None, "job_id": None, "nonce": None, "at": now}
+        base["agent_epoch"] = self.epochs.max_epoch   # lets a fenced controller learn why it was refused
         req = body.get("req") if isinstance(body, dict) else None
         # Review L2: nothing is signed, and nothing attacker-chosen is echoed, until the request signature has verified.
         if tr is None:
@@ -143,6 +145,7 @@ class Agent:
                 base[k] = req[k]
         try:
             proto.check_envelope(req, now=now, node_id=tr["node_id"])
+            base["agent_epoch"] = self.epochs.admit(req.get("epoch"))   # fencing: stale/missing epoch is refused BEFORE anything is recorded or run
             self.journal.accept(req["nonce"], req["job_id"])  # before anything else: replays and re-runs are impossible
             params = runbooks.check_allowed(self.cfg, req["action"], req["params"])
             with self.exec_lock:
@@ -155,6 +158,7 @@ class Agent:
                 self.journal.gc()
             return 200, self.signed({**base, "status": "ok", "code": "ok", "result": result})
         except Reject as r:
+            base["agent_epoch"] = self.epochs.max_epoch
             return 403, self.signed({**base, "status": "rejected", "code": r.code, "result": {"message": r.msg}})
 
 
@@ -225,7 +229,7 @@ def make_handler(agent: Agent):
         def do_GET(self):
             if self.path == "/v1/identity":
                 return self._send(200, {"v": 1, "agent_pubkey": agent.pub_b64, "enrolled": agent.trust() is not None,
-                                        "agent_version": __version__})
+                                        "agent_version": __version__, "max_epoch": agent.epochs.max_epoch})
             self._send(404, {"error": "not_found"})
 
         def do_POST(self):

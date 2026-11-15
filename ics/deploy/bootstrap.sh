@@ -18,6 +18,7 @@ export LC_ALL=C
 
 LISTEN_IP=""; HOSTNAME_FQDN=""; ADMIN=""; SKIP_TLS=0; SKIP_FW=0; UNINSTALL=0; PURGE=0
 TLS_CERT=""; TLS_KEY=""; ALLOW=()
+STANDBY_OF=""; KEY_BUNDLE=""; BUNDLE_PASS=""; REBUILD=0
 CHANGES=()
 
 usage() {
@@ -25,6 +26,10 @@ cat <<'EOF'
 usage: bootstrap.sh --listen-ip IP --allow-cidr CIDR [--allow-cidr CIDR ...] [--hostname FQDN] [--admin USER]
                     [--tls-cert FILE --tls-key FILE] [--skip-firewall]
        bootstrap.sh --skip-tls [--admin USER]            loopback-only (no nginx, no firewall, no certificates)
+       bootstrap.sh --standby-of PRIMARY_IP --key-bundle FILE --bundle-passphrase-file FILE --listen-ip IP --allow-cidr CIDR [--rebuild]
+                    warm STANDBY controller (ADR-0012): clones the primary over TLS streaming replication and runs passive.
+                    Prepare the primary first with ics/deploy/standby/ics-standby-prepare-primary.sh. --rebuild destroys this
+                    host's database and re-clones (how a failed old primary returns as a standby).
        bootstrap.sh --uninstall [--purge]                remove services/config; keys, DB and certs are KEPT unless --purge
   --listen-ip IP     address nginx listens on (:443); must be configured on this host
   --allow-cidr C     source network allowed to reach the console (nginx + nftables); repeatable, at least one
@@ -48,6 +53,10 @@ while [ $# -gt 0 ]; do
     --tls-key) TLS_KEY="${2:?}"; shift 2;;
     --skip-tls) SKIP_TLS=1; shift;;
     --skip-firewall) SKIP_FW=1; shift;;
+    --standby-of) STANDBY_OF="${2:?}"; shift 2;;
+    --key-bundle) KEY_BUNDLE="${2:?}"; shift 2;;
+    --bundle-passphrase-file) BUNDLE_PASS="${2:?}"; shift 2;;
+    --rebuild) REBUILD=1; shift;;
     --uninstall) UNINSTALL=1; shift;;
     --purge) PURGE=1; shift;;
     -h|--help) usage; exit 0;;
@@ -88,6 +97,12 @@ fi
 # ------------------------------------------------------------------------------------------------------------ preflight
 . /etc/os-release
 [ "${ID:-}" = ubuntu ] && [ "${VERSION_ID:-}" = "24.04" ] || die "Ubuntu 24.04 required (found ${PRETTY_NAME:-unknown})"
+if [ -n "$STANDBY_OF" ]; then
+  [ "$SKIP_TLS" = 0 ] || die "--standby-of needs the TLS console (--listen-ip/--allow-cidr), not --skip-tls"
+  [ -f "$KEY_BUNDLE" ] && [ -f "$BUNDLE_PASS" ] || die "--standby-of needs --key-bundle FILE and --bundle-passphrase-file FILE (created by ics-standby-prepare-primary.sh on the primary)"
+  python3 -I -c 'import ipaddress,sys; a=ipaddress.ip_address(sys.argv[1]); assert a.version==4' "$STANDBY_OF" 2>/dev/null || die "invalid --standby-of address"
+  [ -z "$ADMIN" ] || die "--admin is not used on a standby (accounts are replicated from the primary)"
+fi
 [ -f "$SRC/requirements.lock" ] && [ -d "$SRC/migrations" ] && [ -f "$SRC/deploy/install.sh" ] || die "not an ICS source tree: $SRC"
 [[ -z "$ADMIN" || "$ADMIN" =~ ^[a-z0-9._-]{1,64}$ ]] || die "--admin must match [a-z0-9._-]{1,64}"
 if [ "$SKIP_TLS" = 1 ]; then
@@ -110,6 +125,7 @@ fi
 
 # ------------------------------------------------------------------------------------------------------------ packages
 PKGS=(python3 python3-venv postgresql-16 rsync openssl curl sudo ca-certificates)
+[ -z "$STANDBY_OF" ] || PKGS+=(python3-cryptography)
 [ "$SKIP_TLS" = 1 ] || PKGS+=(nginx nftables)
 MISSING=()
 for p in "${PKGS[@]}"; do dpkg-query -W -f='${Status}' "$p" 2>/dev/null | grep -q '^install ok installed$' || MISSING+=("$p"); done
@@ -165,6 +181,37 @@ PY
 env_kv() { local out; out="$(envset "$@")"; [ -z "$out" ] || changed "$1: $2"; }
 unit_wait() { local i; for i in $(seq 1 "$2"); do eval "$1" && return 0; sleep 1; done; return 1; }
 
+# ------------------------------------------------------------------------------------------------- warm standby clone
+PGV=16; PGC=/etc/postgresql/$PGV/main; PGDATA=/var/lib/postgresql/$PGV/main
+if [ -n "$STANDBY_OF" ]; then
+  getent passwd ics >/dev/null || { useradd --system --no-create-home --home-dir /nonexistent --shell /usr/sbin/nologin ics; changed "user ics"; }
+  install -d -o root -g root -m 0711 "$ETC"; install -d -o root -g root -m 0755 "$STATE"
+  if [ -f "$PGDATA/standby.signal" ] && [ "$REBUILD" = 0 ]; then
+    log "this host is already a standby clone (standby.signal present): keeping the replica (use --rebuild to re-clone)"
+  else
+    if [ "$REBUILD" = 0 ] && systemctl is-active -q postgresql.service && [ "$(runuser -u postgres -- psql -X -Atc "select 1 from pg_database where datname='ics'" 2>/dev/null)" = 1 ]; then
+      die "this host already has an 'ics' database. A standby is a COPY of the primary: re-run with --rebuild to DESTROY the local database and re-clone"
+    fi
+    log "importing the encrypted key bundle (explicit key transfer; keys are never synced continuously)"
+    python3 -I "$SRC/ics/keybundle.py" import --bundle "$KEY_BUNDLE" --passphrase-file "$BUNDLE_PASS" --etc "$ETC" >/dev/null || die "key bundle import failed"
+    changed "imported key bundle (vault/audit/signing keys, env files, replicator password, primary CA)"
+    systemctl stop ics.service ics-migrate.service 2>/dev/null || true
+    systemctl stop postgresql.service 2>/dev/null || true
+    install -m 0644 -o postgres -g postgres "$ETC/primary-ca.crt" "$PGC/ou-primary-ca.crt"
+    ( umask 077; printf '%s:5432:replication:replicator:%s\n' "$STANDBY_OF" "$(cat "$ETC/replicator.pw")" > /var/lib/postgresql/ou-repl.pgpass ); chown postgres:postgres /var/lib/postgresql/ou-repl.pgpass
+    find "$PGDATA" -mindepth 1 -delete
+    CONNINFO="host=$STANDBY_OF port=5432 user=replicator sslmode=verify-full sslrootcert=$PGC/ou-primary-ca.crt passfile=/var/lib/postgresql/ou-repl.pgpass"
+    log "pg_basebackup from $STANDBY_OF over TLS (verify-full against the primary CA), slot ics_standby"
+    runuser -u postgres -- pg_basebackup -d "$CONNINFO" -D "$PGDATA" -X stream -S ics_standby -R -c fast >/dev/null || die "pg_basebackup failed (is the primary prepared for THIS address? nft/pg_hba/slot)"
+    [ -f "$PGDATA/standby.signal" ] || die "no standby.signal after base backup"
+    printf '# Office Unbound standby (ADR-0012)\nhot_standby = on\nmax_wal_senders = 4\nmax_replication_slots = 4\n' > "$PGC/conf.d/90-ou-replication.conf"
+    changed "PostgreSQL cloned from $STANDBY_OF (physical streaming replica, hot standby)"
+    systemctl start postgresql.service
+  fi
+  python3 -I -c 'import sys; f=sys.argv[1]; L=[l for l in open(f).read().splitlines() if l.split("=",1)[0].strip() not in ("ICS_ROLE","ICS_WORKER_ENABLED","ICS_MONITOR_ENABLED")]+["ICS_ROLE=standby"]; open(f,"w").write("\n".join(L)+"\n")' "$ETC/ics.env"
+  chown root:ics "$ETC/ics.env"; chmod 0640 "$ETC/ics.env"
+fi
+
 # ------------------------------------------------------------------------------------------------- user, dirs, postgres
 getent passwd ics >/dev/null || { useradd --system --no-create-home --home-dir /nonexistent --shell /usr/sbin/nologin ics; changed "user ics"; }
 [ -d "$ETC" ] || changed "created $ETC"
@@ -207,6 +254,7 @@ ensure_key "$ETC/vault.key" 32 1
 ensure_key "$ETC/audit.key" 32 0
 ensure_key "$ETC/ics-signing.key" 32 1
 
+if [ -z "$STANDBY_OF" ]; then   # (a standby gets roles, database and env files from the primary: replication + key bundle)
 # --------------------------------------------------------------------------------------------- database roles + db
 url_pw() { ENVU="$(envget "$1" "$2")" python3 -I -c 'import os,urllib.parse as u; print(u.urlsplit(os.environ["ENVU"]).password or "")'; }
 role_exists() { [ "$(runuser -u postgres -- psql -X -Atc "select 1 from pg_roles where rolname='$1'")" = 1 ]; }
@@ -252,6 +300,7 @@ for spec in "ics.env 640 root:ics" "ics-migrate.env 600 root:root"; do
   set -- $spec
   if [ "$(stat -c '%a %U:%G' "$ETC/$1")" != "$2 $3" ]; then chown "$3" "$ETC/$1"; chmod "$2" "$ETC/$1"; changed "mode/owner of $ETC/$1"; fi
 done
+fi   # end: not a standby
 
 # ----------------------------------------------------------------------------------------------------------- TLS
 CA_FPR=""; CERT_FPR=""; SERVER_NAME=""
@@ -452,6 +501,7 @@ echo
 echo "================ Office Unbound ICS: bootstrap summary ================"
 echo "console URL        : $URL"
 echo "release            : ${REL:0:16}... ($OPT)"
+[ -z "$STANDBY_OF" ] || echo "role               : WARM STANDBY of $STANDBY_OF (passive, read-only; promote with: sudo ics/deploy/standby/ics-promote.sh - see docs/runbooks/ics-recovery.md)"
 dpkg-query -W -f='package            : ${Package} ${Version}\n' postgresql-16 python3-venv $([ "$SKIP_TLS" = 1 ] || echo nginx nftables)
 if [ "$SKIP_TLS" = 1 ]; then echo "mode               : loopback only (127.0.0.1:8088, no TLS, no nginx, no firewall)"
 else

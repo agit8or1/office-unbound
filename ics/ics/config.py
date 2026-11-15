@@ -84,6 +84,8 @@ class Settings:
     metrics_interval_seconds: int = 60
     metrics_retention_days: int = 30
     inventory_stale_seconds: int = 900
+    role: str = "primary"                        # ADR-0012: 'standby' = passive warm standby (no worker, no mutations, never signs agent requests)
+    standby_max_lag_seconds: int = 60            # /readyz replication check on a standby
     trusted_proxy: str | None = None             # exact IP of a local reverse proxy whose X-Forwarded-For is honoured (e.g. 127.0.0.1); None = ignore XFF
 
 
@@ -96,6 +98,13 @@ def _trusted_proxy(v: str | None) -> str | None:
     if not ip.is_loopback:
         raise RuntimeError("ICS_TRUSTED_PROXY must be a loopback address (local reverse proxy only)")
     return str(ip)
+
+
+def _role(v: str | None) -> str:
+    v = (v or "primary").strip().lower()
+    if v not in ("primary", "standby"):
+        raise RuntimeError("ICS_ROLE must be 'primary' or 'standby'")
+    return v
 
 
 def load_settings() -> Settings:
@@ -113,10 +122,11 @@ def load_settings() -> Settings:
             signing_key_file=env.get("ICS_SIGNING_KEY_FILE") or None,
             monitor_enabled=b("ICS_MONITOR_ENABLED", True),
             cookie_secure=b("ICS_COOKIE_SECURE", True),
-            worker_enabled=b("ICS_WORKER_ENABLED", True),
+            worker_enabled=b("ICS_WORKER_ENABLED", True) and _role(env.get("ICS_ROLE")) == "primary",
             enable_docs=b("ICS_ENABLE_DOCS", False),
             login_max_failures=int(env.get("ICS_LOGIN_MAX_FAILURES", 5)),
             allow_loopback_endpoints=b("ICS_ALLOW_LOOPBACK_ENDPOINTS", False),
+            role=_role(env.get("ICS_ROLE")),
             trusted_proxy=_trusted_proxy(env.get("ICS_TRUSTED_PROXY")),
         )
     except KeyError as e:  # pragma: no cover
