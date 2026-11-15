@@ -61,8 +61,11 @@ class NodeCap:
 @dataclass
 class StorageCap:
     name: str
-    avail_gb: int
+    avail_gb: int          # PHYSICAL free space (never inflated by thin provisioning)
     nodes: list[str] = field(default_factory=list)   # [] = shared (usable from every node)
+    total_gb: int = 0
+    thin: bool = False
+    provisioned_gb: int | None = None   # already-provisioned virtual size (thin pools); unknown = None
 
     @property
     def key(self) -> str:
@@ -213,6 +216,7 @@ def _place(vms: list[_Vm], inp: PlanInput, prof: Profile, cat: Catalog, cap: Cap
     free_cpu = {k: n.cores * pl.cpu_overcommit - n.used_vcpus for k, n in usable.items()}
     caps = {s.key: s for s in cap.storages}
     free_sto = {k: caps[k].avail_gb * (100 - pl.storage_reserve_pct) // 100 for k in sorted(caps)}
+    cap_start = dict(free_sto)
 
     def keys_for(node: str, real: str | None = None) -> list[str]:
         return [k for k in sorted(caps) if (not caps[k].nodes or node in caps[k].nodes) and (real is None or caps[k].name == real)]
@@ -316,6 +320,19 @@ def _place(vms: list[_Vm], inp: PlanInput, prof: Profile, cat: Catalog, cap: Cap
     # remaining capacity (after plan)
     out_nodes = [{"name": k, "memory_free_mb": free_mem[k], "vcpu_free": free_cpu[k], "vms_placed": node_load[k]} for k in sorted(usable)]
     out_sto = [{"name": s, "avail_after_gb": free_sto[s]} for s in sorted(free_sto)]
+    for k in sorted(caps):
+        c = caps[k]
+        if c.thin and c.total_gb > 0:
+            used_new = (cap_start[k] - free_sto[k]) if k in cap_start else 0
+            prov = (c.provisioned_gb if c.provisioned_gb is not None else c.total_gb - c.avail_gb) + used_new
+            ratio_pct = prov * 100 // c.total_gb
+            if c.provisioned_gb is None:
+                warnings.append(_err("thin_provisioned_unknown", f"storage {k} is thin-provisioned and its provisioned size is unknown; only physical free space is used"))
+            if used_new and ratio_pct > pl.thin_max_ratio_pct:
+                errors.append(_err("thin_overcommit", f"storage {k} would be provisioned at {ratio_pct}% of physical capacity (policy maximum {pl.thin_max_ratio_pct}%)",
+                                   storage=k, ratio_pct=ratio_pct))
+            elif used_new and ratio_pct > 100:
+                warnings.append(_err("thin_overcommit_warning", f"storage {k} is over-committed ({ratio_pct}% provisioned vs physical) and this plan adds to it"))
     if inp.storage is not None and inp.storage not in {c.name for c in caps.values()}:
         errors.append(_err("unknown_storage", f"storage {inp.storage!r} is not in the inventory"))
     for n in out_nodes:
@@ -520,6 +537,11 @@ def generate_plan(inp: PlanInput, cap: Capacity, cat: Catalog | None = None, exi
         errors.append(_err("unknown_bridge", f"bridge {inp.bridge!r} is not in the inventory"))
     if not cap.nodes:
         errors.append(_err("no_inventory", "no node inventory is available for the endpoint; run inventory.refresh first"))
+    if inp.vlan is None:
+        warnings.append(_err("no_vlan_isolation", "no VLAN is set: guests share the untagged bridge network, so tenants/deployments are NOT network-isolated "
+                                                  "from other guests on that bridge (firewall rules in the plan still apply inside the VMs)"))
+    if osimg is not None and osimg.id != "ubuntu-24.04":
+        warnings.append(_err("os_image_unvalidated", f"component packages were validated on Ubuntu 24.04 (noble); {osimg.id} is not validated"))
     if prof.maturity == "experimental":
         warnings.append(_err("profile_experimental", f"profile {prof.name!r} is experimental: layout is generated but has not been validated on a lab or customer run"))
     if prof.ha:
@@ -593,11 +615,15 @@ def capacity_from_inventory(data: dict, deployment_id: str | None = None) -> Cap
             if not isinstance(nm, str):
                 continue
             avail = int(s.get("avail", 0) or 0) // (1024 ** 3)
+            total = int(s.get("total", 0) or 0) // (1024 ** 3)
+            thin = "thin" in str(s.get("type", ""))
+            prov = s.get("provisioned")
+            prov = int(prov) // (1024 ** 3) if isinstance(prov, (int, float)) else None
             if s.get("shared"):
                 cur = storages.get(nm)
-                storages[nm] = StorageCap(nm, avail if cur is None else min(cur.avail_gb, avail), [])
+                storages[nm] = StorageCap(nm, avail if cur is None else min(cur.avail_gb, avail), [], total, thin, prov)
             else:
-                storages[f"{nm}@{name}"] = StorageCap(nm, avail, [name])
+                storages[f"{nm}@{name}"] = StorageCap(nm, avail, [name], total, thin, prov)
         for b in n.get("network", []):
             if isinstance(b, dict) and b.get("type") in ("bridge", "OVSBridge") and isinstance(b.get("iface"), str):
                 bridges = (bridges or set()) | {b["iface"]}

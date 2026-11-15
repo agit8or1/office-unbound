@@ -233,6 +233,7 @@ class PlacementDefaults(_M):
     cpu_overcommit: int = Field(ge=1, le=32)
     memory_reserve_pct: int = Field(ge=0, le=50)
     storage_reserve_pct: int = Field(ge=0, le=50)
+    thin_max_ratio_pct: int = Field(default=100, ge=100, le=1000, description="max provisioned/physical % on thin pools a plan may create")
 
 
 class Meta(_M):

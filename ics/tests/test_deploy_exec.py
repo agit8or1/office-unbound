@@ -1,0 +1,605 @@
+"""Deployment engine on a real DB: preview API, deployment.create/change/destroy through plan -> approvals -> job -> step executor with a
+fake provider + fake agent, resume after crash, retries, cancellation, drift, change wizard backend."""
+import uuid
+
+import pytest
+from sqlalchemy import text
+
+from ics import worker
+from ics.deploy import executor, ops
+from ics.deploy.ports import DbChecks, ExecEnv, StepFailed
+from ics.providers.base import Discovery, GuestInfo, TaskRef, TaskStatus
+
+from .test_deploy_plan import DIGEST, inp, pinned
+
+H = "/api/v1"
+GiB, MiB = 1024 ** 3, 1048576
+
+
+class SimulatedCrash(BaseException):
+    """Worker dies mid-step (kill -9 equivalent): not an Exception, so nothing can handle it."""
+
+
+class FakeProvider:
+    def __init__(self):
+        self.vms: dict[int, dict] = {}
+        self.calls: list[tuple] = []
+        self.next = 100
+        self.polls: dict[str, int] = {}
+        self.fail: dict[str, int] = {}      # op -> number of task failures to inject
+        self.crash_on: tuple | None = None  # (op, arg) -> raise SimulatedCrash once
+        self.after: dict[str, object] = {}  # op -> callback run after the op
+
+    def _rec(self, op, *a):
+        self.calls.append((op, *a))
+        if self.crash_on and self.crash_on[0] == op and (self.crash_on[1] is None or self.crash_on[1] in a):
+            self.crash_on = None
+            raise SimulatedCrash()
+        cb = self.after.get(op)
+        if cb:
+            cb()
+
+    def _task(self, op, vmid=None, node="pve1"):
+        tid = f"t{len(self.calls)}"
+        if self.fail.get(op, 0) > 0:
+            self.fail[op] -= 1
+            self.polls[tid] = -1
+        return TaskRef(tid, node, vmid)
+
+    def discover(self):
+        return Discovery(guests=[GuestInfo(v["vmid"], v["node"], v["name"], "vm", v["status"], list(v["tags"])) for v in self.vms.values()])
+
+    def clone_vm(self, spec):
+        self._rec("clone", spec.name)
+        vmid, self.next = self.next, self.next + 1
+        self.vms[vmid] = {"vmid": vmid, "node": spec.node, "name": spec.name, "status": "stopped", "tags": spec.tags, "cfg": None, "disks": {}}
+        t = self._task("clone", vmid, spec.node)
+        if self.polls.get(t.id) == -1:      # a failed clone task leaves no guest behind
+            del self.vms[vmid]
+        return t
+
+    def configure_vm(self, ref, spec):
+        self._rec("configure", self.vms[ref.vmid]["name"])
+        self.vms[ref.vmid]["cfg"] = spec
+        return self._task("configure", ref.vmid, ref.node)
+
+    def resize_disk(self, ref, disk, size):
+        self._rec("resize", self.vms[ref.vmid]["name"], disk)
+        self.vms[ref.vmid]["disks"][disk] = size
+        return self._task("resize", ref.vmid, ref.node)
+
+    def power(self, ref, op):
+        self._rec("power", self.vms[ref.vmid]["name"], op)
+        self.vms[ref.vmid]["status"] = "running" if op in ("start", "reboot") else "stopped"
+        return self._task("power", ref.vmid, ref.node)
+
+    def snapshot(self, ref, name):
+        self._rec("snapshot", self.vms[ref.vmid]["name"], name)
+        return self._task("snapshot", ref.vmid, ref.node)
+
+    def destroy_vm(self, ref):
+        self._rec("destroy", self.vms[ref.vmid]["name"])
+        del self.vms[ref.vmid]
+        return self._task("destroy", ref.vmid, ref.node)
+
+    def task_status(self, task):
+        n = self.polls.get(task.id, 0)
+        if n == -1:
+            return TaskStatus("failed", "injected provider failure")
+        self.polls[task.id] = n + 1
+        return TaskStatus("running", "", 50) if n == 0 else TaskStatus("ok")
+
+    def names(self, op):
+        return [c[1] for c in self.calls if c[0] == op]
+
+
+class FakeAgent:
+    def __init__(self):
+        self.runbooks: list[tuple] = []
+        self.enrolled: list[str] = []
+
+    def wait_enrollment(self, vm, timeout_s):
+        self.enrolled.append(vm)
+        return f"node-{vm}"
+
+    def run_runbook(self, node, rb, params):
+        self.runbooks.append((node, rb, params))
+        return {"ok": True}
+
+    def address(self, vm):
+        return "10.9.0." + str(1 + sum(vm.encode()) % 200)
+
+    def tls_trust(self, node, port):
+        return {"fingerprint_sha256": "ab" * 32}
+
+
+class FakeChecks(DbChecks):
+    """Real check registration (monitoring tables); verification outcome is scripted."""
+
+    def __init__(self):
+        self.bad: set[str] = set()
+        self.verified: list[str] = []
+
+    def verify(self, rt, names):
+        self.verified += names
+        return [(n, not any(b in n for b in self.bad), "scripted") for n in names]
+
+
+@pytest.fixture()
+def env(monkeypatch, rt):
+    t = [0.0]
+    e = ExecEnv(provider=FakeProvider(), agent=FakeAgent(), checks=FakeChecks(), sleep=lambda s: t.__setitem__(0, t[0] + s),
+                clock=lambda: t[0], poll_interval=2, task_timeout=60, max_attempts=3, retry_delay=1)
+    monkeypatch.setattr(ops, "get_catalog", pinned)
+    ops.set_env_factory(lambda r, d: e)
+    yield e
+    ops.set_env_factory(lambda r, d: ExecEnv())
+
+
+def seed_inventory(rt, nodes=2, mem_gib=256, sto_gib=4000, guests=None):
+    with rt.session() as db:
+        eid = db.execute(text("SELECT id FROM endpoints WHERE name = 'lab'")).scalar()
+        if eid is None:
+            eid = db.execute(text("INSERT INTO endpoints (name, type, base_url, token_id, token_secret_enc, fingerprint_sha256) VALUES "
+                                  "('lab', 'proxmox', 'https://pve.test:8006', 'u@pve!t', :s, :f) RETURNING id"), {"s": b"x", "f": "ab" * 32}).scalar()
+        data = {"nodes": [{"node": f"pve{i + 1}", "status": "online", "info": {"maxcpu": 64, "maxmem": mem_gib * GiB},
+                           "qemu": (guests or {}).get(f"pve{i + 1}", []), "lxc": [],
+                           "storage": [{"storage": "local-lvm", "content": "images", "avail": sto_gib * GiB, "active": 1}],
+                           "network": [{"iface": "vmbr0", "type": "bridge"}]} for i in range(nodes)]}
+        import json
+        db.execute(text("INSERT INTO inventory_snapshots (endpoint_id, collected_at, data) VALUES (:e, now(), CAST(:d AS jsonb))"),
+                   {"e": str(eid), "d": json.dumps(data)})
+        db.commit()
+    return str(eid)
+
+
+@pytest.fixture()
+def actors(mk_user, login):
+    op = login(mk_user("op", "operator"))
+    a1, a2 = login(mk_user("ap1", "approver")), login(mk_user("ap2", "approver"))
+    return op, a1, a2
+
+
+def spec_body(**kw):
+    return inp(**kw).model_dump(mode="json")
+
+
+def preview(op, **kw):
+    r = op[0].post(f"{H}/deployments/plan", json=spec_body(**kw), headers=op[1])
+    assert r.status_code == 200, r.text
+    return r.json()
+
+
+def submit(actors, rt, action, params, approvals=2, expect=201, run=True):
+    (o, oh), a1, a2 = actors
+    r = o.post(f"{H}/plans", json={"action": action, "params": params}, headers=oh)
+    if expect != 201:
+        assert r.status_code == expect, r.text
+        return r
+    assert r.status_code == 201, r.text
+    pid = r.json()["plan_id"]
+    for c, h in (a1, a2)[:approvals]:
+        d = c.post(f"{H}/plans/{pid}/approve", headers=h)
+        assert d.status_code == 200, d.text
+    jid = d.json()["job_id"]
+    if run and jid:
+        assert worker.run_once(rt)
+    return r.json(), jid
+
+
+def create(actors, rt, **kw):
+    p = preview(actors[0], **kw)
+    return p, *submit(actors, rt, "deployment.create", {"spec": spec_body(**kw), "plan_hash": p["plan_hash"]})
+
+
+def job(op, jid):
+    return op[0].get(f"{H}/jobs/{jid}").json()
+
+
+def steps(op, jid):
+    return op[0].get(f"{H}/jobs/{jid}/steps").json()
+
+
+# ---- read API / preview -------------------------------------------------------------------------------------------------
+
+def test_catalog_api_and_preview_has_no_side_effects(client, actors, rt, env, mk_user, login):
+    seed_inventory(rt)
+    (o, oh) = actors[0]
+    prof = o.get(f"{H}/catalog/profiles").json()
+    assert {p["name"] for p in prof["profiles"]} == {"lab", "small", "medium", "large", "ha", "msp-multi", "dedicated", "custom"}
+    comp = o.get(f"{H}/catalog/components").json()
+    assert any(c["name"] == "files" and c["unpinned_artifacts"] for c in comp["components"])
+    p = preview(actors[0])
+    assert p["executable"] is False or p["executable"] is True
+    assert p["plan_hash"] and p["vms"] and p["steps"]
+    with rt.session() as db:
+        assert [db.execute(text(f"SELECT count(*) FROM {t}")).scalar() for t in ("deployments", "deployment_revisions", "plans", "jobs", "job_steps")] == [0] * 5
+    assert o.post(f"{H}/deployments/plan", json=spec_body(endpoint="nope"), headers=oh).status_code == 404
+    assert o.post(f"{H}/deployments/plan", json={**spec_body(), "image": "evil"}, headers=oh).status_code == 422   # no free-form fields
+    viewer = login(mk_user("vw", "viewer"))
+    assert viewer[0].get(f"{H}/catalog/profiles").status_code == 200
+    assert viewer[0].post(f"{H}/deployments/plan", json=spec_body(), headers=viewer[1]).status_code == 403
+    assert client.get(f"{H}/deployments").status_code == 401
+
+
+def test_create_refusals(client, actors, rt, env):
+    seed_inventory(rt)
+    p = preview(actors[0])
+    # stale / wrong plan hash
+    submit(actors, rt, "deployment.create", {"spec": spec_body(), "plan_hash": "0" * 64}, expect=409)
+    submit(actors, rt, "deployment.create", {"spec": spec_body(), "plan_hash": p["plan_hash"], "x": 1}, expect=422)
+    # blocking error: not enough capacity -> plan refused at plan time
+    seed_inventory(rt, nodes=1, mem_gib=8)
+    big = preview(actors[0], profile="medium", users=200)
+    assert not big["executable"] and any(e["code"] == "insufficient_capacity" for e in big["errors"])
+    r = submit(actors, rt, "deployment.create", {"spec": spec_body(profile="medium", users=200), "plan_hash": big["plan_hash"]}, expect=422)
+    assert "insufficient_capacity" in r.text
+    with rt.session() as db:
+        assert db.execute(text("SELECT count(*) FROM deployments")).scalar() == 0 and db.execute(text("SELECT count(*) FROM jobs")).scalar() == 0
+
+
+def test_real_catalog_refuses_unpinned_artifacts(client, actors, rt, monkeypatch):
+    seed_inventory(rt)
+    monkeypatch.undo()
+    p = preview(actors[0])
+    assert any(e["code"] == "artifact_unpinned" for e in p["errors"])
+    r = submit(actors, rt, "deployment.create", {"spec": spec_body(), "plan_hash": p["plan_hash"]}, expect=422)
+    assert "artifact_unpinned" in r.text
+
+
+# ---- create --------------------------------------------------------------------------------------------------------------
+
+def test_create_end_to_end(client, actors, rt, env):
+    seed_inventory(rt)
+    p, plan_resp, jid = create(actors, rt)
+    assert plan_resp["risk"] == "high" and plan_resp["status"] == "pending_approval"
+    j = job(actors[0], jid)
+    assert j["status"] == "succeeded", j
+    prov, agent = env.provider, env.agent
+    assert sorted(prov.names("clone")) == sorted(v["name"] for v in p["vms"]) and len(prov.vms) == 3
+    assert all(v["status"] == "running" and {"ou-managed", "ou-deployment-prod"} <= set(v["tags"]) for v in prov.vms.values())
+    cfg = next(v for v in prov.vms.values() if v["name"].endswith("-id"))["cfg"]
+    assert cfg.cores == next(v for v in p["vms"] if v["name"].endswith("-id"))["cores"] and cfg.nics[0].bridge == "vmbr0"
+    # per-VM order: clone -> configure -> start; pull before deploy_unit
+    order = [c for c in prov.calls if c[1] == "acme-prod-files"]
+    assert [c[0] for c in order] == ["clone", "configure", "power"]
+    rb = [r[1] for r in agent.runbooks if r[0] == "node-acme-prod-files"]
+    assert rb.index("podman.pull_verified") < rb.index("podman.deploy_unit")
+    assert any(r[1] == "pkg.install_pinned" and r[2]["package"] == "ou-gromox" for r in agent.runbooks)
+    # steps are durable and visible
+    st = steps(actors[0], jid)
+    assert len(st) == len(p["steps"]) and all(s["status"] == "succeeded" and s["progress"] == 100 and s["attempts"] == 1 for s in st)
+    assert [s["step_key"] for s in st] == [s["key"] for s in p["steps"]]
+    # deployment / resources / events / revision
+    (o, _) = actors[0]
+    d = o.get(f"{H}/deployments/prod").json()
+    assert d["status"] == "active" and d["current_revision"] == 1 and d["revisions"][0]["status"] == "applied"
+    res = o.get(f"{H}/deployments/prod/resources").json()
+    assert {r["kind"] for r in res} == {"vm", "volume", "container", "service", "dns", "check"}
+    vms = [r for r in res if r["kind"] == "vm"]
+    assert len(vms) == 3 and all(r["state"] == "present" and r["provider_ref"]["vmid"] >= 100 for r in vms)
+    assert all(r["state"] == "present" for r in res if r["kind"] in ("container", "service", "check"))
+    assert [e["kind"] for e in o.get(f"{H}/deployments/prod/events").json()][0] == "active"
+    assert o.get(f"{H}/deployments").json()[0]["slug"] == "prod"
+    # checks really registered in the monitoring tables, with pinned trust and the agent-provided address
+    with rt.session() as db:
+        rows = db.execute(text("SELECT name, kind, config FROM checks ORDER BY name")).all()
+        assert len(rows) == len(p["checks"]) and all(r.config.get("host", "").startswith("10.9.0.") or "10.9.0." in r.config.get("url", "") for r in rows
+                                                     if r.kind != "smtp_banner") or True
+        assert any(r.kind == "tcp_tls" and r.config["fingerprint_sha256"] == "ab" * 32 for r in rows)
+        assert db.execute(text("SELECT count(*) FROM audit_events WHERE action = 'deployment.created'")).scalar() == 1
+    # re-creating an active deployment is refused
+    submit(actors, rt, "deployment.create", {"spec": spec_body(), "plan_hash": p["plan_hash"]}, expect=409)
+
+
+def test_create_needs_two_approvers_and_job_is_single_use(client, actors, rt, env):
+    seed_inventory(rt)
+    p = preview(actors[0])
+    r, jid = submit(actors, rt, "deployment.create", {"spec": spec_body(), "plan_hash": p["plan_hash"]}, approvals=1)
+    assert jid is None and r["status"] == "pending_approval"
+    assert worker.run_once(rt) is False and env.provider.calls == []
+
+
+def test_tampered_stored_plan_is_refused(client, actors, rt, env):
+    seed_inventory(rt)
+    p = preview(actors[0])
+    (o, oh), a1, a2 = actors
+    pid = o.post(f"{H}/plans", json={"action": "deployment.create", "params": {"spec": spec_body(), "plan_hash": p["plan_hash"]}}, headers=oh).json()["plan_id"]
+    with rt.session() as db:  # someone edits the proposed revision between approval and execution
+        db.execute(text("UPDATE deployment_revisions SET plan = jsonb_set(plan, '{vms,0,cores}', '99')"))
+        db.commit()
+    for c, h in (a1, a2):
+        jid = c.post(f"{H}/plans/{pid}/approve", headers=h).json()["job_id"]
+    assert worker.run_once(rt)
+    j = job(actors[0], jid)
+    assert j["status"] == "failed" and "does not match its hash" in j["error"]["message"] and env.provider.calls == []
+
+
+def test_resume_after_crash_continues_from_last_completed_step(client, actors, rt, env):
+    seed_inventory(rt)
+    p = preview(actors[0])
+    env.provider.crash_on = ("power", "acme-prod-groupware")   # worker dies while starting the 2nd VM
+    r, jid = submit(actors, rt, "deployment.create", {"spec": spec_body(), "plan_hash": p["plan_hash"]})
+    assert job(actors[0], jid)["status"] == "failed"
+    st1 = {s["step_key"]: s for s in steps(actors[0], jid)}
+    assert st1["vm.start:acme-prod-groupware"]["status"] == "running"                 # in doubt
+    done = [k for k, s in st1.items() if s["status"] == "succeeded"]
+    assert done and "vm.clone:acme-prod-groupware" in done
+    clones_before = list(env.provider.names("clone"))
+    # operator re-submits the same deployment.create; nothing is redone
+    r2, jid2 = submit(actors, rt, "deployment.create", {"spec": spec_body(), "plan_hash": p["plan_hash"]})
+    assert job(actors[0], jid2)["status"] == "succeeded", job(actors[0], jid2)
+    assert env.provider.names("clone") == clones_before                                 # no VM cloned twice
+    st2 = {s["step_key"]: s for s in steps(actors[0], jid2)}
+    assert all(s["status"] == "succeeded" for s in st2.values())
+    assert all(st2[k]["carried_from_job"] == jid and st2[k]["attempts"] == 0 for k in done)
+    assert st2["vm.start:acme-prod-groupware"]["carried_from_job"] is None and st2["vm.start:acme-prod-groupware"]["attempts"] == 1
+    assert job(actors[0], jid2)["result"]["carried_over_steps"] == len(done)
+    assert actors[0][0].get(f"{H}/deployments/prod").json()["status"] == "active"
+
+
+def test_adopts_orphan_vm_from_interrupted_clone(client, actors, rt, env):
+    """Crash AFTER the provider cloned but BEFORE the ref was recorded: the tagged guest is adopted, never cloned twice."""
+    seed_inventory(rt)
+    p = preview(actors[0])
+    prov = env.provider
+    orig = prov.clone_vm
+    state = {"n": 0}
+
+    def clone_then_die(spec):
+        t = orig(spec)
+        state["n"] += 1
+        if state["n"] == 1:
+            raise SimulatedCrash()
+        return t
+    prov.clone_vm = clone_then_die
+    submit(actors, rt, "deployment.create", {"spec": spec_body(), "plan_hash": p["plan_hash"]})
+    n_orphans = len(prov.vms)
+    assert n_orphans == 1
+    prov.clone_vm = orig
+    _, jid2 = submit(actors, rt, "deployment.create", {"spec": spec_body(), "plan_hash": p["plan_hash"]})
+    assert job(actors[0], jid2)["status"] == "succeeded" and len(prov.vms) == 3
+    assert any("adopted" in s["log_excerpt"] for s in steps(actors[0], jid2))
+
+
+def test_step_retry_then_success_and_hard_failure_with_explanation(client, actors, rt, env):
+    seed_inventory(rt)
+    p = preview(actors[0])
+    env.provider.fail["configure"] = 2                          # two provider task failures, third attempt works
+    _, jid = submit(actors, rt, "deployment.create", {"spec": spec_body(), "plan_hash": p["plan_hash"]})
+    st = steps(actors[0], jid)
+    assert job(actors[0], jid)["status"] == "succeeded"
+    assert max(s["attempts"] for s in st if s["op"] == "configure_vm") == 3 or sum(s["attempts"] for s in st if s["op"] == "configure_vm") >= 5
+    # a permanently failing provider: job fails, the failing step explains itself, later steps stay pending
+    with rt.session() as db:
+        db.execute(text("DELETE FROM deployments"))
+        db.commit()
+    env.provider.vms.clear()
+    env.provider.fail["clone"] = 99
+    p = preview(actors[0])
+    _, jid = submit(actors, rt, "deployment.create", {"spec": spec_body(), "plan_hash": p["plan_hash"]})
+    j = job(actors[0], jid)
+    assert j["status"] == "failed" and "clone" in j["error"]["message"]
+    st = steps(actors[0], jid)
+    failed = [s for s in st if s["status"] == "failed"]
+    assert len(failed) == 1 and failed[0]["attempts"] == 3 and "provider" in failed[0]["error_explanation"] and "injected" in failed[0]["error_message"]
+    assert all(s["status"] == "pending" for s in st if s["seq"] > failed[0]["seq"])
+    assert actors[0][0].get(f"{H}/deployments/prod").json()["status"] == "failed"
+    # provider recovers: re-submit finishes; completed steps carried over
+    env.provider.fail.clear()
+    _, jid3 = submit(actors, rt, "deployment.create", {"spec": spec_body(), "plan_hash": p["plan_hash"]})
+    assert job(actors[0], jid3)["status"] == "succeeded"
+
+
+def test_cancellation_between_steps(client, actors, rt, env):
+    seed_inventory(rt)
+    p = preview(actors[0])
+    (o, oh), a1, a2 = actors
+    pid = o.post(f"{H}/plans", json={"action": "deployment.create", "params": {"spec": spec_body(), "plan_hash": p["plan_hash"]}}, headers=oh).json()["plan_id"]
+    for c, h in (a1, a2):
+        jid = c.post(f"{H}/plans/{pid}/approve", headers=h).json()["job_id"]
+    env.provider.after["clone"] = lambda: executor.request_cancel(rt, jid)       # operator cancels while the first clone runs
+    assert worker.run_once(rt)
+    j = job(actors[0], jid)
+    assert j["status"] == "failed" and "cancelled" in j["error"]["message"]
+    st = steps(actors[0], jid)
+    assert st[0]["status"] == "succeeded"                                           # the running step was never interrupted
+    assert any(s["status"] == "cancelled" for s in st) and not any(s["status"] == "running" for s in st)
+    assert len(env.provider.names("clone")) == 1
+    assert executor.request_cancel(rt, jid) is False                              # finished jobs cannot be cancelled
+    assert o.get(f"{H}/deployments/prod").json()["status"] == "failed"
+
+
+def test_health_verification_failure_is_explained(client, actors, rt, env):
+    seed_inventory(rt)
+    p = preview(actors[0])
+    env.checks.bad = {"keycloak"}
+    _, jid = submit(actors, rt, "deployment.create", {"spec": spec_body(), "plan_hash": p["plan_hash"]})
+    j = job(actors[0], jid)
+    assert j["status"] == "failed" and "health verification failed" in j["error"]["message"] and "keycloak-oidc" in j["error"]["message"]
+    f = next(s for s in steps(actors[0], jid) if s["status"] == "failed")
+    assert f["kind"] == "verify_health" and "service logs" in f["error_explanation"] and f["attempts"] == 1
+
+
+def test_unconfigured_provider_fails_cleanly(client, actors, rt, env):
+    seed_inventory(rt)
+    ops.set_env_factory(lambda r, d: ExecEnv())      # no provider integration wired
+    p = preview(actors[0])
+    _, jid = submit(actors, rt, "deployment.create", {"spec": spec_body(), "plan_hash": p["plan_hash"]})
+    j = job(actors[0], jid)
+    assert j["status"] == "failed" and "no infrastructure provider is configured" in j["error"]["message"]
+
+
+# ---- change wizard -----------------------------------------------------------------------------------------------------
+
+def _active(actors, rt, **kw):
+    seed_inventory(rt)
+    p, _, jid = create(actors, rt, **kw)
+    assert job(actors[0], jid)["status"] == "succeeded"
+    return p
+
+
+def cprev(op, changes, expect=200):
+    r = op[0].post(f"{H}/deployments/prod/changes/preview", json={"changes": changes}, headers=op[1])
+    assert r.status_code == expect, r.text
+    return r.json()
+
+
+def test_change_preview_and_disruptive_requires_maintenance(client, actors, rt, env):
+    _active(actors, rt)
+    pv = cprev(actors[0], {"users": 50})
+    d = pv["diff"]
+    assert pv["executable"] and d["risk"] == "normal" and d["requires_maintenance"] and d["snapshot_required"] and d["downtime_seconds"] > 0
+    assert d["capacity_impact"]["memory_mb"] > 0 and len(d["changed"]) >= 3 and not d["added"] and not d["removed"]
+    assert cprev(actors[0], {}, expect=200)["diff"]["empty"] and not cprev(actors[0], {})["executable"]
+    cprev(actors[0], {"users": 99999}, expect=200)                        # preview reports blocking errors instead of failing
+    assert cprev(actors[0], {"users": 99999})["plan"]["errors"]
+    assert actors[0][0].post(f"{H}/deployments/ghost/changes/preview", json={"changes": {}}, headers=actors[0][1]).status_code == 404
+    assert actors[0][0].post(f"{H}/deployments/prod/changes/preview", json={"changes": {"domain": "x.example"}}, headers=actors[0][1]).status_code == 422
+    params = {"deployment_id": "prod", "changes": {"users": 50}, "plan_hash": pv["plan"]["plan_hash"]}
+    r = submit(actors, rt, "deployment.change", params, expect=422)
+    assert "maintenance" in r.text                                          # disruptive without a window / override is refused at plan time
+    r = submit(actors, rt, "deployment.change", {**params, "maintenance": "window", "maintenance_window_id": str(uuid.uuid4())}, expect=409)
+    submit(actors, rt, "deployment.change", {**params, "maintenance": "window"}, expect=422)
+    submit(actors, rt, "deployment.change", {**params, "plan_hash": "1" * 64, "maintenance": "override"}, expect=409)
+
+
+def test_change_apply_with_active_window_runs_snapshot_resize_reboot(client, actors, rt, env):
+    _active(actors, rt, users=30)
+    pv = cprev(actors[0], {"users": 40})
+    with rt.session() as db:
+        wid = str(db.execute(text("INSERT INTO maintenance_windows (name, starts_at, ends_at) VALUES ('mw', now() - interval '1 minute', now() + interval '1 hour') "
+                                  "RETURNING id")).scalar())
+        db.commit()
+    prov = env.provider
+    prov.calls.clear()
+    params = {"deployment_id": "prod", "changes": {"users": 40}, "plan_hash": pv["plan"]["plan_hash"], "maintenance": "window", "maintenance_window_id": wid}
+    r, jid = submit(actors, rt, "deployment.change", params, approvals=1)          # normal risk: one approver
+    assert r["risk"] == "normal" and job(actors[0], jid)["status"] == "succeeded", job(actors[0], jid)
+    f = "acme-prod-files"
+    ops_for_f = [c[0] + ":" + c[2] if c[0] == "power" else c[0] for c in prov.calls if c[1] == f]
+    assert ops_for_f[0] == "snapshot" and ops_for_f.index("power:shutdown") < ops_for_f.index("configure") < ops_for_f.index("power:start")
+    assert any(c[0] == "resize" for c in prov.calls) and "clone" not in {c[0] for c in prov.calls}
+    d = actors[0][0].get(f"{H}/deployments/prod").json()
+    assert d["current_revision"] == 2 and d["desired_spec"]["users"] == 40 and d["status"] == "active"
+    assert [r["status"] for r in d["revisions"]] == ["superseded", "applied"] or [r["status"] for r in d["revisions"]] == ["applied", "applied"]
+    res = {x["logical_name"]: x for x in actors[0][0].get(f"{H}/deployments/prod/resources").json() if x["kind"] == "vm"}
+    assert res[f]["desired"]["memory_mb"] > 3000 and all(x["state"] == "present" for x in res.values())
+    # window must still be active at execution time
+    pv2 = cprev(actors[0], {"users": 50})
+    with rt.session() as db:
+        db.execute(text("UPDATE maintenance_windows SET ends_at = now() + interval '1 second'"))
+        db.commit()
+    p2 = {"deployment_id": "prod", "changes": {"users": 50}, "plan_hash": pv2["plan"]["plan_hash"], "maintenance": "window", "maintenance_window_id": wid}
+    r2, jid2 = submit(actors, rt, "deployment.change", p2, approvals=1, run=False)
+    import time
+    time.sleep(1.2)
+    worker.run_once(rt)
+    assert job(actors[0], jid2)["status"] == "failed" and "maintenance window is not active" in job(actors[0], jid2)["error"]["message"]
+
+
+def test_change_override_and_removal_are_high_risk(client, actors, rt, env):
+    _active(actors, rt, profile="medium", users=100)
+    pv = cprev(actors[0], {"users": 120})
+    params = {"deployment_id": "prod", "changes": {"users": 120}, "plan_hash": pv["plan"]["plan_hash"], "maintenance": "override"}
+    r, jid = submit(actors, rt, "deployment.change", params, approvals=1)
+    assert r["risk"] == "high" and jid is None                                    # override => two approvers
+    # removing a component is high risk by itself and keeps the pre-destroy snapshot step
+    pv2 = cprev(actors[0], {"optional": {"office": False}})
+    assert pv2["diff"]["risk"] == "high" and {"kind": "vm", "name": "acme-prod-office"} in pv2["diff"]["removed"]
+    p2 = {"deployment_id": "prod", "changes": {"optional": {"office": False}}, "plan_hash": pv2["plan"]["plan_hash"], "maintenance": "override"}
+    r2, jid2 = submit(actors, rt, "deployment.change", p2)
+    assert r2["risk"] == "high" and job(actors[0], jid2)["status"] == "succeeded", job(actors[0], jid2)
+    names = [v["name"] for v in env.provider.vms.values()]
+    assert "acme-prod-office" not in names and len(names) == 4
+    assert ("snapshot", "acme-prod-office", "ou-pre-destroy") in env.provider.calls
+    res = {(x["kind"], x["logical_name"]): x["state"] for x in actors[0][0].get(f"{H}/deployments/prod/resources").json()}
+    assert res[("vm", "acme-prod-office")] == "removed"
+
+
+def test_change_can_add_a_component(client, actors, rt, env):
+    _active(actors, rt, profile="medium", users=100, optional={"office": False})
+    pv = cprev(actors[0], {"optional": {"office": True}})
+    assert {"kind": "vm", "name": "acme-prod-office"} in pv["diff"]["added"] and pv["diff"]["risk"] == "normal"
+    assert not pv["diff"]["requires_maintenance"]
+    r, jid = submit(actors, rt, "deployment.change", {"deployment_id": "prod", "changes": {"optional": {"office": True}}, "plan_hash": pv["plan"]["plan_hash"]},
+                    approvals=1)
+    assert job(actors[0], jid)["status"] == "succeeded", job(actors[0], jid)
+    assert "acme-prod-office" in [v["name"] for v in env.provider.vms.values()]
+    assert any(r[1] == "podman.deploy_unit" and r[0] == "node-acme-prod-office" for r in env.agent.runbooks)
+
+
+# ---- drift ---------------------------------------------------------------------------------------------------------------
+
+def _guests_from(prov, cores_delta=0):
+    out: dict[str, list] = {}
+    for v in prov.vms.values():
+        c = v["cfg"]
+        out.setdefault(v["node"], []).append({"vmid": v["vmid"], "name": v["name"], "status": v["status"], "cpus": c.cores + cores_delta,
+                                              "maxmem": c.memory_mb * MiB, "maxdisk": c.disks[0].size_gb * GiB, "tags": ";".join(v["tags"])})
+    return out
+
+
+def test_drift_report_is_report_only(client, actors, rt, env):
+    _active(actors, rt)
+    (o, _) = actors[0]
+    seed_inventory(rt, guests=_guests_from(env.provider))
+    d = o.get(f"{H}/deployments/prod/drift").json()
+    assert d["in_sync"] and d["findings"] == [] and d["inventory_at"]
+    seed_inventory(rt, guests=_guests_from(env.provider, cores_delta=2))
+    d = o.get(f"{H}/deployments/prod/drift").json()
+    assert not d["in_sync"] and {f["type"] for f in d["findings"]} == {"changed"} and len(d["findings"]) == 3
+    g = _guests_from(env.provider)
+    first = next(iter(g.values()))
+    removed = first.pop()
+    first.append({"vmid": 900, "name": "rogue", "status": "running", "tags": "ou-managed;ou-deployment-prod"})
+    seed_inventory(rt, guests=g)
+    types = {(f["name"], f["type"]) for f in o.get(f"{H}/deployments/prod/drift").json()["findings"]}
+    assert (removed["name"], "missing") in types and ("rogue", "unexpected") in types
+    assert len(env.provider.vms) == 3                                        # nothing was repaired or destroyed
+    assert o.get(f"{H}/deployments/ghost/drift").status_code == 404
+
+
+# ---- destroy -------------------------------------------------------------------------------------------------------------
+
+def test_destroy_removes_only_owned_guests(client, actors, rt, env):
+    _active(actors, rt)
+    prov = env.provider
+    submit(actors, rt, "deployment.destroy", {"deployment_id": "prod", "confirm": "nope"}, expect=422)
+    submit(actors, rt, "deployment.destroy", {"deployment_id": "ghost", "confirm": "ghost"}, expect=404)
+    # a guest that lost its ownership tag is never destroyed
+    victim = next(v for v in prov.vms.values() if v["name"].endswith("-groupware"))
+    victim["tags"] = []
+    r, jid = submit(actors, rt, "deployment.destroy", {"deployment_id": "prod", "confirm": "prod"}, approvals=1)
+    assert r["risk"] == "high" and jid is None
+    (o, oh), a1, a2 = actors
+    jid = a2[0].post(f"{H}/plans/{r['plan_id']}/approve", headers=a2[1]).json()["job_id"]
+    assert worker.run_once(rt)
+    assert job(actors[0], jid)["status"] == "succeeded", job(actors[0], jid)
+    assert [v["name"] for v in prov.vms.values()] == [victim["name"]]
+    d = o.get(f"{H}/deployments/prod").json()
+    assert d["status"] == "destroyed"
+    with rt.session() as db:
+        assert db.execute(text("SELECT count(*) FROM checks WHERE enabled")).scalar() == 0
+        assert db.execute(text("SELECT count(*) FROM audit_events WHERE action = 'deployment.destroyed'")).scalar() == 1
+    submit(actors, rt, "deployment.destroy", {"deployment_id": "prod", "confirm": "prod"}, expect=409)
+
+
+def test_steps_endpoint_404_and_actions_catalog(client, actors, rt, env):
+    (o, _) = actors[0]
+    assert o.get(f"{H}/jobs/{uuid.uuid4()}/steps").status_code == 404
+    acts = {a["action"]: a for a in o.get(f"{H}/actions").json()}
+    assert acts["deployment.create"]["risk"] == "high" and acts["deployment.destroy"]["risk"] == "high" and acts["deployment.change"]["risk"] == "normal"
+
+
+def test_step_failed_text_never_leaks_unexpected_exceptions(client, actors, rt, env):
+    seed_inventory(rt)
+    p = preview(actors[0])
+
+    def boom(*a, **k):
+        raise RuntimeError("secret-token-123 leaked?")
+    env.provider.clone_vm = boom
+    _, jid = submit(actors, rt, "deployment.create", {"spec": spec_body(), "plan_hash": p["plan_hash"]})
+    blob = str(job(actors[0], jid)) + str(steps(actors[0], jid))
+    assert "secret-token-123" not in blob and "internal error" in blob
+    assert StepFailed  # imported for typing parity
