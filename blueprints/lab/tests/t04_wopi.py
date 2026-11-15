@@ -98,7 +98,6 @@ rep.check("stored DOCX contains Collabora edit", g.status_code == 200 and any("E
 import urllib.parse as up
 vr = dav.s.request("PROPFIND", "https://%s/remote.php/dav/meta/%s/v" % (L.HOST_FILES, up.quote(fid, safe="$!")),
                    headers={"Depth": "1"}, timeout=30)
-nver = vr.text.count(".REV.") // 2 if vr.status_code == 207 else -1  # each version appears in href and oc:id/fileid
 rep.check("Collabora save created a version", vr.status_code == 207 and ".REV." in vr.text,
           "version listed after save", "HTTP %s, no .REV. entries" % vr.status_code)
 dav.delete(name)

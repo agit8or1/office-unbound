@@ -20,7 +20,7 @@ Test accounts: alice@ou-lab.internal (admin), bob (user), carol (space admin), d
 | A8 | Logout in OpenCloud ends Keycloak SSO session and vice versa; back-channel logout from Keycloak admin console | |
 | A9 | Desktop client (OpenCloud desktop 4.0.0, record build) login via WebFinger/OIDC; initial sync 5k small + 5 large files; offline edit then reconnect; same file edited offline on two clients (expect conflict copy: record naming, no data loss); rename/move/delete offline; large-file resume | |
 | A10 | Android + iOS apps login via OIDC (OpenCloudAndroid / OpenCloudIOS), upload + download | |
-| A11 | Disable-user timing: disable alice in the identity source while web + desktop + mobile are connected; measure time until each loses access (target <= 5 min per ADR-0004); then revoke offline tokens (Keycloak admin: Sessions > Offline) and recheck; remove role from lldap group and re-test | |
+| A11 | Disable-user timing: disable alice in the identity source while web + desktop + mobile are connected; measure time until each loses access (target <= 5 min per ADR-0004); then revoke offline tokens (Keycloak admin: Sessions > Offline) and recheck; remove role from the LDAP group and re-test (automated part: t06_disable_user.py) | |
 | A12 | Full VM reboot of files, kc, office in turn: sessions, files, versions, shares intact; collaboration service re-registers with Collabora; in-progress edit recovered or clean error | |
 | A13 | Backup test: filesystem snapshot of /var/lib/opencloud + /etc/opencloud restored to a second VM; xattrs and versions intact | |
 | A14 | Resource baseline: idle + loaded RAM/CPU per service (`systemd-cgtop`, `docker stats`); Keycloak realm start time | |
@@ -44,7 +44,7 @@ Test accounts: alice@ou-lab.internal (admin), bob (user), carol (space admin), d
 | # | Test | Result |
 |---|---|---|
 | C1 | Licensing: create 6+ users in community mode; record whether anything blocks (5-user cap is a legal question, ADR-0003 gate) | |
-| C2 | App passwords / lockout behaviour for Outlook/EAS/DAV; password change in lldap propagates immediately (bind-based auth) | |
+| C2 | App passwords / lockout behaviour for Outlook/EAS/DAV; password change in the directory (OpenLDAP) propagates immediately (bind-based auth) | |
 | C3 | Mail flow: DKIM/SPF/DMARC are NOT testable here (no public DNS by design); test only local relay, TLS, rate limits | |
 | C4 | Backup/restore of one mailbox (gromox data dir + MariaDB dump); upgrade to next grommunio bundle; failure/recovery | |
 | C5 | Load: 50 mailboxes MAPI + EAS soak, RAM/CPU vs 4 vCPU / 6 GB minimum | |

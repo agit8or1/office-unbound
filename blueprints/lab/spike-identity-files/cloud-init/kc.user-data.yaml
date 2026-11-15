@@ -1,5 +1,5 @@
 #cloud-config
-# Lab VM "kc" (Keycloak + PostgreSQL 16 + lldap + lab CA). Ubuntu 24.04 LTS (noble) cloud image.
+# Lab VM "kc" (Keycloak + PostgreSQL 16 + OpenLDAP + lab CA; superseded for the nspawn lab: see install-kc.sh). Ubuntu 24.04 LTS (noble) cloud image.
 # NO SECRETS here. Replace the ssh key placeholder with the operator PUBLIC key.
 # Network config (static IP 10.99.0.11) is supplied by the hypervisor's cloud-init
 # network-config (e.g. Proxmox ipconfig0), not by this file.

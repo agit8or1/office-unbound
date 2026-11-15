@@ -66,6 +66,15 @@ def oc_me(at):
     return requests.get("https://%s/graph/v1.0/me" % L.HOST_FILES, headers={"Authorization": "Bearer " + at}, verify=V, timeout=30).status_code
 
 
+def refreshed_me(rt):
+    """Mint a NEW access token from the refresh token (if Keycloak still allows) and present it to OpenCloud."""
+    r = requests.post(TOKEN_URL, data={"grant_type": "refresh_token", "client_id": "ou-lab-test", "refresh_token": rt},
+                      verify=V, timeout=30)
+    if r.status_code != 200:
+        return 0   # no token at all
+    return oc_me(r.json()["access_token"])
+
+
 def oc_dav(at, user):
     return requests.request("PROPFIND", "https://%s/remote.php/dav/files/%s" % (L.HOST_FILES, user),
                             headers={"Authorization": "Bearer " + at, "Depth": "0"}, verify=V, timeout=30).status_code
@@ -119,7 +128,7 @@ def scenario(label, user, full):
         kcinfo = " kc-revoke=%s done at +%ds" % (out, time.time() - t0)
     print("INFO %s: directory lock applied at t0 (+%.1fs)%s" % (label, t_lock, kcinfo))
     first = {}
-    while time.time() - t0 < MAX and len(first) < 5:
+    while time.time() - t0 < MAX and len(first) < 6:
         t = time.time() - t0
         probes = {
             "new password login": lambda: grant(user, pw, "openid").status_code != 200,
@@ -127,6 +136,7 @@ def scenario(label, user, full):
             "offline refresh token": lambda: refresh(off_rt) != 200,
             "old access token -> OpenCloud /me": lambda: oc_me(at) not in (200,),
             "old access token -> OpenCloud WebDAV": lambda: oc_dav(at, user) not in (207,),
+            "FRESH access token (from refresh) -> OpenCloud /me": lambda: refreshed_me(sso_rt) != 200,
         }
         for k, f in probes.items():
             if k not in first:
@@ -137,7 +147,8 @@ def scenario(label, user, full):
                     print("INFO probe %s error %s" % (k, str(e)[:80]))
         time.sleep(POLL)
     for k in ("new password login", "SSO refresh token", "offline refresh token",
-              "old access token -> OpenCloud /me", "old access token -> OpenCloud WebDAV"):
+              "old access token -> OpenCloud /me", "old access token -> OpenCloud WebDAV",
+              "FRESH access token (from refresh) -> OpenCloud /me"):
         v = first.get(k)
         txt = "denied after %.0fs" % v if v is not None else "STILL WORKING after %ds (horizon)" % MAX
         # ADR-0004 target: <= 300 s. new logins must be immediate (<= 15 s).

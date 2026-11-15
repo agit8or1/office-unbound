@@ -1,0 +1,1134 @@
+diff --git a/browser/admin/admin.strings.js b/browser/admin/admin.strings.js
+index dc20dc46b..ab2c4afb4 100644
+--- a/browser/admin/admin.strings.js
++++ b/browser/admin/admin.strings.js
+@@ -11,7 +11,7 @@
+ /* Stringtable for Admin Console User Interface */
+ var l10nstrings = {};
+ 
+-l10nstrings.strProductName = 'Collabora Online Development Edition (unbranded)';
++l10nstrings.strProductName = 'Office Unbound Docs';
+ l10nstrings.strAdminConsole = _('Admin console');
+ l10nstrings.strSettings = _('Settings');
+ l10nstrings.strOverview = _('Overview');
+diff --git a/browser/admin/adminIntegratorSettings.html.m4 b/browser/admin/adminIntegratorSettings.html.m4
+index 1646f0bc4..4e495f358 100644
+--- a/browser/admin/adminIntegratorSettings.html.m4
++++ b/browser/admin/adminIntegratorSettings.html.m4
+@@ -37,7 +37,7 @@ m4_dnl------------------------------------------------------------------------
+       [<script>(function () { var l = new URLSearchParams(window.location.search).get('lang'); window.LANG = (l && l !== 'undefined') ? l : 'en-US'; })();</script>
+       <script src="l10n-settings.js"></script>],
+       [<link rel="localizations" href="%SERVICE_ROOT%/browser/%VERSION%/l10n/localizations.json" type="application/vnd.oftn.l10n+json"/>])
+-    <title>Collabora Online - Settings</title>
++    <title>Office Unbound Docs - Settings</title>
+     <link
+       rel="StyleSheet"
+       href="m4_ifelse(MOBILEAPP, [], [%SERVICE_ROOT%/browser/%VERSION%/])admin/css/admin.css"
+diff --git a/browser/admin/adminSettings.html b/browser/admin/adminSettings.html
+index cda644162..79977d1dd 100644
+--- a/browser/admin/adminSettings.html
++++ b/browser/admin/adminSettings.html
+@@ -134,12 +134,12 @@
+ </div>
+ <div id="versionview" class="mtabs">
+       <p>
+-        <h5><b>Collabora Online</b></h5>
++        <h5><b>Office Unbound Docs</b></h5>
+         <div id="coolwsd-version"></div>
+         <div id="coolwsd-buildconfig"></div>
+       </p>
+       <p>
+-        <h5><b>Collabora Office Engine</b></h5>
++        <h5><b>Office Unbound Docs Engine</b></h5>
+         <div id="lokit-buildconfig"></div>
+       </p>
+  </div>
+diff --git a/browser/admin/adminshell.html.template b/browser/admin/adminshell.html.template
+index 1ea2cb153..63542dbfa 100644
+--- a/browser/admin/adminshell.html.template
++++ b/browser/admin/adminshell.html.template
+@@ -9,7 +9,7 @@
+     <meta name="author" content=""/>
+     <link rel="localizations" href="%SERVICE_ROOT%/browser/%VERSION%/l10n/localizations.json" type="application/vnd.oftn.l10n+json"/>
+ 
+-    <title>Collabora Online - Admin console</title>
++    <title>Office Unbound Docs - Admin console</title>
+     <link rel=StyleSheet href="%SERVICE_ROOT%/browser/%VERSION%/admin/css/bulma.min.css" type="text/css" />
+     <script>
+         var params = new URLSearchParams(window.location.search);
+diff --git a/browser/branding/themes/CODE/branding.js b/browser/branding/themes/CODE/branding.js
+index 0fc82cef3..d4f104d27 100644
+--- a/browser/branding/themes/CODE/branding.js
++++ b/browser/branding/themes/CODE/branding.js
+@@ -1,6 +1,6 @@
+-var brandProductName = 'Collabora Online Development Edition (CODE)';
+-var brandProductURL = 'https://www.collaboraonline.com/code/';
+-var brandProductFAQURL = 'https://www.collaboraonline.com/code/#code-scalability';
++var brandProductName = 'Office Unbound Docs';
++var brandProductURL = 'https://officeunbound.com';
++var brandProductFAQURL = 'https://officeunbound.com';
+ var menuItems;
+ window.onload = function() {
+ 	// wait until the menu (and particularly the document-header) actually exists
+@@ -39,9 +39,9 @@ window.onload = function() {
+ 			span.textContent = 'built on\u00A0';
+ 
+ 			let anchor = document.createElement('a');
+-			anchor.href = 'https://col.la/lot';
++			anchor.href = 'https://www.collaboraoffice.org/';
+ 			anchor.setAttribute('target', '_blank');
+-			anchor.textContent = 'a great technology base';
++			anchor.textContent = 'Collabora Online (MPL-2.0) and LibreOffice technology';
+ 
+ 			div.appendChild(span);
+ 			div.appendChild(anchor);
+diff --git a/browser/branding/themes/collabora-online-brand/images/compact-logo-drawing.svg b/browser/branding/themes/collabora-online-brand/images/compact-logo-drawing.svg
+index 152c36868..7003facae 100644
+--- a/browser/branding/themes/collabora-online-brand/images/compact-logo-drawing.svg
++++ b/browser/branding/themes/collabora-online-brand/images/compact-logo-drawing.svg
+@@ -1,84 +1 @@
+-<?xml version="1.0" encoding="UTF-8" standalone="no"?>
+-<!-- Created with Inkscape (http://www.inkscape.org/) -->
+-
+-<svg
+-   width="48"
+-   height="48"
+-   viewBox="0 0 48 48"
+-   version="1.1"
+-   id="svg1"
+-   inkscape:version="1.4.4 (dcaf3e7d9e, 2026-05-05)"
+-   sodipodi:docname="compact-logo-drawing.svg"
+-   xmlns:inkscape="http://www.inkscape.org/namespaces/inkscape"
+-   xmlns:sodipodi="http://sodipodi.sourceforge.net/DTD/sodipodi-0.dtd"
+-   xmlns="http://www.w3.org/2000/svg"
+-   xmlns:svg="http://www.w3.org/2000/svg">
+-  <sodipodi:namedview
+-     id="namedview1"
+-     pagecolor="#ffffff"
+-     bordercolor="#000000"
+-     borderopacity="0.25"
+-     inkscape:showpageshadow="2"
+-     inkscape:pageopacity="0.0"
+-     inkscape:pagecheckerboard="0"
+-     inkscape:deskcolor="#d1d1d1"
+-     inkscape:document-units="px"
+-     showguides="false"
+-     inkscape:zoom="8.5937501"
+-     inkscape:cx="13.730909"
+-     inkscape:cy="26.356363"
+-     inkscape:window-width="1920"
+-     inkscape:window-height="1014"
+-     inkscape:window-x="0"
+-     inkscape:window-y="38"
+-     inkscape:window-maximized="1"
+-     inkscape:current-layer="layer1">
+-    <sodipodi:guide
+-       position="1.1054546,40"
+-       orientation="0,-1"
+-       id="guide3"
+-       inkscape:locked="false" />
+-    <sodipodi:guide
+-       position="1.1054546,8"
+-       orientation="0,-1"
+-       id="guide4"
+-       inkscape:locked="false" />
+-    <sodipodi:guide
+-       position="8,44"
+-       orientation="1,0"
+-       id="guide5"
+-       inkscape:locked="false" />
+-  </sodipodi:namedview>
+-  <defs
+-     id="defs1" />
+-  <g
+-     inkscape:label="Layer 1"
+-     inkscape:groupmode="layer"
+-     id="layer1">
+-    <path
+-       id="rect1"
+-       style="fill:#876900;stroke-width:1.09127;stroke-linejoin:round;paint-order:markers stroke fill;fill-opacity:1"
+-       d="M 12,4 C 9.784,4 8,5.784 8,8 v 32 c 0,2.216 1.784,4 4,4 h 24 c 2.216,0 4,-1.784 4,-4 V 16 H 28 V 4 Z"
+-       sodipodi:nodetypes="sssssscccs" />
+-    <path
+-       id="path6"
+-       style="fill:#524000;fill-opacity:1;stroke-width:0.409226;stroke-linejoin:round;paint-order:markers stroke fill"
+-       d="m 27,4 h 1 l 12,11.999999 v 1 H 27 Z"
+-       sodipodi:nodetypes="cccccc" />
+-    <path
+-       id="rect5"
+-       style="fill:#b88f00;fill-opacity:1;stroke-width:0.409226;stroke-linejoin:round;paint-order:markers stroke fill"
+-       d="M 28,4 40,15.999999 H 28 Z"
+-       sodipodi:nodetypes="cccc" />
+-    <g
+-       id="g8526-6"
+-       transform="matrix(0.13868599,0,0,0.13868599,-424.91966,-501.44547)"
+-       style="isolation:isolate;stroke:#ffffff;stroke-opacity:1">
+-      <path
+-         style="fill:none;stroke:#ffffff;stroke-width:10.0006;stroke-linecap:round;stroke-linejoin:round;stroke-dasharray:none;stroke-opacity:1;stop-color:#000000"
+-         d="m 3185.9225,3878.9802 22.9034,-6.8357 15.2575,-25.1901 26.3985,38.5926 19.8268,-61.901 28.7624,-17.5167"
+-         id="path1037-2"
+-         sodipodi:nodetypes="cccccc" />
+-    </g>
+-  </g>
+-</svg>
++<svg xmlns="http://www.w3.org/2000/svg" width="48" height="48" viewBox="0 0 26 26"><title>Office Unbound</title><rect x="1" y="1" width="24" height="24" rx="6" fill="#8e44ad"/><text x="13" y="18.5" font-family="DejaVu Sans,Arial,sans-serif" font-size="12" font-weight="700" text-anchor="middle" fill="#fff">D</text></svg>
+diff --git a/browser/branding/themes/collabora-online-brand/images/compact-logo-presentation.svg b/browser/branding/themes/collabora-online-brand/images/compact-logo-presentation.svg
+index 2beacc049..ddea9620c 100644
+--- a/browser/branding/themes/collabora-online-brand/images/compact-logo-presentation.svg
++++ b/browser/branding/themes/collabora-online-brand/images/compact-logo-presentation.svg
+@@ -1,104 +1 @@
+-<?xml version="1.0" encoding="UTF-8" standalone="no"?>
+-<!-- Created with Inkscape (http://www.inkscape.org/) -->
+-
+-<svg
+-   width="48"
+-   height="48"
+-   viewBox="0 0 48 48"
+-   version="1.1"
+-   id="svg1"
+-   inkscape:version="1.4.4 (dcaf3e7d9e, 2026-05-05)"
+-   sodipodi:docname="compact-logo-presentation.svg"
+-   xmlns:inkscape="http://www.inkscape.org/namespaces/inkscape"
+-   xmlns:sodipodi="http://sodipodi.sourceforge.net/DTD/sodipodi-0.dtd"
+-   xmlns="http://www.w3.org/2000/svg"
+-   xmlns:svg="http://www.w3.org/2000/svg">
+-  <sodipodi:namedview
+-     id="namedview1"
+-     pagecolor="#ffffff"
+-     bordercolor="#000000"
+-     borderopacity="0.25"
+-     inkscape:showpageshadow="2"
+-     inkscape:pageopacity="0.0"
+-     inkscape:pagecheckerboard="0"
+-     inkscape:deskcolor="#d1d1d1"
+-     inkscape:document-units="px"
+-     showguides="false"
+-     inkscape:zoom="12.153398"
+-     inkscape:cx="16.949992"
+-     inkscape:cy="21.022927"
+-     inkscape:window-width="1920"
+-     inkscape:window-height="1014"
+-     inkscape:window-x="0"
+-     inkscape:window-y="38"
+-     inkscape:window-maximized="1"
+-     inkscape:current-layer="layer1">
+-    <sodipodi:guide
+-       position="1.1054546,40"
+-       orientation="0,-1"
+-       id="guide3"
+-       inkscape:locked="false" />
+-    <sodipodi:guide
+-       position="1.1054546,8"
+-       orientation="0,-1"
+-       id="guide4"
+-       inkscape:locked="false" />
+-    <sodipodi:guide
+-       position="8,44"
+-       orientation="1,0"
+-       id="guide5"
+-       inkscape:locked="false" />
+-  </sodipodi:namedview>
+-  <defs
+-     id="defs1" />
+-  <g
+-     inkscape:label="Layer 1"
+-     inkscape:groupmode="layer"
+-     id="layer1">
+-    <path
+-       id="rect1"
+-       style="fill:#a33e03;stroke-width:1.09127;stroke-linejoin:round;paint-order:markers stroke fill;fill-opacity:1"
+-       d="M 12,4 C 9.784,4 8,5.784 8,8 v 32 c 0,2.216 1.784,4 4,4 h 24 c 2.216,0 4,-1.784 4,-4 V 16 H 28 V 4 Z"
+-       sodipodi:nodetypes="sssssscccs" />
+-    <path
+-       id="path6"
+-       style="fill:#7c2f03;fill-opacity:1;stroke-width:0.409226;stroke-linejoin:round;paint-order:markers stroke fill"
+-       d="m 27,4 h 1 l 12,11.999999 v 1 H 27 Z"
+-       sodipodi:nodetypes="cccccc" />
+-    <path
+-       id="rect5"
+-       style="fill:#eeb281;fill-opacity:1;stroke-width:0.409226;stroke-linejoin:round;paint-order:markers stroke fill"
+-       d="M 28,4 40,15.999999 H 28 Z"
+-       sodipodi:nodetypes="cccc" />
+-    <path
+-       inkscape:connector-curvature="0"
+-       id="path1843-0"
+-       d="M 19.403462,39.048396 21.229,36.5"
+-       style="isolation:isolate;fill:none;fill-opacity:1;stroke:#ffffff;stroke-width:1;stroke-linecap:round;stroke-linejoin:round;stroke-miterlimit:4;stroke-dasharray:none;stroke-opacity:1"
+-       sodipodi:nodetypes="cc" />
+-    <path
+-       style="isolation:isolate;fill:#ffffff;fill-opacity:1;stroke:#ffffff;stroke-width:1;stroke-linecap:round;stroke-linejoin:round;stroke-miterlimit:4;stroke-dasharray:none;stroke-opacity:1"
+-       d="m 26.944359,36.5 1.825757,2.548396"
+-       id="path1845-2"
+-       inkscape:connector-curvature="0"
+-       sodipodi:nodetypes="cc" />
+-    <rect
+-       y="27.187605"
+-       x="16.496517"
+-       height="9.0069675"
+-       width="15.006968"
+-       id="rect1849-3"
+-       style="isolation:isolate;fill:none;fill-opacity:1;stroke:#ffffff;stroke-width:0.993032;stroke-linecap:round;stroke-linejoin:miter;stroke-miterlimit:4;stroke-dasharray:none;stroke-opacity:1"
+-       rx="1"
+-       ry="1" />
+-    <rect
+-       style="fill:#ffffff;fill-opacity:1;stroke:none;stroke-width:1.6;stroke-linecap:round;stroke-linejoin:round;stroke-dasharray:none;stroke-opacity:1;paint-order:markers stroke fill"
+-       id="rect2"
+-       width="2"
+-       height="2"
+-       x="23"
+-       y="23"
+-       rx="1"
+-       ry="1" />
+-  </g>
+-</svg>
++<svg xmlns="http://www.w3.org/2000/svg" width="48" height="48" viewBox="0 0 26 26"><title>Office Unbound</title><rect x="1" y="1" width="24" height="24" rx="6" fill="#c0562b"/><text x="13" y="18.5" font-family="DejaVu Sans,Arial,sans-serif" font-size="12" font-weight="700" text-anchor="middle" fill="#fff">P</text></svg>
+diff --git a/browser/branding/themes/collabora-online-brand/images/compact-logo-spreadsheet.svg b/browser/branding/themes/collabora-online-brand/images/compact-logo-spreadsheet.svg
+index d9f19c847..436a08af9 100644
+--- a/browser/branding/themes/collabora-online-brand/images/compact-logo-spreadsheet.svg
++++ b/browser/branding/themes/collabora-online-brand/images/compact-logo-spreadsheet.svg
+@@ -1,122 +1 @@
+-<?xml version="1.0" encoding="UTF-8" standalone="no"?>
+-<!-- Created with Inkscape (http://www.inkscape.org/) -->
+-
+-<svg
+-   width="48"
+-   height="48"
+-   viewBox="0 0 48 48"
+-   version="1.1"
+-   id="svg1"
+-   inkscape:version="1.4.4 (dcaf3e7d9e, 2026-05-05)"
+-   sodipodi:docname="compact-logo-spreadsheet.svg"
+-   xmlns:inkscape="http://www.inkscape.org/namespaces/inkscape"
+-   xmlns:sodipodi="http://sodipodi.sourceforge.net/DTD/sodipodi-0.dtd"
+-   xmlns="http://www.w3.org/2000/svg"
+-   xmlns:svg="http://www.w3.org/2000/svg">
+-  <sodipodi:namedview
+-     id="namedview1"
+-     pagecolor="#ffffff"
+-     bordercolor="#000000"
+-     borderopacity="0.25"
+-     inkscape:showpageshadow="2"
+-     inkscape:pageopacity="0.0"
+-     inkscape:pagecheckerboard="0"
+-     inkscape:deskcolor="#d1d1d1"
+-     inkscape:document-units="px"
+-     showguides="false"
+-     inkscape:zoom="12.153398"
+-     inkscape:cx="19.829845"
+-     inkscape:cy="20.529238"
+-     inkscape:window-width="1920"
+-     inkscape:window-height="1014"
+-     inkscape:window-x="0"
+-     inkscape:window-y="38"
+-     inkscape:window-maximized="1"
+-     inkscape:current-layer="layer1">
+-    <sodipodi:guide
+-       position="1.1054546,40"
+-       orientation="0,-1"
+-       id="guide3"
+-       inkscape:locked="false" />
+-    <sodipodi:guide
+-       position="1.1054546,8"
+-       orientation="0,-1"
+-       id="guide4"
+-       inkscape:locked="false" />
+-    <sodipodi:guide
+-       position="8,44"
+-       orientation="1,0"
+-       id="guide5"
+-       inkscape:locked="false" />
+-  </sodipodi:namedview>
+-  <defs
+-     id="defs1" />
+-  <g
+-     inkscape:label="Layer 1"
+-     inkscape:groupmode="layer"
+-     id="layer1">
+-    <path
+-       id="rect1"
+-       style="fill:#106802;stroke-width:1.09127;stroke-linejoin:round;paint-order:markers stroke fill;fill-opacity:1"
+-       d="M 12,4 C 9.784,4 8,5.784 8,8 v 32 c 0,2.216 1.784,4 4,4 h 24 c 2.216,0 4,-1.784 4,-4 V 16 H 28 V 4 Z"
+-       sodipodi:nodetypes="sssssscccs" />
+-    <path
+-       id="path6"
+-       style="fill:#0d5601;fill-opacity:1;stroke-width:0.409226;stroke-linejoin:round;paint-order:markers stroke fill"
+-       d="m 27,4 h 1 l 12,11.999999 v 1 H 27 Z"
+-       sodipodi:nodetypes="cccccc" />
+-    <path
+-       id="rect5"
+-       style="fill:#2db319;fill-opacity:1;stroke-width:0.409226;stroke-linejoin:round;paint-order:markers stroke fill"
+-       d="M 28,4 40,15.999999 H 28 Z"
+-       sodipodi:nodetypes="cccc" />
+-    <g
+-       transform="matrix(3.2253025,0,0,3.2253025,-195.99481,-1622.5657)"
+-       id="g1713-4"
+-       style="display:inline;isolation:isolate"
+-       inkscape:label="Calc">
+-      <rect
+-         style="fill:#ffffff;fill-opacity:1;stroke-width:0.230015;stroke-linejoin:round;paint-order:markers stroke fill"
+-         id="rect19"
+-         width="1.8602906"
+-         height="1.2401937"
+-         x="65.108566"
+-         y="514.23572" />
+-      <rect
+-         style="fill:#ffffff;fill-opacity:1;stroke-width:0.230015;stroke-linejoin:round;paint-order:markers stroke fill"
+-         id="rect21"
+-         width="1.8602906"
+-         height="1.2401937"
+-         x="67.278908"
+-         y="512.68549" />
+-      <rect
+-         style="fill:#ffffff;fill-opacity:1;stroke-width:0.230015;stroke-linejoin:round;paint-order:markers stroke fill"
+-         id="rect22"
+-         width="1.8602906"
+-         height="1.2401937"
+-         x="67.278908"
+-         y="514.23572" />
+-      <rect
+-         style="fill:#ffffff;fill-opacity:1;stroke-width:0.230015;stroke-linejoin:round;paint-order:markers stroke fill"
+-         id="rect23"
+-         width="1.8602906"
+-         height="1.2401937"
+-         x="69.449249"
+-         y="511.13522" />
+-      <rect
+-         style="fill:#ffffff;fill-opacity:1;stroke-width:0.230015;stroke-linejoin:round;paint-order:markers stroke fill"
+-         id="rect24"
+-         width="1.8602906"
+-         height="1.2401937"
+-         x="69.449249"
+-         y="512.68549" />
+-      <rect
+-         style="fill:#ffffff;fill-opacity:1;stroke-width:0.230015;stroke-linejoin:round;paint-order:markers stroke fill"
+-         id="rect25"
+-         width="1.8602906"
+-         height="1.2401937"
+-         x="69.449249"
+-         y="514.23572" />
+-    </g>
+-  </g>
+-</svg>
++<svg xmlns="http://www.w3.org/2000/svg" width="48" height="48" viewBox="0 0 26 26"><title>Office Unbound</title><rect x="1" y="1" width="24" height="24" rx="6" fill="#1e8449"/><text x="13" y="18.5" font-family="DejaVu Sans,Arial,sans-serif" font-size="12" font-weight="700" text-anchor="middle" fill="#fff">S</text></svg>
+diff --git a/browser/branding/themes/collabora-online-brand/images/compact-logo-text.svg b/browser/branding/themes/collabora-online-brand/images/compact-logo-text.svg
+index c06bba6ad..f93bfd0c1 100644
+--- a/browser/branding/themes/collabora-online-brand/images/compact-logo-text.svg
++++ b/browser/branding/themes/collabora-online-brand/images/compact-logo-text.svg
+@@ -1,92 +1 @@
+-<?xml version="1.0" encoding="UTF-8" standalone="no"?>
+-<!-- Created with Inkscape (http://www.inkscape.org/) -->
+-
+-<svg
+-   width="48"
+-   height="48"
+-   viewBox="0 0 48 48"
+-   version="1.1"
+-   id="svg1"
+-   inkscape:version="1.4.4 (dcaf3e7d9e, 2026-05-05)"
+-   sodipodi:docname="compact-logo-text.svg"
+-   xmlns:inkscape="http://www.inkscape.org/namespaces/inkscape"
+-   xmlns:sodipodi="http://sodipodi.sourceforge.net/DTD/sodipodi-0.dtd"
+-   xmlns="http://www.w3.org/2000/svg"
+-   xmlns:svg="http://www.w3.org/2000/svg">
+-  <sodipodi:namedview
+-     id="namedview1"
+-     pagecolor="#ffffff"
+-     bordercolor="#000000"
+-     borderopacity="0.25"
+-     inkscape:showpageshadow="2"
+-     inkscape:pageopacity="0.0"
+-     inkscape:pagecheckerboard="0"
+-     inkscape:deskcolor="#d1d1d1"
+-     inkscape:document-units="px"
+-     showguides="false"
+-     inkscape:zoom="12.153398"
+-     inkscape:cx="23.861639"
+-     inkscape:cy="19.295015"
+-     inkscape:window-width="1920"
+-     inkscape:window-height="1014"
+-     inkscape:window-x="0"
+-     inkscape:window-y="38"
+-     inkscape:window-maximized="1"
+-     inkscape:current-layer="layer1">
+-    <sodipodi:guide
+-       position="1.1054546,40"
+-       orientation="0,-1"
+-       id="guide3"
+-       inkscape:locked="false" />
+-    <sodipodi:guide
+-       position="1.1054546,8"
+-       orientation="0,-1"
+-       id="guide4"
+-       inkscape:locked="false" />
+-    <sodipodi:guide
+-       position="8,44"
+-       orientation="1,0"
+-       id="guide5"
+-       inkscape:locked="false" />
+-  </sodipodi:namedview>
+-  <defs
+-     id="defs1" />
+-  <g
+-     inkscape:label="Layer 1"
+-     inkscape:groupmode="layer"
+-     id="layer1">
+-    <path
+-       id="rect1"
+-       style="fill:#0369a3;stroke-width:1.09127;stroke-linejoin:round;paint-order:markers stroke fill"
+-       d="M 12,4 C 9.784,4 8,5.784 8,8 v 32 c 0,2.216 1.784,4 4,4 h 24 c 2.216,0 4,-1.784 4,-4 V 16 H 28 V 4 Z"
+-       sodipodi:nodetypes="sssssscccs" />
+-    <path
+-       id="path6"
+-       style="fill:#034f7c;fill-opacity:1;stroke-width:0.409226;stroke-linejoin:round;paint-order:markers stroke fill"
+-       d="m 27,4 h 1 l 12,11.999999 v 1 H 27 Z"
+-       sodipodi:nodetypes="cccccc" />
+-    <path
+-       id="rect5"
+-       style="fill:#82beee;fill-opacity:1;stroke-width:0.409226;stroke-linejoin:round;paint-order:markers stroke fill"
+-       d="M 28,4 40,15.999999 H 28 Z"
+-       sodipodi:nodetypes="cccc" />
+-    <rect
+-       style="fill:#ffffff;fill-opacity:1;stroke-linejoin:round;paint-order:markers stroke fill"
+-       id="rect6"
+-       width="16"
+-       height="4"
+-       x="16"
+-       y="26"
+-       rx="1"
+-       ry="1" />
+-    <rect
+-       style="fill:#ffffff;fill-opacity:1;stroke-linejoin:round;paint-order:markers stroke fill"
+-       id="rect7"
+-       width="16"
+-       height="4"
+-       x="16"
+-       y="33"
+-       rx="1"
+-       ry="1" />
+-  </g>
+-</svg>
++<svg xmlns="http://www.w3.org/2000/svg" width="48" height="48" viewBox="0 0 26 26"><title>Office Unbound</title><rect x="1" y="1" width="24" height="24" rx="6" fill="#2557d6"/><text x="13" y="18.5" font-family="DejaVu Sans,Arial,sans-serif" font-size="12" font-weight="700" text-anchor="middle" fill="#fff">W</text></svg>
+diff --git a/browser/branding/themes/collabora-online-brand/images/full-logo-white.svg b/browser/branding/themes/collabora-online-brand/images/full-logo-white.svg
+index 6b6590a92..22e1252ae 100644
+--- a/browser/branding/themes/collabora-online-brand/images/full-logo-white.svg
++++ b/browser/branding/themes/collabora-online-brand/images/full-logo-white.svg
+@@ -1,80 +1 @@
+-<?xml version="1.0" encoding="UTF-8" standalone="no"?>
+-<!-- Created with Inkscape (http://www.inkscape.org/) -->
+-
+-<svg
+-   width="600"
+-   height="249.99998"
+-   viewBox="0 0 158.75 66.145828"
+-   version="1.1"
+-   id="svg5"
+-   xml:space="preserve"
+-   xmlns="http://www.w3.org/2000/svg"
+-   xmlns:svg="http://www.w3.org/2000/svg"><defs
+-     id="defs2" /><g
+-     id="layer1"><g
+-       id="g241"
+-       transform="matrix(1.2225264,0,0,1.2225264,-10.10709,-8.0128259)"><g
+-         id="COffice-white-logomark"
+-         transform="matrix(0.79058116,0,0,0.7855015,7.6901661,7.9840747)"
+-         style="stroke:none;stroke-width:1.26897"><path
+-           transform="matrix(1.2648923,0,0,1.273072,64.142828,-8.1840554)"
+-           d="M -49.050781,19.441406 V 44.662109 L -36.439453,32.052734 Z"
+-           style="fill:#ffffff;fill-opacity:1;stroke:none;stroke-width:1px;stroke-linecap:butt;stroke-linejoin:miter;stroke-opacity:1"
+-           id="path1156" /><path
+-           transform="matrix(1.2648923,0,0,1.273072,64.142828,-8.1840554)"
+-           d="M -37.621094,8.0097656 -48.244141,18.634766 -34.826172,32.052734 -48.244141,45.470703 -37.621094,56.09375 -13.578125,32.052734 Z"
+-           style="fill:#ffffff;fill-opacity:1;stroke:none;stroke-width:6.00001;stroke-linejoin:round;paint-order:stroke fill markers"
+-           id="rect1144" /></g><g
+-         id="COffice-white-txt"
+-         transform="translate(0,-7.8099874)"><g
+-           id="text1246"
+-           style="font-size:17.9798px;line-height:1.25;font-family:'Segoe UI';-inkscape-font-specification:'Segoe UI';letter-spacing:0px;word-spacing:0px;fill:#ffffff;fill-opacity:1;stroke-width:1"
+-           aria-label="Collabora"><path
+-             id="path867"
+-             style="font-style:normal;font-variant:normal;font-weight:normal;font-stretch:normal;font-family:Montserrat;-inkscape-font-specification:Montserrat;fill:#ffffff;fill-opacity:1;stroke-width:1"
+-             d="m 59.3668,36.43419 q 1.096767,0 1.887879,-0.359596 0.791111,-0.377576 1.654141,-1.186667 l 1.366465,1.402424 q -1.995758,2.211516 -4.854546,2.211516 -2.840808,0 -4.728687,-1.83394 -1.869899,-1.833939 -1.869899,-4.638788 0,-2.804849 1.905859,-4.674748 1.923838,-1.869899 4.836566,-1.869899 2.930707,0 4.890505,2.157576 l -1.348485,1.474344 q -0.89899,-0.863031 -1.708081,-1.204647 -0.791111,-0.341616 -1.869899,-0.341616 -1.905859,0 -3.200404,1.240606 -1.294546,1.222626 -1.294546,3.146465 0,1.905859 1.276566,3.200404 1.294545,1.276566 3.056566,1.276566 z" /><path
+-             id="path869"
+-             style="font-style:normal;font-variant:normal;font-weight:normal;font-stretch:normal;font-family:Montserrat;-inkscape-font-specification:Montserrat;fill:#ffffff;fill-opacity:1;stroke-width:1"
+-             d="m 68.536441,35.840857 q 0.86303,0.86303 2.175556,0.86303 1.312525,0 2.157576,-0.86303 0.86303,-0.881011 0.86303,-2.265455 0,-1.384445 -0.86303,-2.247475 -0.845051,-0.88101 -2.157576,-0.88101 -1.312526,0 -2.175556,0.88101 -0.845051,0.86303 -0.845051,2.247475 0,1.384444 0.845051,2.265455 z m 5.771516,1.240606 q -1.438384,1.420404 -3.59596,1.420404 -2.157576,0 -3.59596,-1.420404 -1.438384,-1.438384 -1.438384,-3.506061 0,-2.067677 1.438384,-3.488081 1.438384,-1.438384 3.59596,-1.438384 2.157576,0 3.59596,1.438384 1.438383,1.420404 1.438383,3.488081 0,2.067677 -1.438383,3.506061 z" /><path
+-             id="path871"
+-             style="font-style:normal;font-variant:normal;font-weight:normal;font-stretch:normal;font-family:Montserrat;-inkscape-font-specification:Montserrat;fill:#ffffff;fill-opacity:1;stroke-width:1"
+-             d="M 80.043485,38.358028 H 78.029747 V 25.017017 h 2.013738 z" /><path
+-             id="path873"
+-             style="font-style:normal;font-variant:normal;font-weight:normal;font-stretch:normal;font-family:Montserrat;-inkscape-font-specification:Montserrat;fill:#ffffff;fill-opacity:1;stroke-width:1"
+-             d="M 84.969918,38.358028 H 82.956181 V 25.017017 h 2.013737 z" /><path
+-             id="path875"
+-             style="font-style:normal;font-variant:normal;font-weight:normal;font-stretch:normal;font-family:Montserrat;-inkscape-font-specification:Montserrat;fill:#ffffff;fill-opacity:1;stroke-width:1"
+-             d="m 95.631908,38.358028 h -1.83394 v -1.276565 q -1.186667,1.420404 -3.182424,1.420404 -1.492324,0 -2.481213,-0.845051 -0.970909,-0.84505 -0.970909,-2.247475 0,-1.420404 1.042829,-2.121616 1.042828,-0.701212 2.822828,-0.701212 h 2.607071 v -0.359596 q 0,-1.905859 -2.121616,-1.905859 -1.330505,0 -2.768889,0.970909 l -0.89899,-1.258586 q 1.74404,-1.384444 3.955555,-1.384444 1.690102,0 2.75091,0.86303 1.078788,0.845051 1.078788,2.67899 z m -2.013738,-3.56 v -0.809091 h -2.265455 q -2.175555,0 -2.175555,1.366465 0,0.701212 0.539394,1.078788 0.539394,0.359596 1.492323,0.359596 0.970909,0 1.690101,-0.539394 0.719192,-0.539394 0.719192,-1.456364 z" /><path
+-             id="path877"
+-             style="font-style:normal;font-variant:normal;font-weight:normal;font-stretch:normal;font-family:Montserrat;-inkscape-font-specification:Montserrat;fill:#ffffff;fill-opacity:1;stroke-width:1"
+-             d="m 103.561,28.648937 q 1.92384,0 3.2903,1.330505 1.36647,1.330505 1.36647,3.54202 0,2.211516 -1.36647,3.59596 -1.34848,1.384445 -3.16444,1.384445 -1.79798,0 -3.23637,-1.582223 v 1.438384 H 98.436756 V 25.017017 h 2.013734 v 5.44788 q 1.18667,-1.81596 3.11051,-1.81596 z m -3.14647,4.944445 q 0,1.366464 0.82707,2.247475 0.82708,0.86303 2.01374,0.86303 1.18667,0 2.06768,-0.86303 0.88101,-0.863031 0.88101,-2.229496 0,-1.384444 -0.86303,-2.283434 -0.86303,-0.91697 -2.06768,-0.91697 -1.20464,0 -2.03172,0.91697 -0.82707,0.89899 -0.82707,2.265455 z" /><path
+-             id="path879"
+-             style="font-style:normal;font-variant:normal;font-weight:normal;font-stretch:normal;font-family:Montserrat;-inkscape-font-specification:Montserrat;fill:#ffffff;fill-opacity:1;stroke-width:1"
+-             d="m 112.74866,35.840857 q 0.86303,0.86303 2.17555,0.86303 1.31253,0 2.15758,-0.86303 0.86303,-0.881011 0.86303,-2.265455 0,-1.384445 -0.86303,-2.247475 -0.84505,-0.88101 -2.15758,-0.88101 -1.31252,0 -2.17555,0.88101 -0.84505,0.86303 -0.84505,2.247475 0,1.384444 0.84505,2.265455 z m 5.77151,1.240606 q -1.43838,1.420404 -3.59596,1.420404 -2.15757,0 -3.59596,-1.420404 -1.43838,-1.438384 -1.43838,-3.506061 0,-2.067677 1.43838,-3.488081 1.43839,-1.438384 3.59596,-1.438384 2.15758,0 3.59596,1.438384 1.43839,1.420404 1.43839,3.488081 0,2.067677 -1.43839,3.506061 z" /><path
+-             id="path881"
+-             style="font-style:normal;font-variant:normal;font-weight:normal;font-stretch:normal;font-family:Montserrat;-inkscape-font-specification:Montserrat;fill:#ffffff;fill-opacity:1;stroke-width:1"
+-             d="m 127.25833,30.680654 q -1.49232,0 -2.24747,0.970909 -0.75516,0.970909 -0.75516,2.607071 v 4.099394 h -2.01373 v -9.565253 h 2.01373 v 1.923839 q 0.48546,-0.89899 1.31253,-1.474344 0.84505,-0.575353 1.78,-0.593333 l 0.018,2.031717 q -0.0539,0 -0.10788,0 z" /><path
+-             id="path883"
+-             style="font-style:normal;font-variant:normal;font-weight:normal;font-stretch:normal;font-family:Montserrat;-inkscape-font-specification:Montserrat;fill:#ffffff;fill-opacity:1;stroke-width:1"
+-             d="m 137.03931,38.358028 h -1.83394 v -1.276565 q -1.18667,1.420404 -3.18242,1.420404 -1.49233,0 -2.48122,-0.845051 -0.97091,-0.84505 -0.97091,-2.247475 0,-1.420404 1.04283,-2.121616 1.04283,-0.701212 2.82283,-0.701212 h 2.60707 v -0.359596 q 0,-1.905859 -2.12161,-1.905859 -1.33051,0 -2.76889,0.970909 l -0.89899,-1.258586 q 1.74404,-1.384444 3.95555,-1.384444 1.6901,0 2.75091,0.86303 1.07879,0.845051 1.07879,2.67899 z m -2.01374,-3.56 v -0.809091 h -2.26545 q -2.17556,0 -2.17556,1.366465 0,0.701212 0.5394,1.078788 0.53939,0.359596 1.49232,0.359596 0.97091,0 1.6901,-0.539394 0.71919,-0.539394 0.71919,-1.456364 z" /></g><g
+-           id="text1254"
+-           style="font-size:17.9798px;line-height:1.25;font-family:'Segoe UI';-inkscape-font-specification:'Segoe UI';letter-spacing:0px;word-spacing:0px;fill:#ffffff;fill-opacity:1;stroke-width:1"
+-           aria-label="Office"><path
+-             id="path854"
+-             style="font-style:normal;font-variant:normal;font-weight:normal;font-stretch:normal;font-family:Montserrat;-inkscape-font-specification:Montserrat;fill:#ffffff;fill-opacity:1;stroke-width:1"
+-             d="m 62.585184,48.072394 q -1.276566,-1.330505 -3.146465,-1.330505 -1.869899,0 -3.164445,1.330505 -1.276566,1.330505 -1.276566,3.236364 0,1.887879 1.276566,3.218384 1.294546,1.330505 3.164445,1.330505 1.869899,0 3.146465,-1.330505 1.294545,-1.330505 1.294545,-3.218384 0,-1.905859 -1.294545,-3.236364 z m 1.564242,7.875152 q -1.905858,1.851919 -4.710707,1.851919 -2.804849,0 -4.710707,-1.851919 -1.905859,-1.869899 -1.905859,-4.638788 0,-2.786869 1.905859,-4.638788 1.905858,-1.869899 4.710707,-1.869899 2.804849,0 4.710707,1.869899 1.905859,1.851919 1.905859,4.638788 0,2.768889 -1.905859,4.638788 z" /><path
+-             id="path856"
+-             style="font-style:normal;font-variant:normal;font-weight:normal;font-stretch:normal;font-family:Montserrat;-inkscape-font-specification:Montserrat;fill:#ffffff;fill-opacity:1;stroke-width:1"
+-             d="m 70.927779,47.317242 v 0.791112 h 2.517172 v 1.618182 h -2.517172 v 7.947071 h -2.013738 v -7.947071 h -1.204646 v -1.618182 h 1.204646 v -0.737172 q 0,-1.510303 0.89899,-2.391313 0.91697,-0.89899 2.193536,-0.89899 1.294545,0 2.355354,0.952929 l -0.827071,1.420404 q -0.593334,-0.629293 -1.240606,-0.629293 -0.647273,0 -1.006869,0.413536 -0.359596,0.395555 -0.359596,1.078787 z" /><path
+-             id="path858"
+-             style="font-style:normal;font-variant:normal;font-weight:normal;font-stretch:normal;font-family:Montserrat;-inkscape-font-specification:Montserrat;fill:#ffffff;fill-opacity:1;stroke-width:1"
+-             d="m 77.867977,47.317242 v 0.791112 h 2.517172 v 1.618182 h -2.517172 v 7.947071 h -2.013738 v -7.947071 h -1.204646 v -1.618182 h 1.204646 v -0.737172 q 0,-1.510303 0.89899,-2.391313 0.91697,-0.89899 2.193536,-0.89899 1.294545,0 2.355354,0.952929 l -0.827071,1.420404 q -0.593334,-0.629293 -1.240606,-0.629293 -0.647273,0 -1.006869,0.413536 -0.359596,0.395555 -0.359596,1.078787 z" /><path
+-             id="path860"
+-             style="font-style:normal;font-variant:normal;font-weight:normal;font-stretch:normal;font-family:Montserrat;-inkscape-font-specification:Montserrat;fill:#ffffff;fill-opacity:1;stroke-width:1"
+-             d="m 84.340699,57.673607 h -2.013737 v -9.565253 h 2.013737 z M 82.45282,46.202495 q -0.377576,-0.377576 -0.377576,-0.89899 0,-0.521414 0.377576,-0.89899 0.377576,-0.377576 0.89899,-0.377576 0.521414,0 0.89899,0.377576 0.377576,0.377576 0.377576,0.89899 0,0.521414 -0.377576,0.89899 -0.377576,0.377576 -0.89899,0.377576 -0.521414,0 -0.89899,-0.377576 z" /><path
+-             id="path862"
+-             style="font-style:normal;font-variant:normal;font-weight:normal;font-stretch:normal;font-family:Montserrat;-inkscape-font-specification:Montserrat;fill:#ffffff;fill-opacity:1;stroke-width:1"
+-             d="m 91.496628,57.817445 q -1.995758,0 -3.434142,-1.348485 -1.438384,-1.366464 -1.438384,-3.56 0,-2.193535 1.492324,-3.56 1.510303,-1.384445 3.667879,-1.384445 2.157575,0 3.649899,1.492324 l -1.186667,1.456363 q -1.240606,-1.078788 -2.499192,-1.078788 -1.258586,0 -2.193536,0.845051 -0.916969,0.827071 -0.916969,2.157576 0,1.312525 0.916969,2.229495 0.91697,0.91697 2.247475,0.91697 1.348485,0 2.535152,-1.222627 l 1.186667,1.294546 q -1.744041,1.76202 -4.027475,1.76202 z" /><path
+-             id="path864"
+-             style="font-style:normal;font-variant:normal;font-weight:normal;font-stretch:normal;font-family:Montserrat;-inkscape-font-specification:Montserrat;fill:#ffffff;fill-opacity:1;stroke-width:1"
+-             d="m 106.50973,53.77199 h -7.49758 q 0.07192,1.042829 0.95293,1.690102 0.88101,0.629293 2.01374,0.629293 1.79798,0 2.73293,-1.132728 l 1.1507,1.258586 q -1.54626,1.600202 -4.02747,1.600202 -2.013739,0 -3.434143,-1.330505 -1.402424,-1.348485 -1.402424,-3.59596 0,-2.265454 1.438384,-3.59596 1.438384,-1.330505 3.380203,-1.330505 1.9598,0 3.32626,1.186667 1.36647,1.168687 1.36647,3.236364 z m -7.49758,-1.582222 h 5.48384 q 0,-1.204646 -0.75515,-1.851919 -0.75515,-0.647273 -1.8699,-0.647273 -1.09677,0 -1.977779,0.683232 -0.881011,0.665253 -0.881011,1.81596 z" /></g></g></g></g></svg>
++<svg xmlns="http://www.w3.org/2000/svg" width="600" height="250" viewBox="-4 -20 160 66"><title>Office Unbound</title><rect x="2" y="2" width="22" height="22" rx="5" fill="#5b8cff"/><text x="13" y="19" font-family="DejaVu Sans,Arial,sans-serif" font-size="13" font-weight="700" text-anchor="middle" fill="#fff">OU</text><text x="30" y="19" font-family="DejaVu Sans,Arial,sans-serif" font-size="14" font-weight="600" fill="#ffffff">Office Unbound</text></svg>
+diff --git a/browser/branding/themes/collabora-online-brand/images/full-logo.svg b/browser/branding/themes/collabora-online-brand/images/full-logo.svg
+index b8c2de2fd..9981241bc 100644
+--- a/browser/branding/themes/collabora-online-brand/images/full-logo.svg
++++ b/browser/branding/themes/collabora-online-brand/images/full-logo.svg
+@@ -1,128 +1 @@
+-<?xml version="1.0" encoding="UTF-8" standalone="no"?>
+-<!-- Created with Inkscape (http://www.inkscape.org/) -->
+-
+-<svg
+-   width="600"
+-   height="249.99998"
+-   viewBox="0 0 158.75 66.145828"
+-   version="1.1"
+-   id="svg5"
+-   xml:space="preserve"
+-   inkscape:export-filename="collabora-office-white.svg"
+-   inkscape:export-xdpi="88.055756"
+-   inkscape:export-ydpi="88.055756"
+-   xmlns:inkscape="http://www.inkscape.org/namespaces/inkscape"
+-   xmlns:sodipodi="http://sodipodi.sourceforge.net/DTD/sodipodi-0.dtd"
+-   xmlns="http://www.w3.org/2000/svg"
+-   xmlns:svg="http://www.w3.org/2000/svg"><sodipodi:namedview
+-     id="namedview7"
+-     pagecolor="#ffffff"
+-     bordercolor="#666666"
+-     borderopacity="1.0"
+-     inkscape:showpageshadow="2"
+-     inkscape:pageopacity="0.0"
+-     inkscape:pagecheckerboard="0"
+-     inkscape:deskcolor="#d1d1d1"
+-     inkscape:document-units="mm"
+-     showgrid="false" /><defs
+-     id="defs2" /><g
+-     inkscape:label="Layer 1"
+-     inkscape:groupmode="layer"
+-     id="layer1"><g
+-       id="g1377"
+-       transform="matrix(1.2349588,0,0,1.2349588,-11.017072,-8.4306446)"><g
+-         id="COffice-logomark"
+-         transform="matrix(0.79058116,0,0,0.7855015,7.6901661,7.9840747)"
+-         style="stroke:none;stroke-width:1.26897"
+-         inkscape:label="COffice-logomark"><path
+-           style="fill:#ffffff;stroke:none;stroke-width:1.26898px;stroke-linecap:butt;stroke-linejoin:miter;stroke-opacity:1"
+-           d="M 2.0988724,16.566254 3.1191844,15.539343 20.091471,32.621383 3.1191844,49.703423 2.0988724,48.674025 18.050844,32.621383 Z"
+-           id="path1178"
+-           inkscape:connector-curvature="0" /><path
+-           transform="matrix(1.2648923,0,0,1.273072,64.142828,-8.1840554)"
+-           d="M -49.050781,19.441406 V 44.662109 L -36.439453,32.052734 Z"
+-           style="fill:#c8c8c8;fill-opacity:1;stroke:none;stroke-width:1px;stroke-linecap:butt;stroke-linejoin:miter;stroke-opacity:1"
+-           id="path1156-6"
+-           inkscape:connector-curvature="0" /><path
+-           sodipodi:nodetypes="ccccccc"
+-           transform="matrix(1.2648923,0,0,1.273072,64.142828,-8.1840554)"
+-           d="M -37.621094,8.0097656 -48.244141,18.634766 -34.826172,32.052734 -48.244141,45.470703 -37.621094,56.09375 -13.578125,32.052734 Z"
+-           style="fill:#5c2983;fill-opacity:1;stroke:none;stroke-width:6.00001;stroke-linejoin:round;paint-order:stroke fill markers"
+-           id="rect1144-1"
+-           inkscape:connector-curvature="0" /><path
+-           sodipodi:nodetypes="cccc"
+-           transform="matrix(1.2648923,0,0,1.273072,64.142828,-8.1840554)"
+-           d="m -38.115234,35.341797 -8.873675,8.865852 13.090471,-2.88929 z"
+-           style="fill:#2d0b47;fill-opacity:1;stroke:none;stroke-width:1.68107"
+-           id="polygon1099"
+-           inkscape:connector-curvature="0" /></g><g
+-         id="COffice-txt"
+-         inkscape:label="COffice-txt"
+-         transform="translate(0,-7.8099874)"
+-         style="fill:#5c2983;fill-opacity:1"><g
+-           id="text1246-8"
+-           style="font-size:17.9798px;line-height:1.25;font-family:'Segoe UI';-inkscape-font-specification:'Segoe UI';letter-spacing:0px;word-spacing:0px;fill:#5c2983;fill-opacity:1;stroke-width:1"
+-           aria-label="Collabora"><path
+-             inkscape:connector-curvature="0"
+-             id="path866"
+-             style="font-style:normal;font-variant:normal;font-weight:normal;font-stretch:normal;font-family:Montserrat;-inkscape-font-specification:Montserrat;fill:#5c2983;fill-opacity:1;stroke-width:1"
+-             d="m 59.3668,36.43419 q 1.096767,0 1.887879,-0.359596 0.791111,-0.377576 1.654141,-1.186667 l 1.366465,1.402424 q -1.995758,2.211516 -4.854546,2.211516 -2.840808,0 -4.728687,-1.83394 -1.869899,-1.833939 -1.869899,-4.638788 0,-2.804849 1.905859,-4.674748 1.923838,-1.869899 4.836566,-1.869899 2.930707,0 4.890505,2.157576 l -1.348485,1.474344 q -0.89899,-0.863031 -1.708081,-1.204647 -0.791111,-0.341616 -1.869899,-0.341616 -1.905859,0 -3.200404,1.240606 -1.294546,1.222626 -1.294546,3.146465 0,1.905859 1.276566,3.200404 1.294545,1.276566 3.056566,1.276566 z" /><path
+-             inkscape:connector-curvature="0"
+-             id="path868"
+-             style="font-style:normal;font-variant:normal;font-weight:normal;font-stretch:normal;font-family:Montserrat;-inkscape-font-specification:Montserrat;fill:#5c2983;fill-opacity:1;stroke-width:1"
+-             d="m 68.536441,35.840857 q 0.86303,0.86303 2.175556,0.86303 1.312525,0 2.157576,-0.86303 0.86303,-0.881011 0.86303,-2.265455 0,-1.384445 -0.86303,-2.247475 -0.845051,-0.88101 -2.157576,-0.88101 -1.312526,0 -2.175556,0.88101 -0.845051,0.86303 -0.845051,2.247475 0,1.384444 0.845051,2.265455 z m 5.771516,1.240606 q -1.438384,1.420404 -3.59596,1.420404 -2.157576,0 -3.59596,-1.420404 -1.438384,-1.438384 -1.438384,-3.506061 0,-2.067677 1.438384,-3.488081 1.438384,-1.438384 3.59596,-1.438384 2.157576,0 3.59596,1.438384 1.438383,1.420404 1.438383,3.488081 0,2.067677 -1.438383,3.506061 z" /><path
+-             inkscape:connector-curvature="0"
+-             id="path870"
+-             style="font-style:normal;font-variant:normal;font-weight:normal;font-stretch:normal;font-family:Montserrat;-inkscape-font-specification:Montserrat;fill:#5c2983;fill-opacity:1;stroke-width:1"
+-             d="M 80.043485,38.358028 H 78.029747 V 25.017017 h 2.013738 z" /><path
+-             inkscape:connector-curvature="0"
+-             id="path872-7"
+-             style="font-style:normal;font-variant:normal;font-weight:normal;font-stretch:normal;font-family:Montserrat;-inkscape-font-specification:Montserrat;fill:#5c2983;fill-opacity:1;stroke-width:1"
+-             d="M 84.969918,38.358028 H 82.956181 V 25.017017 h 2.013737 z" /><path
+-             inkscape:connector-curvature="0"
+-             id="path874-9"
+-             style="font-style:normal;font-variant:normal;font-weight:normal;font-stretch:normal;font-family:Montserrat;-inkscape-font-specification:Montserrat;fill:#5c2983;fill-opacity:1;stroke-width:1"
+-             d="m 95.631908,38.358028 h -1.83394 v -1.276565 q -1.186667,1.420404 -3.182424,1.420404 -1.492324,0 -2.481213,-0.845051 -0.970909,-0.84505 -0.970909,-2.247475 0,-1.420404 1.042829,-2.121616 1.042828,-0.701212 2.822828,-0.701212 h 2.607071 v -0.359596 q 0,-1.905859 -2.121616,-1.905859 -1.330505,0 -2.768889,0.970909 l -0.89899,-1.258586 q 1.74404,-1.384444 3.955555,-1.384444 1.690102,0 2.75091,0.86303 1.078788,0.845051 1.078788,2.67899 z m -2.013738,-3.56 v -0.809091 h -2.265455 q -2.175555,0 -2.175555,1.366465 0,0.701212 0.539394,1.078788 0.539394,0.359596 1.492323,0.359596 0.970909,0 1.690101,-0.539394 0.719192,-0.539394 0.719192,-1.456364 z" /><path
+-             inkscape:connector-curvature="0"
+-             id="path876-2"
+-             style="font-style:normal;font-variant:normal;font-weight:normal;font-stretch:normal;font-family:Montserrat;-inkscape-font-specification:Montserrat;fill:#5c2983;fill-opacity:1;stroke-width:1"
+-             d="m 103.561,28.648937 q 1.92384,0 3.2903,1.330505 1.36647,1.330505 1.36647,3.54202 0,2.211516 -1.36647,3.59596 -1.34848,1.384445 -3.16444,1.384445 -1.79798,0 -3.23637,-1.582223 v 1.438384 H 98.436756 V 25.017017 h 2.013734 v 5.44788 q 1.18667,-1.81596 3.11051,-1.81596 z m -3.14647,4.944445 q 0,1.366464 0.82707,2.247475 0.82708,0.86303 2.01374,0.86303 1.18667,0 2.06768,-0.86303 0.88101,-0.863031 0.88101,-2.229496 0,-1.384444 -0.86303,-2.283434 -0.86303,-0.91697 -2.06768,-0.91697 -1.20464,0 -2.03172,0.91697 -0.82707,0.89899 -0.82707,2.265455 z" /><path
+-             inkscape:connector-curvature="0"
+-             id="path878-0"
+-             style="font-style:normal;font-variant:normal;font-weight:normal;font-stretch:normal;font-family:Montserrat;-inkscape-font-specification:Montserrat;fill:#5c2983;fill-opacity:1;stroke-width:1"
+-             d="m 112.74866,35.840857 q 0.86303,0.86303 2.17555,0.86303 1.31253,0 2.15758,-0.86303 0.86303,-0.881011 0.86303,-2.265455 0,-1.384445 -0.86303,-2.247475 -0.84505,-0.88101 -2.15758,-0.88101 -1.31252,0 -2.17555,0.88101 -0.84505,0.86303 -0.84505,2.247475 0,1.384444 0.84505,2.265455 z m 5.77151,1.240606 q -1.43838,1.420404 -3.59596,1.420404 -2.15757,0 -3.59596,-1.420404 -1.43838,-1.438384 -1.43838,-3.506061 0,-2.067677 1.43838,-3.488081 1.43839,-1.438384 3.59596,-1.438384 2.15758,0 3.59596,1.438384 1.43839,1.420404 1.43839,3.488081 0,2.067677 -1.43839,3.506061 z" /><path
+-             inkscape:connector-curvature="0"
+-             id="path880-2"
+-             style="font-style:normal;font-variant:normal;font-weight:normal;font-stretch:normal;font-family:Montserrat;-inkscape-font-specification:Montserrat;fill:#5c2983;fill-opacity:1;stroke-width:1"
+-             d="m 127.25833,30.680654 q -1.49232,0 -2.24747,0.970909 -0.75516,0.970909 -0.75516,2.607071 v 4.099394 h -2.01373 v -9.565253 h 2.01373 v 1.923839 q 0.48546,-0.89899 1.31253,-1.474344 0.84505,-0.575353 1.78,-0.593333 l 0.018,2.031717 q -0.0539,0 -0.10788,0 z" /><path
+-             inkscape:connector-curvature="0"
+-             id="path882-3"
+-             style="font-style:normal;font-variant:normal;font-weight:normal;font-stretch:normal;font-family:Montserrat;-inkscape-font-specification:Montserrat;fill:#5c2983;fill-opacity:1;stroke-width:1"
+-             d="m 137.03931,38.358028 h -1.83394 v -1.276565 q -1.18667,1.420404 -3.18242,1.420404 -1.49233,0 -2.48122,-0.845051 -0.97091,-0.84505 -0.97091,-2.247475 0,-1.420404 1.04283,-2.121616 1.04283,-0.701212 2.82283,-0.701212 h 2.60707 v -0.359596 q 0,-1.905859 -2.12161,-1.905859 -1.33051,0 -2.76889,0.970909 l -0.89899,-1.258586 q 1.74404,-1.384444 3.95555,-1.384444 1.6901,0 2.75091,0.86303 1.07879,0.845051 1.07879,2.67899 z m -2.01374,-3.56 v -0.809091 h -2.26545 q -2.17556,0 -2.17556,1.366465 0,0.701212 0.5394,1.078788 0.53939,0.359596 1.49232,0.359596 0.97091,0 1.6901,-0.539394 0.71919,-0.539394 0.71919,-1.456364 z" /></g><g
+-           id="text1254-7"
+-           style="font-size:17.9798px;line-height:1.25;font-family:'Segoe UI';-inkscape-font-specification:'Segoe UI';letter-spacing:0px;word-spacing:0px;fill:#5c2983;fill-opacity:1;stroke-width:1"
+-           aria-label="Office"><path
+-             inkscape:connector-curvature="0"
+-             id="path853-5"
+-             style="font-style:normal;font-variant:normal;font-weight:normal;font-stretch:normal;font-family:Montserrat;-inkscape-font-specification:Montserrat;fill:#5c2983;fill-opacity:1;stroke-width:1"
+-             d="m 62.585184,48.072394 q -1.276566,-1.330505 -3.146465,-1.330505 -1.869899,0 -3.164445,1.330505 -1.276566,1.330505 -1.276566,3.236364 0,1.887879 1.276566,3.218384 1.294546,1.330505 3.164445,1.330505 1.869899,0 3.146465,-1.330505 1.294545,-1.330505 1.294545,-3.218384 0,-1.905859 -1.294545,-3.236364 z m 1.564242,7.875152 q -1.905858,1.851919 -4.710707,1.851919 -2.804849,0 -4.710707,-1.851919 -1.905859,-1.869899 -1.905859,-4.638788 0,-2.786869 1.905859,-4.638788 1.905858,-1.869899 4.710707,-1.869899 2.804849,0 4.710707,1.869899 1.905859,1.851919 1.905859,4.638788 0,2.768889 -1.905859,4.638788 z" /><path
+-             inkscape:connector-curvature="0"
+-             id="path855-9"
+-             style="font-style:normal;font-variant:normal;font-weight:normal;font-stretch:normal;font-family:Montserrat;-inkscape-font-specification:Montserrat;fill:#5c2983;fill-opacity:1;stroke-width:1"
+-             d="m 70.927779,47.317242 v 0.791112 h 2.517172 v 1.618182 h -2.517172 v 7.947071 h -2.013738 v -7.947071 h -1.204646 v -1.618182 h 1.204646 v -0.737172 q 0,-1.510303 0.89899,-2.391313 0.91697,-0.89899 2.193536,-0.89899 1.294545,0 2.355354,0.952929 l -0.827071,1.420404 q -0.593334,-0.629293 -1.240606,-0.629293 -0.647273,0 -1.006869,0.413536 -0.359596,0.395555 -0.359596,1.078787 z" /><path
+-             inkscape:connector-curvature="0"
+-             id="path857-2"
+-             style="font-style:normal;font-variant:normal;font-weight:normal;font-stretch:normal;font-family:Montserrat;-inkscape-font-specification:Montserrat;fill:#5c2983;fill-opacity:1;stroke-width:1"
+-             d="m 77.867977,47.317242 v 0.791112 h 2.517172 v 1.618182 h -2.517172 v 7.947071 h -2.013738 v -7.947071 h -1.204646 v -1.618182 h 1.204646 v -0.737172 q 0,-1.510303 0.89899,-2.391313 0.91697,-0.89899 2.193536,-0.89899 1.294545,0 2.355354,0.952929 l -0.827071,1.420404 q -0.593334,-0.629293 -1.240606,-0.629293 -0.647273,0 -1.006869,0.413536 -0.359596,0.395555 -0.359596,1.078787 z" /><path
+-             inkscape:connector-curvature="0"
+-             id="path859-2"
+-             style="font-style:normal;font-variant:normal;font-weight:normal;font-stretch:normal;font-family:Montserrat;-inkscape-font-specification:Montserrat;fill:#5c2983;fill-opacity:1;stroke-width:1"
+-             d="m 84.340699,57.673607 h -2.013737 v -9.565253 h 2.013737 z M 82.45282,46.202495 q -0.377576,-0.377576 -0.377576,-0.89899 0,-0.521414 0.377576,-0.89899 0.377576,-0.377576 0.89899,-0.377576 0.521414,0 0.89899,0.377576 0.377576,0.377576 0.377576,0.89899 0,0.521414 -0.377576,0.89899 -0.377576,0.377576 -0.89899,0.377576 -0.521414,0 -0.89899,-0.377576 z" /><path
+-             inkscape:connector-curvature="0"
+-             id="path861-8"
+-             style="font-style:normal;font-variant:normal;font-weight:normal;font-stretch:normal;font-family:Montserrat;-inkscape-font-specification:Montserrat;fill:#5c2983;fill-opacity:1;stroke-width:1"
+-             d="m 91.496628,57.817445 q -1.995758,0 -3.434142,-1.348485 -1.438384,-1.366464 -1.438384,-3.56 0,-2.193535 1.492324,-3.56 1.510303,-1.384445 3.667879,-1.384445 2.157575,0 3.649899,1.492324 l -1.186667,1.456363 q -1.240606,-1.078788 -2.499192,-1.078788 -1.258586,0 -2.193536,0.845051 -0.916969,0.827071 -0.916969,2.157576 0,1.312525 0.916969,2.229495 0.91697,0.91697 2.247475,0.91697 1.348485,0 2.535152,-1.222627 l 1.186667,1.294546 q -1.744041,1.76202 -4.027475,1.76202 z" /><path
+-             inkscape:connector-curvature="0"
+-             id="path863-9"
+-             style="font-style:normal;font-variant:normal;font-weight:normal;font-stretch:normal;font-family:Montserrat;-inkscape-font-specification:Montserrat;fill:#5c2983;fill-opacity:1;stroke-width:1"
+-             d="m 106.50973,53.77199 h -7.49758 q 0.07192,1.042829 0.95293,1.690102 0.88101,0.629293 2.01374,0.629293 1.79798,0 2.73293,-1.132728 l 1.1507,1.258586 q -1.54626,1.600202 -4.02747,1.600202 -2.013739,0 -3.434143,-1.330505 -1.402424,-1.348485 -1.402424,-3.59596 0,-2.265454 1.438384,-3.59596 1.438384,-1.330505 3.380203,-1.330505 1.9598,0 3.32626,1.186667 1.36647,1.168687 1.36647,3.236364 z m -7.49758,-1.582222 h 5.48384 q 0,-1.204646 -0.75515,-1.851919 -0.75515,-0.647273 -1.8699,-0.647273 -1.09677,0 -1.977779,0.683232 -0.881011,0.665253 -0.881011,1.81596 z" /></g></g></g></g></svg>
++<svg xmlns="http://www.w3.org/2000/svg" width="600" height="250" viewBox="-4 -20 160 66"><title>Office Unbound</title><rect x="2" y="2" width="22" height="22" rx="5" fill="#2557d6"/><text x="13" y="19" font-family="DejaVu Sans,Arial,sans-serif" font-size="13" font-weight="700" text-anchor="middle" fill="#fff">OU</text><text x="30" y="19" font-family="DejaVu Sans,Arial,sans-serif" font-size="14" font-weight="600" fill="#1d2b3a">Office Unbound</text></svg>
+diff --git a/browser/branding/themes/collabora-online-brand/images/toolbar-bg-logo-dark.svg b/browser/branding/themes/collabora-online-brand/images/toolbar-bg-logo-dark.svg
+index 74b106a0a..22963570e 100644
+--- a/browser/branding/themes/collabora-online-brand/images/toolbar-bg-logo-dark.svg
++++ b/browser/branding/themes/collabora-online-brand/images/toolbar-bg-logo-dark.svg
+@@ -1,42 +1 @@
+-<?xml version="1.0" encoding="UTF-8" standalone="no"?>
+-<!-- Created with Inkscape (http://www.inkscape.org/) -->
+-
+-<svg
+-   width="39"
+-   height="39"
+-   viewBox="0 0 8.0 10.31875"
+-   version="1.1"
+-   id="svg6417"
+-   xmlns="http://www.w3.org/2000/svg"
+-   xmlns:svg="http://www.w3.org/2000/svg"
+-   xmlns:rdf="http://www.w3.org/1999/02/22-rdf-syntax-ns#"
+-   xmlns:cc="http://creativecommons.org/ns#"
+-   xmlns:dc="http://purl.org/dc/elements/1.1/">
+-  <defs
+-     id="defs6411" />
+-  <metadata
+-     id="metadata6414">
+-    <rdf:RDF>
+-      <cc:Work
+-         rdf:about="">
+-        <dc:format>image/svg+xml</dc:format>
+-        <dc:type
+-           rdf:resource="http://purl.org/dc/dcmitype/StillImage" />
+-      </cc:Work>
+-    </rdf:RDF>
+-  </metadata>
+-  <g
+-     id="layer1"
+-     transform="translate(0,-286.68123)">
+-    <polygon
+-       style="fill:#ffffff;fill-opacity:1"
+-       id="polygon16"
+-       points="30.958,32.599 30.379,33.145 17.914,44.893 28.654,55.638 51.742,32.55 28.561,9.362 17.763,20.162 17.772,20.172 30.379,32.053 "
+-       transform="matrix(0.22178348,0,0,0.22178348,-3.8018229,284.62581)" />
+-    <polygon
+-       id="polygon18"
+-       points="17.358,44.386 17.258,20.718 29.864,32.599 "
+-       style="display:inline;fill:#ffffff"
+-       transform="matrix(0.22178348,0,0,0.22178348,-3.8018229,284.62581)" />
+-  </g>
+-</svg>
++<svg xmlns="http://www.w3.org/2000/svg" width="39" height="39" viewBox="0 0 26 26"><title>Office Unbound</title><rect x="1" y="1" width="24" height="24" rx="6" fill="#5b8cff"/><text x="13" y="18.5" font-family="DejaVu Sans,Arial,sans-serif" font-size="12" font-weight="700" text-anchor="middle" fill="#fff">OU</text></svg>
+diff --git a/browser/branding/themes/collabora-online-brand/images/toolbar-bg-logo-notebookbar.svg b/browser/branding/themes/collabora-online-brand/images/toolbar-bg-logo-notebookbar.svg
+index 78c87eaf5..00ae1eee1 100644
+--- a/browser/branding/themes/collabora-online-brand/images/toolbar-bg-logo-notebookbar.svg
++++ b/browser/branding/themes/collabora-online-brand/images/toolbar-bg-logo-notebookbar.svg
+@@ -1,2 +1 @@
+-<!-- Created with Inkscape (http://www.inkscape.org/) -->
+-<svg width="30" height="30" version="1.1" viewBox="0 0 6.1538 7.9375" xmlns="http://www.w3.org/2000/svg"><g transform="matrix(.51559 0 0 .51559 1.092 -146.5)"><g transform="matrix(.24164 0 0 .24164 -3.153 283.71)" fill="#fff" stroke-width=".88332"><g transform="matrix(.69834 0 0 .69385 12.023 10.974)"><path d="m1.5974 17.068 3.74e-5 31.103 15.453-15.55z"/><path d="m16.556 2.0129-13.437 13.526 16.972 17.082-16.972 17.082 13.437 13.524 30.412-30.606z" style="paint-order:stroke fill markers"/></g><path d="m188.87 28.985 3.1939 4.9028 3.3059-4.9028h3.7262l-5.211 7.2842 5.4352 7.6204h-3.8662l-3.5581-4.9589-3.474 4.9589h-3.6701l5.2951-7.5924-5.0149-7.3122z" display="none" stroke-width=".88332"/><path d="m17.607 54.844 3.1939 4.9028 3.3059-4.9028h3.7262l-5.211 7.2842 5.4352 7.6204h-3.8662l-3.5581-4.9589-3.474 4.9589h-3.6701l5.2951-7.5924-5.0149-7.3122z" display="none" stroke-width=".88332"/><path d="m17.607-2.5343 3.1939 4.9028 3.3059-4.9028h3.7262l-5.211 7.2842 5.4352 7.6204h-3.8662l-3.5581-4.9589-3.474 4.9589h-3.6701l5.2951-7.5924-5.0149-7.3122z" display="none" stroke-width=".88332"/><path d="m3.0383 28.985 3.1939 4.9028 3.3059-4.9028h3.7262l-5.211 7.2842 5.4352 7.6204h-3.8663l-3.5581-4.9589-3.474 4.9589h-3.6701l5.2951-7.5924-5.0149-7.3122z" display="none" stroke-width=".88332"/></g></g></svg>
++<svg xmlns="http://www.w3.org/2000/svg" width="30" height="30" viewBox="0 0 26 26"><title>Office Unbound</title><rect x="1" y="1" width="24" height="24" rx="6" fill="#2557d6"/><text x="13" y="18.5" font-family="DejaVu Sans,Arial,sans-serif" font-size="12" font-weight="700" text-anchor="middle" fill="#fff">OU</text></svg>
+diff --git a/browser/branding/themes/collabora-online-brand/images/toolbar-bg-logo.svg b/browser/branding/themes/collabora-online-brand/images/toolbar-bg-logo.svg
+index a25fad0bf..31c90e2c6 100644
+--- a/browser/branding/themes/collabora-online-brand/images/toolbar-bg-logo.svg
++++ b/browser/branding/themes/collabora-online-brand/images/toolbar-bg-logo.svg
+@@ -1,80 +1 @@
+-<?xml version="1.0" encoding="UTF-8" standalone="no"?>
+-<!-- Created with Inkscape (http://www.inkscape.org/) -->
+-
+-<svg
+-   xmlns:dc="http://purl.org/dc/elements/1.1/"
+-   xmlns:cc="http://creativecommons.org/ns#"
+-   xmlns:rdf="http://www.w3.org/1999/02/22-rdf-syntax-ns#"
+-   xmlns:svg="http://www.w3.org/2000/svg"
+-   xmlns="http://www.w3.org/2000/svg"
+-   xmlns:sodipodi="http://sodipodi.sourceforge.net/DTD/sodipodi-0.dtd"
+-   xmlns:inkscape="http://www.inkscape.org/namespaces/inkscape"
+-   width="39"
+-   height="39"
+-   viewBox="0 0 8.0 10.31875"
+-   version="1.1"
+-   id="svg6417"
+-   inkscape:version="0.92.2 (5c3e80d, 2017-08-06)"
+-   sodipodi:docname="toolbar-bg-font.svg">
+-  <defs
+-     id="defs6411" />
+-  <sodipodi:namedview
+-     id="base"
+-     pagecolor="#ffffff"
+-     bordercolor="#666666"
+-     borderopacity="1.0"
+-     inkscape:pageopacity="0.0"
+-     inkscape:pageshadow="2"
+-     inkscape:zoom="11.2"
+-     inkscape:cx="37.116072"
+-     inkscape:cy="37.116072"
+-     inkscape:document-units="px"
+-     inkscape:current-layer="layer1"
+-     showgrid="false"
+-     units="px"
+-     inkscape:showpageshadow="false"
+-     inkscape:window-width="1982"
+-     inkscape:window-height="1982"
+-     inkscape:window-x="-8"
+-     inkscape:window-y="-8"
+-     inkscape:window-maximized="1" />
+-  <metadata
+-     id="metadata6414">
+-    <rdf:RDF>
+-      <cc:Work
+-         rdf:about="">
+-        <dc:format>image/svg+xml</dc:format>
+-        <dc:type
+-           rdf:resource="http://purl.org/dc/dcmitype/StillImage" />
+-        <dc:title></dc:title>
+-      </cc:Work>
+-    </rdf:RDF>
+-  </metadata>
+-  <g
+-     inkscape:label="Layer 1"
+-     inkscape:groupmode="layer"
+-     id="layer1"
+-     transform="translate(0,-286.68123)">
+-    <polygon
+-       id="polygon14"
+-       points="17.914,44.893 17.358,44.386 17.258,20.718 17.772,20.172 30.958,32.599 "
+-       style="fill:#ffffff"
+-       transform="matrix(0.22178348,0,0,0.22178348,-3.8018229,284.62581)" />
+-    <polygon
+-       style="fill:#5c2983;fill-opacity:1"
+-       id="polygon16"
+-       points="30.958,32.599 30.379,33.145 17.914,44.893 28.654,55.638 51.742,32.55 28.561,9.362 17.763,20.162 17.772,20.172 30.379,32.053 "
+-       transform="matrix(0.22178348,0,0,0.22178348,-3.8018229,284.62581)" />
+-    <polygon
+-       id="polygon18"
+-       points="29.864,32.599 17.358,44.386 17.258,20.718 "
+-       style="fill:#c8c8c8"
+-       transform="matrix(0.22178348,0,0,0.22178348,-3.8018229,284.62581)" />
+-    <polygon
+-       style="fill:#2d0b47;fill-opacity:1"
+-       id="polygon20"
+-       points="31.847,41.483 27.743,35.628 18.807,44.052 "
+-       transform="matrix(0.22178348,0,0,0.22178348,-3.8018229,284.62581)" />
+-  </g>
+-
+-</svg>
++<svg xmlns="http://www.w3.org/2000/svg" width="39" height="39" viewBox="0 0 26 26"><title>Office Unbound</title><rect x="1" y="1" width="24" height="24" rx="6" fill="#2557d6"/><text x="13" y="18.5" font-family="DejaVu Sans,Arial,sans-serif" font-size="12" font-weight="700" text-anchor="middle" fill="#fff">OU</text></svg>
+diff --git a/browser/html/cool.html.m4 b/browser/html/cool.html.m4
+index 785d27a5b..6c4f1bd29 100644
+--- a/browser/html/cool.html.m4
++++ b/browser/html/cool.html.m4
+@@ -254,7 +254,7 @@ m4_ifelse(PREVIEW, [true],
+       <div id="about-dialog" tabIndex="0">
+         <div id="about-dialog-header">
+           <fig id="integrator-logo"></fig>
+-          <h1 id="product-name">Collabora Online</h1>
++          <h1 id="product-name">Office Unbound Docs</h1>
+         </div>
+         <hr/>
+         <div id="about-dialog-container">
+diff --git a/browser/html/documents.html b/browser/html/documents.html
+index 4fa9a44f2..3d04b2ca5 100644
+--- a/browser/html/documents.html
++++ b/browser/html/documents.html
+@@ -5,7 +5,7 @@
+     <meta http-equiv="Content-Type" content="text/html; charset=UTF-8">
+     <meta charset="utf-8">
+     <meta name="viewport" content="width=device-width, initial-scale=1">
+-    <title>Collabora Online ! - open a document</title>
++    <title>Office Unbound Docs - open a document</title>
+ 
+     <style>
+       :root {
+diff --git a/browser/images/collabora-office-white.svg b/browser/images/collabora-office-white.svg
+index 0cf7d872e..8382e173a 100644
+--- a/browser/images/collabora-office-white.svg
++++ b/browser/images/collabora-office-white.svg
+@@ -1 +1 @@
+-<svg width="16.23" xmlns="http://www.w3.org/2000/svg" height="22" id="screenshot-34a99d3c-c16d-805b-8007-130189f3c01f" viewBox="0 0 16.23 22" xmlns:xlink="http://www.w3.org/1999/xlink" fill="none" version="1.1"><g id="shape-34a99d3c-c16d-805b-8007-130189f3c01f" width="600" height="250" xml:space="preserve" rx="0" ry="0" style="fill: rgb(0, 0, 0);"><g id="shape-34a99d3c-c16d-805b-8007-130189f3c020"><g class="fills" id="fills-34a99d3c-c16d-805b-8007-130189f3c020"><path d="M0,5.230377197265625L0,16.769622802734375L5.77001953125,11.00042724609375Z" style="stroke: none; stroke-width: 1px; stroke-linecap: butt; stroke-linejoin: miter; stroke-opacity: 1; fill: rgb(255, 255, 255); fill-opacity: 1;"/></g></g><g id="shape-34a99d3c-c16d-805b-8007-130189f3c021"><g class="fills" id="fills-34a99d3c-c16d-805b-8007-130189f3c021"><path d="M5.229248046875,1.1368683772161603e-13L0.369140625,4.86126708984375L6.50830078125,11.00042724609375L0.369140625,17.13958740234375L5.229248046875,22L16.22998046875,11.00042724609375Z" style="stroke: none; stroke-width: 6.00001; stroke-linejoin: round; paint-order: stroke; fill: rgb(255, 255, 255); fill-opacity: 1;"/></g></g></g></svg>
+\ No newline at end of file
++<svg xmlns="http://www.w3.org/2000/svg" width="16" height="22" viewBox="0 0 26 26"><title>Office Unbound</title><text x="13" y="18.5" font-family="DejaVu Sans,Arial,sans-serif" font-size="12" font-weight="700" text-anchor="middle" fill="#ffffff">OU</text></svg>
+diff --git a/browser/src/app/Socket.ts b/browser/src/app/Socket.ts
+index 81a26bfce..083ed7e95 100644
+--- a/browser/src/app/Socket.ts
++++ b/browser/src/app/Socket.ts
+@@ -343,7 +343,7 @@ class Socket {
+ 							'{productname}',
+ 							typeof brandProductName !== 'undefined'
+ 								? brandProductName
+-								: 'Collabora Online Development Edition (unbranded)',
++								: 'Office Unbound Docs',
+ 						) + e,
+ 					cmd: 'socket',
+ 					kind: 'failed',
+@@ -2143,7 +2143,7 @@ class Socket {
+ 						'{productname}',
+ 						typeof brandProductName !== 'undefined'
+ 							? brandProductName
+-							: 'Collabora Online Development Edition (unbranded)',
++							: 'Office Unbound Docs',
+ 					);
+ 					msg = msg.replace('{0}', window.expectedServerId);
+ 					msg = msg.replace('{1}', window.routeToken);
+@@ -2919,7 +2919,7 @@ class Socket {
+ 				'{productname}',
+ 				typeof brandProductName !== 'undefined'
+ 					? brandProductName
+-					: 'Collabora Online Development Edition (unbranded)',
++					: 'Office Unbound Docs',
+ 			);
+ 			this._map.fire('infobar', {
+ 				msg: textMsg,
+diff --git a/browser/src/control/Control.AboutDialog.ts b/browser/src/control/Control.AboutDialog.ts
+index ebc5423cd..38f79ff9b 100644
+--- a/browser/src/control/Control.AboutDialog.ts
++++ b/browser/src/control/Control.AboutDialog.ts
+@@ -123,7 +123,7 @@ class AboutDialog {
+ 			productName =
+ 				typeof brandProductName === 'string' && brandProductName.length > 0
+ 					? brandProductName
+-					: 'Collabora Online Development Edition (unbranded)';
++					: 'Office Unbound Docs';
+ 		}
+ 
+ 		const productNameElement = content.querySelector(
+diff --git a/browser/src/control/Control.Menubar.ts b/browser/src/control/Control.Menubar.ts
+index 31336e19b..fb38e5821 100644
+--- a/browser/src/control/Control.Menubar.ts
++++ b/browser/src/control/Control.Menubar.ts
+@@ -2791,9 +2791,9 @@ class Menubar extends window.L.Control {
+ 		} else if (id === 'feedback' && this._map.feedback) {
+ 			this._map.feedback.showFeedbackDialog();
+ 		} else if (id === 'report-an-issue') {
+-			window.open('https://github.com/CollaboraOnline/online/issues', '_blank', 'noopener');
++			window.open('https://officeunbound.com', '_blank', 'noopener');
+ 		} else if (id === 'forum') {
+-			window.open('https://forum.collaboraonline.com', '_blank', 'noopener');
++			window.open('https://officeunbound.com', '_blank', 'noopener');
+ 		} else if (id === 'inserthyperlink') {
+ 			app.dispatcher.dispatch('hyperlinkdialog');
+ 		} else if (id === 'keyboard-shortcuts' || id === 'online-help') {
+diff --git a/browser/src/control/Control.Zotero.js b/browser/src/control/Control.Zotero.js
+index 9e96159d7..4e10f0e30 100644
+--- a/browser/src/control/Control.Zotero.js
++++ b/browser/src/control/Control.Zotero.js
+@@ -1540,7 +1540,7 @@ window.L.Control.Zotero = window.L.Control.extend({
+ 
+ 	unlinkCitations: function() {
+ 		this.map.uiManager.showInfoModal('zoterounlinkwarn', _('Unlink Citations'),
+-			_('Unlinking citations will prevent Collabora Online from updating citations and bibliography in this document.'),
++			_('Unlinking citations will prevent Office Unbound Docs from updating citations and bibliography in this document.'),
+ 			null, _('Confirm'), this.handleUnlinkCitations.bind(this));
+ 	},
+ 
+diff --git a/browser/src/control/Toolbar.js b/browser/src/control/Toolbar.js
+index 600db5927..e1869226b 100644
+--- a/browser/src/control/Toolbar.js
++++ b/browser/src/control/Toolbar.js
+@@ -816,7 +816,7 @@ window.L.Map.include({
+ 		if (window.ThisIsAMobileApp) {
+ 			productName = window.MobileAppName;
+ 		} else {
+-			productName = (typeof brandProductName !== 'undefined') ? brandProductName : 'Collabora Online Development Edition (unbranded)';
++			productName = (typeof brandProductName !== 'undefined') ? brandProductName : 'Office Unbound Docs';
+ 		}
+ 
+ 		map.uiManager.showYesNoButton(id + '-box', productName, '', _('OK'), null, null, null, true);
+diff --git a/browser/src/control/backstage/Sidebar.tsx b/browser/src/control/backstage/Sidebar.tsx
+index 2b7f587ec..2b3455a2e 100644
+--- a/browser/src/control/backstage/Sidebar.tsx
++++ b/browser/src/control/backstage/Sidebar.tsx
+@@ -72,7 +72,7 @@ namespace BackstageTemplates {
+   export function header(props: HeaderProps): HTMLElement {
+     return (
+       <div class="backstage-header">
+-        <span class="backstage-header-title">Collabora Office</span>
++        <span class="backstage-header-title">Office Unbound Docs</span>
+         {props.isStarterMode || !props.closeButtonEnabled
+           ? null
+           : closeButton(props.onClose)}
+diff --git a/browser/src/control/onboarding/OnboardingSteps.ts b/browser/src/control/onboarding/OnboardingSteps.ts
+index cb82c6129..aadcdcdc7 100644
+--- a/browser/src/control/onboarding/OnboardingSteps.ts
++++ b/browser/src/control/onboarding/OnboardingSteps.ts
+@@ -22,7 +22,7 @@ function getOnboardingSteps(): OnboardingStep[] {
+ 	return [
+ 		{
+ 			id: 'intro',
+-			title: _('Welcome to Collabora Online'),
++			title: _('Welcome to Office Unbound Docs'),
+ 			text: _(
+ 				'This short tour points out the parts of the screen you will use most.',
+ 			),
+diff --git a/browser/src/layer/marker/ProgressOverlay.js b/browser/src/layer/marker/ProgressOverlay.js
+index 39e6bef2f..2bf95342b 100644
+--- a/browser/src/layer/marker/ProgressOverlay.js
++++ b/browser/src/layer/marker/ProgressOverlay.js
+@@ -30,7 +30,7 @@ L.ProgressOverlay = window.L.Layer.extend({
+ 		if (window.ThisIsAMobileApp) {
+ 			productName = window.MobileAppName;
+ 		} else {
+-			productName = (typeof brandProductName !== 'undefined') ? brandProductName : 'Collabora Online Development Edition (unbranded)';
++			productName = (typeof brandProductName !== 'undefined') ? brandProductName : 'Office Unbound Docs';
+ 		}
+ 		if (window.logoURL) {
+ 			this._spinner.style.setProperty(
+diff --git a/browser/src/map/Clipboard.js b/browser/src/map/Clipboard.js
+index 01abf8354..63df21c18 100644
+--- a/browser/src/map/Clipboard.js
++++ b/browser/src/map/Clipboard.js
+@@ -1654,7 +1654,7 @@ window.L.Clipboard = window.L.Class.extend({
+ 	},
+ 
+ 	_substProductName: function (msg) {
+-		var productName = (typeof brandProductName !== 'undefined') ? brandProductName : 'Collabora Online Development Edition (unbranded)';
++		var productName = (typeof brandProductName !== 'undefined') ? brandProductName : 'Office Unbound Docs';
+ 		return msg.replace('{productname}', productName);
+ 	},
+ 
+diff --git a/browser/src/map/handler/Map.VersionBar.js b/browser/src/map/handler/Map.VersionBar.js
+index 78a367d07..584d018fc 100644
+--- a/browser/src/map/handler/Map.VersionBar.js
++++ b/browser/src/map/handler/Map.VersionBar.js
+@@ -47,7 +47,7 @@ window.L.Map.VersionBar = window.L.Handler.extend({
+ 		if (e && e.coolwsd_version) {
+ 			var latestVersion = e.coolwsd_version.split('.');
+ 			var currentVersion = app.socket.WSDServer.Version.split('.');
+-			var snackbarMessage = _('Your Collabora Online server needs updating. Version {0} is available.');
++			var snackbarMessage = _('Your Office Unbound Docs server needs updating. Version {0} is available.');
+ 			var length = Math.max(latestVersion.length, currentVersion.length);
+ 			for (var i = 0; i < length; i++) {
+ 				var v1 = i < latestVersion.length ? parseInt(latestVersion[i]) : 0;
+diff --git a/browser/src/map/handler/Map.WOPI.js b/browser/src/map/handler/Map.WOPI.js
+index 5e9f90f15..ba00c0eac 100644
+--- a/browser/src/map/handler/Map.WOPI.js
++++ b/browser/src/map/handler/Map.WOPI.js
+@@ -257,7 +257,7 @@ window.L.Map.WOPI = window.L.Handler.extend({
+ 		var docType = this._map.getDocType();
+ 		var moduleName = moduleByDocType[docType];
+ 
+-		var brand = (typeof brandProductName !== 'undefined' && brandProductName) ? brandProductName : 'Collabora Online';
++		var brand = (typeof brandProductName !== 'undefined' && brandProductName) ? brandProductName : 'Office Unbound Docs';
+ 		var product = moduleName ? brand.replace(/Online$/, moduleName).trim() : brand;
+ 		if (moduleName && product === brand)
+ 			product = brand + ' ' + moduleName;
+diff --git a/engine/distro-configs/OfficeUnbound-LOKit.conf b/engine/distro-configs/OfficeUnbound-LOKit.conf
+new file mode 100644
+index 000000000..95880d13b
+--- /dev/null
++++ b/engine/distro-configs/OfficeUnbound-LOKit.conf
+@@ -0,0 +1,24 @@
++# Engine configure switches for the Office Unbound Docs build (derived from CPLinux-LOKit.conf)
++# builds the engine in-tree with ./autogen.sh
++# --with-distro=CPLinux-LOKit). The language list comes from
++# Langs.conf via the INCLUDE below, so it is never duplicated here.
++
++# pull in shared config
++INCLUDE:OfficeUnboundCommon
++INCLUDE:Langs
++
++# enable features for Online release build
++--enable-sal-log
++--with-myspell-dicts
++--with-external-dict-dir=/usr/share/hunspell
++--with-external-hyph-dir=/usr/share/hyphen
++--with-external-thes-dir=/usr/share/mythes
++
++# use internal libraries
++--without-system-curl
++--without-system-expat
++--without-system-fontconfig
++--without-system-freetype
++--without-system-graphite
++--without-system-harfbuzz
++--without-system-icu
+diff --git a/engine/distro-configs/OfficeUnboundCommon.conf b/engine/distro-configs/OfficeUnboundCommon.conf
+new file mode 100644
+index 000000000..ce3ebea86
+--- /dev/null
++++ b/engine/distro-configs/OfficeUnboundCommon.conf
+@@ -0,0 +1,28 @@
++# Office Unbound: shared linux config (derived from CPLinuxCommon.conf, vendor+branding changed)
++# CPLinuxQtFlatpak, CPFreeBSDQt, CPLinux-LOKit, and CPLinux-LOKit-Dev
++--disable-dbus
++--disable-gio
++--disable-gtk3
++--disable-gui
++--disable-randr
++
++--enable-cairo-rgba
++--enable-hardening-flags
++--enable-ld
++--enable-mergelibs
++--enable-quickjs
++--enable-symbols
++
++--with-buildconfig-recorded
++--with-fonts
++--with-galleries=no
++--with-linker-hash-style=both
++--with-theme=colibre colibre_svg
++--with-vendor=Office Unbound
++--without-help
++--without-junit
++--with-system-dicts
++--with-system-zlib
++--without-system-cairo
++--without-system-jpeg
++--without-templates
