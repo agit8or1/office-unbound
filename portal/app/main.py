@@ -340,8 +340,8 @@ def create_app(cfg: Settings | None = None, transport: httpx.AsyncBaseTransport 
 
         @app.post("/welcome")
         async def welcome_post(request: Request, s: str = Form(""), u: str = Form(""), t: str = Form(""), password: str = Form(""), again: str = Form("")) -> Response:
-            origin = request.headers.get("origin")
-            if origin and origin != cfg.base_url:
+            origin = request.headers.get("origin")   # "null" is what browsers send after Referrer-Policy: no-referrer; the one-time token is the real CSRF secret here
+            if (origin and origin not in (cfg.base_url, "null")) or request.headers.get("sec-fetch-site") == "cross-site":
                 return render(request, "error.html", {"title": "Request refused", "text": "Please open the link again."}, 403)
             if password != again:
                 return render(request, "welcome.html", welcome_ctx(s, u, t, "The two passwords are not the same."), 422)

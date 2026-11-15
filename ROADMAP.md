@@ -60,7 +60,7 @@ Core platform components are integrated and tested in an isolated lab: own sourc
 | | Item | Status | Evidence |
 |---|---|---|---|
 | P4.1 | Two isolated customer stacks with cross-customer access-denial tests | ⚪ Planned | — |
-| P4.2 | Organization admin and MSP Control Center | ⚪ Planned | — |
+| P4.2 | Organization admin and MSP Control Center | 🛠️ Implementing (Organization Admin slice: 🧪 Integrated in lab; MSP Control Center not started) | [`docs/status/org-admin-results.md`](docs/status/org-admin-results.md) |
 | P4.3 | Versioned MSP provisioning API | ⚪ Planned | — |
 
 ## P5 — Operational maturity  (⚪ Planned)
