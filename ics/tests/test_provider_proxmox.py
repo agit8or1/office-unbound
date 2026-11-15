@@ -467,3 +467,50 @@ def test_no_secret_in_any_provider_error_or_result(sim, job):
             out.append(e.message)
     blob = " ".join(out)
     assert not any(s in blob for s in secrets) and "PVEAPIToken" not in blob
+
+
+# ---------------------------------------------------------------- real cluster after the owner's ACL fixes
+@pytest.fixture()
+def fixed_sim():
+    from .pve_sim import PveSim, SimServer
+    s = PveSim(task_delay=0.15)
+    s.populate_realworld(fixed=True)
+    srv = SimServer(s)
+    yield srv
+    srv.stop()
+
+
+def test_fixed_real_cluster_probe_clone_from_template_131_and_pool_membership_is_not_ownership(fixed_sim):
+    from ics.providers.proxmox.provider import ProxmoxMutations
+    ident = SelfIdentity(macs=frozenset({"bc:24:11:e7:f0:24"}))
+    scope = EndpointScope(pools=("officeunbound-pve06",), storage=("PVE06-Storage",), networks=("vmbr0",))
+    pr = ProxmoxProvider(ro(fixed_sim, REAL), scope=scope, inventory_token_id=REAL[0], provision_probe=ro(fixed_sim, REAL),
+                         provision_token_id=REAL[0], self_identity=ident).probe()
+    # the owner's role has no VM.Migrate: the probe says so (migrate is the only verb not available), everything else is fine
+    assert pr.ok and [v.verb for v in pr.verbs if not v.ok] == ["migrate"]
+    w = " | ".join(pr.warnings)
+    assert "inside the managed pool" in w and "Pool membership is never treated as ownership" in w and "DANGER" in w
+    assert "Pool.Audit missing" not in w and "VM.Console" not in w
+    caps = {c["name"]: c for c in pr.capabilities}
+    assert caps["vlan_tagging"]["ok"] is False and "VLAN tagging unavailable" in caps["vlan_tagging"]["detail"]
+    with base.job_execution("j"):
+        m = ProxmoxMutations(rw(fixed_sim, REAL), scope=scope, token_id=REAL[0], self_identity=ident)
+        t = m.clone_vm(VmCloneSpec(131, "pve06", None, "ou-app01", "officeunbound-pve06", "PVE06-Storage", "d1"))
+        m.wait(t, timeout=5)
+        m.wait(m.finalize_clone(t), timeout=5)
+        assert "ou-deployment-d1" in fixed_sim.sim.vms[t.vmid]["cfg"]["tags"]
+        # the ICS VM is a pool member: neither pool membership nor the pool ACL makes it mutable (tags AND identity)
+        with pytest.raises(ScopeViolation, match="ICS host itself"):
+            m.power(VmRef("pve06", 126, "vm", "d1"), "stop")
+        m2 = ProxmoxMutations(rw(fixed_sim, REAL), scope=scope, token_id=REAL[0])          # even without identity: no ownership tags
+        with pytest.raises(ScopeViolation, match="ownership tags"):
+            m2.power(VmRef("pve06", 126, "vm", "d1"), "stop")
+
+
+def test_thin_storage_reports_provisioned_vs_physical(sim):
+    sim.sim.storages["local-lvm"]["type"] = "lvmthin"
+    sim.sim.storages["local-lvm"]["total"] = 10 << 30
+    sim.sim.storages["local-lvm"]["hidden_volumes"] = [20 << 30]
+    d = read_provider(sim).discover()
+    s = next(x for x in d.storage if x["name"] == "local-lvm" and x["node"] == "pve1")
+    assert s["thin"] is True and s["total"] == 10 << 30 and s["provisioned_bytes"] > 20 << 30

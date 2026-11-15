@@ -518,7 +518,7 @@ class ProxmoxProvider:
 
     def metrics(self, scope: Scope, since: datetime, step: int = 60) -> list[Sample]:
         age = (datetime.now(timezone.utc) - since).total_seconds()
-        tf = "hour" if age <= 3600 else "day" if age <= 86400 else "week" if age <= 7 * 86400 else "month"
+        tf = "hour" if age <= 3900 else "day" if age <= 90000 else "week" if age <= 7.5 * 86400 else "month"
         if scope.type == "node":
             path, mp, key = f"/nodes/{_seg(scope.node)}/rrddata?timeframe={tf}&cf=AVERAGE", self._NODE_M, scope.node
         elif scope.type == "guest":

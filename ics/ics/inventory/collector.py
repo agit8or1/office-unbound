@@ -179,12 +179,12 @@ def query_metrics(db: Session, scope_type: str, scope_id: str, metric: str, rng:
     """Server-side bucketing: the source resolution depends on the range; points are avg/max per bucket."""
     secs, res, bucket = RANGES[rng]
     rows = db.execute(text(
-        "SELECT date_bin(make_interval(secs => :b), ts, TIMESTAMPTZ '2000-01-01') AS t, avg(value) AS avg, max(vmax) AS max "
+        "SELECT date_bin(make_interval(secs => :b), ts, TIMESTAMPTZ '2000-01-01') AS bucket, avg(value) AS a, max(vmax) AS mx "
         "FROM metric_samples WHERE scope_type = :t AND scope_id = :s AND metric = :m AND resolution = :r "
         "AND ts >= now() - make_interval(secs => :w) GROUP BY 1 ORDER BY 1"),
         {"b": bucket, "t": scope_type, "s": scope_id, "m": metric, "r": res, "w": secs}).all()
     return {"scope": scope_type, "id": scope_id, "metric": metric, "range": rng, "bucket_seconds": bucket, "source_resolution": res,
-            "points": [{"ts": r.t.isoformat(), "avg": r.avg, "max": r.max} for r in rows]}
+            "points": [{"ts": r.bucket.isoformat(), "avg": r.a, "max": r.mx} for r in rows]}
 
 
 # ---- scheduling (called from the worker loop) -----------------------------------------------------------------

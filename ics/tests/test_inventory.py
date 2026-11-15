@@ -154,7 +154,7 @@ def test_rediscovery_prunes_vanished_guests_and_keeps_rows_of_unmanaged_failures
     refresh(w, eid)
     assert 160 not in {x["vmid"] for x in w.v.get(f"{H}/infra/guests").json()}
     # a storage read failure on one node must not delete that kind's rows
-    sim.sim.fail("GET", r"/nodes/pve2/storage$", 500, "boom", count=1)
+    sim.sim.fail("GET", r"/nodes/pve2/storage$", 500, "boom", count=2)  # the legacy raw snapshot consumes the first
     refresh(w, eid)
     assert {x["node"] for x in w.v.get(f"{H}/infra/storage").json()} >= {"pve1", "pve2"}
     ep = w.v.get(f"{H}/endpoints/{eid}").json()
@@ -171,6 +171,7 @@ def test_health_rollup_rules(w, sim, rt):
     sim.sim.nodes["pve2"]["status"] = "online"
     sim.sim.storages["other-lvm"]["total"] = 10 << 30
     sim.sim.add_vm(900, "pve1", "big", disk_gb=9, storage="other-lvm", pool="ou-lab")
+    sim.sim.storages["other-lvm"]["total"] = int(9.2 * (1 << 30))
     refresh(w, eid)
     s = w.v.get(f"{H}/infra/summary").json()
     assert s["health"]["status"] == "critical" and any("% full" in (r["reason"] or "") for r in s["health"]["reasons"])
@@ -468,6 +469,7 @@ def test_remove_requires_confirmation_force_when_referenced_and_keeps_history(w,
     assert p["risk"] == "high"
     with owner_engine.connect() as c:    # agent B's deployments table (introspected: endpoint_id + status)
         c.execute(text("CREATE TABLE IF NOT EXISTS deployments (id serial PRIMARY KEY, endpoint_id uuid, status text)"))
+        c.execute(text("GRANT SELECT, INSERT, UPDATE ON deployments TO ics_test_app"))
         c.execute(text("INSERT INTO deployments (endpoint_id, status) VALUES (:e, 'running')"), {"e": eid})
     try:
         w.plan("endpoint.remove", {"endpoint_id": eid, "confirm_name": "lab"}, expect=409)
