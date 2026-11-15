@@ -33,7 +33,8 @@ def test_discover_with_temporary_admin_credentials_is_readonly_and_never_stored(
     with owner_engine.connect() as c:
         dump = json.dumps([[str(x) for x in row] for row in c.execute(text("SELECT details_canon FROM audit_events")).all()]
                           + [[str(x) for x in row] for row in c.execute(text("SELECT params::text FROM plans")).all()])
-        assert owner.sim.ROOT_PW not in dump and "setup.discover" in dump
+        assert owner.sim.ROOT_PW not in dump
+        assert c.execute(text("SELECT count(*) FROM audit_events WHERE action = 'setup.discover'")).scalar() >= 1
         assert c.execute(text("SELECT count(*) FROM endpoints")).scalar() == 0
     # admin only; both auth styles are not accepted at once; a wrong password is a clean 422 without the secret
     assert w.o.post(f"{H}/setup/probe", json=_body(owner), headers=w.oh).status_code == 403

@@ -80,7 +80,7 @@ def direct(srv, policy=None, **over):
 
 
 def mutations_for(srv, tid, secret, scope=None):
-    scope = scope or EndpointScope(pools=("officeunbound-pve06",), storage=("PVE06-Storage",), networks=("vmbr0",), templates=(9612, 131), protected=(126,))
+    scope = scope or EndpointScope(pools=("officeunbound-pve06",), storage=("PVE06-Storage",), networks=("vmbr0",), templates=(9612, 131), protected=(126,), nodes=("pve06",))
     c = __import__("ics.proxmox", fromlist=["x"]).ProxmoxWriteClient(srv.url, tid, secret, fingerprint_sha256=srv.fingerprint, allow_loopback=True)
     return ProxmoxMutations(c, scope=scope, token_id=tid, allow_simulator=True, sleep=lambda s: __import__("time").sleep(0.02))
 
@@ -267,7 +267,7 @@ def test_authorized_creation_template_clone_and_unauthorized_rejected(owner, job
     with pytest.raises(ScopeViolation):
         clone(m, storage="ha-zfs")
     wide = EndpointScope(pools=("officeunbound-pve06", "other-team"), storage=("PVE06-Storage", "ha-zfs", "PBS1"), networks=("vmbr0",),
-                         templates=(9612, 131, 126))
+                         templates=(9612, 131, 126), nodes=("pve06",))
     mw = mutations_for(owner, *res.secrets["provision"], scope=wide)       # ICS scope widened on purpose: Proxmox must still say no
     for kw in ({"pool": "other-team"}, {"storage": "ha-zfs"}, {"storage": "PBS1"}):
         with pytest.raises(ProviderError) as e:
@@ -276,14 +276,14 @@ def test_authorized_creation_template_clone_and_unauthorized_rejected(owner, job
     assert 2100 not in owner.sim.vms
     # a template that was not authorised: Proxmox refuses VM.Clone
     owner.sim.add_vm(9999, "pve06", "unlisted-template", template=True, storage="PVE06-Storage")
-    mw2 = mutations_for(owner, *res.secrets["provision"], scope=EndpointScope(pools=("officeunbound-pve06",), storage=("PVE06-Storage",), templates=(9612, 131, 9999)))
+    mw2 = mutations_for(owner, *res.secrets["provision"], scope=EndpointScope(pools=("officeunbound-pve06",), storage=("PVE06-Storage",), templates=(9612, 131, 9999), nodes=("pve06",)))
     with pytest.raises(ProviderError):
         clone(mw2, 9999, vmid=2101)
 
 
 def test_destructive_actions_stay_inside_the_pool(owner, job):
     pol, pl, d, res, f = direct(owner)
-    wide = EndpointScope(pools=("officeunbound-pve06", "other-team"), storage=("PVE06-Storage",), networks=("vmbr0",), templates=(9612,))
+    wide = EndpointScope(pools=("officeunbound-pve06", "other-team"), storage=("PVE06-Storage",), networks=("vmbr0",), templates=(9612,), nodes=("pve06",))
     mw = mutations_for(owner, *res.secrets["provision"], scope=wide)
     # customer VM 300 is in another pool on another node: Proxmox refuses, whatever the ICS scope says
     owner.sim.vms[300]["cfg"]["tags"] = "ou-managed;ou-deployment-x"
