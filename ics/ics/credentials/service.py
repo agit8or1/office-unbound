@@ -280,5 +280,5 @@ def adopt_all(rt: Runtime) -> int:
                 db.commit()
             except (VaultError, ValueError) as e:
                 db.rollback()
-                log.error("credential migration failed for endpoint %s: %s", i, type(e).__name__)
+                log.error("credential migration failed for endpoint %s: %s", i, type(e).__name__); log.debug("detail", exc_info=True)
     return total
