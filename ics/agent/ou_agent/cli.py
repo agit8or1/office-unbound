@@ -5,6 +5,7 @@ import hashlib
 import ipaddress
 import json
 import os
+import re
 import secrets
 import sys
 import time
@@ -41,14 +42,21 @@ def make_tls(state: str, address: str, hostname: str) -> str:
     return hashlib.sha256(cert.public_bytes(serialization.Encoding.DER)).hexdigest()
 
 
-def arm_enroll(state: str, ttl: int = 3600) -> str:
-    token = secrets.token_urlsafe(32)
+def arm_enroll(state: str, ttl: int = 3600, token_sha256: str | None = None) -> str | None:
+    """token_sha256 (cloud-init path): the ICS generated the token and supplies only its hash, so the plaintext never touches user-data,
+    cloud-init logs or this node's disk; nothing is printed. Without it a fresh token is generated and returned (console path)."""
+    token = None
+    if token_sha256 is None:
+        token = secrets.token_urlsafe(32)
+        token_sha256 = hashlib.sha256(token.encode()).hexdigest()
+    elif not re.fullmatch(r"[0-9a-f]{64}", token_sha256):
+        raise SystemExit("--token-sha256 must be 64 lowercase hex characters")
     p = os.path.join(state, "enroll.json")
     if os.path.exists(os.path.join(state, "trust.json")):
         raise SystemExit("already enrolled; remove trust.json deliberately (and re-run init/arm-enroll) to re-enroll")
     with open(p, "w") as f:
         os.fchmod(f.fileno(), 0o600)
-        json.dump({"token_sha256": hashlib.sha256(token.encode()).hexdigest(), "expires_at": int(time.time()) + ttl, "failures": 0}, f)
+        json.dump({"token_sha256": token_sha256, "expires_at": int(time.time()) + ttl, "failures": 0}, f)
     return token
 
 
@@ -66,7 +74,9 @@ def main(argv=None) -> int:
     sub = ap.add_subparsers(dest="cmd", required=True)
     i = sub.add_parser("init")
     i.add_argument("--hostname", required=True)
-    sub.add_parser("arm-enroll")
+    for sp in (i, sub.add_parser("arm-enroll")):
+        sp.add_argument("--token-sha256")
+        sp.add_argument("--ttl", type=int, default=3600)
     sub.add_parser("show")
     sub.add_parser("serve")
     a = ap.parse_args(argv)
@@ -80,8 +90,11 @@ def main(argv=None) -> int:
             serialization.Encoding.PEM, serialization.PrivateFormat.PKCS8, serialization.NoEncryption()))
         make_tls(a.state, cfg["listen"]["address"], a.hostname)
     if a.cmd in ("init", "arm-enroll"):
-        token = arm_enroll(a.state)
-        print("ENROLLMENT TOKEN (shown once, valid 1h, single use): " + token)
+        if not 60 <= a.ttl <= 7 * 86400:
+            raise SystemExit("--ttl must be 60..604800 seconds")
+        token = arm_enroll(a.state, a.ttl, a.token_sha256)
+        if token is not None:
+            print("ENROLLMENT TOKEN (shown once, valid 1h, single use): " + token)
     tls, key = fingerprints(a.state)
     print(f"tls_fingerprint_sha256={tls}\nagent_key_fingerprint_sha256={key}")
     return 0
