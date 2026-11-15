@@ -219,3 +219,31 @@ def test_agent_unit_and_installer_are_hardened():
     assert "User=root" not in unit
     src = "".join(open(os.path.join(os.path.dirname(__file__), "..", "agent", "ou_agent", f)).read() for f in ("runbooks.py", "server.py"))
     assert "shell=True" not in src and "os.system" not in src and "sudo" not in src
+
+
+def test_idle_tcp_connection_does_not_block_agent(fake_agent):
+    """Review H1: one idle connection (no TLS ClientHello) must not stall other requests."""
+    import socket, time as _t
+    idle = [socket.create_connection(("127.0.0.1", fake_agent.port), timeout=5) for _ in range(3)]
+    try:
+        t0 = _t.monotonic()
+        ident = agentclient.identity("127.0.0.1", fake_agent.port, fake_agent.tls_fp, allow_loopback=True)
+        assert ident["agent_pubkey"] and _t.monotonic() - t0 < 3.0
+    finally:
+        for s in idle:
+            s.close()
+
+
+def test_agent_handshake_deadline_closes_silent_connection(fake_agent, monkeypatch):
+    """A silent client is disconnected after the handshake deadline instead of holding a thread forever."""
+    import socket, time as _t
+    from ou_agent import server as srvmod
+    monkeypatch.setattr(srvmod._Server, "handshake_timeout", 1.0)
+    s = socket.create_connection(("127.0.0.1", fake_agent.port), timeout=10)
+    try:
+        t0 = _t.monotonic()
+        s.settimeout(10)
+        data = s.recv(1)          # server closes (b"") once its handshake deadline passes
+        assert data == b"" and _t.monotonic() - t0 < 12.0
+    finally:
+        s.close()

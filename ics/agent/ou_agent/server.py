@@ -138,8 +138,49 @@ class Agent:
 
 
 class _Server(socketserver.ThreadingMixIn, http.server.HTTPServer):
+    """TLS is negotiated per connection in its worker thread, never in the accept loop.
+    Review H1 (2026-11-15): wrapping the *listening* socket made accept() perform the handshake,
+    so a single idle TCP connection blocked every request. Now: plain accept, per-connection
+    handshake under a deadline, and a cap on concurrent connections."""
     daemon_threads = True
     request_queue_size = 16
+    handshake_timeout = 10.0
+    max_connections = 32
+
+    def __init__(self, addr, handler, ssl_ctx: ssl.SSLContext):
+        self.ssl_ctx = ssl_ctx
+        self._slots = threading.BoundedSemaphore(self.max_connections)
+        super().__init__(addr, handler)
+
+    def process_request(self, request, client_address):
+        if not self._slots.acquire(blocking=False):  # over capacity: drop instead of queueing unbounded threads
+            self.shutdown_request(request)
+            return
+        try:
+            super().process_request(request, client_address)
+        except Exception:
+            self._slots.release()
+            raise
+
+    def process_request_thread(self, request, client_address):
+        try:
+            super().process_request_thread(request, client_address)
+        finally:
+            self._slots.release()
+
+    def finish_request(self, request, client_address):
+        request.settimeout(self.handshake_timeout)
+        try:
+            tls = self.ssl_ctx.wrap_socket(request, server_side=True)  # handshake happens here, in this thread, bounded
+        except (ssl.SSLError, OSError):
+            return
+        try:
+            self.RequestHandlerClass(tls, client_address, self)
+        finally:
+            try:
+                tls.close()
+            except OSError:
+                pass
 
 
 def make_handler(agent: Agent):
@@ -196,8 +237,7 @@ def build_server(cfg: dict, state_dir: str):
     ctx = ssl.SSLContext(ssl.PROTOCOL_TLS_SERVER)
     ctx.minimum_version = ssl.TLSVersion.TLSv1_2
     ctx.load_cert_chain(os.path.join(state_dir, "tls.crt"), os.path.join(state_dir, "tls.key"))
-    srv = _Server((cfg["listen"]["address"], int(cfg["listen"]["port"])), make_handler(agent))
-    srv.socket = ctx.wrap_socket(srv.socket, server_side=True)
+    srv = _Server((cfg["listen"]["address"], int(cfg["listen"]["port"])), make_handler(agent), ctx)
     return srv, agent
 
 
