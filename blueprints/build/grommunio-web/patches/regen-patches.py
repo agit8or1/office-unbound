@@ -100,6 +100,6 @@ mkpatch("a", "b", f"""Description: Rename the translatable product string "gromm
 Author: Office Unbound
 Forwarded: not-needed
 Last-Update: 2026-11-15
-""", "0002-branding-translatable-strings.patch")
+""", "0003-branding-translatable-strings.patch")
 shutil.rmtree(tmp)
 print("patches written to", out)

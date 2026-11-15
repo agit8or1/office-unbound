@@ -1,0 +1,17 @@
+A future release will drop --no-tag-display-limit; please use '--tag-display-limit 0' instead.
+running with root privileges is not recommended!
+E: ou-python3-pyexmdb: custom-library-search-path RUNPATH /usr/lib/x86_64-linux-gnu [usr/lib/python3/dist-packages/pyexmdb.cpython-311-x86_64-linux-gnu.so]
+W: ou-libexmdbpp: copyright-without-copyright-notice
+W: ou-libexmdbpp-dev: copyright-without-copyright-notice
+W: ou-python3-pyexmdb: copyright-without-copyright-notice
+W: ou-libexmdbpp: debian-changelog-line-too-long [usr/share/doc/ou-libexmdbpp/changelog.Debian.gz:3]
+W: ou-libexmdbpp-dev: debian-changelog-line-too-long [usr/share/doc/ou-libexmdbpp-dev/changelog.Debian.gz:3]
+W: ou-python3-pyexmdb: debian-changelog-line-too-long [usr/share/doc/ou-python3-pyexmdb/changelog.Debian.gz:3]
+W: ou-libexmdbpp: package-name-doesnt-match-sonames libexmdbpp0
+I: ou-libexmdbpp-dev: extended-description-is-probably-too-short
+I: ou-python3-pyexmdb: extended-description-is-probably-too-short
+I: ou-libexmdbpp: hardening-no-bindnow [usr/lib/x86_64-linux-gnu/libexmdbpp.so.0]
+I: ou-python3-pyexmdb: hardening-no-bindnow [usr/lib/python3/dist-packages/pyexmdb.cpython-311-x86_64-linux-gnu.so]
+I: ou-libexmdbpp: hardening-no-fortify-functions [usr/lib/x86_64-linux-gnu/libexmdbpp.so.0]
+I: ou-python3-pyexmdb: hardening-no-fortify-functions [usr/lib/python3/dist-packages/pyexmdb.cpython-311-x86_64-linux-gnu.so]
+I: ou-libexmdbpp: no-symbols-control-file usr/lib/x86_64-linux-gnu/libexmdbpp.so.0

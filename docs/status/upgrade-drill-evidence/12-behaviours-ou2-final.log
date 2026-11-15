@@ -1,0 +1,16 @@
+== gromox behaviours on ou-gw1 (bearer: patched, kick: patched) (run a934114275) ==
+   legacy                 {'real': 'ACCEPTED', 'alg_none': 'rejected', 'alg_hs256_header': 'rejected', 'alg_rs512_header': 'rejected'}
+   aud=ou-webmail         {'real': 'rejected', 'alg_none': 'rejected', 'alg_hs256_header': 'rejected', 'alg_rs512_header': 'rejected'}
+   aud=account+iss        {'real': 'ACCEPTED', 'alg_none': 'rejected', 'alg_hs256_header': 'rejected', 'alg_rs512_header': 'rejected'}
+   aud=account+wrong iss  {'real': 'rejected', 'alg_none': 'rejected', 'alg_hs256_header': 'rejected', 'alg_rs512_header': 'rejected'}
+PASS legacy (no policy): real token accepted - ACCEPTED
+PASS alg none/HS256/RS512 rejected - all 3 rejected
+PASS audience=ou-webmail refuses a token issued to another client (aud=account) - rejected
+PASS audience=account + correct issuer accepts - ACCEPTED
+PASS audience=account + wrong issuer refuses - rejected
+   event_kick -> KICK (True, True) (0.2s)
+PASS runbook reports the kick as acknowledged by a listener (kick_sent) - KICK (True, True)
+PASS victim IMAP sessions ended by USER-KICK - closed after 0.0s / 0.0s (command: NOOP => [UNAVAILABLE] Session terminated by adminis)
+PASS bystander session (alice) unaffected - ok
+PASS kicked user can log in again (no ban list) - ok
+-- gromox behaviours on ou-gw1 (bearer: patched, kick: patched): 9 PASS, 0 FAIL, 0 SKIP

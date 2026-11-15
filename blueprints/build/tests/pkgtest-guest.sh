@@ -148,7 +148,8 @@ apt_with() { # <dir> <args...>: apt using only the sources in <dir>/sources.list
 }
 mkcase() { # <name>: fresh file:// copy of the good repo; echo dir
   d=/tmp/tamper/$1; rm -rf "$d"; mkdir -p "$d/lists/partial" "$d/cache/archives/partial"
-  cp -a /tmp/ou-repo-good "$d/repo"
+  # only the suite under test; pool files are hard links (a full copy per case filled the tmpfs once the pools held several versions)
+  mkdir -p "$d/repo/dists" "$d/repo/pool"; cp -a "/tmp/ou-repo-good/dists/$SUITE" "$d/repo/dists/"; cp -al "/tmp/ou-repo-good/pool/$SUITE" "$d/repo/pool/"
   echo "deb [signed-by=$KEYRING] file:$d/repo $SUITE main" > "$d/sources.list"
   echo "$d"
 }
@@ -194,6 +195,7 @@ PY
   apt_with "$d" update >/dev/null 2>&1
   deb=$(ls "$d"/repo/pool/$SUITE/*/ou-libhx_*.deb 2>/dev/null | head -1)
   [ -n "$deb" ] || deb=$(ls "$d"/repo/pool/$SUITE/*/*.deb | head -1)
+  cp --remove-destination "$deb" "$deb.new" && mv "$deb.new" "$deb"   # break the hard link before modifying the copy
   printf 'X' >> "$deb"
   pk=$(basename "$deb" | cut -d_ -f1)
   expect_fail "package file modified after signing ($pk)" "$d" install --download-only --reinstall -y "$pk"

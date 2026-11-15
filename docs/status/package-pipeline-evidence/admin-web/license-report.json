@@ -1,0 +1,16 @@
+{
+ "bundled_licences": {},
+ "bundled_packages": 1365,
+ "component": "admin-web",
+ "files_scanned": 632,
+ "in_inventory": true,
+ "problems": [],
+ "result": "PASS",
+ "spdx_found": {
+  "AGPL-3.0-or-later": 218,
+  "file:AGPL-3.0-only": 1
+ },
+ "warnings": [
+  "1365 yarn.lock packages: the lock file has no licence data, per-package licences NOT scanned (open point)"
+ ]
+}

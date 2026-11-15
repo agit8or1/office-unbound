@@ -30,7 +30,8 @@ tar -C "$BUILD/keys" -c ou-release-lab.pub.asc | sudo systemd-run -M "$TESTER" -
 tar -C "$HERE" -c pkgtest-guest.sh | sudo systemd-run -M "$TESTER" --wait --pipe -q /bin/bash -c 'tar -C /root -x'
 # the repo (public data only) is copied into the tester and served there on 127.0.0.1: real HTTP transport, nothing listens
 # on the LAN or the zone (the ICS host firewall does not accept zone -> host 8077 either; see package-pipeline-results.md)
-tar -C "$STATE/repo" -c . | sudo systemd-run -M "$TESTER" --wait --pipe -q /bin/bash -c 'rm -rf /tmp/ou-repo-good; mkdir -p /tmp/ou-repo-good; tar -C /tmp/ou-repo-good -x'
+# (the 400 MB Ubuntu package ou-docs is excluded: it is tested by pkgtest-docs.sh and would fill the 2G tester tmpfs)
+tar -C "$STATE/repo" --exclude="pool/*/collabora" -c . | sudo systemd-run -M "$TESTER" --wait --pipe -q /bin/bash -c 'rm -rf /tmp/ou-repo-good; mkdir -p /tmp/ou-repo-good; tar -C /tmp/ou-repo-good -x'
 inm "systemd-run --unit=ou-repo-http -q /usr/bin/python3 -m http.server 8077 --bind 127.0.0.1 --directory /tmp/ou-repo-good; sleep 2; curl -fsS -o /dev/null -w 'repo reachable over http: %{http_code}\n' http://127.0.0.1:8077/dists/$SUITE/InRelease"
 echo "== 1. add only our signed repo, install"
 inm "bash /root/pkgtest-guest.sh setup http://127.0.0.1:8077 $SUITE $FPR"
@@ -46,7 +47,7 @@ echo "== done rc=$rc"
 # the test records what it REALLY installed (M7): ou-* packages installed in the tester, matched to the pool .debs of this suite by name_version
 if [ "$rc" = 0 ] || [ "${OU_RECORD_FAIL:-0}" = 1 ]; then
   res=pass; [ "$rc" = 0 ] || res=fail
-  inst=$(inm "dpkg-query -W -f='\${Package}_\${Version}\n' 'ou-*' 2>/dev/null" | tr -d '\r' | sed 's/^[0-9]*://' | tr '\n' ' ')
+  inst=$(printf '%s\n' "dpkg-query -W -f='"'${Package}_${Version}'"\\n' 'ou-*'" | sudo systemd-run -M "$TESTER" --wait --pipe -q /bin/bash -s | tr -d '\r' | sed 's/^[0-9]*://' | tr '\n' ' ')   # via stdin: systemd-run would expand ${...} in an argument
   "$BUILD/repo/repo.sh" record-installed "$SUITE" install-smoke "$res" "$LOG" $inst || true
 fi
 exit $rc

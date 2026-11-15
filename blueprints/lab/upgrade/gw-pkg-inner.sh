@@ -28,8 +28,8 @@ pre() {
   } > "$BK/state.txt"
   # file inventory with checksums of everything the source install put outside /var and /etc (binaries, libs, php ext, units, web trees)
   { ls -1d /usr/libexec/gromox/* /usr/sbin/gromox-* /usr/bin/gromox-* /usr/lib/x86_64-linux-gnu/libgromox* /usr/lib/x86_64-linux-gnu/libgx* /usr/lib/x86_64-linux-gnu/libHX* \
-          /usr/lib/x86_64-linux-gnu/libwmime* /usr/lib/php/*/mapi.so /usr/lib/systemd/system/gromox-* 2>/dev/null
-    find /usr/share/gromox /usr/share/grommunio-sync /usr/share/grommunio-dav /usr/share/grommunio-web -type f 2>/dev/null
+          /usr/lib/x86_64-linux-gnu/libwmime* /usr/lib/php/*/mapi.so /usr/lib/systemd/system/gromox-* 2>/dev/null || true
+    find /usr/share/gromox /usr/share/grommunio-sync /usr/share/grommunio-dav /usr/share/grommunio-web -type f 2>/dev/null || true
   } | sort -u > "$BK/files.list"
   xargs -a "$BK/files.list" -d '\n' sha256sum 2>/dev/null > "$BK/files.sha256" || true
   echo "gromox_binaries_sha256: $(sha256sum /usr/libexec/gromox/http /usr/libexec/gromox/imap /usr/libexec/gromox/event | awk '{print substr($1,1,16)}' | tr '\n' ' ')" >> "$BK/state.txt"
@@ -83,9 +83,7 @@ migrate() {
   T3=$(t)
   log "restore lab configuration into the package conffiles"
   for a in sync dav web; do install -m 0644 "$BK/cfg/$a.config.php" /etc/grommunio-$a/config.php; done
-  # the lab keeps its own php ini + conf.d links; the package ships cli/conf.d/mapi.ini: drop the package copies, keep the lab config (zcore socket)
-  ls -la /etc/php/8.2/*/conf.d/ | grep -i mapi || true
-  for f in /etc/php/8.2/cli/conf.d/mapi.ini /etc/php/8.2/fpm/conf.d/mapi.ini; do [ -f "$f" ] && [ ! -L "$f" ] && cmp -s "$f" /etc/php/8.2/mods-available/mapi.ini && rm -f "$f"; done || true
+  # php ini: the package ships /etc/php/8.2/cli/conf.d/mapi.ini (identical to the lab's mods-available one); the fpm pool keeps the lab's 20-mapi.ini link
   grep -q "^bearer_issuer" /etc/gromox/gromox.cfg || printf 'bearer_issuer=%s\nbearer_audience=%s\n' "$BEARER_ISSUER" "$BEARER_AUDIENCE" >> /etc/gromox/gromox.cfg
   systemctl daemon-reload
   for s in $SVCS_START; do systemctl enable $s >/dev/null 2>&1 || true; done
@@ -98,7 +96,10 @@ migrate() {
 }
 
 change() {   # upgrade / downgrade to exactly $PINS
-  T0=$(t); apt_setup; T1=$(t)
+  T0=$(t); apt_setup
+  # fetch everything BEFORE stopping anything: a failed download must not leave the node down
+  apt-get install -y -q --download-only --no-install-recommends --allow-downgrades --allow-change-held-packages -o Dpkg::Options::=--force-confold $PINS >/dev/null
+  T1=$(t)
   svc_stop
   apt-get install -y -q --no-install-recommends --allow-downgrades --allow-change-held-packages -o Dpkg::Options::=--force-confold $PINS 2>&1 | tail -8
   T2=$(t)

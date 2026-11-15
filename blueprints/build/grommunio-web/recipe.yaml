@@ -8,6 +8,7 @@ source:
   tag_object: 9d5d158d1f53a0709f630503f936ef7d5f39b88d
   commit: dd9029d93cecec1ba868ed0d8d976bb3f185a328
   upstream_version: "5.2"
+ou_revision: ou2     # ou1 = branding only; ou2 = + 0002-context-deep-link (needed by the SSO portal tiles / ou-gw1 migration)
 verification:
   kind: sha-pin
   note: tag is annotated but unsigned; commit SHA pin is the only control. package-lock.json pins every npm dependency with integrity hashes (npm ci verifies them).
@@ -41,7 +42,8 @@ license_exceptions: {}
 inventory_match: "grommunio-web"
 patches:
   - 0001-branding-product-name.patch: default title, PWA manifest, templates, version banner
-  - 0002-branding-translatable-strings.patch: msgid/msgstr + gettext calls "grommunio Web" -> "Office Unbound Web" (mechanical, regenerate via patches/regen-patches.py)
+  - 0002-context-deep-link.patch: ?action=context&view=calendar|contacts|... opens that context after the OIDC redirect (webmail SSO portal tiles, agent AA)
+  - 0003-branding-translatable-strings.patch: msgid/msgstr + gettext calls "grommunio Web" -> "Office Unbound Web" (mechanical, regenerate via patches/regen-patches.py)
 branding: >
   Done: product name in UI strings (all locales), page title, manifest, logos/icons (original placeholder artwork in debian/branding).
   Remaining (recorded in docs/status/package-pipeline-results.md): "grommunio" in other strings (grommunio-sync/-files/-chat product names,

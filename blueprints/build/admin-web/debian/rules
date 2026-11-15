@@ -6,8 +6,8 @@ PKG=debian/ou-admin-web
 
 # node_modules was installed from yarn.lock (--frozen-lockfile) by the recipe prefetch step (no network from here on)
 override_dh_auto_build:
-	CI=false GENERATE_SOURCEMAP=false NODE_OPTIONS=--max-old-space-size=2048 REACT_APP_BUILD_VERSION=$(DEB_VERSION_UPSTREAM) \
-	  node_modules/.bin/react-scripts build
+	CI=false GENERATE_SOURCEMAP=false DISABLE_ESLINT_PLUGIN=true NODE_OPTIONS=--max-old-space-size=2048 REACT_APP_BUILD_VERSION=$(DEB_VERSION_UPSTREAM) \
+	  taskset -c 0-3 node_modules/.bin/react-scripts build   # affinity 4 CPUs: terser/jest-worker size their pools from it (48 workers OOM the 3G builder)
 
 override_dh_auto_test:
 override_dh_auto_clean:

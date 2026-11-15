@@ -14,8 +14,14 @@ import gw_lab as L  # noqa
 NODE = os.environ.get("GW_MACHINE", "ou-gw1")
 ISS = "https://auth.ou-lab.internal/realms/ou-lab"
 PROD_ISS, PROD_AUD = ISS, os.environ.get("PROD_AUDIENCE", "ou-webmail")
-EXPECT = "unpatched" if "--expect" in sys.argv and sys.argv[sys.argv.index("--expect") + 1] == "unpatched" else "patched"
-rep = L.Rep("gromox patched behaviours on %s (expect %s)" % (NODE, EXPECT))
+def _flag(name):
+    return sys.argv[sys.argv.index(name) + 1] if name in sys.argv else None
+
+
+EXPECT = _flag("--expect") or "patched"                       # both behaviours
+EXPECT_BEARER = _flag("--expect-bearer") or EXPECT            # patched | unpatched
+EXPECT_KICK = _flag("--expect-kick") or EXPECT
+rep = L.Rep("gromox behaviours on %s (bearer: %s, kick: %s)" % (NODE, EXPECT_BEARER, EXPECT_KICK))
 
 
 def node(cmd, inp=None, timeout=120):
@@ -26,7 +32,11 @@ def node(cmd, inp=None, timeout=120):
 def bob_token():
     r = subprocess.run(["sudo", "systemd-run", "-M", "ou-id1", "--quiet", "--pipe", "--wait", "/bin/cat", "/root/ou-lab-secrets/test-users.env"], capture_output=True, text=True)
     pw = re.search(r"^OU_PASSWORD_BOB=(.*)$", r.stdout, re.M).group(1)
-    cmd = ["curl", "-sS", "--cacert", L.CA, "--resolve", "auth.ou-lab.internal:443:192.168.186.241", "https://auth.ou-lab.internal/realms/ou-lab/protocol/openid-connect/token",
+    import tempfile
+    ca = tempfile.NamedTemporaryFile(prefix="ou-kc-ca-", suffix=".crt", delete=False)
+    ca.write(subprocess.run(["sudo", "systemd-run", "-M", "ou-id1", "--quiet", "--pipe", "--wait", "/bin/cat", "/etc/ou-lab/tls/ca.crt"], capture_output=True).stdout)
+    ca.close()
+    cmd = ["curl", "-sS", "--cacert", ca.name, "--resolve", "auth.ou-lab.internal:443:192.168.186.241", "https://auth.ou-lab.internal/realms/ou-lab/protocol/openid-connect/token",
            "-d", "grant_type=password", "-d", "client_id=ou-lab-test", "-d", "username=bob", "--data-urlencode", "password=" + pw, "-d", "scope=openid"]
     return json.loads(subprocess.run(cmd, capture_output=True, text=True).stdout)["access_token"]
 
@@ -61,7 +71,7 @@ def bearer():
         node("rm -f /run/ou-toks.json")
     acc = lambda lab, k: rows[lab].get(k) == "ACCEPTED"
     rep.check("legacy (no policy): real token accepted", acc("legacy", "real"), "ACCEPTED", "rejected")
-    if EXPECT == "patched":
+    if EXPECT_BEARER == "patched":
         rep.check("alg none/HS256/RS512 rejected", not any(acc("legacy", k) for k in ("alg_none", "alg_hs256_header", "alg_rs512_header")), "all 3 rejected", "a forged alg was ACCEPTED")
         rep.check("audience=ou-webmail refuses a token issued to another client (aud=account)", not acc("aud=ou-webmail", "real"), "rejected", "ACCEPTED")
         rep.check("audience=account + correct issuer accepts", acc("aud=account+iss", "real"), "ACCEPTED", "rejected")
@@ -91,11 +101,20 @@ def wait_bye(im, secs=10):
 def kick():
     v, b, v2 = imap("bob"), imap("alice"), imap("bob")
     t0 = time.time()
-    rc, out = node("ou-gw-user kill bob; echo rc=$?")
-    print("   ou-gw-user kill bob ->", out.strip().replace("\n", " ")[:120], "(%.1fs)" % (time.time() - t0))
+    # the node's own runbook helper, called with the full mailbox name of the IMAP test users (ou-gw-user maps a uid to the stack mail domain ou-lab.internal)
+    code = ("import importlib.machinery as m, importlib.util as u\n"
+            "l = m.SourceFileLoader('g', '/usr/local/sbin/ou-gw-user'); s = u.spec_from_loader('g', l); g = u.module_from_spec(s); l.exec_module(g)\n"
+            "r = g.event_kick('bob@%s')\n"
+            "print('KICK', r)\n" % L.HOST)
+    rc, out = node("python3 -c \"$(cat)\"", code)
+    print("   event_kick ->", out.strip().replace("\n", " ")[:160], "(%.1fs)" % (time.time() - t0))
+    if EXPECT_KICK == "patched":
+        rep.check("runbook reports the kick as acknowledged by a listener (kick_sent)", "KICK (True, True)" in out or "KICK True" in out, out.strip()[-60:], "no acknowledgement: " + out.strip()[-80:])
+    else:
+        rep.check("UNPATCHED imap: event sent but NOT acknowledged (kick_sent must be false)", "KICK (True, False)" in out, "(True, False)", out.strip()[-80:])
     dt, why = wait_bye(v, 10)
     dt2, _ = wait_bye(v2, 5)
-    if EXPECT == "patched":
+    if EXPECT_KICK == "patched":
         rep.check("victim IMAP sessions ended by USER-KICK", dt is not None and dt2 is not None, "closed after %.1fs / %.1fs (%s)" % (dt or -1, dt2 or -1, why), "session still open")
         try:
             b.noop(); rep.ok("bystander session (alice) unaffected")

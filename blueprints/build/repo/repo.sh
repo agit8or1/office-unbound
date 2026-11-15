@@ -112,7 +112,7 @@ serve() {
   # untrusted build code) but a dedicated machine ou-repo1 that runs nothing else: read-only tree owned by root, python http.server as a dynamic user.
   . "$BUILD/tools.env"
   sudo machinectl show "$REPO_MACHINE" >/dev/null 2>&1 || {
-    [ -d "/var/lib/machines/$REPO_MACHINE" ] || sudo machinectl clone "$BUILDER_BASE" "$REPO_MACHINE"
+    sudo test -d "/var/lib/machines/$REPO_MACHINE" || sudo machinectl clone "$BUILDER_BASE" "$REPO_MACHINE"
     printf '[Exec]\nBoot=yes\nPrivateUsers=pick\n[Network]\nZone=oulab\n' | sudo tee "/etc/systemd/nspawn/$REPO_MACHINE.nspawn" >/dev/null
     sudo machinectl start "$REPO_MACHINE"; sleep 8
     sudo systemctl set-property "systemd-nspawn@$REPO_MACHINE.service" MemoryMax=512M

@@ -1,0 +1,26 @@
+PASS Keycloak sign-in (the only password entry) - authenticate POSTs=1
+PASS webmail opened without second password prompt - redirect chain: gw1.ou-lab.internal/web/ > gw1.ou-lab.internal/web/
+PASS mailbox loaded, bob visible - displayName="Lab Bob" smtp=bob@ou-lab.internal
+PASS default store inbox resolvable - inbox ok
+cookies __Secure-encryption-store-key:httpOnly=true,secure=true,sameSite=None | domainname:httpOnly=true,secure=true,sameSite=Lax | webapp_title:httpOnly=true,secure=true,sameSite=Lax | __Secure-GROMMUNIO_WEB:httpOnly=true,secure=true,sameSite=None | lang:httpOnly=true,secure=true,sameSite=Lax
+PASS no JWT in page HTML
+PASS deep link ?action=context&view=calendar opens calendar view - current context=calendar
+PASS deep link ?action=context&view=contacts opens contact view - current context=contact
+PASS deep link survives OIDC redirect (fresh webmail session, Keycloak SSO) - context=calendar authPosts=1
+keycloak account after logout -> HTTP err
+webmail state immediately after Keycloak logout: webmail-up (t+5s)
+  t+27s webmail: webmail-up
+  t+50s webmail: webmail-up
+  t+73s webmail: webmail-up
+  t+96s webmail: webmail-up
+  t+119s webmail: webmail-up
+  t+142s webmail: webmail-up
+  t+164s webmail: webmail-up
+  t+187s webmail: webmail-up
+  t+210s webmail: webmail-up
+  t+233s webmail: webmail-up
+  t+256s webmail: webmail-up
+  t+279s webmail: kc-login
+PASS Keycloak logout ends the webmail session - redirected to Keycloak login after ~279s
+-- 9 PASS, 0 FAIL
+EXIT 0

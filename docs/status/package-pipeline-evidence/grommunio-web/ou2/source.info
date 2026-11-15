@@ -1,0 +1,7 @@
+component=grommunio-web
+repo=https://github.com/grommunio/grommunio-web
+tag=grommunio-web-5.2
+commit=dd9029d93cecec1ba868ed0d8d976bb3f185a328
+source_date_epoch=1791628410
+signature=none
+orig_sha256=7d8b7be036e9d143b954ff4b5e14390aece6a34aa500bb7eec3b2a225f4f6850
