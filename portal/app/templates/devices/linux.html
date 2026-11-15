@@ -1,0 +1,10 @@
+{% from "_icons.html" import icon %}
+<details class="card plat" id="linux" {% if hint == 'linux' %}open{% endif %}>
+  <summary><span class="pt">{{ icon('devices') }}Linux</span><span class="ps">Thunderbird, Evolution, Files</span></summary>
+  <ol class="steps">
+    <li><b>Thunderbird:</b> add an account with your e-mail address: the settings are found automatically. (The file Thunderbird reads is <a href="/devices/thunderbird.xml" download>here</a> if you want to look.)</li>
+    <li><b>Evolution or GNOME Online Accounts:</b> use the manual settings below (IMAP, SMTP, CalDAV, CardDAV).</li>
+  </ol>
+  <h3>Files on your computer</h3>
+  {% include "devices/_desktop.html" %}
+</details>

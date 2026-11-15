@@ -1,0 +1,53 @@
+{% extends "base.html" %}
+{% from "_icons.html" import icon %}
+{% block title %}Home · {{ cfg.org_name }}{% endblock %}
+{% block main %}
+<h1 class="greet">Hello, {{ user.first }}</h1>
+<p class="sub">What would you like to do today?</p>
+
+{% for n in notices %}<p class="notice" role="status">{{ n }}</p>{% endfor %}
+
+<section aria-labelledby="h-apps">
+  <h2 id="h-apps" class="sr">Your apps</h2>
+  <ul class="tiles">
+    <li><a class="tile" href="{{ cfg.mail_web_url }}" data-app="mail">{{ icon('mail') }}<span class="t">Mail</span><span class="d">Read and send messages</span></a></li>
+    <li><a class="tile" href="{{ cfg.mail_web_url }}" data-app="calendar">{{ icon('calendar') }}<span class="t">Calendar</span><span class="d">Meetings and events</span></a></li>
+    <li><a class="tile" href="{{ cfg.mail_web_url }}" data-app="contacts">{{ icon('contacts') }}<span class="t">Contacts</span><span class="d">People and address books</span></a></li>
+    <li><a class="tile" href="{{ cfg.files_url }}/" data-app="files">{{ icon('files') }}<span class="t">Files</span><span class="d">Your documents, anywhere</span></a></li>
+  </ul>
+</section>
+
+<section aria-labelledby="h-new">
+  <h2 id="h-new">Start something new</h2>
+  <ul class="newrow">
+    {% for k in kinds %}
+    <li>
+      <form method="post" action="/new/{{ k }}">
+        <input type="hidden" name="csrf" value="{{ sess.csrf }}">
+        <button class="btn newbtn" type="submit" data-new="{{ k }}">{{ icon(k) }}<span>New {{ k }}</span></button>
+      </form>
+    </li>
+    {% endfor %}
+  </ul>
+  <p class="hint">Opens in the online editor. It is saved to your files automatically.</p>
+</section>
+
+<section aria-labelledby="h-recent">
+  <h2 id="h-recent">Recent files</h2>
+  {% if recent %}
+  <ul class="recent">
+    {% for f in recent %}
+    <li>
+      <a class="row" href="{{ f.url }}" data-file="{{ f.name }}">
+        <span class="ficon">{{ icon('file') }}</span>
+        <span class="fname">{{ f.name }}</span>
+        <span class="fmeta"><time datetime="{{ f.mtime.isoformat() }}">{{ f.mtime | ago }}</time>{% if f.size %} · {{ f.size | size }}{% endif %}</span>
+      </a>
+    </li>
+    {% endfor %}
+  </ul>
+  {% elif not notices %}
+  <p class="empty">Nothing here yet. Files you open or change will show up here.</p>
+  {% endif %}
+</section>
+{% endblock %}

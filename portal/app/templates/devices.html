@@ -1,0 +1,33 @@
+{% extends "base.html" %}
+{% from "_icons.html" import icon %}
+{% block title %}Set up your devices · {{ cfg.org_name }}{% endblock %}
+{% block main %}
+<h1 class="greet">Set up your devices</h1>
+<p class="sub">Pick your device. Downloads below contain only server names and your e-mail address. <strong>Never your password.</strong> You type it once on the device.</p>
+
+{% set platforms = ['ios', 'android', 'windows', 'mac', 'linux'] %}
+{% set order = ([hint] + (platforms | reject('equalto', hint) | list)) if hint else platforms %}
+<div class="stack">
+{% for p in order %}
+  {% include "devices/" ~ p ~ ".html" %}
+{% endfor %}
+</div>
+
+<section class="card" aria-labelledby="h-manual">
+  <h2 id="h-manual">Manual settings</h2>
+  <p class="hint">For any other app. User name is always your full e-mail address{% if email %} (<b>{{ email }}</b>){% endif %}; the password is the one you use to sign in here.</p>
+  <div class="tablewrap">
+  <table>
+    <caption class="sr">Server settings</caption>
+    <thead><tr><th scope="col">Service</th><th scope="col">Server</th><th scope="col">Port</th><th scope="col">Security</th></tr></thead>
+    <tbody>
+      <tr><th scope="row">Incoming mail (IMAP)</th><td>{{ cfg.imap_host }}</td><td>{{ cfg.imap_port }}</td><td>SSL/TLS</td></tr>
+      <tr><th scope="row">Outgoing mail (SMTP)</th><td>{{ cfg.smtp_host }}</td><td>{{ cfg.smtp_port }}</td><td>{{ 'SSL/TLS' if cfg.smtp_port == 465 else 'STARTTLS' }}</td></tr>
+      <tr><th scope="row">Calendar (CalDAV)</th><td>https://{{ cfg.dav_host }}{{ cfg.dav_base }}/</td><td>443</td><td>SSL/TLS</td></tr>
+      <tr><th scope="row">Contacts (CardDAV)</th><td>https://{{ cfg.dav_host }}{{ cfg.dav_base }}/</td><td>443</td><td>SSL/TLS</td></tr>
+      <tr><th scope="row">Files (WebDAV)</th><td>{{ cfg.files_url }}/remote.php/dav/files/{{ user.username }}/</td><td>443</td><td>SSL/TLS</td></tr>
+    </tbody>
+  </table>
+  </div>
+</section>
+{% endblock %}
