@@ -15,6 +15,7 @@ ROOTFS="/var/lib/machines/$M"; JOBS="${JOBS:-3}"
 get() { sed -n "s/^$1=//p" "$B/MANIFEST"; }
 [ "$(sha256sum "$B/groupware.tar" | cut -d' ' -f1)" = "$(get archive_sha256)" ] || { echo "archive checksum mismatch" >&2; exit 4; }
 in_m() { systemd-run -M "$M" --wait -q -P --pipe /bin/bash -c "$1"; }
+[ "$(get incomplete)" = 0 ] || [ "${GW_ALLOW_INCOMPLETE:-}" = 1 ] || { echo "refusing: backup is flagged incomplete (a mailbox with content was not saved); GW_ALLOW_INCOMPLETE=1 to override" >&2; exit 4; }
 build_ok() { grep -q '^EXIT=0$' "$ROOTFS/root/build.log" 2>/dev/null; }
 croot() { stat -c %u "$ROOTFS/root"; }   # PrivateUsers=pick: container root = shifted host uid (files dropped into the rootfs must be chowned)
 

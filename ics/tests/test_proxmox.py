@@ -79,3 +79,27 @@ def test_inventory_parsing_matches_fixtures(pve):
     assert "qemu" not in nodes["pve2"]  # offline node is not queried
     assert json.loads((FIX / "qemu.json").read_text())["data"] == p1["qemu"]
     assert all(m == "GET" for m, _ in pve.seen)
+
+
+def test_gzip_encoded_responses_are_decoded(pve):
+    """Regression (real PVE 9.2): pveproxy gzips bodies; reading raw (undecoded) bytes broke JSON parsing."""
+    pve.srv.gzip_responses = True
+    try:
+        c = client(pve, fingerprint_sha256=pve.fingerprint)
+        nodes = c.nodes()
+        assert isinstance(nodes, list) and nodes and "node" in nodes[0]
+    finally:
+        pve.srv.gzip_responses = False
+
+
+def test_gzip_bomb_is_capped_on_decompressed_size(pve):
+    import gzip
+    from ics.proxmox import ProxmoxError
+    body = b'{"data": "' + b"A" * (20 * 1024 * 1024) + b'"}'           # 20 MiB decompressed
+    pve.srv.gzip_responses, pve.srv.raw_body, pve.srv.raw_body_is_gzip = True, gzip.compress(body), True
+    try:
+        c = client(pve, fingerprint_sha256=pve.fingerprint)
+        with pytest.raises(ProxmoxError, match="exceeds"):
+            c.nodes()
+    finally:
+        pve.srv.gzip_responses, pve.srv.raw_body, pve.srv.raw_body_is_gzip = False, None, False

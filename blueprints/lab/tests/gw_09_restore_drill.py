@@ -92,7 +92,7 @@ if MODE == "seed":
 st = json.load(open(STATE)); MF = os.environ["OU_DRILL_MANIFEST"]
 mbx = {}
 for ln in open(MF):
-    if ln.startswith("mbx|"):
+    if ln.startswith(("mbx|", "mbxraw|")):
         f = ln.rstrip("\n").split("|"); mbx[f[1]] = {"status": f[2], "total": int(f[3]), "inbox": int(f[4]), "cal": int(f[5])}
 print("INFO restore target resolves %s -> %s" % (L.HOST, os.environ.get("OU_GW1_RESOLVE", "(normal DNS: THIS IS NOT A RESTORE TEST)")))
 for label in ("sql:grace", "ldap:alice", "sql:bob"):
