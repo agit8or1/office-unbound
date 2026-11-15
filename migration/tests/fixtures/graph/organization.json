@@ -1,0 +1,19 @@
+{
+  "@odata.context": "https://graph.microsoft.com/v1.0/$metadata#organization",
+  "value": [{
+    "id": "84841066-274d-4ec0-a5c1-276be684bdd3",
+    "displayName": "Contoso Example",
+    "onPremisesSyncEnabled": true,
+    "tenantType": "AAD",
+    "assignedPlans": [
+      {"assignedDateTime": "2021-08-02T10:36:57Z", "capabilityStatus": "Enabled", "service": "exchange", "servicePlanId": "113feb6c-3fe4-4440-bddc-54d774bf0318"},
+      {"assignedDateTime": "2021-08-02T10:36:57Z", "capabilityStatus": "Enabled", "service": "TeamspaceAPI", "servicePlanId": "57ff2da0-773e-42df-b2af-ffb7a2317929"},
+      {"assignedDateTime": "2021-08-02T10:36:57Z", "capabilityStatus": "Enabled", "service": "ProcessSimple", "servicePlanId": "07699545-9485-468e-95b6-2fca3738be01"},
+      {"assignedDateTime": "2022-04-03T02:46:42Z", "capabilityStatus": "Deleted", "service": "Adallom", "servicePlanId": "932ad362-64a8-4783-9106-97849a1a30b9"}
+    ],
+    "verifiedDomains": [
+      {"capabilities": "Email, OfficeCommunicationsOnline", "isDefault": true, "isInitial": false, "name": "contoso.example", "type": "Managed"},
+      {"capabilities": "Email", "isDefault": false, "isInitial": true, "name": "contosoexample.onmicrosoft.com", "type": "Managed"}
+    ]
+  }]
+}

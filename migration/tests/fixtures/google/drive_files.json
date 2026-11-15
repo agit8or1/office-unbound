@@ -1,0 +1,7 @@
+{"kind": "drive#fileList", "files": [
+  {"mimeType": "application/pdf", "size": "52428800", "shared": true, "permissions": [{"type": "user"}, {"type": "anyone"}]},
+  {"mimeType": "image/jpeg", "size": "2097152", "shared": false},
+  {"mimeType": "application/vnd.google-apps.form", "shared": true, "permissions": [{"type": "domain"}]},
+  {"mimeType": "application/vnd.google-apps.site", "shared": false},
+  {"mimeType": "application/zip", "size": "7516192768", "shared": false}
+]}
