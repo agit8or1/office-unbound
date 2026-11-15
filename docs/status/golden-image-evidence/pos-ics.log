@@ -1,0 +1,24 @@
+ICS callback endpoint listening on https://127.0.0.1:8445 (pin sha256:25bd9006aaac5d1a...), bootstrap record bid=e7ae284cdd054994 state=pending; waiting for the guest
+guest reported (HMAC verified by the endpoint); enrolling over pinned TLS
+{
+ "smbios_written": true,
+ "pin": "25bd9006aaac5d1ac8527ac3466e5df4ae5e519fa3ca6b81e739bd3a9e1aa32e",
+ "state_after_wait": "reported",
+ "report": {
+  "address": "10.0.2.15",
+  "port": 8443,
+  "tls_fingerprint_sha256": "8c6edbdcccb46174403961d4297d963b6d6d3f193d32ad986785b1be2ede6208",
+  "agent_key_fingerprint_sha256": "4867ab75cedd319733d8bd33e667422766b58955e1941f3f802f25dd1f7d59d1",
+  "source_ip": "10.0.2.15"
+ },
+ "identity_last_error": "agent unreachable or untrusted: ConnectError",
+ "agent_key_matches_report": true,
+ "agent_already_enrolled_before": false,
+ "enrolled": true,
+ "agent_version": "0.1.0",
+ "secrets_wiped": true,
+ "final_state": "enrolled",
+ "audit_actions": [
+  "guest.bootstrap_report"
+ ]
+}
