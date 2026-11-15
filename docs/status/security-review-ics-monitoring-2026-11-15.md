@@ -205,7 +205,7 @@ Regressions from the previous review: the old M8 regressed in the new check path
 | Finding | Status | Evidence |
 |---|---|---|
 | H1 agent stalls on idle TCP connection | **Fixed** | `agent/ou_agent/server.py`: plain accept, per-connection TLS handshake in worker thread with 10 s deadline, max 32 concurrent connections. Tests `test_idle_tcp_connection_does_not_block_agent`, `test_agent_handshake_deadline_closes_silent_connection`. Deployed to ou-gw1: with 5 idle connections held, `/v1/identity` answered in 0.01 s; all 5 idle connections closed after the deadline |
-| H2 `mode: approval` ineffective for low-risk units | **Fixed in working tree, pending integration** (depends on the `normal` risk tier being added by the user-lifecycle work) | `require_approval` param (hash-bound, visible to approvers) set from policy mode → risk `normal` (1 approver ≠ requester, never auto). Tests `test_approval_mode_waits_for_a_human_even_for_low_risk_units`, `test_auto_mode_low_risk_still_auto_executes` |
+| H2 `mode: approval` ineffective for low-risk units | **Fixed — merged to main in commit 83c6d8b** (uses the `normal` risk tier) | `require_approval` param (hash-bound, visible to approvers) set from policy mode → risk `normal` (1 approver ≠ requester, never auto). Tests `test_approval_mode_waits_for_a_human_even_for_low_risk_units`, `test_auto_mode_low_risk_still_auto_executes` |
 | M1–M4, Lows | Open | scheduled after user-lifecycle integration |
 | M5 demo approver credentials on disk | **Accepted risk (owner decision)**: lab accounts kept for approval testing; file to move to a root-only location | — |
 
