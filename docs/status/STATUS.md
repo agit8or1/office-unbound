@@ -21,7 +21,7 @@
 | MSP center, migration, chat/meetings | Planned | |
 
 ## Known issues
-- KI-1: document open via Collabora returns 500 for a window after OpenCloud restart.
+- KI-1 (diagnosed): ~5 s window after OpenCloud restart before the editor app re-registers; tests now wait on `/app/list`; ICS check must use it. No data loss.
 - KI-2: LDAP lock alone does not end Keycloak SSO/offline refresh tokens (>420 s). Deprovisioning must revoke in Keycloak (<1 s measured).
 - KI-3: Collabora CODE in nspawn runs without chroot jails (unshare fails in unprivileged container) — lab-only acceptable; production VM must have jails.
 - Lab install scripts were fixed incrementally; clean-room re-runs pending.

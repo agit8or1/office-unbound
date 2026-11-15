@@ -166,6 +166,23 @@ def wait_http(requests, url, timeout=120, **kw):
     raise RuntimeError("timeout waiting for %s (%s)" % (url, last))
 
 
+def wait_app_ready(requests, app_name="CollaboraOnline", timeout=120):
+    """KI-1: OpenCloud answers OIDC discovery ~5 s before the collaboration app is
+    re-registered after a restart; /app/list is the accurate readiness signal."""
+    end = time.time() + timeout
+    last = None
+    while time.time() < end:
+        try:
+            r = requests.get("https://%s/app/list" % HOST_FILES, verify=verify(), timeout=10)
+            if r.status_code == 200 and app_name in r.text:
+                return r
+            last = "HTTP %s, %s listed=%s" % (r.status_code, app_name, app_name in r.text)
+        except Exception as e:  # noqa: BLE001 - diagnostics
+            last = str(e)[:120]
+        time.sleep(1)
+    raise RuntimeError("timeout waiting for app %s in /app/list (%s)" % (app_name, last))
+
+
 # ---- WebDAV (OpenCloud) -------------------------------------------------
 class OcDav:
     """Minimal WebDAV client with Bearer auth. Base path discovered at runtime."""

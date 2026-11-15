@@ -142,6 +142,7 @@ if restarted:
     try:
         L.wait_http(requests, "https://%s/.well-known/openid-configuration" % L.HOST_FILES, 120)
         L.wait_http(requests, "https://%s/hosting/discovery" % L.HOST_OFFICE, 120)
+        L.wait_app_ready(requests)  # KI-1
         tok = L.get_token(requests, user, pw)["access_token"]
         dav = L.OcDav(requests, user, tok); dav.discover()
         reverify("after restart")

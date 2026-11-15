@@ -154,3 +154,9 @@ Machines: `ou-id1`, `ou-files1`, `ou-office1` (`machinectl list`); tests from th
 - T03 in full sequence: 19 PASS / **3 FAIL** — `app/open HTTP 500` for docx/xlsx/pptx edit phase immediately after T02 restarted OpenCloud. T03 alone: 28/0. → **Known issue KI-1:** after an OpenCloud restart there is a window where the app-provider/collaboration registration is not ready and document open fails (storage-users logs "record not found in cache"). Needs: readiness wait in tests, an ICS service-level "document open" check, and root-cause investigation (registry/app-provider re-registration timing).
 - T06 scenario A: 6 PASS / 2 FAIL (Keycloak SSO + offline refresh tokens survive an LDAP-only lock > 420 s) — confirms the finding: ICS deprovisioning MUST also revoke in Keycloak. Scenario B not re-run by lead (needs Keycloak admin credential in env).
 - Note: SKIP exits 0 in these scripts; evidence must be read from PASS/FAIL counts, not exit codes. Use OU_STRICT_SKIP=1 in CI.
+
+### KI-1 diagnosis (lead, 2026-11-15)
+Probe (restart `opencloud` on ou-files1, poll `POST /app/open` every 1 s): 502 (nginx, proxy down) at t+0.1 s → 500 `"Error contacting the requested application"` at t+2.5 s → 200 at t+4.8 s. Restarting `coolwsd` alone: app/open 200 immediately. Unauthenticated `GET /app/list` lists `CollaboraOnline` at t+4.6 s — an accurate readiness signal, whereas `/.well-known/openid-configuration` (what T03 waited on) answers ~2 s earlier.
+Cause: readiness ordering — the collaboration app registers with OpenCloud's app registry a few seconds after the proxy is up. No data loss.
+Fix: `ou_lab.wait_app_ready()` (polls /app/list) used in T03 after restarts. Full sequence T01–T05 now 97 PASS / 0 FAIL.
+ICS follow-up: the files service health check must use `/app/list` contains the editor + a canary `app/open`, not just HTTP 200 on the proxy.
