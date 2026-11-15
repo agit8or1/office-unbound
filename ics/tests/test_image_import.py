@@ -1,6 +1,7 @@
 """`image.import` provider verb (bootstrap v2): upload a signed golden image to an `import` directory storage and turn it into a template. Against the
 simulator, which models PVE 9's upload API (multipart, content=import, checksum, Datastore.AllocateTemplate) and `import-from` disk creation."""
 import hashlib
+import os
 
 import pytest
 
@@ -13,11 +14,19 @@ SCOPE = EndpointScope(pools=("ou-lab",), storage=("local-lvm", "local"), network
 BLOB = b"QFI\xfb" + b"\x00" * 4096 + b"golden"
 
 
+def release(tmp_path, date="20261115"):
+    """a really signed release directory (ECDSA P-256 manifest) as the offline release host produces it"""
+    from .test_golden_image import make_release
+    sub = tmp_path / f"r{date}"
+    sub.mkdir()
+    d, pem, pin, _k = make_release(sub, name=f"ou-golden-debian-12-{date}.qcow2", image=BLOB)
+    return (os.path.join(d, f"ou-golden-debian-12-{date}.qcow2"), hashlib.sha256(BLOB).hexdigest(),
+            dict(release_dir=d, release_pubkey_pem=pem, release_pin_sha256=pin))
+
+
 @pytest.fixture()
 def image(tmp_path):
-    p = tmp_path / "ou-golden-debian12-20261115.qcow2"
-    p.write_bytes(BLOB)
-    return str(p), hashlib.sha256(BLOB).hexdigest()
+    return release(tmp_path)
 
 
 def enable_import(sim, with_priv=True):
@@ -28,8 +37,9 @@ def enable_import(sim, with_priv=True):
 
 
 def spec(image, **kw):
-    path, sha = image
-    d = dict(node="pve1", import_storage="local", target_storage="local-lvm", file_path=path, sha256=sha, name="ou-tpl-debian12-agent", pool="ou-lab")
+    path, sha = image[:2]
+    d = dict(node="pve1", import_storage="local", target_storage="local-lvm", file_path=path, sha256=sha, name="ou-tpl-debian12-agent", pool="ou-lab",
+             **(image[2] if len(image) > 2 else {}))
     d.update(kw)
     return ImageImportSpec(**d)
 
@@ -39,10 +49,10 @@ def test_import_uploads_verifies_creates_and_templates(sim, job, image):
     m = mutations(sim, scope=SCOPE)
     r = m.import_image(spec(image))
     vm = sim.sim.vms[r.vmid]
-    assert r.name == "ou-tpl-debian12-agent" and r.volid == "local:import/ou-golden-debian12-20261115.qcow2"
+    assert r.name == "ou-tpl-debian12-agent" and r.volid == "local:import/ou-golden-debian-12-20261115.qcow2"
     assert vm["cfg"]["template"] == 1 and vm["pool"] == "ou-lab" and "ou-managed" in vm["cfg"]["tags"] and "ou-image" in vm["cfg"]["tags"]
     assert vm["cfg"]["scsi0"].startswith("local-lvm:vm-") and sim.sim.uploaded_bytes == len(BLOB)
-    assert sim.sim.storages["local"]["files"]["import/ou-golden-debian12-20261115.qcow2"] == len(BLOB)
+    assert sim.sim.storages["local"]["files"]["import/ou-golden-debian-12-20261115.qcow2"] == len(BLOB)
     assert not any("/upload" in p and m_ == "GET" for m_, p in sim.sim.seen)
 
 
@@ -69,7 +79,7 @@ def test_import_refuses_a_storage_without_import_content_and_names_the_owner_com
 
 def test_a_file_that_does_not_match_the_verified_checksum_is_never_uploaded(sim, job, image, tmp_path):
     enable_import(sim)
-    path, sha = image
+    path, sha = image[:2]
     with open(path, "ab") as f:
         f.write(b"tampered after signature verification")
     with pytest.raises(ProviderError) as e:
@@ -78,18 +88,14 @@ def test_a_file_that_does_not_match_the_verified_checksum_is_never_uploaded(sim,
     empty = tmp_path / "ou-golden-empty.qcow2"
     empty.write_bytes(b"")
     with pytest.raises(ProviderError):
-        mutations(sim, scope=SCOPE).import_image(spec((str(empty), hashlib.sha256(b"").hexdigest())))
+        mutations(sim, scope=SCOPE).import_image(spec((str(empty), hashlib.sha256(b"").hexdigest(), image[2])))
 
 
-def test_proxmox_checks_the_checksum_too(sim, job, image, monkeypatch):
+def test_a_claimed_checksum_that_differs_from_the_verified_release_is_refused(sim, job, image):
     enable_import(sim)
-    m = mutations(sim, scope=SCOPE)
-    from ics.providers.proxmox import provider as pv
-    monkeypatch.setattr(pv, "_file_sha256", lambda p: (image[1], len(BLOB)))          # the local check passes, but the bytes on the wire differ from the digest
-    bad = spec((image[0], image[1]), sha256="00" * 32)
-    monkeypatch.setattr(pv, "hmac_equal", lambda a, b: True)
-    with pytest.raises(ProviderError):
-        m.import_image(bad)
+    with pytest.raises(ProviderError, match="differ from the verified release"):
+        mutations(sim, scope=SCOPE).import_image(spec(image, sha256="00" * 32))
+    assert not hasattr(sim.sim, "uploaded_bytes")
 
 
 def test_scope_and_naming_are_enforced_before_anything_is_sent(sim, job, image):
@@ -104,8 +110,8 @@ def test_scope_and_naming_are_enforced_before_anything_is_sent(sim, job, image):
     import shutil
     other = os.path.join(os.path.dirname(image[0]), "evil.qcow2")
     shutil.copy(image[0], other)
-    with pytest.raises(ProviderError, match="ou-golden"):
-        m.import_image(spec((other, image[1])))
+    with pytest.raises(ProviderError, match="verified release"):
+        m.import_image(spec((other, image[1], image[2])))
     assert not hasattr(sim.sim, "uploaded_bytes")
 
 
@@ -113,3 +119,45 @@ def test_import_privileges_are_documented_and_optional():
     assert "import_image" not in priv.PROVISION_VERBS and "import_image" in priv.VERB_PRIVS      # an owner-enabled capability, not part of the default probe
     assert "Datastore.AllocateTemplate" in priv.IMPORT_STORAGE_PRIVS
     assert ("/storage/local", ["Datastore.AllocateSpace"]) in priv.required("import_image", ["p"], ["local"], [], {})
+
+
+# ---- review 5 M7: the verb verifies the signed release itself and protects against rollback
+def test_m7_an_unsigned_or_unpinned_import_is_refused(sim, job, image, tmp_path):
+    enable_import(sim)
+    m = mutations(sim, scope=SCOPE)
+    with pytest.raises(ProviderError, match="signed release"):
+        m.import_image(spec((image[0], image[1])))                                   # a bare path + caller-supplied checksum: the pre-fix import path
+    wrong_pin = dict(image[2], release_pin_sha256="00" * 32)
+    with pytest.raises(ProviderError, match="release verification failed"):
+        m.import_image(spec((image[0], image[1], wrong_pin)))
+    assert not hasattr(sim.sim, "uploaded_bytes")
+
+
+def test_m7_a_release_with_a_forged_manifest_is_refused(sim, job, image):
+    enable_import(sim)
+    open(os.path.join(image[2]["release_dir"], "SHA256SUMS"), "a").write("00" * 32 + "  ou-golden-debian-12-20261115.qcow2\n")
+    with pytest.raises(ProviderError, match="release verification failed"):
+        mutations(sim, scope=SCOPE).import_image(spec(image))
+
+
+def test_m7_older_releases_are_refused_unless_an_explicit_downgrade(sim, job, tmp_path):
+    enable_import(sim)
+    m = mutations(sim, scope=SCOPE)
+    new = release(tmp_path, "20261115")
+    r = m.import_image(spec(new))
+    assert f"ou-rel-debian-12-20261115" in sim.sim.vms[r.vmid]["cfg"]["tags"]
+    old = release(tmp_path, "20261001")
+    with pytest.raises(ProviderError) as e:
+        m.import_image(spec(old, name="ou-tpl-debian12-agent2"))
+    assert e.value.code == "downgrade" and "20261115" in e.value.message
+    ok = m.import_image(spec(old, name="ou-tpl-debian12-agent2", allow_downgrade=True))     # the explicit (high-risk) downgrade plan
+    assert sim.sim.vms[ok.vmid]["cfg"]["template"] == 1
+    newer = release(tmp_path, "20261120")
+    assert m.import_image(spec(newer, name="ou-tpl-debian12-agent3")).vmid                  # moving forward is fine
+
+
+def test_m7_newest_imported_reads_only_the_verbs_own_tags():
+    from ics.guest import golden
+    tags = ["ou-managed;ou-image;ou-rel-debian-12-20261001", "ou-rel-debian-12-20261115;ou-image", "ou-rel-ubuntu-24.04-20270101", "evil;ou-rel-debian-12-99999999x"]
+    assert golden.newest_imported(tags, "debian-12") == "20261115" and golden.newest_imported(tags, "ubuntu-24.04") == "20270101"
+    assert golden.newest_imported([], "debian-12") is None

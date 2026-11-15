@@ -350,6 +350,7 @@ def _port(rt, tmp_path, monkeypatch, lab=False, prov=None, **settings):
     plan = {"vms": [{"name": "vm1", "os_image": {"id": "debian-12"}}], "firewall": [{"vm": "vm1", "port": 2525, "proto": "tcp", "from": "ics-control", "purpose": "x"},
                                                                                     {"vm": "vm1", "port": 8443, "proto": "tcp", "from": "ics-control", "purpose": "agent"}]}
     monkeypatch.setattr(sshboot, "default_iface", lambda: "eth0")
+    monkeypatch.setattr(agentport, "neighbour_mac", lambda a: "bc:24:11:44:38:7d")   # the ARP witness of review 5 M2 (FakeProv.guest_mac)
     monkeypatch.setattr(agentport.GuestAgentPort, "_source_towards", staticmethod(lambda a: "192.168.22.167"))
     monkeypatch.setattr(agentport, "_agent_dir", lambda rt: os.path.join(os.path.dirname(__file__), "..", "agent"))
     FakeGuest.instances, FakeGuest.fail_on, FakeGuest.seal_ok = [], None, True

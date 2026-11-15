@@ -206,7 +206,7 @@ def create_app(settings: Settings | None = None, runtime: Runtime | None = None)
         ok = all(c.get("ok") for c in checks.values()) and len(checks) == 3
         if not ok:
             response.status_code = 503
-        return {"ready": ok, "version": ver.__version__, "checks": checks}
+        return {"ready": ok, "version": ver.__version__.split(".")[0], "checks": checks}      # review 5 L5: major only for anonymous callers
 
     # ---- version (ADR-0011) ----
     def _full_version(db: Session) -> dict:
@@ -223,11 +223,15 @@ def create_app(settings: Settings | None = None, runtime: Runtime | None = None)
 
     @app.get(f"{API}/version")
     def version_info(request: Request, db: Session = Depends(get_db)):
-        """Public: product name and version only. With a valid session: commit, build date, schema and component versions."""
+        """Review 5 L5. Anonymous and non-admin sessions: product + MAJOR version only. Full detail (exact version, commit, schema, components)
+        only for an admin with the all-customers scope."""
+        minimal = {"product": ver.PRODUCT, "version": ver.__version__.split(".")[0]}
         try:
-            auth.current_user(request, db)
+            u = auth.current_user(request, db)
         except HTTPException:
-            return {"product": ver.PRODUCT, "version": ver.__version__}
+            return minimal
+        if auth.RANK[u.role] < auth.RANK["admin"] or getattr(u, "customer_ids", None) is not None:
+            return minimal
         return _full_version(db)
 
     # ---- auth ----
@@ -399,7 +403,8 @@ def create_app(settings: Settings | None = None, runtime: Runtime | None = None)
         return out
 
     register_system_routes(app, rt, API, worker)  # GET system (admin): version, migration, readiness, threads, sizes, backup
-    guest_callback.register(app, rt)  # golden-image bootstrap callback (guest/callback.py): HMAC-authenticated, single use, rate limited
+    if not rt.settings.guest_callback_dedicated:
+        guest_callback.register(app, rt)  # golden-image bootstrap callback (guest/callback.py): HMAC-authenticated, single use, rate limited
     register_deploy_routes(app, rt)  # catalog, deployments, drift, change preview, job steps (deploy/api.py)
 
     # ---- monitoring (read-only views; every mutation is a typed plan) ----
@@ -409,7 +414,7 @@ def create_app(settings: Settings | None = None, runtime: Runtime | None = None)
     @app.get(f"{API}/nodes")
     def list_nodes(user: User = Depends(require("viewer")), db: Session = Depends(get_db)):
         rows = db.execute(text("SELECT id, name, address, port, tls_fingerprint_sha256, agent_key_fp, capabilities, agent_version, status, "
-                               "last_seen_at, created_at FROM nodes ORDER BY name")).all()
+                               f"last_seen_at, created_at FROM nodes WHERE {tscope.clause(db, 'customer_id')} ORDER BY name")).all()
         return [_row(r) for r in rows]
 
     @app.get(f"{API}/checks")
@@ -419,7 +424,7 @@ def create_app(settings: Settings | None = None, runtime: Runtime | None = None)
             "c.recover_threshold, c.enabled, c.state, c.consecutive_bad, c.last_run_at, c.next_run_at, c.last_state_change_at, c.last_message, "
             "c.last_latency_ms, c.remediation, c.created_at, "
             "(SELECT i.id FROM incidents i WHERE i.check_id = c.id AND i.status IN ('open','acked')) AS active_incident_id "
-            "FROM checks c ORDER BY c.name")).all()
+            f"FROM checks c WHERE {tscope.clause(db, 'c.customer_id')} ORDER BY c.name")).all()
         out = []
         for r in rows:
             d = _row(r)
@@ -430,6 +435,7 @@ def create_app(settings: Settings | None = None, runtime: Runtime | None = None)
     @app.get(f"{API}/checks/{{check_id}}/results")
     def check_results(check_id: UUID, limit: int = 100, before_id: int | None = None, user: User = Depends(require("viewer")),
                       db: Session = Depends(get_db)):
+        tscope.assert_row(db, user, "checks", check_id, "check")
         rows = db.execute(text("SELECT id, at, status, latency_ms, message FROM check_results WHERE check_id = :c "
                                "AND (CAST(:b AS bigint) IS NULL OR id < :b) ORDER BY id DESC LIMIT :n"),
                           {"c": str(check_id), "b": before_id, "n": min(max(limit, 1), 1000)}).all()
@@ -437,6 +443,7 @@ def create_app(settings: Settings | None = None, runtime: Runtime | None = None)
 
     @app.get(f"{API}/checks/{{check_id}}/remediation")
     def check_remediation(check_id: UUID, user: User = Depends(require("viewer")), db: Session = Depends(get_db)):
+        tscope.assert_row(db, user, "checks", check_id, "check")
         rows = db.execute(text("SELECT * FROM remediation_attempts WHERE check_id = :c ORDER BY at DESC LIMIT 100"), {"c": str(check_id)}).all()
         return [{**_row(r), "id": r.id} for r in rows]
 
@@ -448,26 +455,26 @@ def create_app(settings: Settings | None = None, runtime: Runtime | None = None)
             "SELECT i.id, i.check_id, c.name AS check_name, i.severity, i.status, i.title, i.message, i.opened_at, i.acked_at, "
             "au.username AS acked_by_username, i.ack_note, i.recovered_at, i.escalated_at, i.notify_count FROM incidents i "
             "JOIN checks c ON c.id = i.check_id LEFT JOIN users au ON au.id = i.acked_by "
-            "WHERE (CAST(:s AS text) IS NULL OR i.status = :s OR (:s = 'active' AND i.status IN ('open','acked'))) "
+            f"WHERE {tscope.clause(db, 'c.customer_id')} AND (CAST(:s AS text) IS NULL OR i.status = :s OR (:s = 'active' AND i.status IN ('open','acked'))) "
             "ORDER BY i.opened_at DESC LIMIT :n"), {"s": status, "n": min(max(limit, 1), 500)}).all()
         return [_row(r) for r in rows]
 
     @app.get(f"{API}/incidents/{{incident_id}}")
     def get_incident(incident_id: UUID, user: User = Depends(require("viewer")), db: Session = Depends(get_db)):
         i = db.execute(text("SELECT i.*, c.name AS check_name, c.state AS check_state FROM incidents i JOIN checks c ON c.id = i.check_id "
-                            "WHERE i.id = :i"), {"i": str(incident_id)}).first()
+                            f"WHERE i.id = :i AND {tscope.clause(db, 'c.customer_id')}"), {"i": str(incident_id)}).first()
         if i is None:
             raise HTTPException(404, "incident not found")
         notes = db.execute(text("SELECT n.id, n.event, n.status, n.attempts, n.last_error, n.detail, n.created_at, n.sent_at, ch.name AS channel, "
                                 "ch.kind AS channel_kind FROM notifications n JOIN alert_channels ch ON ch.id = n.channel_id "
-                                "WHERE n.incident_id = :i ORDER BY n.id"), {"i": str(incident_id)}).all()
+                                f"WHERE n.incident_id = :i AND {tscope.clause(db, 'ch.customer_id')} ORDER BY n.id"), {"i": str(incident_id)}).all()
         att = db.execute(text("SELECT * FROM remediation_attempts WHERE incident_id = :i ORDER BY at"), {"i": str(incident_id)}).all()
         return {**_row(i), "notifications": [{**_row(n), "id": n.id} for n in notes], "remediation": [{**_row(a), "id": a.id} for a in att]}
 
     @app.get(f"{API}/alert-channels")
     def list_channels(user: User = Depends(require("viewer")), db: Session = Depends(get_db)):
         rows = db.execute(text("SELECT id, name, kind, config, (secret_enc IS NOT NULL) AS has_secret, enabled, created_at "
-                               "FROM alert_channels ORDER BY name")).all()
+                               f"FROM alert_channels WHERE {tscope.clause(db, 'customer_id')} ORDER BY name")).all()
         out = []
         for r in rows:
             d = _row(r)
@@ -480,7 +487,7 @@ def create_app(settings: Settings | None = None, runtime: Runtime | None = None)
     def list_maintenance(user: User = Depends(require("viewer")), db: Session = Depends(get_db)):
         rows = db.execute(text("SELECT m.id, m.name, m.check_id, c.name AS check_name, m.starts_at, m.ends_at, m.reason, "
                                "(m.starts_at <= now() AND m.ends_at > now()) AS active FROM maintenance_windows m "
-                               "LEFT JOIN checks c ON c.id = m.check_id ORDER BY m.starts_at DESC LIMIT 100")).all()
+                               f"LEFT JOIN checks c ON c.id = m.check_id WHERE {tscope.clause(db, 'm.customer_id')} ORDER BY m.starts_at DESC LIMIT 100")).all()
         return [_row(r) for r in rows]
 
     # ---- identity lifecycle (mutations are typed plans idm.*; these are the one-time enrollment flow and read-only views) ----

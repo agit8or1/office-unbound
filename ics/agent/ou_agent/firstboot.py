@@ -40,6 +40,14 @@ class Refused(Exception):
     """A closed-schema or authentication failure; the message is secret-free and goes to the journal."""
 
 
+class Busy(Refused):
+    """The ICS answered 429/503: transient, retried with a bounded backoff (review 5 M1); only 401 and friends are final."""
+
+    def __init__(self, msg: str, retry_after: int = 0):
+        super().__init__(msg)
+        self.retry_after = retry_after
+
+
 def read_smbios(d: str = SMBIOS_DIR) -> dict:
     def rd(n):
         try:
@@ -91,6 +99,9 @@ def post_pinned(cfg: dict, body: dict, timeout: float = 20.0) -> dict:
         conn.request("POST", PATH, body=data, headers={"Content-Type": "application/json", "Content-Length": str(len(data))})
         r = conn.getresponse()
         raw = r.read(256 * 1024)
+        if r.status in (429, 503):
+            ra = r.getheader("Retry-After", "0") or "0"
+            raise Busy(f"the ICS is busy (HTTP {r.status})", int(ra) if ra.isdigit() else 0)
         if r.status != 200:
             raise Refused(f"the ICS refused the report (HTTP {r.status})")
         return json.loads(raw)
@@ -275,11 +286,17 @@ def bootstrap(g: Guest, smbios_dir: str = SMBIOS_DIR, post=post_pinned, *, retry
         token, fps = prepare_agent(g, address, "guest", 3600)
         agent = {"address": address, "port": 8443, **fps}
         end = clock() + retry_seconds
+        busy = 0
         while True:   # only transport errors are retried (the ICS may not be reachable yet); an authentication failure is final
             body = build_report(cfg, agent, token)
             try:
                 resp = post(cfg, body)
                 break
+            except Busy as e:   # review 5 M1: rate limited / overloaded is NOT an authentication failure: back off (bounded) and try again
+                if clock() >= end:
+                    raise
+                busy += 1
+                sleep(min(max(e.retry_after, 5 * 2 ** min(busy, 4)), 120))
             except Refused as e:
                 if "pin" in str(e) or "refused the report" in str(e) or clock() >= end:
                     raise

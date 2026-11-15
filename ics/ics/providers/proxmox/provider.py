@@ -562,6 +562,18 @@ class ProxmoxProvider:
             raise ProviderError("bad_task", "malformed task reference")
         return m.group(1), urllib.parse.quote(task.upid, safe=":@!")
 
+    def task_log_mentions(self, task: TaskRef, needles: list[str]) -> bool:
+        """Review 5 M2: True if the PVE task log (first 500 lines) contains any needle. Never returns log text."""
+        if task.upid is None or not any(needles):
+            return False
+        node, q = self._upid(task)
+        try:
+            log = self._get(f"/nodes/{_seg(node)}/tasks/{q}/log?limit=500&start=0", self._task_client())
+        except ProviderError:
+            return False
+        blob = "\n".join(str(x.get("t", "")) for x in log if isinstance(x, dict))
+        return any(n and n in blob for n in needles)
+
     def task_status(self, task: TaskRef) -> TaskStatus:
         if task.upid is None:
             return TaskStatus("ok", "OK", "completed synchronously")
@@ -989,6 +1001,17 @@ class ProxmoxMutations(ProxmoxProvider):
             raise ScopeViolation(f"pool {spec.pool!r} is not in the endpoint's allowed pools")
         for st in (spec.import_storage, spec.target_storage):
             self._need_storage(st)
+        from ...guest import golden     # late: guest.* imports providers
+        if not (spec.release_dir and spec.release_pubkey_pem and spec.release_pin_sha256):
+            raise ProviderError("invalid_request", "image import needs the signed release (directory, public key and pin); an unsigned image is never imported")
+        try:
+            rel = golden.verify_release(spec.release_dir, spec.release_pubkey_pem, spec.release_pin_sha256)
+        except golden.ReleaseError as e:
+            raise ProviderError("integrity", f"release verification failed: {e}; nothing was uploaded") from None
+        if os.path.realpath(spec.file_path) != os.path.realpath(rel.path) or not hmac_equal(spec.sha256, rel.sha256):
+            raise ProviderError("integrity", "the claimed file/checksum differ from the verified release; nothing was uploaded")
+        spec = dataclasses.replace(spec, file_path=rel.path, sha256=rel.sha256)     # from here on only values the verb computed itself
+        rel_tag = f"ou-rel-{rel.os}-{rel.date}"
         fname = os.path.basename(spec.file_path)
         if not _IMAGE_FILE.match(fname) or not re.fullmatch(r"[0-9a-f]{64}", spec.sha256) or not _TPL_NAME.match(spec.name):
             raise ProviderError("invalid_request", "image file must be named ou-golden-<id>.qcow2, the checksum 64 hex digits and the template ou-tpl-<name>")
@@ -997,6 +1020,10 @@ class ProxmoxMutations(ProxmoxProvider):
         digest, size = _file_sha256(spec.file_path)
         if size == 0 or size > IMAGE_MAX_BYTES or not hmac_equal(digest, spec.sha256):
             raise ProviderError("integrity", "the image file does not match the verified checksum (or is empty/too large); nothing was uploaded")
+        newest = golden.newest_imported([g.get("tags") or "" for g in self._get("/cluster/resources?type=vm", self._w)], rel.os)
+        if newest and rel.date < newest and not spec.allow_downgrade:
+            raise ProviderError("downgrade", f"release {rel.date} is older than the newest imported {rel.os} image ({newest}); a downgrade needs an explicit, "
+                                "separately approved plan (allow_downgrade); nothing was uploaded")
         stor = {x["storage"]: x for x in self._get(f"/nodes/{_seg(spec.node)}/storage", self._w)}
         have_imp, have_img = stor.get(spec.import_storage), stor.get(spec.target_storage)
         if have_imp is None or "import" not in str(have_imp.get("content", "")).split(","):
@@ -1019,7 +1046,7 @@ class ProxmoxMutations(ProxmoxProvider):
         volid = f"{spec.import_storage}:import/{fname}"
         data = {"vmid": vmid, "name": spec.name, "pool": spec.pool, "cores": spec.cores, "memory": spec.memory_mb, "ostype": "l26", "scsihw": "virtio-scsi-single",
                 "scsi0": f"{spec.target_storage}:0,import-from={volid}", "boot": "order=scsi0", "serial0": "socket", "agent": "0",
-                "tags": f"{OWNED_TAG};ou-image", "description": "Office Unbound golden guest image (ADR-0008 pipeline output)"}
+                "tags": f"{OWNED_TAG};ou-image;{rel_tag}", "description": "Office Unbound golden guest image (ADR-0008 pipeline output)"}
         if net:
             data["net0"] = net
         try:

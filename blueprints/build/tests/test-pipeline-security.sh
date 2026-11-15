@@ -7,6 +7,8 @@ HERE=$(cd "$(dirname "$0")" && pwd); BUILD=$(cd "$HERE/.." && pwd)
 T=$(mktemp -d); trap 'rm -rf "$T"' EXIT
 export OU_PKG_STATE=$T/state OU_REPO_DIR=$T/state/repo OU_RELEASE_STATE=$T/signer GNUPGHOME=$T/gh
 export OU_RELEASE_CMD="python3 -I $BUILD/repo/ou-release-sign"
+export OU_TESTRUNNER_STATE=$T/runner OU_RELEASE_SANDBOX=1 OU_ATTEST_CMD="python3 -I $BUILD/repo/ou-test-attest"
+MF="python3 $HERE/sandbox-manifest.py"
 mkdir -p "$T/state/out/libhx/artifacts" "$T/state/repo" "$OU_RELEASE_STATE"/{ledger,records,promotions} "$T/gh" "$OU_RELEASE_STATE/gnupg"; chmod 700 "$T/gh" "$OU_RELEASE_STATE/gnupg"
 fails=0; n=0
 ok() { n=$((n+1)); echo "PASS $1"; }
@@ -22,6 +24,10 @@ printf 'default-cache-ttl 1\nmax-cache-ttl 1\n' > "$OU_RELEASE_STATE/gnupg/gpg-a
 GNUPGHOME=$OU_RELEASE_STATE/gnupg gpg --batch --pinentry-mode loopback --passphrase-file "$OU_RELEASE_STATE/passphrase" --quick-generate-key "Sandbox Signer <s@s>" ed25519 sign 1d >/dev/null 2>&1
 FPR=$(GNUPGHOME=$OU_RELEASE_STATE/gnupg gpg --list-secret-keys --with-colons | awk -F: '/^fpr/{print $10; exit}'); echo "$FPR" > "$OU_RELEASE_STATE/FINGERPRINT"
 GNUPGHOME=$OU_RELEASE_STATE/gnupg gpg --armor --export "$FPR" > "$T/pub.asc"
+# review 5 H2: the signer trusts the ICS promotion key and the test runner key (root-owned in production; the sandbox is its own owner)
+mkdir -p "$OU_RELEASE_STATE/trust"; chmod 755 "$OU_RELEASE_STATE/trust"
+$MF init "$T/ics.key" "$OU_RELEASE_STATE/trust/ics-promotion.pub"
+python3 -I "$BUILD/repo/ou-test-attest" keygen > "$OU_RELEASE_STATE/trust/test-runner.pub"; chmod 644 "$OU_RELEASE_STATE/trust/"*.pub
 export GNUPGHOME=$OU_RELEASE_STATE/gnupg
 
 # a minimal real .deb that satisfies the libhx recipe (Package ou-libhx, Version 4.28-ou1)
@@ -79,15 +85,25 @@ mv "$OU_RELEASE_STATE/passphrase" "$OU_RELEASE_STATE/passphrase.good"; echo wron
 expect_refuse "H2 signing with a wrong passphrase fails" $R index dev
 mv "$OU_RELEASE_STATE/passphrase.good" "$OU_RELEASE_STATE/passphrase"
 
-expect_refuse "M7 promote without any test record" $R promote dev staging libhx
+mf() { $MF make "$T/ics.key" "$1" "$2" libhx "$T/state/repo/pool/$1/libhx" "$OU_RELEASE_STATE" "$3" requester-id > "$T/m.json"; }
+expect_refuse "H2 the old CLI promote path (typed approver name) is gone" $R promote dev staging libhx --approved-by "Somebody"
+mf dev staging ap1
+expect_refuse "M7 promote without any test record" $R promote-manifest "$T/m.json"
 H=$(sha256sum "$T/state/repo/pool/dev/libhx/ou-libhx_4.28-ou1_amd64.deb" | cut -d' ' -f1)
 echo log > "$T/log.txt"
 expect_ok "record a FAILED test" $R record-test libhx install-smoke fail "$T/log.txt"
-expect_refuse "M7 promote after a recorded failure" $R promote dev staging libhx
+mf dev staging ap1
+expect_refuse "M7 promote after a recorded failure" $R promote-manifest "$T/m.json"
 expect_ok "record a passing test" $R record-test libhx install-smoke pass "$T/log.txt"
-expect_ok "promote dev>staging with a passing record" $R promote dev staging libhx
-expect_refuse "M7 promote to stable without an approver" $R promote staging stable libhx
-expect_ok "promote staging>stable with an approver" $R promote staging stable libhx --approved-by "lead (sandbox)"
+mf dev staging requester-id
+expect_refuse "H2 the requester cannot be the approver" $R promote-manifest "$T/m.json"
+mf dev staging ap1
+expect_ok "promote dev>staging with a passing record and an ICS-signed manifest" $R promote-manifest "$T/m.json"
+expect_refuse "H2 a manifest is single use (replay)" $R promote-manifest "$T/m.json"
+mf staging stable ap1
+expect_refuse "M7 promote to stable with ONE approver" $R promote-manifest "$T/m.json"
+mf staging stable ap1,ap2
+expect_ok "promote staging>stable with two ICS approvers" $R promote-manifest "$T/m.json"
 ls "$OU_RELEASE_STATE/promotions"/*.asc >/dev/null 2>&1 && ok "M7 signed promotion records written" || bad "M7 no signed promotion record"
 # unadmitted file dropped straight into a pool, then the index is signed
 mkdir -p "$T/state/repo/pool/stable/rogue"; mkpkg ou-rogue 1 "$T/state/repo/pool/stable/rogue/ou-rogue_1_amd64.deb"
@@ -96,7 +112,8 @@ rm -rf "$T/state/repo/pool/stable/rogue"; expect_ok "index works again without t
 # swap content of an admitted file (same name, different bytes) in the dev pool: promotion must notice (ledger is by hash)
 cp "$T/state/repo/pool/dev/libhx/ou-libhx_4.28-ou1_amd64.deb" "$T/orig.deb"
 mkpkg ou-libhx 4.28-ou1 "$T/state/repo/pool/dev/libhx/ou-libhx_4.28-ou1_amd64.deb" "different content"
-expect_refuse "M7 swapped .deb content (TOCTOU / tamper in the pool) is not promotable" $R promote dev staging libhx
+mf dev staging ap1
+expect_refuse "M7 swapped .deb content (TOCTOU / tamper in the pool) is not promotable" $R promote-manifest "$T/m.json"
 echo
 echo "== $((n - fails)) PASS, $fails FAIL of $n"
 [ "$fails" = 0 ]

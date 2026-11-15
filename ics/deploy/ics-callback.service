@@ -1,0 +1,50 @@
+[Unit]
+Description=Office Unbound ICS guest-bootstrap callback listener (only the callback route)
+Documentation=file:///opt/office-unbound/ics/README.md
+After=network-online.target postgresql.service ics-migrate.service
+Wants=network-online.target
+Requires=ics-migrate.service postgresql.service
+
+[Service]
+Type=simple
+User=ics
+Group=ics
+WorkingDirectory=/opt/office-unbound/ics
+# ics_app credentials only. The owner (migration) URL lives in ics-migrate.env (root 0600) and is never loaded here.
+EnvironmentFile=/etc/office-unbound/ics.env
+ExecStart=/opt/office-unbound/ics/.venv/bin/python -m ics.serve_callback
+Restart=on-failure
+RestartSec=3
+UMask=0077
+
+# --- hardening ---
+NoNewPrivileges=true
+ProtectSystem=strict
+ProtectHome=true
+PrivateTmp=true
+PrivateDevices=true
+ProtectKernelTunables=true
+ProtectKernelModules=true
+ProtectKernelLogs=true
+ProtectControlGroups=true
+ProtectClock=true
+ProtectHostname=true
+ProtectProc=invisible
+ProcSubset=pid
+LockPersonality=true
+RestrictRealtime=true
+RestrictSUIDSGID=true
+RestrictNamespaces=true
+MemoryDenyWriteExecute=true
+RemoveIPC=true
+CapabilityBoundingSet=
+AmbientCapabilities=
+RestrictAddressFamilies=AF_INET AF_INET6 AF_UNIX
+SystemCallFilter=@system-service
+SystemCallFilter=~@privileged @resources
+SystemCallArchitectures=native
+ReadOnlyPaths=/opt/office-unbound /etc/office-unbound
+InaccessiblePaths=-/etc/office-unbound/ics-migrate.env -/etc/office-unbound/ics-test.env -/etc/office-unbound/lab
+
+[Install]
+WantedBy=multi-user.target

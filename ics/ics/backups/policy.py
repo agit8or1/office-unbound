@@ -89,6 +89,7 @@ class VerifyPolicy(BaseModel):
 
 class PolicyCreate(BaseModel):
     model_config = ConfigDict(extra="forbid")
+    customer_id: str | None = Field(default=None, pattern=r"^[0-9a-fA-F-]{36}$", description="owning customer (default: the runner node's customer)")
     name: str = Field(pattern=NAME_RE)
     tier: Literal["files", "identity", "groupware", "ics"]
     deployment: str = Field(pattern=LABEL_RE, description="customer stack / deployment label this policy protects")

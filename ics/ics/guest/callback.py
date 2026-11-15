@@ -10,7 +10,7 @@ know. Properties:
     reported agent address (a stolen secret cannot point the ICS at another host);
   * single use + short TTL: the first valid report moves the record pending -> reported atomically; a second valid report with the same secret is a
     REPLAY (clone or impostor) and raises an alarm audit event; expired/used/unknown records are indistinguishable from a bad proof (one generic 401);
-  * rate limited per source IP and globally (in memory, per process) and counted per bootstrap id;
+  * rate limited per source IP, per bootstrap id (reserved budget of every known VM) and, separately, for unknown ids (in memory, per process); counted per bootstrap id;
   * CA-pinned on the guest side: the guest only talks to the SMBIOS-delivered URL after matching the delivered certificate pin; the response carries
     an HMAC acknowledgement so the guest also authenticates the ICS with the secret (a pinned-cert holder without the secret is rejected too);
   * the enrollment token the guest generated travels inside this authenticated call and is stored vault-encrypted until enrollment finishes."""
@@ -35,7 +35,11 @@ from . import bootsecrets
 PATH = "/api/v1/guest-bootstrap/report"
 SKEW_SECONDS = 300
 PER_IP_LIMIT, PER_IP_WINDOW = 12, 60.0
-GLOBAL_LIMIT, GLOBAL_WINDOW = 120, 60.0
+# Review 5 M1: NO single global bucket that an anonymous flood can drain for everybody. Requests naming a bootstrap id that exists are limited per
+# bid (= per VM, their own reserved budget: it cannot be consumed by unknown-id traffic); requests naming unknown ids share a separate, bounded budget.
+PER_BID_LIMIT, PER_BID_WINDOW = 30, 60.0
+UNKNOWN_LIMIT, UNKNOWN_WINDOW = 60, 60.0
+MAX_BODY = 4096                      # review 5 L2: enforced, not just documented
 HEX64 = re.compile(r"^[0-9a-f]{64}$")
 BID = re.compile(r"^[0-9a-f]{16}$")
 NONCE = re.compile(r"^[0-9a-f]{32}$")
@@ -102,6 +106,18 @@ LIMITER = RateLimiter()
 _DENY = HTTPException(401, "rejected")   # one generic answer for every failure: no oracle for bids, expiry or use
 
 
+_DUMMY: dict = {}
+
+
+def _dummy_work(rt) -> None:
+    if "blob" not in _DUMMY:
+        _DUMMY["blob"] = rt.vault.encrypt(b"0" * 64, "bootstrap-dummy")
+    rt.vault.decrypt(_DUMMY["blob"], "bootstrap-dummy")
+    with rt.session() as db:
+        db.execute(text("UPDATE guest_bootstrap SET attempts = attempts WHERE id = :i"), {"i": "00000000-0000-0000-0000-000000000000"})
+        db.commit()
+
+
 def source_ip(request: Request, rt) -> str:
     host = request.client.host if request.client else ""
     tp = rt.settings.trusted_proxy
@@ -114,7 +130,7 @@ def source_ip(request: Request, rt) -> str:
 
 def handle_report(rt, body: ReportIn, src: str) -> dict:
     """Pure core (no HTTP objects): returns the response body or raises HTTPException."""
-    if not LIMITER.allow("ip:" + src, PER_IP_LIMIT, PER_IP_WINDOW) or not LIMITER.allow("global", GLOBAL_LIMIT, GLOBAL_WINDOW):
+    if not LIMITER.allow("ip:" + src, PER_IP_LIMIT, PER_IP_WINDOW):
         raise HTTPException(429, "too many requests", headers={"Retry-After": "30"})
     a = body.agent
     if (body.v != 1 or not BID.match(body.bid) or not NONCE.match(body.nonce) or not HEX64.match(a.tls_fingerprint_sha256)
@@ -127,10 +143,16 @@ def handle_report(rt, body: ReportIn, src: str) -> dict:
     if ip.is_loopback or ip.is_multicast or ip.is_unspecified or ip.is_link_local or ip.is_reserved:
         raise _DENY
     row = bootsecrets.by_bid(rt, body.bid)
+    bucket_ok = (LIMITER.allow("bid:" + body.bid, PER_BID_LIMIT, PER_BID_WINDOW) if row is not None
+                 else LIMITER.allow("unknown", UNKNOWN_LIMIT, UNKNOWN_WINDOW))
+    if not bucket_ok:
+        raise HTTPException(429, "too many requests", headers={"Retry-After": "30"})
     dummy = "00" * 32
     secret = None
     if row is not None and row.secret_enc is not None:
         secret = rt.vault.decrypt(row.secret_enc, bootsecrets._ctx(str(row.id), "secret")).decode()
+    else:
+        _dummy_work(rt)   # review 5 L3: the unknown-id path costs the same decrypt and the same DB round trip as a known one
     want = proof(secret or dummy, canonical(body.bid, body.nonce, body.ts, a.address, a.port, a.tls_fingerprint_sha256, a.agent_key_fingerprint_sha256,
                                             body.enroll_token))
     good = hmac.compare_digest(want, body.proof) and secret is not None
@@ -157,6 +179,13 @@ def handle_report(rt, body: ReportIn, src: str) -> dict:
             # valid proof but not pending: a replay (a clone, or someone who read the secret) or an expired attempt -> ALARM, nothing accepted
             audit.append(db, "guest.bootstrap_replay_alarm", actor_name="guest", resource="guest_bootstrap", resource_id=body.bid, ip=src,
                          details={"state": row.state, "expired": row.expires_at <= now, "reported_address": a.address})
+            if row.state in ("pending", "reported"):
+                # review 5 M2: a second valid proof before enrollment finished means two parties hold the secret: the deployment must STOP.
+                # The record fails and its material is wiped; await_callback / the enrollment step see `failed` and fail the VM closed.
+                db.execute(text("UPDATE guest_bootstrap SET state = 'failed', secret_enc = NULL, ssh_key_enc = NULL, token_enc = NULL, secret_deleted_at = now() "
+                                "WHERE id = :i AND state IN ('pending', 'reported')"), {"i": str(row.id)})
+                audit.append(db, "guest.bootstrap_failed_by_replay", actor_name="guest", resource="guest_bootstrap", resource_id=body.bid, ip=src,
+                             details={"deployment_id": str(row.deployment_id), "vm": row.vm})
             db.commit()
             raise _DENY
         audit.append(db, "guest.bootstrap_report", actor_name="guest", resource="guest_bootstrap", resource_id=body.bid, ip=src,
@@ -196,5 +225,38 @@ def _ics_address_towards(addr: str) -> str:
 
 def register(app, rt) -> None:
     @app.post(PATH)
-    def guest_bootstrap_report(body: ReportIn, request: Request):
-        return handle_report(rt, body, source_ip(request, rt))
+    async def guest_bootstrap_report(request: Request):
+        from fastapi.concurrency import run_in_threadpool
+        from pydantic import ValidationError
+        try:
+            if int(request.headers.get("content-length", "0") or 0) > MAX_BODY:
+                raise HTTPException(413, "body too large")
+        except ValueError:
+            raise HTTPException(400, "bad content-length") from None
+        raw = bytearray()
+        async for chunk in request.stream():   # also caps chunked bodies that carry no Content-Length
+            raw += chunk
+            if len(raw) > MAX_BODY:
+                raise HTTPException(413, "body too large")
+        try:
+            body = ReportIn.model_validate_json(bytes(raw))
+        except ValidationError:
+            raise HTTPException(422, "invalid report") from None
+        return await run_in_threadpool(handle_report, rt, body, source_ip(request, rt))
+
+
+def create_callback_app():
+    """Review 5 L4: a DEDICATED app that serves nothing but the bootstrap callback (and /healthz). Run it as its own listener (`python -m ics.serve_callback`,
+    unit ics-callback.service) behind its own reverse-proxy server block / bind address; guest networks then reach no login page and no console API.
+    Set ICS_GUEST_CALLBACK_DEDICATED=true so the console app stops serving the callback route as well."""
+    from fastapi import FastAPI
+    from ..runtime import Runtime
+    from ..config import load_settings
+    rt = Runtime(load_settings())
+    app = FastAPI(title="Office Unbound guest callback", docs_url=None, redoc_url=None, openapi_url=None)
+    register(app, rt)
+
+    @app.get("/healthz")
+    def healthz():
+        return {"ok": True}
+    return app

@@ -146,9 +146,9 @@ def exec_policy_create(rt: Runtime, db, m: pol.PolicyCreate, plan, known: list[s
     creator = db.execute(text("SELECT requested_by FROM plans WHERE id = :i"), {"i": str(plan.id)}).scalar()
     db.execute(text(
         "INSERT INTO backup_policies (id, name, tier, deployment, runner_node_id, schedule, retention, rpo_seconds, rto_seconds, repo, "
-        "copies_required, verify, repo_secret_enc, created_by) VALUES (:id, :n, :t, :d, :node, CAST(:s AS jsonb), CAST(:r AS jsonb), :rpo, :rto, "
-        "CAST(:repo AS jsonb), :c, CAST(:v AS jsonb), :e, :u)"),
-        {"id": str(pid), "n": m.name, "t": m.tier, "d": m.deployment, "node": m.runner_node_id, "s": audit.canon(m.schedule.model_dump(exclude_none=True)),
+        "copies_required, verify, repo_secret_enc, created_by, customer_id) VALUES (:id, :n, :t, :d, :node, CAST(:s AS jsonb), CAST(:r AS jsonb), :rpo, :rto, "
+        "CAST(:repo AS jsonb), :c, CAST(:v AS jsonb), :e, :u, COALESCE(:cu, (SELECT customer_id FROM nodes WHERE id = :node)))"),
+        {"cu": m.customer_id, "id": str(pid), "n": m.name, "t": m.tier, "d": m.deployment, "node": m.runner_node_id, "s": audit.canon(m.schedule.model_dump(exclude_none=True)),
          "r": audit.canon(m.retention.model_dump()), "rpo": m.rpo_seconds, "rto": m.rto_seconds, "repo": audit.canon(m.repo.model_dump()),
          "c": m.copies_required, "v": audit.canon(m.verify.model_dump()), "e": enc, "u": creator})
     return {"policy_id": str(pid), "name": m.name, "tier": m.tier, "repository_password": "stored in the vault (never shown); "
@@ -411,13 +411,15 @@ def policy_view(db, r, now: datetime | None = None) -> dict:
 
 
 def list_policies(db) -> list[dict]:
-    return [policy_view(db, r) for r in db.execute(text("SELECT * FROM backup_policies ORDER BY name")).all()]
+    from ..tenancy import scope as tscope
+    return [policy_view(db, r) for r in db.execute(text(f"SELECT * FROM backup_policies WHERE {tscope.clause(db, 'customer_id')} ORDER BY name")).all()]
 
 
 def list_runs(db, policy: str | None = None, kind: str | None = None, limit: int = 50) -> list[dict]:
+    from ..tenancy import scope as tscope
     rows = db.execute(text(
         "SELECT r.*, p.name AS policy_name, p.tier FROM backup_runs r JOIN backup_policies p ON p.id = r.policy_id "
-        "WHERE (CAST(:p AS text) IS NULL OR p.name = :p) AND (CAST(:k AS text) IS NULL OR r.kind = :k) ORDER BY r.started_at DESC LIMIT :n"),
+        f"WHERE {tscope.clause(db, 'p.customer_id')} AND (CAST(:p AS text) IS NULL OR p.name = :p) AND (CAST(:k AS text) IS NULL OR r.kind = :k) ORDER BY r.started_at DESC LIMIT :n"),
         {"p": policy, "k": kind, "n": max(1, min(limit, 500))}).all()
     return [{"id": str(r.id), "policy": r.policy_name, "tier": r.tier, "kind": r.kind, "trigger": r.trigger, "status": r.status,
              "started_at": _ts(r.started_at), "finished_at": _ts(r.finished_at), "duration_ms": r.duration_ms, "snapshot": r.snapshot_id,
@@ -427,9 +429,10 @@ def list_runs(db, policy: str | None = None, kind: str | None = None, limit: int
 
 
 def list_verifications(db, policy: str | None = None, level: str | None = None, limit: int = 50) -> list[dict]:
+    from ..tenancy import scope as tscope
     rows = db.execute(text(
         "SELECT v.*, p.name AS policy_name, p.tier, p.rto_seconds AS rto_target FROM backup_verifications v JOIN backup_policies p ON p.id = v.policy_id "
-        "WHERE (CAST(:p AS text) IS NULL OR p.name = :p) AND (CAST(:l AS text) IS NULL OR v.level = :l) ORDER BY v.started_at DESC LIMIT :n"),
+        f"WHERE {tscope.clause(db, 'p.customer_id')} AND (CAST(:p AS text) IS NULL OR p.name = :p) AND (CAST(:l AS text) IS NULL OR v.level = :l) ORDER BY v.started_at DESC LIMIT :n"),
         {"p": policy, "l": level, "n": max(1, min(limit, 500))}).all()
     return [{"id": str(r.id), "policy": r.policy_name, "tier": r.tier, "level": r.level, "state": r.state, "trigger": r.trigger,
              "snapshot": r.snapshot_id, "started_at": _ts(r.started_at), "finished_at": _ts(r.finished_at),

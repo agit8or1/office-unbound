@@ -49,3 +49,42 @@ Evidence: [credential-vault.md](../status/credential-vault.md) (tests `ics/tests
   4. Check `GET /credentials` and run one `credential.test`. The audit event `vault.master_key_rewrapped` records key ids, not keys.
   Tested: success, and failure leaves data unchanged (test suite only; not drilled on a lab controller). A backup taken before the rewrap needs the old key, so take a new backup afterwards.
 - Security review 3 (1 High, 5 Medium, 8 Low) fixes are merged with regression tests: [security-review-3-2026-11-15.md](../status/security-review-3-2026-11-15.md), "Remediation".
+
+## Release signing, promotion and the build user (security review 5: H1, H2)
+Evidence: [security-review-5-2026-11-15.md](../status/security-review-5-2026-11-15.md) "Remediation"; tests `ics/tests/test_release_signer.py`, `ics/tests/test_release_promote.py`.
+
+**What the code now enforces**
+- `ou-release-sign sign <suite>` no longer signs what the caller wrote. It parses every index listed in `Release` (`Packages`, `Packages.gz`, `Packages.xz`, `Sources*`), checks size and every hash section, refuses unlisted extra files and non-allowlisted paths, refuses compressed variants that differ from the plain index, requires every stanza to point into `pool/<suite>/` with a sha256 in that suite's ledger, and then **rebuilds** the `Release` itself (`Suite`/`Codename` = its own argument, `Date`, `Valid-Until`).
+- Packages enter `staging`/`stable` only through the ICS: the typed action `release.promote` (admin requests; `dev>staging` needs one approver, `staging>stable` is high risk = two approvers, never the requester) carries the exact package set (file, name, version, sha256) and the test evidence (hash of the test runner's attestation per `.deb`). The executor signs a **promotion manifest** with the ICS signing key and passes it to `repo.sh promote-manifest`; `ou-release-sign promote` verifies the signature (key in the root-owned `/var/lib/ou-release/trust/ics-promotion.pub`), expiry, approver count, requester exclusion, single use (nonce), the exact file set and the evidence.
+- Test records are no longer typed. `ou-test-attest` (user `ou-testrunner`, own key, public half in `trust/test-runner.pub`) signs "package sha256 X passed install-smoke, log sha256 Y" and refuses packages that were never admitted; `ou-release-sign record-test` accepts only such an attestation.
+- Install/re-install the programs (idempotent, root): `sudo OU_ICS_PROMOTION_PUB=<file with the base64 raw ICS signing public key> bash blueprints/build/repo/install-signer.sh`. The ICS public key is `python -c "from ics import agentclient as a; print(a.pub_b64(a.load_signing_key('<ICS_SIGNING_KEY_FILE>').public_key()))"` (run as a user that can read the key). Set `ICS_RELEASE_PROMOTE_CMD="/path/to/blueprints/build/repo/repo.sh promote-manifest"` in the ICS environment.
+
+**What code cannot fix: `administrator` is root-equivalent (OWNER ACTION).** `/etc/sudoers.d/90-cloud-init-users` (`administrator ALL=(ALL) NOPASSWD:ALL`) and `/etc/sudoers.d/90-claude-administrator` (`administrator ALL=(ALL:ALL) NOPASSWD: ALL`) let any code running as `administrator` read `/var/lib/ou-release/passphrase` and the key, replace `/usr/local/sbin/ou-release-sign`, edit `trust/*.pub`, or add itself to any sudoers file. Every control above is separation of duties on paper until this is removed. The change (as root, from a console session that does not depend on those rules; keep a root shell open while doing it):
+
+```
+# 1. remove the two blanket rules (keep a backup outside /etc/sudoers.d)
+install -d -m 0700 /root/sudoers-backup
+mv /etc/sudoers.d/90-cloud-init-users /etc/sudoers.d/90-claude-administrator /root/sudoers-backup/
+# 2. install the minimal rules the lab workflow still needs
+cat > /etc/sudoers.d/ou-lab-workflow <<'EOF'
+# signer and test runner: the ONLY programs that touch the release key / write attestations (fixed paths, fixed target users)
+administrator ALL=(ou-release)    NOPASSWD: /usr/local/sbin/ou-release-sign
+administrator ALL=(ou-testrunner) NOPASSWD: /usr/local/sbin/ou-test-attest
+administrator ALL=(ou-imgsign)    NOPASSWD: /usr/local/sbin/ou-image-sign
+# systemd-nspawn build/test/repo machines (names from blueprints/build/tools.env); no wildcard on the machine name
+Cmnd_Alias OU_MACH = /usr/bin/machinectl clone ou-base-bookworm ou-pkg1, /usr/bin/machinectl clone ou-pkg-golden ou-pkg1, /usr/bin/machinectl clone ou-pkg1 ou-pkg-golden, \
+    /usr/bin/machinectl clone ou-base-bookworm ou-pkgtest1, /usr/bin/machinectl clone ou-base-bookworm ou-repo1, \
+    /usr/bin/machinectl start ou-pkg1, /usr/bin/machinectl start ou-pkgtest1, /usr/bin/machinectl start ou-repo1, \
+    /usr/bin/machinectl terminate ou-pkg1, /usr/bin/machinectl terminate ou-pkgtest1, /usr/bin/machinectl poweroff ou-pkg1, \
+    /usr/bin/machinectl remove ou-pkg1, /usr/bin/machinectl remove ou-pkgtest1, /usr/bin/machinectl show ou-repo1, \
+    /usr/bin/systemctl set-property systemd-nspawn@ou-pkg1.service MemoryMax=*, /usr/bin/systemctl set-property systemd-nspawn@ou-pkgtest1.service MemoryMax=*, \
+    /usr/bin/systemctl set-property systemd-nspawn@ou-repo1.service MemoryMax=*, \
+    /usr/bin/tee /etc/systemd/nspawn/ou-pkg1.nspawn, /usr/bin/tee /etc/systemd/nspawn/ou-pkgtest1.nspawn, /usr/bin/tee /etc/systemd/nspawn/ou-repo1.nspawn, \
+    /usr/bin/test -d /var/lib/machines/*
+Cmnd_Alias OU_EXEC = /usr/bin/systemd-run -M ou-pkg1 *, /usr/bin/systemd-run -M ou-pkgtest1 *, /usr/bin/systemd-run -M ou-repo1 *
+administrator ALL=(root) NOPASSWD: OU_MACH, OU_EXEC
+EOF
+chmod 0440 /etc/sudoers.d/ou-lab-workflow && visudo -cf /etc/sudoers.d/ou-lab-workflow
+# 3. administrator keeps the password-protected group rule (%sudo ALL=(ALL:ALL) ALL) for everything else: interactive, with a password
+```
+Residual risk the owner must know: `systemd-run -M <machine> *` runs arbitrary commands as root **inside** the named container, and the nspawn machines are not a security boundary against a host-root equivalent (builder: `PrivateUsers=pick`, but `machinectl clone` of images and `/etc/systemd/nspawn/*.nspawn` creation by `tee` also need root). The builder/test steps therefore still amount to "can run code as root in the build containers", which is acceptable only because the containers hold no release key. Installs, `bootstrap.sh`, agent installs and service changes need a password-protected `sudo` (interactive) or a root session. Long term: run builds as a separate account (`ou-build`) on a separate host, with the signer on a third; production signing stays offline/HSM.

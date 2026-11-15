@@ -24,7 +24,22 @@ mkdir -p "$WORK/up" "$OUT"
 
 need() { command -v "$1" >/dev/null || { echo "missing tool: $1 ($2)" >&2; exit 2; }; }
 
+check_serial() {   # review 5 L7: dated pin + freshness + never backwards
+  [ -n "${UPSTREAM_SERIAL:-}" ] || { echo "os/$OS.env: UPSTREAM_SERIAL is not pinned (a dated upstream build such as 20261101-1234 or release-20261101); 'latest' is not accepted." >&2; exit 3; }
+  local d; d=$(printf '%s' "$UPSTREAM_SERIAL" | grep -oE '[0-9]{8}' | head -1)
+  [ -n "$d" ] || { echo "UPSTREAM_SERIAL has no YYYYMMDD date" >&2; exit 3; }
+  local today; today=${OU_TODAY:-$(date -u +%Y%m%d)}
+  if [ "${OU_ALLOW_STALE_UPSTREAM:-0}" != 1 ]; then
+    local age=$(( ( $(date -u -d "$today" +%s) - $(date -u -d "$d" +%s) ) / 86400 ))
+    [ "$age" -le "${UPSTREAM_MAX_AGE_DAYS:-60}" ] || { echo "upstream build $UPSTREAM_SERIAL is $age days old (max ${UPSTREAM_MAX_AGE_DAYS:-60}); pin a newer, verified build" >&2; exit 3; }
+  fi
+  local last; last=$(cat "$WORK/upstream-serial.last" 2>/dev/null | grep -oE '[0-9]{8}' | head -1 || true)
+  if [ -n "$last" ] && [ "$d" -lt "$last" ]; then echo "upstream build $UPSTREAM_SERIAL ($d) is OLDER than the last accepted build ($last): refusing to go backwards" >&2; exit 3; fi
+  UPSTREAM_BASE=${UPSTREAM_BASE:-$UPSTREAM_BASE_ROOT/$UPSTREAM_SERIAL}
+}
+
 do_fetch() {
+  check_serial
   [ -n "${UPSTREAM_KEY_FPR:-}" ] || { echo "os/$OS.env: UPSTREAM_KEY_FPR is not pinned. Verify the upstream signing key out of band and pin its full fingerprint first." >&2; exit 3; }
   need curl curl; need gpg gnupg
   cd "$WORK/up"
@@ -43,7 +58,9 @@ do_verify() {
   gpg --homedir "$gh" --batch --status-fd 1 --verify "$UPSTREAM_SUMS_SIG" "$UPSTREAM_SUMS" 2>/dev/null | grep -q "^\[GNUPG:\] VALIDSIG $UPSTREAM_KEY_FPR " \
     || { echo "signature of $UPSTREAM_SUMS does not verify against the pinned key" >&2; exit 4; }
   grep -F " $UPSTREAM_IMAGE" "$UPSTREAM_SUMS" | $UPSTREAM_SUM_TOOL -c - || { echo "image checksum mismatch" >&2; exit 4; }
-  echo "upstream image verified (signature + checksum)"
+  check_serial
+  printf '%s\n' "$UPSTREAM_SERIAL" > "$WORK/upstream-serial.last"      # only after signature + checksum passed: the next build may not go below this
+  echo "upstream image verified (signature + checksum), build $UPSTREAM_SERIAL"
 }
 
 do_build() {

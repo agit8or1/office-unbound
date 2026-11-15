@@ -48,15 +48,15 @@ def target_policy(old: Policy, t: ScopeTarget, stored_roles: dict | None = None)
 def _reach(p: Policy, all_nodes: set[str]) -> dict:
     nodes = set(p.scope.nodes) if p.mode() != "whole_cluster" else (set(p.scope.nodes) | all_nodes)
     return {"nodes": nodes, "storages": set(p.scope.storages) | set(p.scope.backup_storages), "migrate": bool(p.allow_migrate),
-            "overrides": set(p.scope_risk_overrides), "whole": p.mode() == "whole_cluster"}
+            "overrides": set(p.scope_risk_overrides), "whole": p.mode() == "whole_cluster", "templates": set(p.scope.template_vmids)}
 
 
 def direction(old: Policy, new: Policy, all_nodes: set[str]) -> str:
     a, b = _reach(old, all_nodes), _reach(new, all_nodes)
     wider = (b["nodes"] - a["nodes"]) or (b["storages"] - a["storages"]) or (b["migrate"] and not a["migrate"]) or (b["overrides"] - a["overrides"]) \
-        or (b["whole"] and not a["whole"])
+        or (b["whole"] and not a["whole"]) or (b["templates"] - a["templates"])      # review 5 M3: a template = VM.Clone/VM.Audit ACLs
     narrower = (a["nodes"] - b["nodes"]) or (a["storages"] - b["storages"]) or (a["migrate"] and not b["migrate"]) or (a["overrides"] - b["overrides"]) \
-        or (a["whole"] and not b["whole"])
+        or (a["whole"] and not b["whole"]) or (a["templates"] - b["templates"])
     return "widen" if wider else ("narrow" if narrower else "same")
 
 
@@ -98,7 +98,7 @@ class ScopeChange:
 
 def scope_summary(p: Policy) -> dict:
     return {"mode": p.mode(), "nodes": list(p.scope.nodes), "storages": sorted(set(p.scope.storages) | set(p.scope.backup_storages)),
-            "migrate": bool(p.allow_migrate), "overrides": list(p.scope_risk_overrides)}
+            "migrate": bool(p.allow_migrate), "overrides": list(p.scope_risk_overrides), "templates": sorted(p.scope.template_vmids)}
 
 
 def _guest_disks(cfg_storages: dict[int, set[str]], vmid: int) -> set[str]:
@@ -129,7 +129,7 @@ def build_from(old: Policy, stored_design: dict, new: Policy, facts: pp.Facts | 
     plan.facts["tokens"] = dict(stored_design["tokens"])
     new = Policy.model_validate(plan.policy)           # whole_cluster: node list normalised from the cluster
     all_nodes |= set(new.scope.nodes)
-    dirn = direction(old, new, all_nodes)
+    dirn = direction(old, new, all_nodes)       # reach-based; the permission diff below can only RAISE it to widen
     d_old = pp.design_from_stored(old, stored_design)
     d_new = pp.design_from_plan(plan, new)
     e_old, e_new = _entries(d_old), _entries(d_new)
@@ -148,6 +148,8 @@ def build_from(old: Policy, stored_design: dict, new: Policy, facts: pp.Facts | 
         elif o[1] != n[1] or o[0] != n[0]:
             role_changes.append({"capability": cap, "role": n[0], "change": "privileges", "added": sorted(n[1] - o[1]), "removed": sorted(o[1] - n[1])})
     o_s, n_s = scope_summary(old), scope_summary(new)
+    if dirn != "widen" and (e_new - e_old or any(c["change"] == "added" or (c["change"] == "privileges" and c["added"]) for c in role_changes)):
+        dirn = "widen"       # review 5 M3: any new ACL entry (path) or role privilege is a widening, whatever else is dropped in the same change
     diff = {"acl_add": rows(e_new - e_old), "acl_remove": rows(e_old - e_new), "roles": role_changes,
             "ics_allowlist": {"nodes": {"before": o_s["nodes"], "after": n_s["nodes"]}, "storages": {"before": o_s["storages"], "after": n_s["storages"]}},
             "nodes_added": sorted(set(n_s["nodes"]) - set(o_s["nodes"])), "nodes_removed": sorted(set(o_s["nodes"]) - set(n_s["nodes"])),
