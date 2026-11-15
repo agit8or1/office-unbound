@@ -1,0 +1,23 @@
+name: echo
+version: 1.0.0
+title: Echo (signed test container)
+description: Tiny busybox container (tcpsvd) that answers every connection with an SMTP-style 220 banner. Test component for the first real deployment.
+artifacts:
+  - name: echo
+    kind: oci
+    image: 192.168.22.167:5000/ou/echo
+    digest: "sha256:caf39ef311e5c22e0b3dff2f3e3373b9d416b9989922e2c5a6bde79fbb917660"   # printed by ics/scripts/lab_registry.py build (deterministic for the same busybox binary)
+    version: "1.0.0"
+resources:
+  cores:     {base: 1,   per_user: 0, source: "assumption (test component)"}
+  memory_mb: {base: 256, per_user: 0, source: "assumption (test component)"}
+  disk_gb:   {base: 1,   per_user: 0, source: "assumption (test component)"}
+volumes: []
+ports:
+  - {name: banner, port: 2525, proto: tcp, exposure: ics}
+depends_on: []
+dns: []
+health_checks:
+  - {name: banner, kind: smtp_banner, port: 2525, interval_seconds: 30}
+backup: {method: stateless, description: "stateless test container", quiesce: online, rpo_hours: 0, evidence: "stateless"}
+upgrade: {downtime_seconds: 5}

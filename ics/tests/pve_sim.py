@@ -9,6 +9,7 @@ the provider refuses to talk to anything advertising that marker unless loopback
 It is NOT a faithful model of PVE: privileges are simplified, storage/network behaviour is minimal, and passing
 simulator tests is not evidence that the provider works against a real cluster (see docs/status/provider-proxmox.md).
 """
+import hashlib
 import http.server
 import json
 import re
@@ -306,7 +307,10 @@ class PveSim:
     def _res_vm(self, vm):
         c = vm["cfg"]
         run = vm["status"] == "running"
-        d = {"id": f"{vm['kind']}/{vm['vmid']}", "type": vm["kind"], "vmid": vm["vmid"], "node": vm["node"], "name": c.get("name"),
+        lag = vm.get("res_lag", 0)   # real PVE 9.2: /cluster/resources is a cache; a fresh clone shows up WITHOUT its name for a few seconds
+        if lag:
+            vm["res_lag"] = lag - 1
+        d = {"id": f"{vm['kind']}/{vm['vmid']}", "type": vm["kind"], "vmid": vm["vmid"], "node": vm["node"], "name": None if lag else c.get("name"),
              "status": vm.get("cached_status", vm["status"]), "maxcpu": c.get("cores", 1), "cpu": 0.03 if run else 0, "maxmem": c.get("memory", 512) << 20,
              "mem": (c.get("memory", 512) << 20) // 4 if run else 0, "maxdisk": self._vm_disk(vm), "disk": 0,
              "uptime": 5000 if run else 0, "netin": 1000, "netout": 500, "template": 1 if c.get("template") else 0}
@@ -389,6 +393,8 @@ class PveSim:
             R("GET", r"/pools", self.r_pools), R("POST", r"/pools", self.r_pool_add), R("DELETE", r"/pools/([^/]+)", self.r_pool_del),
             R("GET", r"/nodes/([^/]+)/" + g, self.r_list_guests),
             R("GET", r"/nodes/([^/]+)/storage/([^/]+)/content", self.r_content),
+            R("POST", r"/nodes/([^/]+)/storage/([^/]+)/upload", self.r_upload), R("POST", r"/nodes/([^/]+)/qemu", self.r_create),
+            R("POST", r"/nodes/([^/]+)/qemu/(\d+)/template", self.r_template),
             R("GET", r"/nodes/([^/]+)/storage", self.r_node_storage), R("GET", r"/nodes/([^/]+)/network", self.r_network),
             R("GET", r"/nodes/([^/]+)/rrddata", self.r_rrd_node),
             R("GET", r"/nodes/([^/]+)/" + g + r"/(\d+)/rrddata", self.r_rrd_vm),
@@ -856,11 +862,13 @@ class PveSim:
 
         def done():
             self.vms[newid]["lock"] = None
+            self.vms[newid]["res_lag"] = getattr(self, "clone_res_lag", 0)
         return self._task(node, "qmclone" if kind == "qemu" else "vzclone", str(src["vmid"]), tid, done)  # PVE 9: source vmid, not the new one
 
     _CFG_PRIV = [(r"cores|sockets|vcpus|cpu", "VM.Config.CPU"), (r"memory|balloon", "VM.Config.Memory"),
                  (r"net\d+", "VM.Config.Network"), (r"(scsi|virtio|sata|ide)\d+|rootfs", "VM.Config.Disk"),
-                 (r"ciuser|cipassword|sshkeys|ipconfig\d+|nameserver|searchdomain|citype", "VM.Config.Cloudinit"),
+                 (r"ciuser|cipassword|sshkeys|ipconfig\d+|nameserver|searchdomain|citype|ciupgrade", "VM.Config.Cloudinit"),
+                 (r"smbios1", "VM.Config.HWType"),
                  (r"name|description|tags|onboot", "VM.Config.Options")]
 
     def r_set_config(self, tid, q, f, node, kind, vmid):
@@ -868,6 +876,12 @@ class PveSim:
         self._unlocked(vm)
         for k, v in f.items():
             if k == "delete":
+                for dk in str(v).split(","):
+                    for rx, pr in self._CFG_PRIV:
+                        if re.fullmatch(rx, dk):
+                            self.need(tid, "vm", vm["vmid"], pr)
+                            break
+                    vm["cfg"].pop(dk, None)
                 continue
             if k == "cicustom":
                 self.need(tid, "root", None, "Sys.Modify")  # PVE restricts cicustom to highly privileged users
@@ -892,6 +906,9 @@ class PveSim:
                     sz = v.split(":", 1)[1].split(",")[0]
                     v = f"{st}:vm-{vm['vmid']}-disk-{k}" + f",size={sz}G"
                 elif v.endswith("cloudinit"):
+                    if any(isinstance(x, str) and "cloudinit" in x for kk, x in vm["cfg"].items() if re.match(r"^(ide|sata|scsi)\d+$", kk)):
+                        # real PVE: a template made from a cloud image already carries its drive; asking for another one fails
+                        raise HTTPErr(500, f"lvcreate '{st}/vm-{vm['vmid']}-cloudinit' error: Logical Volume \"vm-{vm['vmid']}-cloudinit\" already exists")
                     v = f"{st}:vm-{vm['vmid']}-cloudinit,media=cdrom"
             vm["cfg"][k] = _num(v)
         return None
@@ -958,6 +975,69 @@ class PveSim:
             vm["node"] = tgt
         return self._task(node, "qmigrate", str(vm["vmid"]), tid, done)
 
+    def r_upload(self, tid, q, f, node, storage):
+        """PVE 8.4+/9: POST /nodes/<n>/storage/<s>/upload (multipart; content=import|iso|vztmpl). Models the privilege, the content check and the checksum."""
+        self._node_up(node)
+        if storage not in self.storages or node not in self.storages[storage]["nodes"]:
+            raise HTTPErr(500, f"storage '{storage}' does not exist")
+        self.need(tid, "storage", storage, "Datastore.AllocateTemplate")
+        content = f.get("content")
+        if content not in ("import", "iso", "vztmpl") or content not in self.storages[storage]["content"].split(","):
+            raise HTTPErr(500, f"storage '{storage}' does not support content type '{content}'")
+        data, fname = f.get("__file__") or b"", f.get("__filename__") or ""
+        if content == "import" and not re.fullmatch(r"[A-Za-z0-9][A-Za-z0-9._-]*\.(qcow2|raw|vmdk)", fname):
+            raise HTTPErr(400, "Parameter verification failed. filename: import content needs a .qcow2/.raw/.vmdk file")
+        if f.get("checksum") and hashlib.sha256(data).hexdigest() != f["checksum"]:
+            raise HTTPErr(500, "checksum mismatch")
+        self.uploaded_bytes = getattr(self, "uploaded_bytes", 0) + len(data)
+
+        def done():
+            self.storages[storage].setdefault("files", {})[f"{content}/{fname}"] = len(data)
+        return self._task(node, "imgcopy", "", tid, done)
+
+    def r_create(self, tid, q, f, node):
+        self._node_up(node)
+        vmid = int(f.get("vmid") or 0)
+        if vmid in self.vms or vmid < 100:
+            raise HTTPErr(500, f"unable to create VM {vmid}: config file already exists")
+        pool = f.get("pool")
+        if pool:
+            if pool not in self.pools:
+                raise HTTPErr(500, f"pool '{pool}' does not exist")
+            self.need(tid, "pool", pool, "VM.Allocate")
+        else:
+            self.need(tid, "root", None, "VM.Allocate")
+        cfg = {"name": f.get("name"), "cores": int(f.get("cores", 1)), "memory": int(f.get("memory", 512)), "tags": f.get("tags", "")}
+        for k, v in f.items():
+            if re.fullmatch(r"scsi\d+", k):
+                m = re.fullmatch(r"([^:]+):0,import-from=([^:]+):(import/[^,]+)", v)
+                if not m:
+                    raise HTTPErr(400, "Parameter verification failed. scsi0: invalid format")
+                tgt, src, rel = m.groups()
+                if tgt not in self.storages or "images" not in self.storages[tgt]["content"].split(","):
+                    raise HTTPErr(500, f"storage '{tgt}' does not support images")
+                self.need(tid, "storage", tgt, "Datastore.AllocateSpace")
+                self.need(tid, "storage", src, "Datastore.Audit") if not self.can(tid, "storage", src, "Datastore.AllocateSpace") else None
+                fsz = self.storages.get(src, {}).get("files", {}).get(rel)
+                if fsz is None:
+                    raise HTTPErr(500, f"volume '{src}:{rel}' does not exist")
+                cfg[k] = f"{tgt}:vm-{vmid}-disk-0,size=3G"
+            elif k in ("net0", "boot", "serial0", "agent", "ostype", "scsihw", "description"):
+                cfg[k] = v
+        self.vms[vmid] = {"vmid": vmid, "node": node, "kind": "qemu", "status": "stopped", "pool": pool, "cfg": cfg, "snapshots": {}, "lock": None}
+        return self._task(node, "qmcreate", str(vmid), tid)
+
+    def r_template(self, tid, q, f, node, vmid):
+        vm = self._find(node, int(vmid), "qemu")
+        self.need(tid, "vm", vm["vmid"], "VM.Allocate")
+        self._unlocked(vm)
+        if vm["status"] == "running":
+            raise HTTPErr(500, "VM is running")
+
+        def done():
+            vm["cfg"]["template"] = 1
+        return self._task(node, "qmtemplate", str(vm["vmid"]), tid, done)
+
     def r_destroy(self, tid, q, f, node, kind, vmid):
         vm = self._find(node, int(vmid), kind)
         self.need(tid, "vm", vm["vmid"], "VM.Allocate")
@@ -988,7 +1068,18 @@ class _Handler(http.server.BaseHTTPRequestHandler):
     def _do(self):
         form = {}
         n = int(self.headers.get("Content-Length") or 0)
-        if n:
+        if n and (self.headers.get("Content-Type") or "").startswith("multipart/form-data"):
+            import email.parser
+            import email.policy
+            raw = self.rfile.read(n)
+            msg = email.parser.BytesParser(policy=email.policy.HTTP).parsebytes(b"Content-Type: " + self.headers["Content-Type"].encode() + b"\r\n\r\n" + raw)
+            for part in msg.iter_parts():
+                nm = part.get_param("name", header="content-disposition")
+                if part.get_filename():
+                    form["__file__"], form["__filename__"] = part.get_payload(decode=True), part.get_filename()
+                elif nm:
+                    form[nm] = part.get_content()
+        elif n:
             form = dict(urllib.parse.parse_qsl(self.rfile.read(n).decode()))
         sim: PveSim = self.server.sim
         try:

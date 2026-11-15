@@ -170,7 +170,13 @@ class ProxmoxReadClient:
 
     def inventory(self) -> dict:
         """Full read-only snapshot. A node that fails is recorded with an error, not fatal."""
-        out: dict[str, Any] = {"version": self.version(), "cluster_status": self.cluster_status(), "nodes": []}
+        out: dict[str, Any] = {"version": self.version(), "nodes": []}
+        try:
+            out["cluster_status"] = self.cluster_status()
+        except ProxmoxHTTPError as e:   # real cluster (pve06 token): Sys.Audit is granted on /nodes/<node>, not on /, so /cluster/status is 403
+            if e.status != 403:
+                raise
+            out["cluster_status"], out["cluster_status_unavailable"] = [], "permission"
         for n in self.nodes():
             name = n["node"]
             entry: dict[str, Any] = {"node": name, "status": n.get("status", "unknown"), "info": n}
@@ -251,3 +257,20 @@ class ProxmoxWriteClient(ProxmoxReadClient):
 
     def delete(self, path: str) -> Any:
         return self._request("DELETE", path)
+
+    def upload(self, path: str, fields: dict, file_path: str, filename: str, *, timeout: float = 3600.0) -> Any:
+        """multipart/form-data upload of ONE local file (image import). Same TLS trust and error hygiene as every other call; the file is streamed."""
+        try:
+            with open(file_path, "rb") as fh:
+                r = self._client.post(self._base + path, data=fields, files={"filename": (filename, fh, "application/octet-stream")},
+                                      timeout=httpx.Timeout(10.0, read=timeout, write=timeout))
+        except (httpx.ConnectError, ssl.SSLError) as e:
+            raise ProxmoxError(f"POST {path} failed: {type(e).__name__}: {str(e)[:200]}") from None
+        except (httpx.HTTPError, OSError, ValueError) as e:
+            raise ProxmoxError(f"POST {path} failed: {type(e).__name__}") from None
+        if r.status_code != 200:
+            raise ProxmoxHTTPError("POST", path, r.status_code, _clean_reason(r.reason_phrase))
+        try:
+            return r.json()["data"]
+        except (ValueError, KeyError, TypeError):
+            raise ProxmoxError(f"POST {path}: unexpected response body") from None

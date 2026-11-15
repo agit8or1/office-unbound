@@ -1,0 +1,14 @@
+name: lab
+version: 1.0.0
+title: Lab (one VM, one test container)
+description: End-to-end test profile - one small VM with the signed echo container.
+maturity: lab-validated
+max_users: 25
+min_nodes: 1
+ha: false
+tenancy: single
+vms:
+  - {name: all, components: [echo]}
+optional_components: []
+default_optional: []
+backup: {schedule: daily, retention_days: 7, snapshot_before_change: true, offsite: false}

@@ -23,6 +23,7 @@ from . import userdir
 from .config import Settings
 from .deploy.api import register_routes as register_deploy_routes
 from .sysinfo import register as register_system_routes
+from .guest import callback as guest_callback
 from .inventory import api as inventory_api
 from . import version as ver
 from .provisioning import service as prov_service
@@ -398,6 +399,7 @@ def create_app(settings: Settings | None = None, runtime: Runtime | None = None)
         return out
 
     register_system_routes(app, rt, API, worker)  # GET system (admin): version, migration, readiness, threads, sizes, backup
+    guest_callback.register(app, rt)  # golden-image bootstrap callback (guest/callback.py): HMAC-authenticated, single use, rate limited
     register_deploy_routes(app, rt)  # catalog, deployments, drift, change preview, job steps (deploy/api.py)
 
     # ---- monitoring (read-only views; every mutation is a typed plan) ----

@@ -262,6 +262,7 @@ def node(tmp_path, monkeypatch):
     monkeypatch.setattr(gh, "PODMAN", str(stub))
     monkeypatch.setattr(gh, "SYSTEMCTL", str(stub))
     monkeypatch.setattr(gs, "SERVICE_HOME", str(tmp_path / "home"))
+    monkeypatch.setattr(gh, "quadlet_available", lambda: True)   # (the plain-unit fallback has its own tests below)
     return tmp_path, log
 
 
@@ -324,3 +325,106 @@ def test_helper_main_revalidates_spool_and_writes_result(node, monkeypatch, tmp_
 def test_facts_shape(node):
     f = gh.facts({}, FULL)
     assert f["cpus"] >= 1 and f["mem_total_bytes"] > 0 and "/" in f["disks"] and f["os"]["id"] and f["units"] == []
+
+
+# ---------------------------------------------------------------- real-VM lessons (Debian 12: podman 4.3.1, no Quadlet, no sigstore)
+def test_plain_unit_rendering_is_confined_and_has_no_user_defined_network():
+    spec = gs.CHECKS["podman.deploy_unit"](GOOD, CFG)
+    files = gs.render_service(spec)
+    assert list(files) == ["ou-web-whoami.service"]
+    t = files["ou-web-whoami.service"]
+    assert "ExecStart=/usr/bin/podman --cgroup-manager=cgroupfs run --rm --name ou-web-whoami --cap-drop=ALL --security-opt=no-new-privileges --read-only=true" in t
+    assert "--network=ou-web" not in t and "network create" not in t          # `podman run --network=<user-defined>` fails on podman 4.3.1 (real VM)
+    assert "--privileged" not in t and "--volume=ou-web-data:" in t and "volume create --label ou.component=web ou-web-data" in t
+    assert t.count("\n[Service]") == 1 and "\n" + "Environment=" not in t
+
+
+def test_deploy_without_quadlet_uses_a_plain_user_unit_and_enables_it(node, monkeypatch):
+    tmp, log = node
+    monkeypatch.setattr(gh, "quadlet_available", lambda: False)
+    assert gh.pull_verified({"image": IMG}, FULL)["verified"] is True
+    assert gh.deploy_unit(GOOD, FULL)["started"] is True
+    udir = tmp / "home/.config/systemd/user"
+    assert os.listdir(udir) == ["ou-web-whoami.service"] and not (tmp / "home/.config/containers/systemd").exists()
+    assert "--user --no-ask-password enable ou-web-whoami.service" in log.read_text()
+    rm = gh.remove_unit({"component": "web", "name": "whoami", "purge_volumes": True}, FULL)
+    assert rm["removed"] is True and os.listdir(udir) == []
+
+
+def _registry(tmp_path, key, digest_ok=True, repo="ou/echo", reg="127.0.0.1:0"):
+    """Tiny in-process OCI registry serving a manifest and its cosign-style signature (the layout of scripts/lab_registry.py)."""
+    import base64, hashlib, http.server, threading
+    from cryptography.hazmat.primitives import hashes
+    from cryptography.hazmat.primitives.asymmetric import ec
+    blobs = {}
+    man = json.dumps({"schemaVersion": 2, "layers": []}).encode()
+    md = "sha256:" + hashlib.sha256(man).hexdigest()
+    srv = http.server.ThreadingHTTPServer(("127.0.0.1", 0), type("H", (http.server.BaseHTTPRequestHandler,), {
+        "log_message": lambda *a: None, "do_GET": lambda self: self._go()}))
+    host = f"127.0.0.1:{srv.server_address[1]}"
+    payload = json.dumps({"critical": {"identity": {"docker-reference": f"{host}/{repo}"}, "image": {"docker-manifest-digest": md},
+                                       "type": "cosign container image signature"}, "optional": None}, sort_keys=True).encode()
+    sig = base64.b64encode(key.sign(payload, ec.ECDSA(hashes.SHA256()))).decode()
+    pd = "sha256:" + hashlib.sha256(payload).hexdigest()
+    sigman = json.dumps({"schemaVersion": 2, "layers": [{"mediaType": "application/vnd.dev.cosign.simplesigning.v1+json", "digest": pd,
+                                                          "size": len(payload), "annotations": {"dev.cosignproject.cosign/signature": sig}}]}).encode()
+    routes = {f"/v2/{repo}/manifests/{md}": man if digest_ok else b"tampered", f"/v2/{repo}/manifests/sha256-{md[7:]}.sig": sigman,
+              f"/v2/{repo}/blobs/{pd}": payload}
+
+    def go(self):
+        body = routes.get(self.path)
+        self.send_response(200 if body is not None else 404)
+        self.end_headers()
+        self.wfile.write(body or b"")
+    srv.RequestHandlerClass._go = go
+    threading.Thread(target=srv.serve_forever, daemon=True).start()
+    return srv, host, md
+
+
+def test_python_sigstore_verification_matches_the_policy_rules():
+    from cryptography.hazmat.primitives import serialization
+    from cryptography.hazmat.primitives.asymmetric import ec
+    key = ec.generate_private_key(ec.SECP256R1())
+    pem = key.public_key().public_bytes(serialization.Encoding.PEM, serialization.PublicFormat.SubjectPublicKeyInfo).decode()
+    other = ec.generate_private_key(ec.SECP256R1()).public_key().public_bytes(serialization.Encoding.PEM, serialization.PublicFormat.SubjectPublicKeyInfo).decode()
+    srv, host, md = _registry(None, key)
+    try:
+        assert gh.verify_sigstore_attachment(host, "ou/echo", md, pem, [host]) == (True, "signature verified")
+        ok, why = gh.verify_sigstore_attachment(host, "ou/echo", md, other, [host])           # signed by a different key
+        assert not ok and "no valid signature" in why
+        assert not gh.verify_sigstore_attachment(host, "ou/echo", "sha256:" + "1" * 64, pem, [host])[0]    # a digest nobody signed
+        assert not gh.verify_sigstore_attachment(host, "ou/other", md, pem, [host])[0]       # signature of another repository
+        assert not gh.verify_sigstore_attachment(host, "ou/echo", md, pem, [])[0]            # plain HTTP only for operator-listed registries
+    finally:
+        srv.shutdown()
+    srv, host, md = _registry(None, key, digest_ok=False)                                     # registry serves other bytes under the digest
+    try:
+        ok, why = gh.verify_sigstore_attachment(host, "ou/echo", md, pem, [host])
+        assert not ok and "does not hash" in why
+    finally:
+        srv.shutdown()
+
+
+def test_pull_falls_back_to_python_verification_when_podman_has_no_sigstore(node, monkeypatch):
+    tmp, log = node
+    calls = []
+
+    def fake_run(argv, env=None, timeout=120):
+        calls.append(argv)
+        if "image" in argv and "inspect" in argv:
+            return type("R", (), {"returncode": 0, "stdout": DIGEST, "stderr": ""})()
+        if "image-policy.json" in " ".join(argv):
+            return type("R", (), {"returncode": 125, "stdout": "", "stderr": "Error: Source image rejected: Debian-local change: sigstore disabled"})()
+        return type("R", (), {"returncode": 0, "stdout": "", "stderr": ""})()
+    monkeypatch.setattr(gh, "run", fake_run)
+    monkeypatch.setattr(gh, "verify_sigstore_attachment", lambda *a: (True, "ok"))
+    pk = tmp / "pub"
+    pk.write_text("x")
+    monkeypatch.setattr(gs, "PUBKEY_FILE", str(pk))
+    r = gh.pull_verified({"image": IMG}, FULL)
+    assert r["verified"] is True and r["policy"] == "python-sigstore"
+    assert any(gs.PULLONLY_POLICY_FILE in " ".join(a) for a in calls)                          # the second pull uses the pull-only policy
+    monkeypatch.setattr(gh, "verify_sigstore_attachment", lambda *a: (False, "no valid signature"))
+    calls.clear()
+    r = gh.pull_verified({"image": IMG}, FULL)
+    assert r["verified"] is False and not any(gs.PULLONLY_POLICY_FILE in " ".join(a) for a in calls)   # unsigned image: never pulled

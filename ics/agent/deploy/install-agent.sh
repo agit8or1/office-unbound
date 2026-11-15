@@ -32,7 +32,8 @@ if [ "$GUEST" = 1 ]; then
     python3 "$D/render_image_policy.py" /etc/ou-agent/agent.json /etc/ou-agent/image-signing.pub policy > /etc/ou-agent/image-policy.json
     install -d -m 0755 /etc/containers/registries.d
     python3 "$D/render_image_policy.py" /etc/ou-agent/agent.json /etc/ou-agent/image-signing.pub registries > /etc/containers/registries.d/ou-agent.yaml
-    chmod 0644 /etc/ou-agent/image-policy.json /etc/ou-agent/image-signing.pub /etc/containers/registries.d/ou-agent.yaml
+    python3 "$D/render_image_policy.py" /etc/ou-agent/agent.json /etc/ou-agent/image-signing.pub pullonly > /etc/ou-agent/image-policy-pullonly.json
+    chmod 0644 /etc/ou-agent/image-policy.json /etc/ou-agent/image-policy-pullonly.json /etc/ou-agent/image-signing.pub /etc/containers/registries.d/ou-agent.yaml
   fi
 fi
 if grep -q '"gromox\.\|"opencloud\.' /etc/ou-agent/agent.json; then

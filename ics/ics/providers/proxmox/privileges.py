@@ -24,7 +24,12 @@ VERB_PRIVS: dict[str, dict[str, list[str]]] = {
     "rollback": {"pool": ["VM.Snapshot.Rollback", "VM.Audit"]},
     "migrate": {"pool": ["VM.Migrate", "VM.Audit"], "storage": ["Datastore.AllocateSpace"]},
     "destroy_vm": {"pool": ["VM.Allocate", "VM.Audit"]},
+    # image.import is NOT part of PROVISION_VERBS (an owner-enabled capability, see IMPORT_STORAGE_PRIVS): uploading to a directory storage needs
+    # Datastore.AllocateTemplate there; creating the template VM from it needs the usual pool + target-storage rights
+    "import_image": {"pool": ["VM.Allocate", "VM.Audit", "VM.Config.Disk", "VM.Config.CPU", "VM.Config.Memory", "VM.Config.Network", "VM.Config.Options"],
+                     "storage": ["Datastore.AllocateSpace"]},
 }
+IMPORT_STORAGE_PRIVS = ["Datastore.AllocateTemplate", "Datastore.AllocateSpace", "Datastore.Audit"]   # on the `import` directory storage
 CICUSTOM_PRIVS = {"root": ["Sys.Modify"]}   # PVE restricts `cicustom` to highly privileged users
 UNNECESSARY = ("VM.Console", "VM.Backup", "Sys.Console", "Sys.Modify", "Sys.PowerMgmt", "Permissions.Modify")  # flagged as more than ICS needs
 

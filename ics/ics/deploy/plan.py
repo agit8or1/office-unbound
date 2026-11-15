@@ -422,7 +422,7 @@ def _derive(vms: list[_Vm], inp: PlanInput, prof: Profile, cat: Catalog, warning
 
 # ---- steps (DAG) --------------------------------------------------------------------------------------------
 
-EST = {"vm.clone": 120, "vm.configure": 20, "vm.start": 60, "agent.enroll": 120, "comp.install": 180, "checks.register": 5, "health.verify": 30}
+EST = {"vm.clone": 120, "vm.configure": 20, "vm.resize": 30, "vm.start": 60, "guest.await_callback": 90, "agent.enroll": 30, "comp.install": 180, "checks.register": 5, "health.verify": 30}
 
 
 def _step(key: str, kind: str, target: str, op: str, params: dict, deps: list[str], **extra) -> dict:
@@ -431,14 +431,19 @@ def _step(key: str, kind: str, target: str, op: str, params: dict, deps: list[st
 
 
 def _install_params(c: Component) -> list[dict]:
+    """Runbook parameters in exactly the shape the node agent's closed schemas accept (agent/ou_agent/guestspec.py): the image is one
+    digest-pinned reference `<registry>/<repo>@sha256:<digest>`, ports carry an explicit bind address."""
     out = []
     for a in c.artifacts:
         if a.kind == "oci":
-            out.append({"runbook": "podman.pull_verified", "params": {"image": a.image, "digest": a.digest}})
-            out.append({"runbook": "podman.deploy_unit", "params": {"name": a.name, "image": a.image, "digest": a.digest,
-                                                                    "ports": [p.port for p in c.ports]}})
+            ref = f"{a.image}@{a.digest}"
+            out.append({"runbook": "podman.pull_verified", "params": {"image": ref}})
+            out.append({"runbook": "podman.deploy_unit", "params": {
+                "component": c.name, "name": a.name, "type": "container", "image": ref,
+                "ports": [{"bind": "127.0.0.1" if p.exposure == "local" else "0.0.0.0", "host": p.port, "container": p.port, "proto": p.proto}
+                          for p in c.ports if p.name != "agent"]}})
         else:
-            out.append({"runbook": "pkg.install_pinned", "params": {"package": a.package, "version": a.version, "repo": a.repo}})
+            out.append({"runbook": "pkg.install_pinned", "params": {"packages": [{"name": a.package, "version": a.version}]}})
     return out
 
 
@@ -488,12 +493,19 @@ def create_steps(vms: list[dict], inp: PlanInput, cat: Catalog, extra_nic: bool 
                            {"cores": v["cores"], "memory_mb": v["memory_mb"], "disks": v["disks"], "nics": v["nics"],
                             "cloud_init": {"hostname": v["hostname"], "agent_enrollment": True, "rootless_podman": True}},
                            [f"vm.tag:{n}"]))
-        steps.append(_step(f"vm.start:{n}", "provider_task", n, "power", {"op": "start"}, [f"vm.configure:{n}"]))
-        steps.append(_step(f"agent.enroll:{n}", "wait_agent_enrollment", n, "enroll", {"timeout_seconds": 600}, [f"vm.start:{n}"]))
+        # the template's root disk keeps the template size (3 GB on the real cluster): grow it to the planned size before first boot
+        # (cloud-initramfs-growroot / cloud-init growpart expand the partition and filesystem)
+        steps.append(_step(f"vm.resize:{n}", "provider_task", n, "resize_disk",
+                           {"disk": "root", "disk_index": 0, "new_size_gb": v["disks"][0]["size_gb"]}, [f"vm.configure:{n}"]))
+        steps.append(_step(f"vm.start:{n}", "provider_task", n, "power", {"op": "start"}, [f"vm.resize:{n}"]))
+        steps.append(_step(f"guest.await_callback:{n}", "wait_guest_callback", n, "await_callback", {"timeout_seconds": 600}, [f"vm.start:{n}"]))
+        steps.append(_step(f"agent.enroll:{n}", "wait_agent_enrollment", n, "enroll", {"timeout_seconds": 600}, [f"guest.await_callback:{n}"]))
     for v in vms:
         n = v["name"]
         for cname in v["components"]:
             c = cat.components[cname]
+            if c.placement == "every_vm":   # the node agent: installed by the guest bootstrap (cloud-init bundle), enrolled by agent.enroll
+                continue
             deps = [f"agent.enroll:{n}"]
             for d in (*c.depends_on, *c.after):
                 for (vn, vt) in inst.get(d, []):

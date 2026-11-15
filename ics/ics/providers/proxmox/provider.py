@@ -7,8 +7,11 @@ re-checks scope: pool / storage / bridge(+VLAN) allowlists and the ownership tag
 """
 from __future__ import annotations
 
+import base64
 import dataclasses
+import hmac
 import ipaddress
+import os
 import re
 import time
 import urllib.parse
@@ -18,7 +21,7 @@ from typing import Callable, Literal
 
 from ...proxmox import ProxmoxError, ProxmoxHTTPError, ProxmoxReadClient, ProxmoxWriteClient
 from ..base import (Discovery, MutationNotAllowed, ProbeResult, ProviderError, ProviderTimeout, Sample, Scope, ScopeViolation,
-                    TaskRef, TaskStatus, VerbCheck, VmCloneSpec, VmConfigSpec, VmRef, require_job_execution)
+                    ImageImportResult, ImageImportSpec, TaskRef, TaskStatus, VerbCheck, VmCloneSpec, VmConfigSpec, VmRef, require_job_execution)
 from . import privileges as priv
 
 SIM_MARKER = "pve-sim-test-double"
@@ -34,6 +37,9 @@ _NEWDISK = re.compile(r"^(scsi|virtio|sata)\d{1,2}$")
 _CIUSER = re.compile(r"^[a-z_][a-z0-9_-]{0,31}$")
 _SSHKEY = re.compile(r"^(ssh-ed25519|ssh-rsa|ecdsa-sha2-nistp(256|384|521)|sk-ssh-ed25519@openssh\.com) [A-Za-z0-9+/=]{20,2000}( [\x21-\x7e ]{0,100})?$")
 _CICUSTOM = re.compile(r"^(user|network|meta|vendor)=([A-Za-z0-9._-]{1,40}):snippets/[A-Za-z0-9._-]{1,100}$")
+_SMBIOS_SERIAL = re.compile(r"^[A-Za-z0-9_-]{16,128}$")
+_SMBIOS_SKU = re.compile(r"^https://[A-Za-z0-9.:\[\]-]{1,100}$")
+_SMBIOS_FAMILY = re.compile(r"^sha256:[0-9a-f]{64}$")
 _DOMAIN = re.compile(r"^[A-Za-z0-9]([A-Za-z0-9.-]{0,251}[A-Za-z0-9])?$")
 _KIND_PATH = {"vm": "qemu", "lxc": "lxc"}
 
@@ -752,18 +758,26 @@ class ProxmoxMutations(ProxmoxProvider):
             raise ScopeViolation("finalize_clone needs the clone task (qmclone of the recorded template) started by this credential")
         if self.task_status(task).state != "ok":
             raise ProviderError("task_not_done", "the clone task has not completed successfully")
-        r = next((x for x in self._resources() if x.get("vmid") == task.vmid), None)
+        # /cluster/resources is a cache (pvestatd): right after a clone the new guest can be missing, without pool, or without name (real PVE 9.2:
+        # "guest 137 is named None"). Wait briefly for pool membership; the NAME and TAGS come from the authoritative live config of the guest.
+        r = None
+        for i in range(8):
+            r = next((x for x in self._resources() if x.get("vmid") == task.vmid), None)
+            if r is not None and r.get("pool") is not None:
+                break
+            self._sleep(2.0)
         if r is None or r.get("pool") not in self.scope.pools or r.get("template"):
             raise ScopeViolation("cloned guest is not in an allowed pool")
         if not self.scope.node_ok(r.get("node")):
             raise ScopeViolation(f"cloned guest is on node {r.get('node')!r}, which is not an authorized node of this endpoint")
-        if r.get("name") != task.name:
-            raise ScopeViolation(f"guest {task.vmid} is named {r.get('name')!r}, not the {task.name!r} this clone created; refusing to tag it")
-        mine = [t for t in tags_of(r.get("tags")) if t == OWNED_TAG or t.startswith(DEP_PREFIX)]
+        cfg = self._get(f"/nodes/{_seg(r['node'])}/qemu/{int(task.vmid)}/config", self._w)
+        if cfg.get("name") != task.name:
+            raise ScopeViolation(f"guest {task.vmid} is named {cfg.get('name')!r}, not the {task.name!r} this clone created; refusing to tag it")
+        mine = [t for t in tags_of(cfg.get("tags")) if t == OWNED_TAG or t.startswith(DEP_PREFIX)]
         foreign = [t for t in mine if t not in (OWNED_TAG, DEP_PREFIX + task.deployment_id.lower())]
         if foreign:
             raise ScopeViolation(f"guest {task.vmid} already carries ownership tags of another deployment ({', '.join(foreign)}); refusing")
-        keep = [t for t in tags_of(r.get("tags")) if t != OWNED_TAG and not t.startswith(DEP_PREFIX)]
+        keep = [t for t in tags_of(cfg.get("tags")) if t != OWNED_TAG and not t.startswith(DEP_PREFIX)]
         tags = ";".join(keep + [OWNED_TAG, DEP_PREFIX + task.deployment_id.lower()])
         node = r["node"]
         up = self._do("put", f"/nodes/{_seg(node)}/qemu/{int(task.vmid)}/config", {"tags": tags})
@@ -794,7 +808,11 @@ class ProxmoxMutations(ProxmoxProvider):
             d[key] = f"{st}:{size}"
         if spec.cloudinit_storage:
             self._need_storage(spec.cloudinit_storage)
-            d["ide2"] = f"{spec.cloudinit_storage}:cloudinit"
+            # a template made from a cloud image usually carries its cloud-init drive already (real cluster: ide2 vm-<id>-cloudinit after a clone):
+            # asking PVE to create another one fails with "Logical Volume ... already exists", so only add a drive when the guest has none
+            has_drive = any(isinstance(v, str) and re.match(r"^(ide|sata|scsi)\d+$", k) and "cloudinit" in v for k, v in self._cfg(ref).items())
+            if not has_drive:
+                d["ide2"] = f"{spec.cloudinit_storage}:cloudinit"
         if spec.ciuser is not None:
             if not _CIUSER.match(spec.ciuser):
                 raise ProviderError("invalid_request", "invalid cloud-init user name")
@@ -825,6 +843,30 @@ class ProxmoxMutations(ProxmoxProvider):
             if not _DOMAIN.match(spec.searchdomain):
                 raise ProviderError("invalid_request", "invalid search domain")
             d["searchdomain"] = spec.searchdomain
+        if spec.ciupgrade is not None:
+            d["ciupgrade"] = int(spec.ciupgrade)
+        if spec.smbios_serial is not None or spec.smbios_sku is not None or spec.smbios_family is not None:
+            if spec.clear_bootstrap:
+                raise ProviderError("invalid_request", "cannot set and clear the bootstrap material in one call")
+            for val, rx, what in ((spec.smbios_serial, _SMBIOS_SERIAL, "serial"), (spec.smbios_sku, _SMBIOS_SKU, "sku"),
+                                  (spec.smbios_family, _SMBIOS_FAMILY, "family")):
+                if val is not None and not rx.match(val):
+                    raise ProviderError("invalid_request", f"invalid SMBIOS {what}")
+            uuid = _UUID.search(str(self._cfg(ref).get("smbios1", "")))   # keep the guest's own SMBIOS uuid
+            b = lambda v: base64.b64encode(v.encode()).decode()  # noqa: E731
+            d["smbios1"] = (f"uuid={uuid.group(1)}," if uuid else "") + "base64=1" + "".join(
+                f",{k}={b(v)}" for k, v in (("serial", spec.smbios_serial), ("sku", spec.smbios_sku), ("family", spec.smbios_family)) if v is not None)
+        if spec.clear_bootstrap:   # review M2: the one-time secret must not live on in the VM config (readable by VM.Audit holders, backups)
+            cfg = self._cfg(ref)
+            uuid = _UUID.search(str(cfg.get("smbios1", "")))
+            dl = [k for k in ("sshkeys", "ciuser") if k in cfg]
+            if cfg.get("smbios1") is not None:
+                if uuid:
+                    d["smbios1"] = f"uuid={uuid.group(1)}"   # keep the guest's own SMBIOS uuid, drop serial/sku/family
+                else:
+                    dl.append("smbios1")
+            if dl:
+                d["delete"] = ",".join(dl)
         if spec.cicustom:
             if not self.scope.allow_cicustom:
                 raise ScopeViolation("cicustom snippets are not enabled for this endpoint")
@@ -839,6 +881,30 @@ class ProxmoxMutations(ProxmoxProvider):
             raise ProviderError("invalid_request", "nothing to configure")
         up = self._do("put", f"/nodes/{_seg(ref.node)}/{_KIND_PATH[ref.kind]}/{int(ref.vmid)}/config", d)
         return self._task(ref.node, up, ref.vmid, "config", ref.deployment_id)
+
+    def bootstrap_material_present(self, ref: VmRef) -> bool:
+        """True while the VM config still carries first-contact material (SMBIOS serial/sku/family, sshkeys, ciuser). Read-only."""
+        require_job_execution()
+        self._guest(ref)
+        cfg = self._cfg(ref)
+        return "sshkeys" in cfg or "ciuser" in cfg or bool(re.search(r"(?:^|,)(serial|sku|family)=", str(cfg.get("smbios1", ""))))
+
+    def guest_mac(self, ref: VmRef) -> str:
+        """MAC of net0 of an owned guest (read-only; the ICS derives the guest's IPv6 link-local address from it for first contact)."""
+        require_job_execution()
+        self._guest(ref)
+        m = re.search(r"(?:virtio|e1000|vmxnet3|rtl8139)=([0-9A-Fa-f:]{17})", str(self._cfg(ref).get("net0", "")))
+        if not m:
+            raise ProviderError("pve_error", "the guest has no net0 MAC address")
+        return m.group(1).lower()
+
+    def disk_size_gb(self, ref: VmRef, disk: str) -> float | None:
+        """Current size of a guest disk in GB (read-only; used to make resize idempotent)."""
+        require_job_execution()
+        self._guest(ref)
+        cur = self._cfg(ref).get(disk)
+        m = re.search(r"size=(\d+)([KMGT]?)", cur) if isinstance(cur, str) else None
+        return int(m.group(1)) * {"": 1 / (1 << 30), "K": 1 / (1 << 20), "M": 1 / (1 << 10), "G": 1, "T": 1024}[m.group(2)] if m else None
 
     def resize_disk(self, ref: VmRef, disk: str, new_size_gb: int) -> TaskRef:
         require_job_execution()
@@ -910,6 +976,79 @@ class ProxmoxMutations(ProxmoxProvider):
                 raise ProviderError("invalid_state", f"guest {ref.vmid} is running; stop it before destroying it")
         up = self._do("delete", f"/nodes/{_seg(ref.node)}/{_KIND_PATH[ref.kind]}/{int(ref.vmid)}?purge=1&destroy-unreferenced-disks=1")
         return self._task(ref.node, up, ref.vmid, "destroy", ref.deployment_id)
+
+    def import_image(self, spec: ImageImportSpec) -> ImageImportResult:
+        """`image.import` (bootstrap v2, ADR-0008 output): upload the signed golden image to an `import` directory storage and make a template from it.
+        The caller has ALREADY verified the release signature of the file; this verb re-hashes it (a swapped file is refused) and Proxmox verifies the
+        same SHA-256 on receipt. Needs, on the import storage, Datastore.AllocateTemplate + AllocateSpace + Audit (the owner grants it; see
+        docs/status/bootstrap-v2.md); on the pool the usual VM.* rights. Synchronous: three tasks (upload, create, template), each waited for."""
+        require_job_execution()
+        if not self.scope.node_ok(spec.node):
+            raise ScopeViolation(f"node {spec.node!r} is not an authorized node of this endpoint")
+        if spec.pool not in self.scope.pools:
+            raise ScopeViolation(f"pool {spec.pool!r} is not in the endpoint's allowed pools")
+        for st in (spec.import_storage, spec.target_storage):
+            self._need_storage(st)
+        fname = os.path.basename(spec.file_path)
+        if not _IMAGE_FILE.match(fname) or not re.fullmatch(r"[0-9a-f]{64}", spec.sha256) or not _TPL_NAME.match(spec.name):
+            raise ProviderError("invalid_request", "image file must be named ou-golden-<id>.qcow2, the checksum 64 hex digits and the template ou-tpl-<name>")
+        if not (1 <= spec.cores <= 64 and 256 <= spec.memory_mb <= 262144):
+            raise ProviderError("invalid_request", "invalid template sizing")
+        digest, size = _file_sha256(spec.file_path)
+        if size == 0 or size > IMAGE_MAX_BYTES or not hmac_equal(digest, spec.sha256):
+            raise ProviderError("integrity", "the image file does not match the verified checksum (or is empty/too large); nothing was uploaded")
+        stor = {x["storage"]: x for x in self._get(f"/nodes/{_seg(spec.node)}/storage", self._w)}
+        have_imp, have_img = stor.get(spec.import_storage), stor.get(spec.target_storage)
+        if have_imp is None or "import" not in str(have_imp.get("content", "")).split(","):
+            raise ProviderError("capability", f"storage {spec.import_storage!r} does not accept `import` content (owner action: pvesm set {spec.import_storage} "
+                                f"--content <existing>,import) or is not visible to the provision token (needs Datastore.AllocateTemplate/AllocateSpace/Audit)")
+        if have_img is None or "images" not in str(have_img.get("content", "")).split(","):
+            raise ProviderError("capability", f"storage {spec.target_storage!r} does not hold `images`")
+        net = ""
+        if spec.bridge:
+            if not self.scope.network_ok(spec.bridge, None):
+                raise ScopeViolation(f"bridge {spec.bridge!r} is not in the endpoint's allowed networks")
+            net = f"virtio,bridge={spec.bridge}"
+        vmid = int(self._get("/cluster/nextid", self._w))
+        try:
+            up = self._w.upload(f"/nodes/{_seg(spec.node)}/storage/{_seg(spec.import_storage)}/upload",
+                                {"content": "import", "checksum-algorithm": "sha256", "checksum": spec.sha256}, spec.file_path, fname)
+        except ProxmoxError as e:
+            raise map_error(e, "image upload") from None
+        self.wait(self._task(spec.node, up, None, "imgcopy"), timeout=3600.0, interval=2.0)
+        volid = f"{spec.import_storage}:import/{fname}"
+        data = {"vmid": vmid, "name": spec.name, "pool": spec.pool, "cores": spec.cores, "memory": spec.memory_mb, "ostype": "l26", "scsihw": "virtio-scsi-single",
+                "scsi0": f"{spec.target_storage}:0,import-from={volid}", "boot": "order=scsi0", "serial0": "socket", "agent": "0",
+                "tags": f"{OWNED_TAG};ou-image", "description": "Office Unbound golden guest image (ADR-0008 pipeline output)"}
+        if net:
+            data["net0"] = net
+        try:
+            up = self._do("post", f"/nodes/{_seg(spec.node)}/qemu", data)
+            self.wait(self._task(spec.node, up, vmid, "qmcreate"), timeout=1800.0, interval=2.0)
+            up = self._do("post", f"/nodes/{_seg(spec.node)}/qemu/{vmid}/template", {})
+            self.wait(self._task(spec.node, up, vmid, "qmtemplate"), timeout=600.0, interval=2.0)
+        except ProviderError:
+            raise
+        return ImageImportResult(spec.node, vmid, spec.name, volid)
+
+
+_IMAGE_FILE = re.compile(r"^ou-golden-[a-z0-9][a-z0-9.-]{0,60}\.qcow2$")
+_TPL_NAME = re.compile(r"^ou-tpl-[a-z0-9][a-z0-9-]{0,50}$")
+IMAGE_MAX_BYTES = 16 << 30
+
+
+def hmac_equal(a: str, b: str) -> bool:
+    return hmac.compare_digest(a.encode(), b.encode())
+
+
+def _file_sha256(path: str) -> tuple[str, int]:
+    import hashlib
+    h, n = hashlib.sha256(), 0
+    with open(path, "rb") as f:
+        for chunk in iter(lambda: f.read(1 << 20), b""):
+            h.update(chunk)
+            n += len(chunk)
+    return h.hexdigest(), n
 
 
 def _seg(node: str) -> str:
