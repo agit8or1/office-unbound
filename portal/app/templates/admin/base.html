@@ -6,6 +6,9 @@
   <a href="/admin" {% if section == 'overview' %}aria-current="page"{% endif %}>Overview</a>
   <a href="/admin/users" {% if section in ('users', 'user', 'new_user', 'confirm') %}aria-current="page"{% endif %}>People</a>
   <a href="/admin/groups" {% if section == 'groups' %}aria-current="page"{% endif %}>Groups and apps</a>
+  <a href="/admin/addresses" {% if section == 'addresses' %}aria-current="page"{% endif %}>Addresses</a>
+  <a href="/admin/shared" {% if section in ('shared', 'shared_detail') %}aria-current="page"{% endif %}>Shared mailboxes</a>
+  <a href="/admin/storage" {% if section == 'storage' %}aria-current="page"{% endif %}>Storage</a>
   <a href="/admin/domains" {% if section == 'domains' %}aria-current="page"{% endif %}>Domains</a>
   <a href="/admin/branding" {% if section == 'branding' %}aria-current="page"{% endif %}>Look and feel</a>
   <a href="/admin/requests" {% if section in ('requests', 'request') %}aria-current="page"{% endif %}>Activity</a>

@@ -67,7 +67,8 @@ class IcsMock(Mock):
             return httpx.Response(200, content=b"<svg xmlns='http://www.w3.org/2000/svg'/>", headers={"content-type": "image/svg+xml"})
         if r.method == "GET" and k == "/me":
             return httpx.Response(200, json={"customer": "Acme Brothers Ltd", "user": {"username": "bob"}, "domain": "example.test", "users": {"active": 5, "disabled": 1},
-                                             "policy": {"self_service_auto": True, "destructive_approval": "second_admin"}, "pending": 0, "planned": ["Mailbox aliases"]})
+                                             "policy": {"self_service_auto": True, "destructive_approval": "second_admin"}, "pending": 0, "planned": ["Creating groups"],
+                                             "features": {"aliases": True, "shared": True, "mail_quota": True, "files_quota": True}})
         if k == "/users" and r.method == "GET":
             return httpx.Response(200, json=USERS)
         if k.startswith("/users/") and r.method == "GET":
@@ -90,6 +91,18 @@ class IcsMock(Mock):
             if "check" in r.url.params:
                 d["dns"] = {"example.test": [{"key": "spf", "title": "Sender policy (SPF)", "name": "example.test", "type": "TXT", "expected": "v=spf1 mx -all", "found": [], "status": "missing", "how": "Add one TXT record."}]}
             return httpx.Response(200, json=d)
+        if k == "/aliases":
+            return httpx.Response(200, json={"domains": ["example.test", "alt.test"], "max_aliases": 20, "users": [
+                {"uid": "anna", "display_name": "Anna Meyer", "mail": "anna@example.test", "aliases": ["sales@example.test"]}]})
+        if k == "/shared" and r.method == "GET":
+            return httpx.Response(200, json={"domain": "example.test", "kinds": [{"key": "full_access", "label": "full access"}, {"key": "send_as", "label": "send as"}, {"key": "send_on_behalf", "label": "send on behalf"}],
+                                             "people": [{"uid": "anna", "display_name": "Anna Meyer"}, {"uid": "bob", "display_name": "Bob B"}],
+                                             "mailboxes": [{"name": "support", "mail": "support@example.test", "display_name": "Support", "created_at": "2026-11-10T10:00:00+00:00",
+                                                            "grants": {"full_access": ["anna"], "send_as": [], "send_on_behalf": []}}]})
+        if k == "/quotas":
+            return httpx.Response(200, json={"available": {"mail": True, "files": True}, "files_quota_supported": True, "users": [
+                {"uid": "anna", "display_name": "Anna Meyer", "has_mailbox": True, "mail": {"used_bytes": 95 * 1048576, "limit_kb": 102400, "send_kb": 102400, "receive_kb": 102400},
+                 "files": {"used_bytes": 5 * 1048576, "limit_bytes": 1073741824}}]})
         if k == "/groups":
             return httpx.Response(200, json=[{"name": "mail-users", "label": "Mail, calendar and contacts", "members": 4}])
         return httpx.Response(404, json={"detail": "nothing"})
@@ -156,7 +169,7 @@ def test_admin_pages_render_and_forward_both_proofs(env):
         assert "<script" not in low and " style=" not in low and not re.search(r"\son[a-z]+=", low), path        # strict CSP: no script, no inline style/handlers
     sent = [x for x in m.ics_calls if x[1].endswith("/tenant/users") and x[0] == "GET"][0]
     assert sent[2]["x-ou-tenant-key"] == KEY and sent[2]["x-ou-user-token"] == "AT1"          # service credential + the admin's own token
-    assert "Planned" in c.get("/admin/users/anna").text and "Planned" in c.get("/admin").text   # unavailable features are labelled, not faked
+    assert "Planned" not in c.get("/admin/users/anna").text and "Planned" in c.get("/admin").text   # only what is really unavailable stays labelled
     q = c.get("/admin/users?q=olga").text
     assert "Olga Old" in q and "Anna Meyer" not in q
     assert "Anna Meyer" not in c.get("/admin/users?show=disabled").text
@@ -284,3 +297,54 @@ def test_branding_is_applied_safely(env):
     assert puts[0][3] == {"display_name": "X", "accent": "#112233"} and puts[1][1].endswith("/branding/logo") and puts[1][3].startswith(b"\x89PNG")
     assert c.post("/admin/apps", data={"csrf": tok, "app_mail": "on"}).status_code == 303
     assert [x for x in ics_writes(m) if x[1].endswith("/tenant/apps")][-1][3] == {"apps": {"mail": True, "files": False}}
+
+
+def test_mailbox_admin_pages_and_forms(env):
+    c, m, _ = env
+    signin(c, m)
+    for path, needle in (("/admin/addresses", "sales@example.test"), ("/admin/shared", "Support"), ("/admin/shared/support", "Anna Meyer"), ("/admin/storage", "95.0 MB of 100.0 MB")):
+        r = c.get(path)
+        assert r.status_code == 200 and needle in r.text, (path, r.status_code)
+        low = r.text.lower()
+        assert "<script" not in low and " style=" not in low and not re.search(r"\son[a-z]+=", low), path
+        assert "Planned" not in r.text
+    assert 'aria-label="Mailbox of Anna Meyer: 95 percent used"' in c.get("/admin/storage").text and 'class="usage full"' in c.get("/admin/storage").text
+    assert c.get("/admin/shared/nothere").status_code == 404
+    tok = csrf(c)
+    # CSRF on every change
+    for path in ("/admin/addresses/anna", "/admin/shared", "/admin/shared/support/grant", "/admin/shared/support/delete", "/admin/storage/anna"):
+        assert c.post(path, data={"local": "x"}).status_code == 403, path
+    assert ics_writes(m) == []
+    r = c.post("/admin/addresses/anna", data={"csrf": tok, "local": "Info", "domain": "alt.test", "remove": "sales@example.test"})
+    assert r.status_code == 303 and ics_writes(m)[-1][1].endswith("/users/anna/aliases") and ics_writes(m)[-1][3] == {"add": ["info@alt.test"], "remove": ["sales@example.test"]}
+    assert c.post("/admin/addresses/anna", data={"csrf": tok, "local": "no good", "domain": "alt.test"}).headers["location"].endswith("badaddress")
+    assert c.post("/admin/addresses/anna", data={"csrf": tok}).headers["location"].endswith("nochange")
+    r = c.post("/admin/shared", data={"csrf": tok, "name": "Billing", "display_name": "Billing team"})
+    assert r.status_code == 303 and ics_writes(m)[-1][3] == {"name": "billing", "display_name": "Billing team"}
+    assert c.post("/admin/shared", data={"csrf": tok, "name": "x y", "display_name": "n"}).status_code == 422
+    assert c.post("/admin/shared/support/grant", data={"csrf": tok, "uid": "bob", "kind": "send_as"}).status_code == 303
+    assert ics_writes(m)[-1][1].endswith("/shared/support/grant") and ics_writes(m)[-1][3] == {"uid": "bob", "kind": "send_as"}
+    assert c.post("/admin/shared/support/revoke", data={"csrf": tok, "uid": "anna", "kind": "full_access"}).status_code == 303
+    assert ics_writes(m)[-1][1].endswith("/shared/support/revoke")
+    assert c.post("/admin/shared/support/delete", data={"csrf": tok, "reason": "gone"}).status_code == 303 and ics_writes(m)[-1][3] == {"reason": "gone"}
+    assert c.post("/admin/shared/support/explode", data={"csrf": tok}).status_code == 404
+    m.answers[("POST", "/shared/support/grant")] = (422, {"detail": "this person is not active or has no mailbox"})
+    r = c.post("/admin/shared/support/grant", data={"csrf": tok, "uid": "bob", "kind": "send_as"})
+    assert r.status_code == 422 and "no mailbox" in r.text
+    n = len(ics_writes(m))
+    assert c.post("/admin/storage/anna", data={"csrf": tok, "mail_mb": "200", "files_mb": "0"}).status_code == 303
+    w = ics_writes(m)[n:]
+    assert [x[1].rsplit("/tenant", 1)[1] for x in w] == ["/users/anna/quota/mail", "/users/anna/quota/files"] and [x[3] for x in w] == [{"limit_mb": 200}, {"quota_mb": None}]
+    assert c.post("/admin/storage/anna", data={"csrf": tok, "mail_mb": "12x"}).headers["location"].endswith("badnumber")
+    assert c.post("/admin/storage/anna", data={"csrf": tok}).headers["location"].endswith("nochange")
+    assert len(ics_writes(m)) == n + 2
+
+
+def test_mailbox_admin_pages_are_admin_only(env):
+    c, m, _ = env
+    m.roles = ["opencloudUser"]
+    signin(c, m)
+    for path in ("/admin/addresses", "/admin/shared", "/admin/shared/support", "/admin/storage"):
+        assert c.get(path).status_code == 404, path
+    for path in ("/admin/addresses/anna", "/admin/shared", "/admin/shared/support/grant", "/admin/storage/anna"):
+        assert c.post(path, data={"csrf": "x"}).status_code == 404, path

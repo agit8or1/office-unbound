@@ -275,6 +275,150 @@ def mount(app: FastAPI, cfg, H) -> ICS:
             return fail(request, s, e)
         return RedirectResponse("/admin/groups?flash=saved", status_code=303)
 
+    # ---- addresses (aliases), shared mailboxes, storage ---------------------------------------------------------------------------------
+    ALIAS_LOCAL = re.compile(r"^[a-z0-9][a-z0-9._+-]{0,63}$")
+
+    def needs(me, feature):
+        return (me.get("features") or {}).get(feature)
+
+    @app.get("/admin/addresses")
+    async def addresses(request: Request):
+        s, resp = await gate(request)
+        if resp:
+            return resp
+        try:
+            me = await get(request, s, "/me")
+            v = await get(request, s, "/aliases") if needs(me, "aliases") else None
+        except ICSError as e:
+            return fail(request, s, e)
+        return page(request, s, "addresses.html", {"v": v, "error": request.query_params.get("error")})
+
+    @app.post("/admin/addresses/{uid}")
+    async def address_change(request: Request, uid: str, csrf: str = Form(""), local: str = Form(""), domain: str = Form("")):
+        s, resp = await gate(request, csrf)
+        if resp:
+            return resp
+        form = await request.form()
+        add, rem = [], [x for x in form.getlist("remove")][:20]
+        local = local.strip().lower()
+        if local:
+            if not ALIAS_LOCAL.match(local) or not re.match(r"^[a-z0-9.-]{3,200}$", domain.strip().lower()):
+                return RedirectResponse(f"/admin/addresses?error=badaddress", status_code=303)
+            add = [f"{local}@{domain.strip().lower()}"]
+        if not add and not rem:
+            return RedirectResponse("/admin/addresses?flash=nochange", status_code=303)
+        try:
+            r = await ics.call("POST", f"/users/{uid}/aliases", s.access_token, json={"add": add, "remove": rem})
+        except ICSError as e:
+            if e.status in (404, 409, 422) and e.msg:
+                v = await get(request, s, "/aliases")
+                return page(request, s, "addresses.html", {"v": v, "error": e.msg}, 422)
+            return fail(request, s, e)
+        return RedirectResponse(f"/admin/requests/{r['id']}", status_code=303)
+
+    @app.get("/admin/shared")
+    async def shared_list(request: Request):
+        s, resp = await gate(request)
+        if resp:
+            return resp
+        try:
+            me = await get(request, s, "/me")
+            v = await get(request, s, "/shared") if needs(me, "shared") else None
+        except ICSError as e:
+            return fail(request, s, e)
+        return page(request, s, "shared.html", {"v": v, "form": {}, "error": None})
+
+    @app.post("/admin/shared")
+    async def shared_create(request: Request, csrf: str = Form(""), name: str = Form(""), display_name: str = Form("")):
+        s, resp = await gate(request, csrf)
+        if resp:
+            return resp
+        name, display_name = name.strip().lower(), display_name.strip()
+        try:
+            if not UID.match(name) or not display_name:
+                v = await get(request, s, "/shared")
+                return page(request, s, "shared.html", {"v": v, "form": {"name": name, "display_name": display_name},
+                            "error": "Enter a display name and an address of 2 to 32 letters, digits, dots or dashes, starting with a letter."}, 422)
+            r = await ics.call("POST", "/shared", s.access_token, json={"name": name, "display_name": display_name})
+        except ICSError as e:
+            if e.status in (404, 409, 422) and e.msg:
+                v = await get(request, s, "/shared")
+                return page(request, s, "shared.html", {"v": v, "form": {"name": name, "display_name": display_name}, "error": e.msg}, 422)
+            return fail(request, s, e)
+        return RedirectResponse(f"/admin/requests/{r['id']}", status_code=303)
+
+    @app.get("/admin/shared/{name}")
+    async def shared_detail(request: Request, name: str):
+        s, resp = await gate(request)
+        if resp:
+            return resp
+        try:
+            v = await get(request, s, "/shared")
+        except ICSError as e:
+            return fail(request, s, e)
+        mb = next((m for m in v["mailboxes"] if m["name"] == name), None)
+        if mb is None:
+            return H.render(request, "error.html", {"title": "Shared mailbox not found", "text": "This shared mailbox does not exist (any more).", "back": "/admin/shared"}, 404, s)
+        names = {p["uid"]: p["display_name"] for p in v["people"]}
+        return page(request, s, "shared_detail.html", {"mb": mb, "kinds": v["kinds"], "people": v["people"], "names": names, "error": None})
+
+    @app.post("/admin/shared/{name}/{what}")
+    async def shared_change(request: Request, name: str, what: str, csrf: str = Form(""), uid: str = Form(""), kind: str = Form(""), reason: str = Form("")):
+        s, resp = await gate(request, csrf)
+        if resp:
+            return resp
+        if what not in ("grant", "revoke", "delete"):
+            return H.render(request, "error.html", {"title": "Page not found", "text": "There is nothing at this address."}, 404, s)
+        body = {"reason": reason[:200] or "removed by an administrator"} if what == "delete" else {"uid": uid, "kind": kind}
+        try:
+            r = await ics.call("POST", f"/shared/{name}/{what}", s.access_token, json=body)
+        except ICSError as e:
+            if e.status in (404, 409, 422) and e.msg:
+                v = await get(request, s, "/shared")
+                mb = next((m for m in v["mailboxes"] if m["name"] == name), None)
+                if mb:
+                    return page(request, s, "shared_detail.html", {"mb": mb, "kinds": v["kinds"], "people": v["people"], "names": {p["uid"]: p["display_name"] for p in v["people"]}, "error": e.msg}, 422)
+            return fail(request, s, e)
+        return RedirectResponse(f"/admin/requests/{r['id']}", status_code=303)
+
+    @app.get("/admin/storage")
+    async def storage(request: Request):
+        s, resp = await gate(request)
+        if resp:
+            return resp
+        try:
+            q = await get(request, s, "/quotas")
+        except ICSError as e:
+            return fail(request, s, e)
+        return page(request, s, "storage.html", {"q": q, "error": request.query_params.get("error")})
+
+    @app.post("/admin/storage/{uid}")
+    async def storage_set(request: Request, uid: str, csrf: str = Form(""), mail_mb: str = Form(""), files_mb: str = Form("")):
+        s, resp = await gate(request, csrf)
+        if resp:
+            return resp
+        calls = []
+        for field, path, key in ((mail_mb, "mail", "limit_mb"), (files_mb, "files", "quota_mb")):
+            field = field.strip()
+            if not field:
+                continue
+            if not field.isdigit() or int(field) > 10_000_000:
+                return RedirectResponse("/admin/storage?error=badnumber", status_code=303)
+            calls.append((path, {key: (int(field) or None)}))      # 0 = no limit
+        if not calls:
+            return RedirectResponse("/admin/storage?flash=nochange", status_code=303)
+        rid = None
+        try:
+            for path, body in calls:
+                r = await ics.call("POST", f"/users/{uid}/quota/{path}", s.access_token, json=body)
+                rid = rid or r["id"]
+        except ICSError as e:
+            if e.status in (404, 409, 422) and e.msg:
+                q = await get(request, s, "/quotas")
+                return page(request, s, "storage.html", {"q": q, "error": e.msg}, 422)
+            return fail(request, s, e)
+        return RedirectResponse(f"/admin/requests/{rid}", status_code=303)
+
     # ---- domains -----------------------------------------------------------------------------------------------------------------------
     @app.get("/admin/domains")
     async def domains(request: Request, check: str = ""):

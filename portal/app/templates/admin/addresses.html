@@ -1,0 +1,36 @@
+{% extends "admin/base.html" %}
+{% block atitle %}Addresses{% endblock %}
+{% block admin %}
+<h1>Addresses</h1>
+<p class="sub">Give a person extra e-mail addresses. Mail sent to an extra address arrives in their own mailbox. You can only use your verified domains{% if v %}: {% for d in v.domains %}<b>{{ d }}</b>{{ ', ' if not loop.last }}{% endfor %}{% endif %}, and an address can belong to one mailbox only.</p>
+{% if error == 'badaddress' %}<p class="notice bad" role="alert">That address is not valid. Use letters, digits, dots or dashes before the @.</p>
+{% elif error %}<p class="notice bad" role="alert">{{ error }}</p>{% endif %}
+{% if not v %}
+<section class="card"><h2>Not available</h2><p>Your organisation has no mail server connected, so addresses cannot be managed here.</p></section>
+{% elif not v.users %}
+<section class="card"><h2>Nobody has a mailbox yet</h2><p>Give someone the mail app first. <a href="/admin/users">Manage people</a></p></section>
+{% else %}
+{% for u in v.users %}
+<section class="card" aria-labelledby="h-{{ u.uid }}">
+  <h2 id="h-{{ u.uid }}" class="h2like">{{ u.display_name }}</h2>
+  <p class="muted">Main address: <b>{{ u.mail }}</b></p>
+  <form method="post" action="/admin/addresses/{{ u.uid }}">
+    <input type="hidden" name="csrf" value="{{ sess.csrf }}">
+    {% if u.aliases %}
+    <fieldset class="checks"><legend>Extra addresses (tick to remove)</legend>
+      {% for a in u.aliases %}<label class="check"><input type="checkbox" name="remove" value="{{ a }}"><span>{{ a }}</span></label>{% endfor %}
+    </fieldset>
+    {% else %}<p class="muted">No extra addresses.</p>{% endif %}
+    {% if u.aliases | length < v.max_aliases %}
+    <div class="row2">
+      <div class="field"><label for="l-{{ u.uid }}">New address</label><input id="l-{{ u.uid }}" name="local" maxlength="64" autocomplete="off" placeholder="sales"></div>
+      <div class="field"><label for="d-{{ u.uid }}">Domain</label>
+        <select id="d-{{ u.uid }}" name="domain">{% for d in v.domains %}<option value="{{ d }}">@{{ d }}</option>{% endfor %}</select></div>
+    </div>
+    {% endif %}
+    <button class="btn primary" type="submit">Save</button>
+  </form>
+</section>
+{% endfor %}
+{% endif %}
+{% endblock %}

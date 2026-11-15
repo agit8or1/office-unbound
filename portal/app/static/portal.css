@@ -180,3 +180,6 @@ input[type=color] { width: 3.5rem; height: 2.75rem; padding: .15rem; border: 1px
 .kv.small { font-size: .9rem; }
 table.people td, table.people th { vertical-align: middle; }
 @media (max-width: 560px) { .kv { grid-template-columns: 1fr; gap: .1rem; } .kv dd { margin-bottom: .6rem; } }
+progress.usage { width: 9rem; max-width: 100%; height: .7rem; accent-color: var(--accent); vertical-align: middle; display: block; }
+progress.usage.full { accent-color: var(--bad); }
+.notice.bad { background: var(--bad-bg); color: var(--bad); }

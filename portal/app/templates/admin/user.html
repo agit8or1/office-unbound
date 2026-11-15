@@ -11,8 +11,8 @@
     <dt>User name</dt><dd>{{ u.uid }}</dd>
     <dt>Added</dt><dd><time datetime="{{ u.created_at }}">{{ u.created_at | isoago }}</time></dd>
     {% if u.disabled_at %}<dt>Switched off</dt><dd><time datetime="{{ u.disabled_at }}">{{ u.disabled_at | isoago }}</time></dd>{% endif %}
-    <dt>Storage</dt><dd><span class="pill">Planned</span> Usage and limits per person are not shown yet.</dd>
-    <dt>Extra addresses</dt><dd><span class="pill">Planned</span> Aliases and shared mailboxes.</dd>
+    <dt>Storage</dt><dd><a href="/admin/storage">Usage and limits</a></dd>
+    <dt>Extra addresses</dt><dd><a href="/admin/addresses">Manage addresses</a> · <a href="/admin/shared">Shared mailboxes</a></dd>
   </dl>
 </section>
 
