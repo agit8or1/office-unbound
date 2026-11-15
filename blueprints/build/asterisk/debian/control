@@ -1,0 +1,26 @@
+Source: ou-asterisk
+Section: comm
+Priority: optional
+Maintainer: Office Unbound Build <build@officeunbound.com>
+Build-Depends: debhelper-compat (= 13), build-essential, pkg-config, bzip2, patch, curl, ca-certificates, python3, libssl-dev,
+ libjansson-dev, libxml2-dev, libsqlite3-dev, uuid-dev, libedit-dev, libsrtp2-dev, libxslt1-dev, libncurses-dev, libcap-dev, libgsm1-dev, zlib1g-dev
+Standards-Version: 4.6.2
+Rules-Requires-Root: no
+Homepage: https://www.asterisk.org/
+
+Package: ou-asterisk
+Architecture: any
+Depends: ${shlibs:Depends}, ${misc:Depends}, asterisk-core-sounds-en
+Conflicts: asterisk, asterisk-modules, asterisk-config
+Replaces: asterisk, asterisk-modules, asterisk-config
+Provides: asterisk (= ${binary:Version})
+Description: Asterisk 22 LTS PBX, Office Unbound build (minimal PJSIP module set)
+ Asterisk built from the signature-verified upstream 22.12.0 release tarball
+ with a minimal module set: PJSIP (TLS/WSS transports), SRTP and DTLS-SRTP,
+ WebSocket, ulaw/alaw/GSM, file-based voicemail, CSV CDR, builtin dialplan.
+ Not built: chan_sip, IAX2, MGCP, Skinny, unistim, DAHDI, ARI, FAX, ODBC and
+ LDAP resources. pjproject 2.17 is bundled (statically linked into
+ res_pjproject.so). The service is installed but not started; site
+ configuration (transports, certificates) goes to /etc/asterisk/ou/.
+ Unmodified upstream source; the matching .dsc and orig tarball are published
+ with the package.

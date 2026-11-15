@@ -54,6 +54,10 @@ if grep -q '"backup\.' /etc/ou-agent/agent.json; then   # backup product (ADR-00
   install -m 0755 -o root -g root "$D/runbooks/ou-backup" /usr/local/sbin/ou-backup
   install -m 0755 -o root -g root "$D/runbooks/ou-backup-canary.py" /usr/local/sbin/ou-backup-canary.py
 fi
+if grep -q '"pbx\.' /etc/ou-agent/agent.json; then
+  for f in "$D"/runbooks/ou-rb-pbx-*@.service; do install -m 0644 "$f" /etc/systemd/system/; done
+  install -m 0755 -o root -g root "$D/runbooks/ou-pbx-user" /usr/local/sbin/ou-pbx-user
+fi
 python3 "$D/render_polkit.py" /etc/ou-agent/agent.json > /etc/polkit-1/rules.d/50-ou-agent.rules
 chmod 0644 /etc/polkit-1/rules.d/50-ou-agent.rules
 install -d -o ou-agent -g ou-agent -m 0700 /var/lib/ou-agent

@@ -1,0 +1,9 @@
+#!/bin/sh
+set -e
+if [ "$1" = configure ]; then
+  # service user/group from the shipped sysusers.d snippet, before tmpfiles.d creates the directories (idempotent)
+  [ -x "$(command -v systemd-sysusers)" ] && systemd-sysusers ou-asterisk.conf >/dev/null 2>&1 || true
+  chgrp asterisk /etc/asterisk/*.conf 2>/dev/null || true
+  chown -R asterisk:asterisk /var/lib/asterisk /var/spool/asterisk /var/log/asterisk 2>/dev/null || true
+fi
+#DEBHELPER#

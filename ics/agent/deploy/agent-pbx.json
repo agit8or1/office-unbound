@@ -1,0 +1,11 @@
+{
+  "listen": {"address": "0.0.0.0", "port": 8443},
+  "runbooks": {
+    "service.status":  {"units": ["ou-asterisk", "nginx", "ou-phone"]},
+    "disk.usage":      {"paths": ["/", "/var/spool/asterisk"]},
+    "pbx.sync_extensions": {"enabled": true},
+    "pbx.kick_user": {"enabled": true},
+    "pbx.user_state": {"enabled": true},
+    "pbx.issue_credential": {"enabled": true}
+  }
+}

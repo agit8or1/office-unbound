@@ -1,0 +1,59 @@
+# ADR-0008 recipe: Asterisk 22 LTS (SIP PBX for the telephony module). Minimal module set, PJSIP only, bundled pjproject.
+component: asterisk
+src_name: ou-asterisk
+description: "Asterisk 22 LTS from the signed upstream release tarball; PJSIP (TLS/WSS), SRTP/DTLS-SRTP, WebSocket, file voicemail, CSV CDR; no chan_sip/IAX/ARI/AMI"
+source:
+  kind: tarball
+  repo: https://github.com/asterisk/asterisk
+  tag: "22.12.0"
+  commit: d3fb2aa68d38b5c931faec521ee7e54b3664130b      # peeled upstream tag 22.12.0 (informational; the control is the signed tarball below)
+  upstream_version: "22.12.0"
+  url: https://github.com/asterisk/asterisk/releases/download/22.12.0/asterisk-22.12.0.tar.gz
+  sig_url: https://github.com/asterisk/asterisk/releases/download/22.12.0/asterisk-22.12.0.tar.gz.asc
+  sha256: f8b2ba98aac6c4ff3376bc0a2868bea6ed577ca684efb7ec739ae6e8ce6e35e2   # equals upstream's published .sha256 asset
+verification:
+  kind: tarball-pgp
+  signer_fingerprint: F2FC93DB7587BD1FB49E045A5D984BE337191CE7     # "Asterisk Development Team <asteriskteam@digium.com>", primary key
+  signing_key: asterisk/keys/asterisk-signing-key.asc
+  note: >
+    Cryptographically verified (gpg --verify: GOODSIG + VALIDSIG on the primary key). The key file is the upstream signing key
+    shipped in Debian's asterisk source package (debian/upstream/signing-key.asc, fetched from deb.debian.org, an authorized endpoint);
+    its fingerprint is pinned here, so a substituted key file fails the build.
+# network ONLY in this phase: the bundled pjproject tarball (Asterisk's own third-party mirror). The Asterisk tree carries
+# an md5 for it (weak); we additionally pin the sha256 recorded on first download (trust-on-first-use, noted in the results doc).
+prefetch: |
+  C=/build/work/asterisk/externals-cache; mkdir -p "$C"
+  curl -fsSL --max-time 300 -o "$C/pjproject-2.17.tar.bz2" https://raw.githubusercontent.com/asterisk/third-party/master/pjproject/2.17/pjproject-2.17.tar.bz2
+  echo "04b2eb1f0f01aa0ad1945b167171843448a51aa6b7c3e806496d434f13a112b7  $C/pjproject-2.17.tar.bz2" | sha256sum -c -
+  cp third-party/pjproject/pjproject-2.17.tar.bz2.md5 "$C/"
+bundled_sources:
+  - name: pjproject
+    version: "2.17"
+    url: https://raw.githubusercontent.com/asterisk/third-party/master/pjproject/2.17/pjproject-2.17.tar.bz2
+    sha256: 04b2eb1f0f01aa0ad1945b167171843448a51aa6b7c3e806496d434f13a112b7
+    license: "GPL-2.0-or-later (Teluu) plus third-party parts inside, see licence_files in the report"
+    purl: "pkg:generic/pjproject@2.17"
+packages: [ou-asterisk]
+licenses:
+  - GPL-2.0-only
+  - GPL-2.0-or-later
+  - GPL-3.0-only
+  - GPL-3.0-or-later
+  - LGPL-2.1-only
+  - LGPL-2.1-or-later
+  - LGPL-3.0-only
+  - LGPL-3.0-or-later
+  - MIT
+  - BSD-2-Clause
+  - BSD-3-Clause
+  - Apache-2.0
+  - ISC
+  - Zlib
+  - CC-BY-SA-4.0
+  - OpenSSL-Exception
+inventory_match: "asterisk"
+patches: []        # unmodified upstream source: the GPL source-offer duty is met by the published .dsc + orig tarball
+menuselect: >
+  debian/rules disables every menuselect category and enables exactly debian/menuselect-enable.txt (BUILD_NATIVE off: portable and
+  reproducible). The resulting list ships as /usr/share/doc/ou-asterisk/modules-built.txt.
+branding: "none; the upstream name Asterisk is a Sangoma trademark, nominative use only, source unmodified"

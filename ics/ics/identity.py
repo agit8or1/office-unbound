@@ -48,7 +48,10 @@ class IdentityError(Exception):
 
 
 ACTIONS = ("idm.stack.register", "idm.user.create", "idm.user.update_groups", "idm.user.disable", "idm.user.enable", "idm.user.delete",
-           "idm.reconcile", "idm.user.devices")
+           "idm.reconcile", "idm.user.devices", "idm.user.set_extension", "idm.user.issue_sip_credential")
+EXT_RE = r"^[1-9][0-9]{3}$"            # 4-digit internal extension = LDAP telephoneNumber (same rule as the PBX provisioner)
+SIP_DEVICES = ("web", "native", "desk")
+SIP_CRED_TTL = 900                     # seconds an unrevealed SIP credential stays decryptable at the ICS
 
 
 # ---- typed parameters --------------------------------------------------------------------------------------------------------------------
@@ -98,6 +101,8 @@ class StackRegister(BaseModel):
     mas_url: str | None = Field(default=None, description="https://matrix-authentication-service host (admin API); enables the Matrix downstream")
     mas_client_id: str | None = Field(default=None, pattern=NAME_RE, description="MAS OAuth2 client (client credentials, scope urn:mas:admin) dedicated to the ICS")
     mas_client_secret: SecretStr | None = None
+    pbx_node_id: UUID | None = Field(default=None, description="enrolled node (the PBX) whose agent offers the pbx.* runbooks; enables the telephony downstream")
+    pbx_domain: str | None = Field(default=None, pattern=HOST_RE, description="SIP domain shown to users with their one-time credential")
     reconcile_interval_seconds: int = Field(default=900, ge=0, le=86400, description="0 disables the periodic reconcile")
 
     _s1 = field_validator("ldap_bind_password", "kc_client_secret", mode="before")(lambda cls, v: _secret(v))
@@ -139,6 +144,8 @@ class StackRegister(BaseModel):
             raise ValueError("gromox_node_id needs mail_host and mail_ca_pem")
         if bool(self.mas_url) != bool(self.mas_client_id) or bool(self.mas_url) != bool(self.mas_client_secret):
             raise ValueError("mas_url, mas_client_id and mas_client_secret must be given together")
+        if bool(self.pbx_node_id) != bool(self.pbx_domain):
+            raise ValueError("pbx_node_id and pbx_domain must be given together")
         if self.probe_client_id and not (self.mail_host or self.files_url):
             raise ValueError("probe_client_id needs mail_host and/or files_url")
         return self
@@ -162,6 +169,7 @@ class UserCreate(_UserRef):
     mail: str = Field(pattern=MAIL_RE, max_length=254)
     groups: list[str] = Field(default_factory=list, max_length=20)
     mailbox: bool = Field(default=True, description="entitle to a Gromox mailbox (adds the stack's entitlement group)")
+    extension: str | None = Field(default=None, pattern=EXT_RE, description="4-digit PBX extension (LDAP telephoneNumber); needs a stack with a PBX node")
 
     _g = field_validator("groups")(lambda cls, v: _groups(v))
 
@@ -192,6 +200,14 @@ class UserUpdateGroups(_UserRef):
         if set(self.add) & set(self.remove):
             raise ValueError("add and remove overlap")
         return self
+
+
+class UserSetExtension(_UserRef):
+    extension: str | None = Field(pattern=EXT_RE, description="new 4-digit extension, or null to remove it (the PBX purges the user's devices and credentials)")
+
+
+class IssueSipCredential(_UserRef):
+    device: Literal["web", "native", "desk"] = Field(description="device class; re-issuing rotates that device's credential (the old one stops working)")
 
 
 class UserDisable(_UserRef):
@@ -312,12 +328,12 @@ class Directory:
         return [v.decode("utf-8", "replace") for v in entry.get("raw_attributes", {}).get(attr, [])]
 
     def _entry(self, e) -> dict:
-        a = {k: self._s(e, k) for k in ("uid", "mail", "displayName", "cn", "entryUUID", "pwdAccountLockedTime")}
-        return {"dn": e["dn"], "uid": (a["uid"] or [""])[0], "mail": (a["mail"] or [""])[0].lower(),
+        a = {k: self._s(e, k) for k in ("uid", "mail", "displayName", "cn", "entryUUID", "pwdAccountLockedTime", "telephoneNumber")}
+        return {"dn": e["dn"], "uid": (a["uid"] or [""])[0], "mail": (a["mail"] or [""])[0].lower(), "extension": (a["telephoneNumber"] or [None])[0],
                 "display_name": (a["displayName"] or a["cn"] or [""])[0], "entry_uuid": (a["entryUUID"] or [""])[0],
                 "locked": bool(a["pwdAccountLockedTime"])}
 
-    _ATTRS = ["uid", "mail", "displayName", "cn", "entryUUID", "pwdAccountLockedTime"]
+    _ATTRS = ["uid", "mail", "displayName", "cn", "entryUUID", "pwdAccountLockedTime", "telephoneNumber"]
 
     def _search(self, base, flt, attrs, scope=None):
         l3 = self._ldap3
@@ -361,11 +377,25 @@ class Directory:
         if not ok:
             raise IdentityError(f"LDAP {what} refused: {self.conn.result.get('description', 'error')}")
 
-    def add(self, uid: str, display_name: str, mail: str) -> None:
+    def add(self, uid: str, display_name: str, mail: str, extension: str | None = None) -> None:
         parts = display_name.split()
         attrs = {"uid": uid, "cn": display_name, "displayName": display_name, "sn": parts[-1] if len(parts) > 1 else display_name,
                  "givenName": parts[0], "mail": mail}
+        if extension:
+            if not re.fullmatch(EXT_RE, extension):
+                raise IdentityError("invalid extension")
+            attrs["telephoneNumber"] = extension
         self._do("add", lambda: self.conn.add(self.dn(uid), ["inetOrgPerson", "organizationalPerson", "person", "top"], attrs))
+
+    def set_extension(self, uid: str, extension: str | None) -> None:
+        """telephoneNumber is the ONLY telephony attribute the ICS writes (the svc-ics ACL covers ou=people); None clears it."""
+        if extension is not None and not re.fullmatch(EXT_RE, extension):
+            raise IdentityError("invalid extension")
+        self._do("set extension", lambda: self.conn.modify(self.dn(uid), {"telephoneNumber": [(self._ldap3.MODIFY_REPLACE, [extension] if extension else [])]}))
+
+    def extension_owner(self, extension: str) -> str | None:
+        rows = self._search(self.people, f"(&(objectClass=inetOrgPerson)(telephoneNumber={extension}))", ["uid"], self._ldap3.LEVEL)
+        return (self._s(rows[0], "uid") or [None])[0] if rows else None
 
     def set_password(self, uid: str, password: str) -> None:
         self._do("set password", lambda: self.conn.modify(self.dn(uid), {"userPassword": [(self._ldap3.MODIFY_REPLACE, [password])]}))
@@ -608,15 +638,16 @@ def _audit(rt: Runtime, action: str, plan=None, resource="idm_user", resource_id
         d.commit()
 
 
-def agent_user(rt: Runtime, node_id, action: str, uid: str, known: list[str]) -> dict:
-    """One signed agent request (fixed runbook, params exactly {user}). Returns the helper's JSON result; raises IdentityError otherwise."""
+def agent_user(rt: Runtime, node_id, action: str, uid: str, known: list[str], device: str | None = None, raw: bool = False) -> dict:
+    """One signed agent request (fixed runbook, params exactly {user}; {user, device} for pbx.issue_credential). Returns the helper's JSON result
+    (sanitised; raw=True only for the SIP credential issue, whose result carries the one-time secret and is never audited); raises IdentityError otherwise."""
     with rt.session() as d:
         node = d.execute(text("SELECT * FROM nodes WHERE id = :i"), {"i": str(node_id)}).first()
     if node is None:
         raise IdentityError("node not found (enroll the node first)")
     priv = agentclient.load_signing_key(rt.settings.signing_key_file)
     jid = str(uuid.uuid4())
-    params = {"user": uid}
+    params = {"user": uid, **({"device": device} if device else {})}
     body = agentclient.build_request(priv, action=action, params=params, node_id=str(node.id), job_id=jid, ttl=rt.settings.agent_request_ttl_seconds)
     req = body["req"]
     with rt.session() as d:
@@ -645,7 +676,37 @@ def agent_user(rt: Runtime, node_id, action: str, uid: str, known: list[str]) ->
     r = resp.get("result") or {}
     if r.get("returncode") not in (0,) or not isinstance(r.get("result"), dict):
         raise IdentityError(f"{action}: helper failed (rc={r.get('returncode')})")
-    return audit.sanitize(r["result"])
+    return r["result"] if raw else audit.sanitize(r["result"])
+
+
+# ---- SIP credentials (one-time reveal) -----------------------------------------------------------------------------------------------
+def _store_sip_credential(rt: Runtime, user_id: str, plan_id, requested_by, device: str, cred: dict) -> dict:
+    cid = uuid.uuid4()
+    exp = datetime.now(timezone.utc) + timedelta(seconds=SIP_CRED_TTL)
+    with rt.session() as d:
+        d.execute(text("UPDATE idm_sip_credentials SET secret_enc = NULL WHERE user_id = :u AND device = :v AND revealed_at IS NULL"), {"u": user_id, "v": device})
+        d.execute(text("INSERT INTO idm_sip_credentials (id, user_id, plan_id, requested_by, device, secret_enc, expires_at) VALUES (:i, :u, :p, :r, :v, :e, :x)"),
+                  {"i": str(cid), "u": user_id, "p": str(plan_id), "r": str(requested_by), "v": device,
+                   "e": rt.vault.encrypt(json.dumps(cred).encode(), f"idm-sip:{cid}"), "x": exp})
+        d.commit()
+    return {"issued": True, "device": device, "expires_at": exp.isoformat(), "reveal": f"POST /api/v1/identity/sip-credentials/{plan_id}/reveal (requester only, once)"}
+
+
+def reveal_sip_credential(db, rt: Runtime, user, plan_id) -> dict:
+    """The SIP password is shown ONCE to the requester; the ciphertext is wiped in the same transaction. The PBX only ever stores its MD5 digest."""
+    row = db.execute(text(
+        "SELECT c.*, u.uid, s.name AS stack FROM idm_sip_credentials c JOIN idm_users u ON u.id = c.user_id JOIN idm_stacks s ON s.id = u.stack_id "
+        "WHERE c.plan_id = :p AND c.requested_by = :r AND c.secret_enc IS NOT NULL AND c.revealed_at IS NULL AND c.expires_at > now() "
+        "ORDER BY c.created_at DESC LIMIT 1 FOR UPDATE OF c"), {"p": str(plan_id), "r": str(user.id)}).first()
+    if row is None:
+        return {}
+    cred = json.loads(rt.vault.decrypt(row.secret_enc, f"idm-sip:{row.id}").decode())
+    db.execute(text("UPDATE idm_sip_credentials SET secret_enc = NULL, revealed_at = now() WHERE id = :i"), {"i": str(row.id)})
+    audit.append(db, "identity.sip_credential_revealed", actor_id=user.id, actor_name=user.username, resource="idm_user",
+                 resource_id=str(row.user_id), details={"uid": row.uid, "stack": row.stack, "device": row.device, "plan_id": str(plan_id)})
+    db.commit()
+    return {**cred, "uid": row.uid, "stack": row.stack, "device": row.device, "expires_at": row.expires_at.isoformat(),
+            "note": "shown once; the PBX stores only a digest. Enter it in the softphone/device now."}
 
 
 # ---- enrollment tokens ---------------------------------------------------------------------------------------------------------------
@@ -748,6 +809,14 @@ def _user_row(db, stack_id, uid: str, states: tuple[str, ...]):
     return row
 
 
+def _ext_free(db, stack_row, ext: str, own_user_id) -> None:
+    if not stack_row.config.get("pbx_node_id"):
+        raise ValueError("this stack has no PBX node (register it with pbx_node_id/pbx_domain)")
+    r = db.execute(text("SELECT id FROM idm_users WHERE stack_id = :s AND extension = :e AND state <> 'deleted'"), {"s": str(stack_row.id), "e": ext}).first()
+    if r and (own_user_id is None or str(r.id) != str(own_user_id)):
+        raise LookupError("extension already assigned to another user")
+
+
 def risk_for(db, action: str, p) -> str:
     """normal = one approver other than the requester; high = two. Privileged groups raise create/update to high."""
     if action in ("idm.stack.register", "idm.user.delete"):
@@ -772,7 +841,7 @@ def precheck(db, rt: Runtime, action: str, p) -> dict:
         for h in (p.ldap_url.split("//")[1].split(":")[0], p.kc_url.split("//")[1].split(":")[0], *( [p.files_url.split("//")[1].split(":")[0]] if p.files_url else []),
                   *([p.mail_host] if p.mail_host else [])):
             _guard(rt, h)
-        for nid in (p.files_node_id, p.gromox_node_id):
+        for nid in (p.files_node_id, p.gromox_node_id, p.pbx_node_id):
             if nid and db.execute(text("SELECT 1 FROM nodes WHERE id = :i"), {"i": str(nid)}).first() is None:
                 raise ValueError("node not found (enroll it first)")
         return {}
@@ -786,6 +855,8 @@ def precheck(db, rt: Runtime, action: str, p) -> dict:
             raise ValueError(f"mail domain must be {cfg['mail_domain']}")
         if not set(p.groups) <= allowed:
             raise ValueError("group not allowed for this stack: " + ",".join(sorted(set(p.groups) - allowed)))
+        if p.extension:
+            _ext_free(db, row, p.extension, None)
         if db.execute(text("SELECT 1 FROM idm_users WHERE stack_id = :s AND uid = :u AND state <> 'deleted'"), {"s": str(row.id), "u": p.uid}).first():
             raise LookupError("uid already exists in this stack")
         if db.execute(text("SELECT 1 FROM idm_users WHERE stack_id = :s AND mail = :m AND state <> 'deleted'"), {"s": str(row.id), "m": p.mail}).first():
@@ -794,6 +865,20 @@ def precheck(db, rt: Runtime, action: str, p) -> dict:
                       {"s": str(row.id), "u": p.uid, "m": p.mail}).first():
             raise LookupError("this uid/mail belonged to a deleted user whose mailbox is RETAINED; there is no purge action, so it cannot be reused")
         return {"mailbox": p.mailbox, "privileged": sorted((set(p.groups)) & set(cfg.get("privileged_groups", [])))}
+    if action == "idm.user.set_extension":
+        u = _user_row(db, row.id, p.uid, ("active",))
+        if p.extension:
+            _ext_free(db, row, p.extension, u.id)
+        elif not cfg.get("pbx_node_id"):
+            raise ValueError("this stack has no PBX node")
+        return {"extension": p.extension}
+    if action == "idm.user.issue_sip_credential":
+        u = _user_row(db, row.id, p.uid, ("active",))
+        if not cfg.get("pbx_node_id"):
+            raise ValueError("this stack has no PBX node")
+        if not u.extension:
+            raise ValueError("the user has no extension (assign one with idm.user.set_extension first)")
+        return {"extension": u.extension, "device": p.device}
     if action == "idm.user.update_groups":
         _user_row(db, row.id, p.uid, ("active",))
         bad = (set(p.add) | set(p.remove)) - allowed
@@ -850,6 +935,11 @@ def _gromox(rt, stack, action, uid, known) -> dict | None:
     return agent_user(rt, nid, action, uid, known) if nid else None
 
 
+def _pbx(rt, stack, action, uid, known) -> dict | None:
+    nid = stack.cfg.get("pbx_node_id")
+    return agent_user(rt, nid, action, uid, known) if nid else None
+
+
 def exec_register(rt: Runtime, db, m: StackRegister, plan, known: list[str]) -> dict:
     sid = uuid.uuid4()
     cfg = m.model_dump(mode="json", exclude={"ldap_bind_password", "kc_client_secret", "mas_client_secret"})
@@ -892,7 +982,9 @@ def exec_create(rt: Runtime, db, m: UserCreate, plan, known: list[str]) -> dict:
     try:
         if d.get(m.uid) is not None:
             raise IdentityError("uid already exists in the directory (unmanaged entry?): refusing to adopt it")
-        d.add(m.uid, m.display_name, m.mail)
+        if m.extension and d.extension_owner(m.extension):
+            raise IdentityError("extension is already in use in the directory")
+        d.add(m.uid, m.display_name, m.mail, extension=m.extension)
         e = d.get(m.uid)
         if not e or not e["entry_uuid"]:
             raise IdentityError("created entry cannot be read back")
@@ -901,10 +993,10 @@ def exec_create(rt: Runtime, db, m: UserCreate, plan, known: list[str]) -> dict:
         groups = sorted(set(m.groups) | ({stack.cfg["entitlement_group"]} if m.mailbox else set()))
         uid_ = str(uuid.uuid4())
         with rt.session() as s:  # the stable id is recorded immediately: a later failure must not orphan the directory entry
-            s.execute(text("INSERT INTO idm_users (id, stack_id, uid, entry_uuid, mail, display_name, groups, created_by) "
-                           "VALUES (:i, :s, :u, :e, :m, :d, CAST(:g AS jsonb), :c)"),
+            s.execute(text("INSERT INTO idm_users (id, stack_id, uid, entry_uuid, mail, display_name, groups, created_by, extension) "
+                           "VALUES (:i, :s, :u, :e, :m, :d, CAST(:g AS jsonb), :c, :x)"),
                       {"i": uid_, "s": stack.id, "u": m.uid, "e": e["entry_uuid"], "m": m.mail, "d": m.display_name, "g": json.dumps(groups),
-                       "c": str(plan.requested_by)})
+                       "c": str(plan.requested_by), "x": m.extension})
             audit.append(s, "identity.user_created", actor_name="worker", resource="idm_user", resource_id=uid_,
                          details={"stack": stack.name, "uid": m.uid, "entry_uuid": e["entry_uuid"], "groups": groups, "mail": m.mail})
             s.commit()
@@ -927,6 +1019,16 @@ def exec_create(rt: Runtime, db, m: UserCreate, plan, known: list[str]) -> dict:
             if g.get("sync_errors") or g["state"].get("address_status") != 0 or g["state"].get("externid") != e["entry_uuid"]:
                 raise IdentityError(f"gromox mailbox not provisioned correctly (sync: {act})")
             _step(steps, "gromox.sync", t, sync=act, externid_matches_entry_uuid=True)
+    if m.extension:
+        t = time.monotonic()
+        pb = _pbx(rt, stack, "pbx.sync_extensions", m.uid, known)
+        out["extension"] = m.extension
+        if pb is None:
+            _step(steps, "pbx.sync", t, skipped="no PBX node configured")
+        else:
+            if pb.get("extension") != m.extension or not pb.get("known_to_pbx"):
+                raise IdentityError("PBX does not see the extension in the directory after sync")
+            _step(steps, "pbx.sync", t, extension=m.extension, known_to_pbx=True, devices=pb.get("devices", []))
     t = time.monotonic()
     oc = _oc_check(rt, stack, m.uid, known, retries=4)
     if oc is None:
@@ -937,6 +1039,65 @@ def exec_create(rt: Runtime, db, m: UserCreate, plan, known: list[str]) -> dict:
         if not oc.get("resolved"):
             raise IdentityError("user was created but OpenCloud cannot resolve it (check directory filters/groups)")
     return out
+
+
+def exec_set_extension(rt: Runtime, db, m: UserSetExtension, plan, known: list[str]) -> dict:
+    stack = load_stack(rt, m.stack)
+    known.extend([stack.ldap_pw, stack.kc_secret])
+    u = _users_row(rt, stack.id, m.uid)
+    if u is None or u.state != "active":
+        raise IdentityError("user is not active")
+    steps: list = []
+    d = Directory(rt, stack)
+    try:
+        t = time.monotonic()
+        if m.extension:
+            owner = d.extension_owner(m.extension)
+            if owner and owner != m.uid:
+                raise IdentityError("extension is already in use in the directory")
+        d.set_extension(m.uid, m.extension)
+        now = d.get(m.uid)
+        if (now or {}).get("extension") != m.extension:
+            raise IdentityError("extension cannot be read back from the directory")
+        _step(steps, "ldap.telephoneNumber", t, extension=m.extension)
+    finally:
+        d.close()
+    with rt.session() as s:
+        s.execute(text("UPDATE idm_users SET extension = :x, updated_at = now() WHERE id = :i"), {"x": m.extension, "i": str(u.id)})
+        audit.append(s, "identity.extension_changed", actor_name="worker", resource="idm_user", resource_id=str(u.id),
+                     details={"uid": m.uid, "stack": stack.name, "from": u.extension, "to": m.extension})
+        s.commit()
+    t = time.monotonic()
+    # removing/changing an extension ends the old registrations and purges the credentials (the PBX derives everything from the directory)
+    pb = _pbx(rt, stack, "pbx.kick_user" if (u.extension and u.extension != m.extension) else "pbx.sync_extensions", m.uid, known)
+    if pb is not None:
+        if m.extension and (pb.get("extension") != m.extension or not pb.get("known_to_pbx")):
+            raise IdentityError("PBX does not see the new extension after sync")
+        _step(steps, "pbx.sync", t, extension=m.extension, registrations_removed=pb.get("contacts_removed"), channels_hung_up=pb.get("channels_hung_up"))
+    else:
+        _step(steps, "pbx.sync", t, skipped="no PBX node configured")
+    return {"uid": m.uid, "extension": m.extension, "steps": steps}
+
+
+def exec_issue_sip(rt: Runtime, db, m: IssueSipCredential, plan, known: list[str]) -> dict:
+    stack = load_stack(rt, m.stack)
+    u = _users_row(rt, stack.id, m.uid)
+    if u is None or u.state != "active":
+        raise IdentityError("user is not active")
+    if not u.extension or not stack.cfg.get("pbx_node_id"):
+        raise IdentityError("user has no extension or the stack has no PBX node")
+    t = time.monotonic()
+    r = agent_user(rt, stack.cfg["pbx_node_id"], "pbx.issue_credential", m.uid, known, device=m.device, raw=True)
+    pw = r.pop("password", None)
+    if not isinstance(pw, str) or len(pw) < 16 or r.get("extension") != u.extension:
+        raise IdentityError("PBX did not return a usable credential for the user's extension")
+    known.append(pw)
+    cred = {"username": r["username"], "password": pw, "realm": r.get("realm"), "domain": stack.cfg.get("pbx_domain") or r.get("domain"),
+            "extension": u.extension, "display_name": r.get("display_name"), "wss": r.get("wss"), "tls_port": r.get("tls_port")}
+    rev = _store_sip_credential(rt, str(u.id), plan.id, plan.requested_by, m.device, cred)
+    _audit(rt, "identity.sip_credential_issued", resource_id=str(u.id), uid=m.uid, stack=stack.name, device=m.device, extension=u.extension)
+    return {"uid": m.uid, "device": m.device, "username": cred["username"], "extension": u.extension, "reveal": rev,
+            "steps": [{"step": "pbx.issue_credential", "ms": int((time.monotonic() - t) * 1000), "stored_on_pbx": "md5 digest only"}]}
 
 
 def exec_update_groups(rt: Runtime, db, m: UserUpdateGroups, plan, known: list[str]) -> dict:
@@ -1101,6 +1262,12 @@ def exec_disable(rt: Runtime, db, m: UserDisable, plan, known: list[str]) -> dic
                 mas.lock(mu["id"])  # refuses refresh tokens and new logins at once; Synapse stops honouring the access token within ~2 s (lab)
                 ended = mas.end_sessions(mu["id"])
             _step(steps, "matrix.lock", t, user_known=bool(mu), locked=bool(mu), sessions_ended=ended if mu else 0, at=round(time.monotonic() - t_lock, 1))
+        pbk = None
+        if stack.cfg.get("pbx_node_id"):
+            t = time.monotonic()
+            pbk = _pbx(rt, stack, "pbx.kick_user", uid, known)  # sync from the (now locked) directory: endpoint+credentials purged, contacts deleted, calls hung up
+            _step(steps, "pbx.kick", t, registrations_removed=pbk.get("contacts_removed"), channels_hung_up=pbk.get("channels_hung_up"),
+                  endpoint_removed=pbk.get("endpoint_removed"), at=round(time.monotonic() - t_lock, 1))
         t = time.monotonic()
         g = _gromox(rt, stack, "gromox.sync_user", uid, known)
         gq = None
@@ -1142,6 +1309,11 @@ def exec_disable(rt: Runtime, db, m: UserDisable, plan, known: list[str]) -> dic
                 u2 = mas.find(uid)
                 return bool(u2 and (not u2["locked"] or mas.active_sessions(u2["id"])))  # False = refused (locked and no live session)
             checks["matrix_access"] = _matrix_access
+        if stack.cfg.get("pbx_node_id"):
+            def _pbx_access() -> bool:
+                r = agent_user(rt, stack.cfg["pbx_node_id"], "pbx.user_state", uid, known)
+                return bool(r.get("endpoint_present") or r.get("contacts") or r.get("channels"))  # True = the user can still register or talk
+            checks["pbx_access"] = _pbx_access
         if stack.cfg.get("files_node_id"):
             checks["oc_user_resolution"] = lambda: bool(agent_user(rt, stack.cfg["files_node_id"], "opencloud.check_user", uid, known).get("resolved"))
         measured = idprobe.measure(checks, t_lock, timeout)
@@ -1155,10 +1327,14 @@ def exec_disable(rt: Runtime, db, m: UserDisable, plan, known: list[str]) -> dic
         if stack.cfg.get("gromox_node_id"):
             gs = _gromox(rt, stack, "gromox.user_state", uid, known)
             st["gromox"] = {"address_status": gs["state"].get("address_status"), "maildir_mode": gs.get("maildir_mode")}
+        if stack.cfg.get("pbx_node_id"):
+            ps = agent_user(rt, stack.cfg["pbx_node_id"], "pbx.user_state", uid, known)
+            st["pbx"] = {"endpoint_present": bool(ps.get("endpoint_present")), "contacts": ps.get("contacts"), "channels": ps.get("channels")}
         if mas is not None:
             st["matrix"] = mas.state(uid)
         mx_ok = mas is None or not st["matrix"]["user_present"] or (st["matrix"]["locked"] and st["matrix"]["active_sessions"] == 0)
-        ok_states = (mx_ok and st["ldap"]["locked"] and (not kcs["id"] or (st["keycloak"]["online_sessions"] == 0 and st["keycloak"]["offline_sessions"] == 0))
+        pbx_ok = not st.get("pbx") or (not st["pbx"]["endpoint_present"] and not st["pbx"]["contacts"] and not st["pbx"]["channels"])
+        ok_states = (mx_ok and pbx_ok and st["ldap"]["locked"] and (not kcs["id"] or (st["keycloak"]["online_sessions"] == 0 and st["keycloak"]["offline_sessions"] == 0))
                      and (not st.get("gromox") or (st["gromox"]["address_status"] == 1)))
         not_revoked = sorted(n for n, o in measured.items() if o["status"] != "refused" or (o["seconds"] or 0) > TARGET_SECONDS)
         if oc_tokens is not None and oc_tokens.get("resolved") and not oc_tokens.get("ok"):
@@ -1229,6 +1405,11 @@ def exec_enable(rt: Runtime, db, m: UserEnable, plan, known: list[str]) -> dict:
         if g["state"].get("address_status") != 0:
             raise IdentityError("gromox mailbox is still suspended after sync")
         _step(steps, "gromox.reactivate", t, sync=[x["action"] for x in g.get("sync", [])], released=g.get("released"), maildir_mode=g.get("maildir_mode"))
+    if u.extension:
+        t = time.monotonic()
+        pb = _pbx(rt, stack, "pbx.sync_extensions", m.uid, known)
+        if pb is not None:   # the extension is back, but the old SIP credentials stay purged: the user needs a new one-time credential
+            _step(steps, "pbx.sync", t, extension=u.extension, known_to_pbx=pb.get("known_to_pbx"), devices=pb.get("devices", []))
     t = time.monotonic()
     oc = _oc_check(rt, stack, m.uid, known, retries=4)
     if oc is not None:
@@ -1284,6 +1465,10 @@ def exec_delete(rt: Runtime, db, m: UserDelete, plan, known: list[str]) -> dict:
     g = _gromox(rt, stack, "gromox.sync_user", m.uid, known)
     if g:
         _step(steps, "gromox.suspend", t, sync=[x["action"] for x in g.get("sync", [])], address_status=g["state"].get("address_status"))
+    if stack.cfg.get("pbx_node_id") and u.extension:
+        t = time.monotonic()
+        pb = _pbx(rt, stack, "pbx.kick_user", m.uid, known)
+        _step(steps, "pbx.kick", t, registrations_removed=pb.get("contacts_removed"), channels_hung_up=pb.get("channels_hung_up"))
     _set_state(rt, str(u.id), "deleted")
     _audit(rt, "identity.user_deleted", resource_id=str(u.id), uid=m.uid, stack=stack.name, reason=m.reason, entry_uuid=u.entry_uuid,
            mailbox_retained=True)
@@ -1439,7 +1624,9 @@ def reconcile_due(rt: Runtime) -> int:
 
 
 MODELS = {"idm.user.devices": UserDevices, "idm.stack.register": StackRegister, "idm.user.create": UserCreate, "idm.user.update_groups": UserUpdateGroups,
-          "idm.user.disable": UserDisable, "idm.user.enable": UserEnable, "idm.user.delete": UserDelete, "idm.reconcile": Reconcile}
+          "idm.user.disable": UserDisable, "idm.user.enable": UserEnable, "idm.user.delete": UserDelete, "idm.reconcile": Reconcile,
+          "idm.user.set_extension": UserSetExtension, "idm.user.issue_sip_credential": IssueSipCredential}
 EXECUTORS = {"idm.user.devices": exec_devices, "idm.stack.register": exec_register, "idm.user.create": exec_create, "idm.user.update_groups": exec_update_groups,
-             "idm.user.disable": exec_disable, "idm.user.enable": exec_enable, "idm.user.delete": exec_delete, "idm.reconcile": exec_reconcile}
+             "idm.user.disable": exec_disable, "idm.user.enable": exec_enable, "idm.user.delete": exec_delete, "idm.reconcile": exec_reconcile,
+             "idm.user.set_extension": exec_set_extension, "idm.user.issue_sip_credential": exec_issue_sip}
 SECRETS = {"idm.stack.register": ("ldap_bind_password", "kc_client_secret", "mas_client_secret")}

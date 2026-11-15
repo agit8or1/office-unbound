@@ -8,6 +8,7 @@ import sys
 USER_UNITS = {"gromox.sync_user": "ou-rb-gromox-sync", "gromox.kick_user": "ou-rb-gromox-quarantine",
               "gromox.user_state": "ou-rb-gromox-state", "gromox.kill_sessions": "ou-rb-gromox-kill",
               "gromox.wipe_devices": "ou-rb-gromox-wipe", "gromox.devices": "ou-rb-gromox-devices", "opencloud.check_user": "ou-rb-opencloud-check", "opencloud.revoke_app_tokens": "ou-rb-opencloud-revoke",
+              "pbx.sync_extensions": "ou-rb-pbx-sync", "pbx.kick_user": "ou-rb-pbx-kick", "pbx.user_state": "ou-rb-pbx-state", "pbx.issue_credential": "ou-rb-pbx-issue",
               "podman.pull_verified": "ou-rb-podman", "podman.deploy_unit": "ou-rb-podman", "podman.remove_unit": "ou-rb-podman",
               "podman.status": "ou-rb-podman", "guest.facts": "ou-rb-podman", "pkg.install_pinned": "ou-rb-pkg",
               "backup.run": "ou-rb-backup", "backup.verify": "ou-rb-backup", "backup.prune": "ou-rb-backup"}
@@ -26,7 +27,9 @@ print('  if (action.id == "org.freedesktop.systemd1.manage-units" && action.look
 print("      allowed.indexOf(action.lookup(\"unit\")) >= 0) return polkit.Result.YES;")
 print("  // identity runbooks: START exactly the fixed template units with a lowercase-uid instance; nothing else")
 print('  if (action.id == "org.freedesktop.systemd1.manage-units" && action.lookup("verb") == "start") {')
-print('    var m = /^(ou-rb-[a-z-]+)@[a-z][a-z0-9._-]{1,31}\\.service$/.exec(action.lookup("unit") || "");')
+# <uid>.<device> instance names (pbx.issue_credential) are up to 32 + 1 + 6 characters; every other runbook keeps the plain uid limit
+maxlen = 40 if "pbx.issue_credential" in cfg["runbooks"] else 31
+print('    var m = /^(ou-rb-[a-z-]+)@[a-z][a-z0-9._-]{1,%d}\\.service$/.exec(action.lookup("unit") || "");' % maxlen)
 print("    if (m && tmpl.indexOf(m[1]) >= 0) return polkit.Result.YES;")
 print("  }")
 print("  return polkit.Result.NO;")

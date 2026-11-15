@@ -1,0 +1,16 @@
+Format: https://www.debian.org/doc/packaging-manuals/copyright-format/1.0/
+Upstream-Name: Asterisk
+Source: https://www.asterisk.org/
+
+Files: *
+Copyright: 1999-2026 Sangoma Technologies Corporation and contributors (see CREDITS)
+License: GPL-2
+ Asterisk is distributed under the GNU GPL version 2 with the OpenSSL linking exception in LICENSE.
+ Bundled pjproject 2.17 (Teluu Inc.): GPL-2+, with third-party parts under BSD/MIT/LGPL terms.
+ On Debian systems the full text of the GNU General Public License version 2
+ can be found in /usr/share/common-licenses/GPL-2. Upstream terms: /usr/share/doc/ou-asterisk/LICENSE.
+
+Files: debian/*
+Copyright: 2026 Office Unbound
+License: GPL-2
+ See above.
