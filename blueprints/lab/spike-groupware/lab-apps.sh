@@ -73,3 +73,5 @@ location /web/ {
 EOF
 systemctl restart php8.2-fpm; nginx -t && systemctl reload nginx
 fi
+# M1 (security review 4): zcore.sock group-restricted to the php-fpm pool users (takes effect after the next zcore + php-fpm restart)
+sh "$(dirname "$0")/ou-zcore-lockdown.sh"
