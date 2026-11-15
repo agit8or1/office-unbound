@@ -3,7 +3,7 @@
 Apply with `patch -p1` from the Gromox source root (3.13, tree `/usr/src/ou/gromox`). Patches are intended to be upstreamable as they are; each is
 self-contained and has no build-system change.
 
-## 0001-imap-event-USER-KICK-terminate-sessions-of-one-user.patch
+## 0002-imap-event-user-kick.patch
 
 **Problem.** Gromox has no way to end the open IMAP sessions of ONE user. The only timers are global (`imap_autologout_time`) and restarting
 `gromox-imap` hits every user. Suspending a user (`address_status`) only stops *new* logins; a session that is already authenticated keeps reading the
@@ -17,6 +17,12 @@ mailbox (measured in `docs/status/user-lifecycle-results.md` section 5).
   session whose user was kicked after it authenticated gets `* BYE [UNAVAILABLE] Session terminated by administrator` and is closed through the
   normal end-of-processing path. Idle/IDLE connections are found by the existing sleeping-list scanner (~100 ms), connections that send a command are
   checked at the start of `imap_parser_process`. A session authenticated *after* the kick is not affected (re-enable works, no ban list).
+* **Which sessions are kicked (security review 4, M2).** The match is on the session's AUTHENTICATED identity (`ctx.authenticated_actor`; the
+  login name before `!` on a delegated `actor!target` login), not on the mailbox it is attached to (`ctx.username`). Kicking bob therefore ends
+  `bob`, `bob!carol` and `bob!shared`, and does NOT end `carol!bob` (carol's delegate session on bob's mailbox). The kick table is bounded
+  (10 000 entries, oldest evicted; pruned only when it has grown) so it cannot be inflated through the event socket (L3).
+  Test: `blueprints/lab/tests/gromox_user_kick_delegate_test.py` (build machine only): the pre-fix code closes A=bob and D=carol!bob but leaves
+  B=bob!carol alive (FAIL), the fixed code closes A and B and leaves C and D alone (PASS).
 * Sender: any process that can connect to the event socket (`unix:/run/gromox/event.sock`, same trust as every event producer) sends
   `ID <name>` then `USER-KICK <user> *`. The ICS agent helper `ou-gw-user kill <uid>` does exactly this.
 
@@ -27,3 +33,8 @@ a login and the end of its first processing pass (a few ms) is not covered by `a
 **Evidence:** built on `ou-gw1` (`/usr/src/ou/gromox-ac`, only `imap` and `event` rebuilt), installed over `/usr/libexec/gromox/{imap,event}` (originals in
 `/root/ac-orig/`), selected and authenticated-only sessions closed in <1 s, a bystander user's session and a fresh login of the kicked user unaffected
 (`ics/scripts/lab_user_lifecycle.py gaps`).
+
+## 0001-authmgr-bearer-claims.patch (L1, security review 4)
+Signature first: the token is parsed as JSON only after the RS256 signature verified, `exp`/`nbf` must satisfy `isInt64()` (jsoncpp 1.9.5 throws
+`Json::LogicError` for values above INT64_MAX), and `login_token()` catches `std::exception`. `blueprints/lab/tests/gromox_bearer_claims_test.sh` now
+sends forged tokens with `exp`/`nbf` = 18446744073709551615 and 1e19 and checks that zcore stays up (`NRestarts=0`).

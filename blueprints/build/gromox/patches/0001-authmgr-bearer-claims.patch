@@ -12,16 +12,22 @@ including tokens issued to a different OAuth client (audience confusion).
 - New gromox.cfg directives bearer_issuer and bearer_audience (default empty
   = unchanged behaviour, with a NOTICE in the log): "iss" must equal the
   issuer; the audience must equal "aud" or be an element of it.
+- The signature is verified BEFORE the header and claims are parsed (nothing
+  attacker-controlled reaches the JSON parser unauthenticated). "exp"/"nbf"
+  must be int64 (isInt64): values above INT64_MAX (jsoncpp 1.9.5 throws
+  Json::LogicError from asInt64()) are rejected, and login_token() also
+  catches std::exception, so a forged token can no longer abort zcore
+  (security review 4, L1).
 - The claim logic is a header-only function (include/gromox/bearer.hpp) with
   a unit test (tests/bearer.cpp, part of `make check`).
 
-Tested (docs/status/sso-rollout-results.md): unit test 27/27; real Keycloak
+Tested (docs/status/sso-rollout-results.md): unit test 35/35 (incl. exp/nbf above INT64_MAX); real Keycloak
 tokens through zcore mapi_logon_token with different policies
 (blueprints/lab/tests/gromox_bearer_claims_test.sh).
 
 --- a/Makefile.am
 +++ b/Makefile.am
-@@ -240,7 +240,7 @@
+@@ -240,7 +240,7 @@ mapi_la_LDFLAGS += -Wl,--allow-shlib-undefined
  endif
  EXTRA_mapi_la_DEPENDENCIES = default.sym
  
@@ -30,7 +36,7 @@ tokens through zcore mapi_logon_token with different policies
  if HAVE_ESEDB
  noinst_PROGRAMS += tests/epv_unpack
  endif
-@@ -249,7 +249,7 @@
+@@ -249,7 +249,7 @@ noinst_PROGRAMS += tests/gssauth
  endif
  dldcheck_SOURCES = tools/dldcheck.cpp
  dldcheck_LDADD = ${dl_LIBS} ${libHX_LIBS}
@@ -39,7 +45,7 @@ tokens through zcore mapi_logon_token with different policies
  tests_udb_SOURCES = tests/userdb.cpp
  tests_udb_LDADD = ${libHX_LIBS} libgromox_common.la libgxs_mysql_adaptor.la
  tests_bodyconv_SOURCES = tests/bodyconv.cpp
-@@ -266,6 +266,8 @@
+@@ -266,6 +266,8 @@ tests_gssauth_SOURCES = tests/gssauth.cpp
  tests_gssauth_LDADD = ${libHX_LIBS} ${gss_LIBS} libgromox_common.la
  tests_gxl_383_SOURCES = tests/gxl-383.cpp
  tests_gxl_383_LDADD = libgromox_common.la libgromox_exrpc.la libgromox_mapi.la
@@ -48,7 +54,7 @@ tokens through zcore mapi_logon_token with different policies
  tests_jsontest_SOURCES = tests/jsontest.cpp
  tests_jsontest_LDADD = ${jsoncpp_LIBS} libgromox_common.la libgromox_mapi.la
  tests_oxcmail_ie_SOURCES = tests/oxcmail_ie.cpp
-@@ -336,7 +338,7 @@
+@@ -336,7 +338,7 @@ tzd_files = data/AUS_Central.tzd data/AUS_Eastern.tzd data/Afghanistan.tzd data/
  tzd_files += data/Greenland.tzd data/Greenwich.tzd data/Haiti.tzd data/Hawaiian.tzd data/India.tzd data/Iran.tzd data/Israel.tzd data/Jordan.tzd data/Kaliningrad.tzd data/Kamchatka.tzd data/Korea.tzd data/Libya.tzd data/Line_Islands.tzd data/Lord_Howe.tzd data/Magadan.tzd data/Magallanes.tzd data/Marquesas.tzd data/Mauritius.tzd data/Mid-Atlantic.tzd data/Middle_East.tzd data/Montevideo.tzd data/Morocco.tzd data/Mountain.tzd data/Mountain__Mexico_.tzd data/Myanmar.tzd data/N__Central_Asia.tzd data/Namibia.tzd data/Nepal.tzd data/New_Zealand.tzd data/Newfoundland.tzd data/Norfolk.tzd data/North_Asia.tzd data/North_Asia_East.tzd data/North_Korea.tzd data/Omsk.tzd data/Pacific.tzd data/Pacific_SA.tzd data/Pacific__Mexico_.tzd data/Pakistan.tzd data/Paraguay.tzd data/Qyzylorda.tzd data/Romance.tzd data/Russia_Time_Zone_10.tzd data/Russia_Time_Zone_11.tzd data/Russia_Time_Zone_3.tzd data/Russian.tzd data/SA_Eastern.tzd data/SA_Pacific.tzd data/SA_Western.tzd data/SE_Asia.tzd data/Saint_Pierre.tzd data/Sakhalin.tzd data/Samoa.tzd data/Sao_Tome.tzd
  tzd_files += data/Saratov.tzd data/Singapore.tzd data/South_Africa.tzd data/South_Sudan.tzd data/Sri_Lanka.tzd data/Sudan.tzd data/Syria.tzd data/Taipei.tzd data/Tasmania.tzd data/Tocantins.tzd data/Tokyo.tzd data/Tomsk.tzd data/Tonga.tzd data/Transbaikal.tzd data/Turkey.tzd data/Turks_And_Caicos.tzd data/US_Eastern.tzd data/US_Mountain.tzd data/UTC+12.tzd data/UTC+13.tzd data/UTC-02.tzd data/UTC-08.tzd data/UTC-09.tzd data/UTC-11.tzd data/UTC.tzd data/Ulaanbaatar.tzd data/Venezuela.tzd data/Vladivostok.tzd data/Volgograd.tzd data/W__Australia.tzd data/W__Central_Africa.tzd data/W__Europe.tzd data/W__Mongolia.tzd data/West_Asia.tzd data/West_Bank.tzd data/West_Pacific.tzd data/Yakutsk.tzd data/Yukon.tzd
  tzd_files += data/windowsZones.xml
@@ -59,7 +65,7 @@ tokens through zcore mapi_logon_token with different policies
  header_files += include/gromox/sent_copy.hpp include/gromox/socketpass.hpp include/gromox/sortorder_set.hpp include/gromox/stream.hpp include/gromox/svc_common.h include/gromox/svc_loader.hpp include/gromox/textmaps.hpp include/gromox/threads_pool.hpp include/gromox/tie.hpp include/gromox/tnef.hpp include/gromox/unordered_map_assist.hpp include/gromox/usercvt.hpp include/gromox/util.hpp include/gromox/vcard.hpp include/gromox/workqueue.hpp include/gromox/xarray2.hpp include/gromox/zcore_allcalls.hpp include/gromox/zcore_client.hpp include/gromox/zcore_rpc.hpp include/gromox/zcore_types.hpp include/gromox/zz_ndr_stack.hpp
 --- a/doc/authmgr.4gx
 +++ b/doc/authmgr.4gx
-@@ -37,6 +37,24 @@
+@@ -37,6 +37,24 @@ regardless of this setting. Subsecond resolution is available.
  .br
  Default: \fI1s\fP
  .TP
@@ -94,7 +100,7 @@ tokens through zcore mapi_logon_token with different policies
  #include <gromox/clock.hpp>
  #include <gromox/common_types.hpp>
  #include <gromox/config_file.hpp>
-@@ -75,10 +76,14 @@
+@@ -75,10 +76,14 @@ static std::atomic<unsigned int> am_cred_gen;
  static std::mutex am_cred_lock;
  static std::unordered_map<std::string, cred_entry> am_cred_cache;
  static constexpr size_t am_cred_max = 65536;
@@ -109,14 +115,38 @@ tokens through zcore mapi_logon_token with different policies
  	CFG_TABLE_END,
  };
  
-@@ -235,11 +240,23 @@
+@@ -235,14 +240,12 @@ static bool verify_token(std::string token, std::string &ex_user)
  	payload.insert(payload.size(), (4 - payload.size() % 4) % 4, '=');
  	signature.insert(signature.size(), (4 - signature.size() % 4) % 4, '=');
  
 -	/* Grab username */
 -	Json::Value root;
 -	if (!str_to_json(base64_decode(std::move(payload)), root))
-+	/* Header and claims. alg/iss/aud/exp/nbf are checked in bearer_claims_valid. */
+-		return false;
+-	payload.clear();
+-	ex_user = root["email"].asString();
+-
+-	/* Load pubkey */
++	/*
++	 * Signature first: nothing attacker-controlled is JSON-parsed or
++	 * interpreted before the issuer's key has vouched for it. Only RS256 is
++	 * implemented, so the signature check does not depend on the (still
++	 * untrusted) JOSE header; the header's alg is checked afterwards.
++	 */
+ 	static constexpr char pk_file[] = PKGSYSCONFDIR "/bearer_pubkey";
+ 	size_t pk_size = 0;
+ 	std::unique_ptr<char[], stdlib_delete> pk_str(HX_slurp_file(pk_file, &pk_size));
+@@ -255,9 +258,27 @@ static bool verify_token(std::string token, std::string &ex_user)
+ 		mlog(LV_ERR, "%s: this does not look like a PEM-encoded RSA key", pk_file);
+ 		return false;
+ 	}
+-	return time(nullptr) < root["exp"].asInt64() &&
+-	       verify_sig(std::move(pkey), signed_msg,
+-	       base64_decode(std::move(signature)));
++	if (!verify_sig(std::move(pkey), signed_msg, base64_decode(std::move(signature))))
++		return false;
++
++	/* Header and claims of a now authentic token. alg/iss/aud/exp/nbf/email are checked in bearer_claims_valid. */
 +	Json::Value hdr, root;
 +	std::string header(token.c_str(), strchr(token.c_str(), '.') - token.c_str());
 +	std::replace(header.begin(), header.end(), '-', '+');
@@ -124,8 +154,7 @@ tokens through zcore mapi_logon_token with different policies
 +	header.insert(header.size(), (4 - header.size() % 4) % 4, '=');
 +	if (!str_to_json(base64_decode(std::move(header)), hdr) ||
 +	    !str_to_json(base64_decode(std::move(payload)), root))
- 		return false;
- 	payload.clear();
++		return false;
 +	bearer_policy pol;
 +	{
 +		std::lock_guard hold(am_bearer_lock);
@@ -133,20 +162,23 @@ tokens through zcore mapi_logon_token with different policies
 +	}
 +	if (!bearer_claims_valid(hdr, root, pol, time(nullptr)))
 +		return false;
- 	ex_user = root["email"].asString();
- 
- 	/* Load pubkey */
-@@ -255,8 +272,7 @@
- 		mlog(LV_ERR, "%s: this does not look like a PEM-encoded RSA key", pk_file);
- 		return false;
- 	}
--	return time(nullptr) < root["exp"].asInt64() &&
--	       verify_sig(std::move(pkey), signed_msg,
-+	return verify_sig(std::move(pkey), signed_msg,
- 	       base64_decode(std::move(signature)));
++	ex_user = root["email"].asString();
++	return true;
  }
  
-@@ -397,6 +413,13 @@
+ static bool login_token(const char *token,
+@@ -277,6 +298,10 @@ static bool login_token(const char *token,
+ } catch (const std::bad_alloc &) {
+ 	mlog(LV_ERR, "E-1701: ENOMEM");
+ 	return false;
++} catch (const std::exception &e) {
++	/* e.g. Json::LogicError from a claim of unexpected type/range: reject the token, never abort the process */
++	mlog(LV_WARN, "authmgr: bearer token rejected (%s)", e.what());
++	return false;
+ }
+ 
+ #ifdef HAVE_SECURITY_PAM_MODULES_H
+@@ -397,6 +422,13 @@ static bool authmgr_reload()
  	}
  	am_fail_delay = std::chrono::nanoseconds(pfile->get_ll("auth_fail_delay"));
  	am_cred_lifetime = std::chrono::nanoseconds(pfile->get_ll("auth_cred_caching"));
@@ -160,7 +192,7 @@ tokens through zcore mapi_logon_token with different policies
  
  	auto val = pfile->get_value("auth_backend_selection");
  	if (val == nullptr) {
---- a/include/gromox/bearer.hpp
+--- /dev/null
 +++ b/include/gromox/bearer.hpp
 @@ -0,0 +1,70 @@
 +// SPDX-License-Identifier: AGPL-3.0-or-later
@@ -193,7 +225,7 @@ tokens through zcore mapi_logon_token with different policies
 + * The token is rejected when:
 + * - the JOSE "alg" is anything but "RS256" (the only algorithm the signature
 + *   code implements; "none" and HMAC variants must never be accepted),
-+ * - "exp" is missing, not a number, or in the past; "nbf" is in the future,
++ * - "exp" is missing, not an integer within int64 range, or in the past; "nbf" is in the future,
 + * - "email" (the account name) is missing or empty,
 + * - an issuer is configured and "iss" differs,
 + * - an audience is configured and "aud" does not contain it.
@@ -205,9 +237,9 @@ tokens through zcore mapi_logon_token with different policies
 +		return false;
 +	if (!hdr["alg"].isString() || hdr["alg"].asString() != "RS256")
 +		return false;
-+	if (!claims["exp"].isIntegral() || now >= claims["exp"].asInt64())
++	if (!claims["exp"].isInt64() || now >= claims["exp"].asInt64())
 +		return false;
-+	if (claims.isMember("nbf") && (!claims["nbf"].isIntegral() || now < claims["nbf"].asInt64()))
++	if (claims.isMember("nbf") && (!claims["nbf"].isInt64() || now < claims["nbf"].asInt64()))
 +		return false;
 +	if (!claims["email"].isString() || claims["email"].asString().empty())
 +		return false;
@@ -233,9 +265,9 @@ tokens through zcore mapi_logon_token with different policies
 +}
 +
 +}
---- a/tests/bearer.cpp
+--- /dev/null
 +++ b/tests/bearer.cpp
-@@ -0,0 +1,58 @@
+@@ -0,0 +1,68 @@
 +// SPDX-License-Identifier: AGPL-3.0-or-later
 +// SPDX-FileCopyrightText: 2026 grommunio GmbH
 +// This file is part of Gromox.
@@ -292,5 +324,15 @@ tokens through zcore mapi_logon_token with different policies
 +	CHECK("reject: email empty", !bearer_claims_valid(H, J(R"({"exp":1000100,"email":""})"), none, now));
 +	CHECK("reject: email not a string", !bearer_claims_valid(H, J(R"({"exp":1000100,"email":["a@x"]})"), none, now));
 +	CHECK("reject: payload not an object", !bearer_claims_valid(H, J("[1]"), none, now));
++	/* L1: huge / non-int64 numbers must be rejected without throwing (Json::LogicError would abort zcore) */
++	for (const char *claims : {
++	    R"({"exp":18446744073709551615,"email":"b@x"})", R"({"exp":1e19,"email":"b@x"})", R"({"exp":-1e19,"email":"b@x"})",
++	    R"({"exp":9999999999,"nbf":18446744073709551615,"email":"b@x"})", R"({"exp":9999999999,"nbf":1e30,"email":"b@x"})",
++	    R"({"exp":9223372036854775808,"email":"b@x"})", R"({"exp":1.5,"email":"b@x"})"}) {
++		bool threw = false, ok = true;
++		try { ok = bearer_claims_valid(H, J(claims), none, now); } catch (...) { threw = true; }
++		CHECK(claims, !threw && !ok);
++	}
++	CHECK("accept: exp INT64_MAX", bearer_claims_valid(H, J(R"({"exp":9223372036854775807,"email":"b@x"})"), none, now));
 +	return fails ? EXIT_FAILURE : EXIT_SUCCESS;
 +}
