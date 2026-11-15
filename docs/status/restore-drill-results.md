@@ -36,3 +36,16 @@ Acceptance item 17 (restore to a separate machine), **files tier only**. Identit
 
 ## Still not proven
 Groupware tier restore to a separate machine (in-place export/import proven in GW07); a whole customer stack restored together with DNS cut-over; backup encryption, off-host copies, retention, measured RPO; Keycloak tarball verified only by SHA-1 (upstream publishes no SHA-256/signature) — supply-chain item.
+
+# Restore drill — ICS controller, 2026-11-15 (lead)
+Backup `ics/deploy/backup/ics-backup.sh` (online pg_dump; 552 KB) → `/var/backups/office-unbound/ics/20261115T180734Z`: schema 0005, 526 audit events, 4 operator accounts, keys, deployed release (sha256 e08f4997…4e29). Restore `ics-restore.sh` onto NEW Ubuntu 24.04 machine `ou-ics-r1`: **75 s**, PASSIVE.
+
+| Check on restored ICS | Result |
+|---|---|
+| `verify-chain` (restored audit HMAC key) | ok, checked=526, 0 problems, head d8f8f6c5bf84… == MANIFEST |
+| Operator login `lab-ap1` (password hash + vault-decrypted TOTP secret) | HTTP 200, session issued |
+| Audit append after login, re-verify | ok, checked=527 |
+| Passive: jobs queued/running; connections to node agents | 0; 0 (`/readyz` ready:false because worker off — expected) |
+
+Findings fixed: (1) restore numeric gid of `ics` differs on a new host → ownership re-applied by name; (2) `umask 077` made the release/venv unreadable for the service user (`status=203/EXEC Permission denied`) → release + venv under umask 022, secrets stay 077. Design decision recorded: restores start passive to prevent split-brain remediation. Runbook: docs/runbooks/ics-recovery.md.
+Not proven: cut-over of the console IP/nginx; agents accepting requests from the restored controller (expected: same signing key) — not exercised to avoid two controllers talking to live nodes.
