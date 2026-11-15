@@ -1,0 +1,9 @@
+{% from "_icons.html" import icon %}
+<details class="card plat" id="android" {% if hint == 'android' %}open{% endif %}>
+  <summary><span class="pt">{{ icon('devices') }}Android</span><span class="ps">Mail, calendar, contacts, files</span></summary>
+  <ol class="steps">
+    <li><b>Mail:</b> in your mail app (for example K-9 Mail or FairEmail) add an account with your e-mail address. The app finds the server settings itself; if it asks, use the manual settings further down.</li>
+    <li><b>Calendar and contacts:</b> install DAVx5 (<a href="{{ apps.davx5_fdroid }}">F-Droid</a>), choose <i>Login with URL and user name</i>, use <code>https://{{ cfg.dav_host }}{{ cfg.dav_base }}/</code> and your e-mail address.</li>
+    <li><b>Files:</b> install the OpenCloud app (<a href="{{ apps.android_play }}">Google Play</a> or <a href="{{ apps.android_fdroid }}">F-Droid</a>) and sign in with {{ cfg.files_url }}.</li>
+  </ol>
+</details>

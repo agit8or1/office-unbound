@@ -1,0 +1,15 @@
+{% from "_icons.html" import icon %}
+<details class="card plat" id="windows" {% if hint == 'windows' %}open{% endif %}>
+  <summary><span class="pt">{{ icon('devices') }}Windows</span><span class="ps">Outlook, Thunderbird, Files</span></summary>
+  <h3>Outlook (classic, Microsoft 365 Apps or Office 2019 and later)</h3>
+  <ol class="steps">
+    <li>Open <b>File &gt; Add Account</b> and type your e-mail address{% if email %} (<b>{{ email }}</b>){% endif %}.</li>
+    <li>Outlook asks our server for its settings automatically (a standard feature called Autodiscover) and then asks for your password.</li>
+    <li>If Outlook cannot find the server, tell your administrator: Autodiscover must be published at <code>https://{{ cfg.autodiscover_host }}/autodiscover/autodiscover.xml</code>.</li>
+  </ol>
+  <p class="hint">"New Outlook" and the Outlook mobile apps cannot connect to servers other than Microsoft's. Use classic Outlook, Thunderbird or the built-in Windows Mail settings (IMAP) instead.</p>
+  <h3>Thunderbird</h3>
+  <ol class="steps"><li>Add a mail account with your e-mail address: Thunderbird looks up the settings by itself. If it does not, use the manual settings further down this page.</li></ol>
+  <h3>Files on your computer</h3>
+  {% include "devices/_desktop.html" %}
+</details>

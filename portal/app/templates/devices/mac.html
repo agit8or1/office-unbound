@@ -1,0 +1,12 @@
+{% from "_icons.html" import icon %}
+<details class="card plat" id="mac" {% if hint == 'mac' %}open{% endif %}>
+  <summary><span class="pt">{{ icon('devices') }}Mac</span><span class="ps">Mail, calendar, contacts, files</span></summary>
+  <ol class="steps">
+    <li>Click <b>Download profile</b> below. Open <b>System Settings &gt; Privacy &amp; Security &gt; Profiles</b>, double-click the profile and choose <b>Install</b>.</li>
+    <li>Enter your password when macOS asks. It is not stored in the profile.</li>
+  </ol>
+  <p><a class="btn primary" href="/devices/apple.mobileconfig" download>{{ icon('download') }}Download profile (.mobileconfig)</a></p>
+  <p class="hint">Outlook for Mac: add the account with your e-mail address; it uses the same automatic lookup as Outlook on Windows. Thunderbird also finds the settings by itself.</p>
+  <h3>Files on your computer</h3>
+  {% include "devices/_desktop.html" %}
+</details>
