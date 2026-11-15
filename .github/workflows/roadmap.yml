@@ -3,7 +3,7 @@ on:
   push:
     paths: ["docs/progress.json", "ROADMAP.md", "scripts/render_roadmap.py", "scripts/release_notes.py", "CHANGELOG.md", "VERSION", ".github/workflows/roadmap.yml"]
   pull_request:
-    paths: ["docs/progress.json", "ROADMAP.md", "scripts/render_roadmap.py"]
+    paths: ["docs/progress.json", "ROADMAP.md", "scripts/render_roadmap.py", "scripts/check_doc_links.py", "docs/admin/**", "docs/runbooks/**", "docs/RELEASING.md"]
 permissions:
   contents: read
 jobs:
@@ -15,3 +15,5 @@ jobs:
         run: python3 scripts/render_roadmap.py --check
       - name: Check changelog is consistent with VERSION and the progress feed
         run: python3 scripts/release_notes.py --check
+      - name: Administrator docs - relative links, cited paths and ics.cli commands exist
+        run: python3 scripts/check_doc_links.py
