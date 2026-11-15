@@ -24,9 +24,11 @@ export function asList(x: unknown): Raw[] {
   if (x && typeof x === 'object') { for (const v of Object.values(x as Raw)) if (Array.isArray(v)) return v as Raw[] }
   return []
 }
-/** Utilisation as a percentage: accepts a 0..1 fraction or a 0..100 value, or used/total. */
-export function pct(o: Raw, pctKeys: string[], usedKeys: string[], totalKeys: string[]): number | null {
-  const direct = num(first(o, ...pctKeys))
+/** Utilisation as a percentage: `pctKeys` are already 0..100 (the server's `cpu_pct`); `fracKeys` may be a 0..1 fraction or 0..100; else used/total. */
+export function pct(o: Raw, pctKeys: string[], usedKeys: string[], totalKeys: string[], fracKeys: string[] = []): number | null {
+  const exact = num(first(o, ...pctKeys))
+  if (exact !== null) return Math.round(exact * 10) / 10
+  const direct = num(first(o, ...fracKeys))
   if (direct !== null) return Math.round((direct <= 1 ? direct * 100 : direct) * 10) / 10
   const used = num(first(o, ...usedKeys)), total = num(first(o, ...totalKeys))
   return used !== null && total ? Math.round((used / total) * 1000) / 10 : null
@@ -34,16 +36,24 @@ export function pct(o: Raw, pctKeys: string[], usedKeys: string[], totalKeys: st
 
 export interface Res {
   id: string; name: string; status: string; kind: string
-  clusterId: string | null; nodeId: string | null; nodeName: string | null
+  clusterId: string | null; nodeId: string | null; nodeName: string | null; endpointId: string | null
   cpu: number | null; mem: number | null; disk: number | null
   raw: Raw
+}
+/** Rows carry `status` (nodes, guests); clusters/storage/networks only have the server-computed `health.status` (ok|warning|critical|unknown). */
+function statusOf(o: Raw): string {
+  const s = str(first(o, 'status', 'state'))
+  if (s) return s.toLowerCase()
+  const h = (o.health as Raw | undefined)?.status
+  return ({ ok: 'ok', warning: 'degraded', critical: 'offline', unknown: 'unknown' } as Record<string, string>)[String(h)] ?? 'unknown'
 }
 function base(o: Raw, kind: string): Res {
   const id = String(first(o, 'id', 'vmid', 'name') ?? '')
   return {
-    id, kind, name: String(first(o, 'name', 'node', 'hostname') ?? id), status: String(first(o, 'status', 'state') ?? 'unknown').toLowerCase(),
+    id, kind, name: String(first(o, 'name', 'node', 'hostname') ?? id), status: statusOf(o),
     clusterId: str(first(o, 'cluster_id', 'cluster')), nodeId: str(first(o, 'node_id')), nodeName: str(first(o, 'node_name', 'node')),
-    cpu: pct(o, ['cpu_percent', 'cpu_pct', 'cpu', 'cpu_usage'], [], []),
+    endpointId: str(first(o, 'endpoint_id')),
+    cpu: pct(o, ['cpu_percent', 'cpu_pct'], [], [], ['cpu', 'cpu_usage']),
     mem: pct(o, ['mem_percent', 'mem_pct', 'memory_percent', 'mem_usage'], ['mem', 'mem_used', 'memory_used'], ['maxmem', 'mem_total', 'memory_total', 'mem_max']),
     disk: pct(o, ['disk_percent', 'disk_pct', 'usage', 'used_percent', 'used_pct'], ['used', 'used_bytes', 'disk', 'disk_used'], ['total', 'total_bytes', 'maxdisk', 'disk_total', 'size']),
     raw: o,
@@ -81,7 +91,9 @@ export const runningGuests = (gs: Res[]) => gs.filter((g) => g.status === 'runni
 export function belongs(child: Res, parent: Res): boolean {
   const key = child.kind === 'storage' || child.kind === 'network' || child.kind === 'vm' || child.kind === 'lxc' ? 'node' : 'cluster'
   if (key === 'node') return (child.nodeId !== null && child.nodeId === parent.id) || (child.nodeName !== null && child.nodeName === parent.name)
-  return child.clusterId !== null && (child.clusterId === parent.id || child.clusterId === parent.name)
+  // the server has one cluster per endpoint: nodes belong to the cluster row of the same endpoint
+  return (child.clusterId !== null && (child.clusterId === parent.id || child.clusterId === parent.name))
+    || (child.endpointId !== null && child.endpointId === parent.endpointId)
 }
 
 // ---- metrics ----
@@ -103,16 +115,38 @@ export function parseSamples(x: unknown): Pt[] {
   }
   return out.sort((a, b) => a.t - b.t)
 }
+/** Server metric names per UI metric (GET /infra/metrics?scope=node|guest|storage&id=<uuid>&metric=&range=1h|24h|7d|30d).
+ *  Points are {ts, avg, max}. There is no cluster scope: callers pass node/guest ids. */
+const SERIES: Record<string, Record<MetricName, string[]>> = {
+  node: { cpu: ['cpu_pct'], memory: ['mem_used_bytes', 'mem_total_bytes'], storage: ['disk_used_bytes', 'disk_total_bytes'], network: ['net_in_bps', 'net_out_bps'] },
+  guest: { cpu: ['cpu_pct'], memory: ['mem_used_bytes', 'mem_total_bytes'], storage: ['disk_used_bytes', 'disk_total_bytes'], network: ['net_in_bps', 'net_out_bps'] },
+  storage: { cpu: [], memory: [], storage: ['used_bytes', 'total_bytes'], network: [] },
+}
+function ratio(used: Pt[], total: Pt[]): Pt[] {
+  const t = new Map(total.map((p) => [p.t, p.v]))
+  return used.flatMap((p) => { const d = t.get(p.t); return d ? [{ t: p.t, v: Math.round((p.v / d) * 1000) / 10 }] : [] })
+}
+function sum(a: Pt[], b: Pt[]): Pt[] {
+  const m = new Map<number, number>()
+  for (const p of [...a, ...b]) m.set(p.t, (m.get(p.t) ?? 0) + p.v)
+  return [...m].sort((x, y) => x[0] - y[0]).map(([t, v]) => ({ t, v }))
+}
 export async function loadMetric(scope: string, id: string, metric: MetricName, range: string): Promise<MetricSeries> {
-  const r = await tryGet<unknown>(`infra/metrics?scope=${encodeURIComponent(scope)}&id=${encodeURIComponent(id)}&metric=${metric}&range=${range}`, [])
-  return { state: r.state, points: parseSamples(r.data) }
+  const names = SERIES[scope]?.[metric] ?? []
+  if (!names.length) return { state: 'ok', points: [] }
+  const rs = await Promise.all(names.map((n) => tryGet<unknown>(`infra/metrics?scope=${encodeURIComponent(scope)}&id=${encodeURIComponent(id)}&metric=${n}&range=${range}`, [])))
+  const state = rs.find((r) => r.state !== 'ok')?.state ?? 'ok'
+  const pts = rs.map((r) => parseSamples((r.data as Raw)?.points ?? r.data))
+  const points = metric === 'cpu' ? pts[0]! : metric === 'network' ? sum(pts[0]!, pts[1]!) : ratio(pts[0]!, pts[1]!)
+  return { state, points }
 }
 
 // ---- deployments ----
 export interface Deployment { endpointId: string | null; id: string; name: string; status: string; profile: string | null; updated: string | null; created: string | null }
 export function normDeployment(o: Raw): Deployment {
-  const id = String(first(o, 'id') ?? '')
-  return { endpointId: str(first(o, 'endpoint_id')), id, name: String(first(o, 'name', 'customer', 'customer_id') ?? id.slice(0, 8)), status: String(first(o, 'status', 'state') ?? 'unknown').toLowerCase(), profile: str(first(o, 'profile')), updated: str(first(o, 'updated_at')), created: str(first(o, 'created_at')) }
+  // deployments are addressed by slug (GET /deployments/{slug}); the uuid is only a row id
+  const id = String(first(o, 'slug', 'id') ?? '')
+  return { endpointId: str(first(o, 'endpoint_id')), id, name: String(first(o, 'slug', 'name', 'customer', 'customer_id') ?? id.slice(0, 8)), status: String(first(o, 'status', 'state') ?? 'unknown').toLowerCase(), profile: str(first(o, 'profile')), updated: str(first(o, 'updated_at')), created: str(first(o, 'created_at')) }
 }
 export async function loadDeployments(): Promise<Loaded<Deployment[]>> {
   const r = await tryGet<unknown>('deployments', [])

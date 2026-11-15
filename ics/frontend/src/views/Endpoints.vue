@@ -25,23 +25,23 @@ const canEdit = computed(() => hasRole('operator'))
 const wizard = computed(() => hasPath('/setup'))
 
 const list = (v: unknown): string[] => (Array.isArray(v) ? v.map(String) : typeof v === 'string' && v ? v.split(',').map((x) => x.trim()).filter(Boolean) : [])
+type Obj = Record<string, any> // eslint-disable-line @typescript-eslint/no-explicit-any
 const roles = (e: Raw): string[] => {
-  const r = list(e.credential_roles ?? e.credentials ?? e.roles)
-  if (r.length) return r
+  const c = (e.credentials ?? {}) as Obj
   const out: string[] = []
-  if (e.token_id || e.has_inventory_credential) out.push('inventory')
-  if (e.has_provision_credential || e.provision_token_id) out.push('provision')
+  if (c.inventory?.present) out.push('inventory')
+  if (c.provision?.present) out.push('provision')
   return out
 }
+// GET /endpoints returns health {status: ok|warning|critical|unknown|disabled|detached, reason}
 const state = (e: Raw): string => {
-  if (e.enabled === false || e.disabled === true || e.status === 'disabled') return 'disabled'
-  const s = String(e.health ?? e.status ?? '').toLowerCase()
-  if (s) return s
-  if (e.last_probe_ok === false) return 'failed'
-  return e.last_probe_at || e.last_inventory_at || e.last_discovery_at ? 'online' : 'unknown'
+  if (e.enabled === false) return 'disabled'
+  const s = String(((e.health ?? {}) as Obj).status ?? '').toLowerCase()
+  return ({ ok: 'online', warning: 'degraded', critical: 'failed', unknown: 'unknown', disabled: 'disabled', detached: 'detached' } as Record<string, string>)[s] ?? 'unknown'
 }
-const probeAt = (e: Raw) => (e.last_probe_at ?? e.last_probe ?? null) as string | null
-const discAt = (e: Raw) => (e.last_discovery_at ?? e.last_inventory_at ?? e.last_discovered_at ?? null) as string | null
+const probeAt = (e: Raw) => (((e.last_probe ?? {}) as Obj).at ?? null) as string | null
+const discAt = (e: Raw) => (((e.last_discovery ?? {}) as Obj).at ?? null) as string | null
+const scope = (e: Raw, k: string): string[] => list((((e.scope ?? {}) as Obj)[k]))
 const refs = (e: Raw): Deployment[] => (deps.data.value?.data ?? []).filter((d) => d.endpointId === e.id)
 
 // ---- add / edit / disable / remove: all create plans ----
@@ -64,7 +64,7 @@ const f = reactive({ name: '', base_url: '', token_id: '', token_secret: '', tru
 function openAdd() { err.value = null; Object.assign(f, { name: '', base_url: '', token_id: '', token_secret: '', fingerprint: '', ca_pem: '', pools: '', storage: '', networks: '' }); drawer.value = 'add' }
 function openEdit(e: Raw) {
   err.value = null; editing.value = e
-  Object.assign(f, { name: e.name, pools: list(e.allowed_pools).join(', '), storage: list(e.allowed_storage).join(', '), networks: list(e.allowed_networks).join(', ') })
+  Object.assign(f, { name: e.name, pools: scope(e, 'allowed_pools').join(', '), storage: scope(e, 'allowed_storage').join(', '), networks: scope(e, 'allowed_networks').join(', ') })
   drawer.value = 'edit'
 }
 async function register() {
@@ -81,14 +81,16 @@ async function register() {
 async function saveEdit() {
   if (!editing.value) return
   const split = (s: string) => s.split(',').map((x) => x.trim()).filter(Boolean)
-  const ok = await plan('endpoint.update', { endpoint_id: editing.value.id, name: f.name.trim(), allowed_pools: split(f.pools), allowed_storage: split(f.storage), allowed_networks: split(f.networks) }, 'Endpoint update submitted.')
+  const ok = await plan('endpoint.update', { endpoint_id: editing.value.id, display_name: f.name.trim(), allowed_pools: split(f.pools), allowed_storage: split(f.storage), allowed_networks: split(f.networks) }, 'Endpoint update submitted.')
   if (ok) drawer.value = null
 }
 
 const confirm = ref<{ kind: 'disable' | 'enable' | 'remove'; ep: Raw } | null>(null)
+const confirmName = ref('')
 async function doConfirm() {
   const c = confirm.value; if (!c) return
-  const ok = await plan(`endpoint.${c.kind}`, { endpoint_id: c.ep.id }, c.kind === 'remove' ? 'Removal submitted.' : c.kind === 'disable' ? 'Disable submitted.' : 'Enable submitted.')
+  const params = c.kind === 'remove' ? { endpoint_id: c.ep.id, confirm_name: confirmName.value, force_detach: refs(c.ep).length > 0 } : { endpoint_id: c.ep.id }
+  const ok = await plan(`endpoint.${c.kind}`, params, c.kind === 'remove' ? 'Removal submitted.' : c.kind === 'disable' ? 'Disable submitted.' : 'Enable submitted.')
   if (ok) confirm.value = null
 }
 </script>
@@ -117,10 +119,10 @@ async function doConfirm() {
           <dt>Last probe</dt><dd>{{ probeAt(e) ? ago(probeAt(e)) : 'Not recorded' }}</dd>
           <dt>Last discovery</dt><dd>{{ discAt(e) ? ago(discAt(e)) : 'Not recorded' }}</dd>
           <dt>Credentials</dt><dd><span v-if="roles(e).length" class="chips"><span v-for="r in roles(e)" :key="r" class="tag">{{ r }}</span></span><span v-else class="muted">None recorded</span><span class="muted small"> (secrets are never shown)</span></dd>
-          <dt>Trust</dt><dd>{{ e.has_ca_bundle ? 'CA bundle' : 'Pinned fingerprint' }}<span v-if="e.fingerprint_sha256" class="mono small muted"> {{ e.fingerprint_sha256.slice(0, 17) }}…</span></dd>
-          <dt>Allowed pools</dt><dd><span v-if="list(e.allowed_pools).length" class="chips"><span v-for="p in list(e.allowed_pools)" :key="p" class="tag">{{ p }}</span></span><span v-else class="muted">Not restricted</span></dd>
-          <dt>Allowed storage</dt><dd><span v-if="list(e.allowed_storage).length" class="chips"><span v-for="p in list(e.allowed_storage)" :key="p" class="tag">{{ p }}</span></span><span v-else class="muted">Not restricted</span></dd>
-          <dt>Allowed networks</dt><dd><span v-if="list(e.allowed_networks).length" class="chips"><span v-for="p in list(e.allowed_networks)" :key="p" class="tag">{{ p }}</span></span><span v-else class="muted">Not restricted</span></dd>
+          <dt>Trust</dt><dd>{{ e.trust === 'ca_bundle' ? 'CA bundle' : 'Pinned fingerprint' }}<span v-if="e.fingerprint_sha256" class="mono small muted"> {{ e.fingerprint_sha256.slice(0, 17) }}…</span></dd>
+          <dt>Allowed pools</dt><dd><span v-if="scope(e, 'allowed_pools').length" class="chips"><span v-for="p in scope(e, 'allowed_pools')" :key="p" class="tag">{{ p }}</span></span><span v-else class="muted">Not restricted</span></dd>
+          <dt>Allowed storage</dt><dd><span v-if="scope(e, 'allowed_storage').length" class="chips"><span v-for="p in scope(e, 'allowed_storage')" :key="p" class="tag">{{ p }}</span></span><span v-else class="muted">Not restricted</span></dd>
+          <dt>Allowed networks</dt><dd><span v-if="scope(e, 'allowed_networks').length" class="chips"><span v-for="p in scope(e, 'allowed_networks')" :key="p" class="tag">{{ p }}</span></span><span v-else class="muted">Not restricted</span></dd>
           <dt>Added</dt><dd>{{ fmtTime(e.created_at) }}</dd>
         </dl>
         <div class="row">
@@ -128,7 +130,7 @@ async function doConfirm() {
           <template v-if="canEdit">
             <Button size="sm" icon="gear" @click="openEdit(e)">Edit</Button>
             <Button size="sm" variant="ghost" @click="confirm = { kind: state(e) === 'disabled' ? 'enable' : 'disable', ep: e }">{{ state(e) === 'disabled' ? 'Enable' : 'Disable' }}</Button>
-            <Button size="sm" variant="danger" @click="confirm = { kind: 'remove', ep: e }">Remove</Button>
+            <Button size="sm" variant="danger" @click="confirmName = ''; confirm = { kind: 'remove', ep: e }">Remove</Button>
           </template>
         </div>
       </Card>
@@ -163,9 +165,12 @@ async function doConfirm() {
         <p v-if="confirm.kind === 'disable'">While disabled, ICS stops discovery and will not make changes through this endpoint. Existing guests keep running.</p>
         <p v-else>The endpoint and its stored credentials are removed from ICS. Guests on the cluster are not touched, but ICS can no longer manage or monitor them.</p>
         <div v-if="refs(confirm.ep).length" class="alert warn"><span>{{ refs(confirm.ep).length }} deployment{{ refs(confirm.ep).length > 1 ? 's' : '' }} use this endpoint: {{ refs(confirm.ep).map((d) => d.name).join(', ') }}. They will not be manageable until it is enabled again.</span></div>
-        <p v-if="confirm.kind === 'remove'" class="muted small">Removal is high risk and needs two approvers. Nothing changes until it is approved.</p>
+        <template v-if="confirm.kind === 'remove'">
+          <p class="muted small">Removal is high risk and needs two approvers. Nothing changes until it is approved.</p>
+          <Field label="Type the endpoint name to confirm" for="ep-confirm"><input id="ep-confirm" v-model="confirmName" autocomplete="off" :placeholder="confirm.ep.name"></Field>
+        </template>
       </template>
-      <div class="row"><Button :variant="confirm.kind === 'remove' ? 'danger' : 'primary'" :loading="busy" @click="doConfirm">{{ confirm.kind === 'remove' ? 'Submit removal' : confirm.kind === 'disable' ? 'Disable endpoint' : 'Enable endpoint' }}</Button><Button variant="ghost" @click="confirm = null">Cancel</Button></div>
+      <div class="row"><Button :variant="confirm.kind === 'remove' ? 'danger' : 'primary'" :loading="busy" :disabled="confirm.kind === 'remove' && confirmName !== confirm.ep.name" @click="doConfirm">{{ confirm.kind === 'remove' ? 'Submit removal' : confirm.kind === 'disable' ? 'Disable endpoint' : 'Enable endpoint' }}</Button><Button variant="ghost" @click="confirm = null">Cancel</Button></div>
     </Drawer>
   </div>
 </template>

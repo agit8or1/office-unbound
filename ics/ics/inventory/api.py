@@ -115,7 +115,7 @@ def endpoint_health(r, now: datetime, stale: int) -> dict:
 
 
 _EP_SQL = ("SELECT e.id, e.name, e.display_name, e.type, e.base_url, e.token_id, e.provision_token_id, e.fingerprint_sha256, "
-           "(e.ca_pem IS NOT NULL) AS has_ca_bundle, e.allowed_pools, e.allowed_storage, e.allowed_networks, e.allowed_templates, "
+           "(e.ca_pem IS NOT NULL) AS has_ca_bundle, e.allowed_pools, e.allowed_nodes, e.allowed_storage, e.allowed_networks, e.allowed_templates, "
            "e.allow_cicustom, e.protected_vmids, e.defaults, e.enabled, e.detached_at, e.created_at, e.last_probe, e.last_probe_at, "
            "s.last_discovery_at, s.last_discovery_ok, s.last_error, s.warnings, s.counts, s.last_metrics_at, s.last_metrics_error "
            "FROM endpoints e LEFT JOIN infra_collect_state s ON s.endpoint_id = e.id")
@@ -128,7 +128,7 @@ def _ep_out(r, now, stale) -> dict:
         "trust": "fingerprint" if r.fingerprint_sha256 else "ca_bundle", "fingerprint_sha256": r.fingerprint_sha256,
         "credentials": {"inventory": {"present": r.detached_at is None, "token_id": r.token_id},
                         "provision": {"present": r.provision_token_id is not None, "token_id": r.provision_token_id}},
-        "scope": {"allowed_pools": r.allowed_pools, "allowed_storage": r.allowed_storage, "allowed_networks": r.allowed_networks,
+        "scope": {"allowed_pools": r.allowed_pools, "allowed_nodes": r.allowed_nodes, "allowed_storage": r.allowed_storage, "allowed_networks": r.allowed_networks,
                   "allowed_templates": r.allowed_templates, "allow_cicustom": r.allow_cicustom, "protected_vmids": r.protected_vmids},
         "defaults": r.defaults or {},
         "enabled": r.enabled, "detached_at": _iso(r.detached_at), "created_at": _iso(r.created_at),
@@ -280,7 +280,7 @@ def mount(app: FastAPI) -> None:
         except ValidationError as e:
             raise HTTPException(422, [{"loc": list(x["loc"]), "msg": x["msg"]} for x in e.errors()]) from None
         scope = EndpointScope(tuple(p.allowed_pools or ()), tuple(p.allowed_storage or ()), tuple(p.allowed_networks or ()),
-                              tuple(p.allowed_templates or ()), bool(p.allow_cicustom))
+                              tuple(p.allowed_templates or ()), bool(p.allow_cicustom), (), tuple(p.allowed_nodes or ()))
         try:
             res = probe_connection(rt, base_url=p.base_url, token_id=p.token_id, token_secret=p.token_secret.get_secret_value(),
                                    ca_pem=p.ca_pem, fingerprint_sha256=p.fingerprint_sha256, provision_token_id=p.provision_token_id,

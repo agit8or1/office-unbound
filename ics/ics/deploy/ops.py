@@ -40,7 +40,10 @@ class ChangeSet(BaseModel):
     tenants: int | None = Field(default=None, ge=1, le=50)
 
     def apply(self, spec: PlanInput) -> PlanInput:
-        return PlanInput.model_validate({**spec.model_dump(), **self.model_dump(exclude_none=True)})
+        new = self.model_dump(exclude_none=True)
+        if "optional" in new:  # a toggle adds to the existing overrides, it never wipes the others
+            new["optional"] = {**spec.optional, **new["optional"]}
+        return PlanInput.model_validate({**spec.model_dump(), **new})
 
 
 class DeploymentChange(BaseModel):
@@ -86,11 +89,14 @@ def set_env_factory(fn: Callable[[object, dict], ExecEnv]) -> None:
 # ---- planning helpers (read-only) --------------------------------------------------------------------------------
 
 def _latest_inventory(db, endpoint_name: str):
-    ep = db.execute(text("SELECT id FROM endpoints WHERE name = :n"), {"n": endpoint_name}).first()
+    ep = db.execute(text("SELECT id, allowed_nodes FROM endpoints WHERE name = :n AND detached_at IS NULL"), {"n": endpoint_name}).first()
     if ep is None:
         raise KeyError("endpoint not found")
     snap = db.execute(text("SELECT data FROM inventory_snapshots WHERE endpoint_id = :e ORDER BY collected_at DESC LIMIT 1"), {"e": str(ep.id)}).first()
-    return str(ep.id), (snap.data if snap else {})
+    data = snap.data if snap else {}
+    if ep.allowed_nodes:  # capacity is only ever counted on the endpoint's authorized nodes
+        data = {**data, "nodes": [n for n in data.get("nodes", []) if n.get("node") in ep.allowed_nodes]}
+    return str(ep.id), data
 
 
 def build_plan(db, spec: PlanInput, existing: dict | None = None) -> dict:

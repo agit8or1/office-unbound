@@ -16,7 +16,7 @@ __all__ = ["SelfIdentity", "local_identity", "probe_connection", "EndpointScope"
 def scope_of(ep) -> EndpointScope:
     return EndpointScope(tuple(ep.allowed_pools or ()), tuple(ep.allowed_storage or ()), tuple(ep.allowed_networks or ()),
                          tuple(getattr(ep, "allowed_templates", None) or ()), bool(ep.allow_cicustom),
-                         tuple(getattr(ep, "protected_vmids", None) or ()))
+                         tuple(getattr(ep, "protected_vmids", None) or ()), tuple(getattr(ep, "allowed_nodes", None) or ()))
 
 
 def provision_aad(ep, binding: str) -> str:

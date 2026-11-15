@@ -2,7 +2,7 @@ import { afterEach, describe, expect, it, vi } from 'vitest'
 import { createApp, h } from 'vue'
 import { donutArcs, linePath, makeScale, niceMax } from './charts/geometry'
 import { tone, worst } from './ui/status'
-import { asList, belongs, infraHealth, normGuest, normNode, parseSamples, tryGet, type Infra } from './infra'
+import { asList, belongs, infraHealth, loadMetric, normCluster, normDeployment, normGuest, normNode, normStorage, parseSamples, tryGet, type Infra } from './infra'
 import { nextAction, sortIncidents } from './incidents'
 import { fmtDuration } from './format'
 import { ApiError, type Incident } from './api'
@@ -55,6 +55,29 @@ describe('infra normalisation', () => {
     const g = normGuest({ vmid: 101, name: 'web', type: 'lxc', node: 'pve1' }), n = normNode({ id: 'n1', name: 'pve1' })
     expect(g.kind).toBe('lxc'); expect(belongs(g, n)).toBe(true)
     expect(belongs(normGuest({ vmid: 2, node_id: 'n1' }), n)).toBe(true); expect(belongs(normGuest({ vmid: 3, node: 'pve9' }), n)).toBe(false)
+  })
+  it('reads the real /infra rows: cpu_pct is already a percent, status falls back to health, nodes join clusters by endpoint', () => {
+    const n = normNode({ id: 'u1', endpoint_id: 'e1', name: 'pve06', status: 'online', cpu_pct: 0.5, mem_used: 25, mem_total: 100, disk_used: 1, disk_total: 4 })
+    expect(n.cpu).toBe(0.5); expect(n.mem).toBe(25); expect(n.disk).toBe(25)
+    const c = normCluster({ id: 'c1', endpoint_id: 'e1', name: 'pve', quorate: true, health: { status: 'critical' } })
+    expect(c.status).toBe('offline'); expect(belongs(n, c)).toBe(true)
+    expect(normStorage({ id: 's', name: 'local', node: 'pve06', used: 10, total: 40, health: { status: 'warning' } })).toMatchObject({ disk: 25, status: 'degraded' })
+    expect(normGuest({ id: 'g', vmid: 5, kind: 'lxc', node: 'pve06', status: 'running', mem_used: 1, mem_max: 4 })).toMatchObject({ kind: 'lxc', mem: 25 })
+    expect(normDeployment({ id: 'uuid', slug: 'prod', customer_id: 'acme', status: 'active' })).toMatchObject({ id: 'prod', name: 'prod' })
+  })
+  it('loads metrics from the real /infra/metrics (named series, avg points, ratios)', async () => {
+    const urls: string[] = []
+    vi.stubGlobal('fetch', vi.fn(async (url: string) => {
+      urls.push(url)
+      const m = /metric=(\w+)/.exec(url)![1]
+      const v = m.endsWith('total_bytes') ? 100 : m.startsWith('mem_used') ? 25 : 5
+      return new Response(JSON.stringify({ points: [{ ts: '2026-01-01T00:00:00+00:00', avg: v, max: v }] }), { status: 200 })
+    }))
+    const mem = await loadMetric('node', 'u1', 'memory', '24h')
+    expect(mem.points.map((p) => p.v)).toEqual([25]); expect(urls[0]).toContain('scope=node&id=u1&metric=mem_used_bytes&range=24h')
+    expect((await loadMetric('node', 'u1', 'network', '1h')).points.map((p) => p.v)).toEqual([10])
+    expect((await loadMetric('cluster', 'x', 'cpu', '1h')).points).toEqual([])
+    vi.unstubAllGlobals()
   })
   it('unwraps list envelopes and parses sample shapes', () => {
     expect(asList({ items: [{ a: 1 }] })).toHaveLength(1)

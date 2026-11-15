@@ -31,7 +31,7 @@ def test_probe_ok_and_all_verbs_mapped(sim):
 
 
 def test_probe_reports_missing_privileges_per_verb_with_fix(sim):
-    scope = EndpointScope(pools=("ou-lab", "other"), storage=("local-lvm", "other-lvm"), networks=("vmbr0", "vmbr1"))
+    scope = EndpointScope(pools=("ou-lab", "other"), storage=("local-lvm", "other-lvm"), networks=("vmbr0", "vmbr1"), nodes=("pve1", "pve2"))
     v = {x.verb: x for x in read_provider(sim, scope).probe().verbs}
     assert not v["clone_vm"].ok
     paths = {m["path"] for m in v["clone_vm"].missing}
@@ -86,7 +86,7 @@ def test_simulator_marker_refused_when_not_allowed(sim):
 
 def test_real_cluster_scenario_probe(real_sim):
     ident = SelfIdentity(macs=frozenset({"bc:24:11:e7:f0:24"}))
-    scope = EndpointScope(pools=("officeunbound-pve06",), storage=("PVE06-Storage",), networks=("vmbr0",))
+    scope = EndpointScope(pools=("officeunbound-pve06",), storage=("PVE06-Storage",), networks=("vmbr0",), nodes=("pve06",))
     p = ProxmoxProvider(ro(real_sim, REAL), scope=scope, inventory_token_id=REAL[0], provision_probe=ro(real_sim, REAL),
                         provision_token_id=REAL[0], self_identity=ident)
     r = p.probe()
@@ -197,7 +197,7 @@ def test_linked_clone_and_target_node(sim, job):
     m = mutations(sim)
     t = m.clone_vm(clone_spec(full=False, new_vmid=300))
     assert m.wait(t, timeout=5).state == "ok"
-    with pytest.raises(ScopeViolation, match="not part of this cluster"):
+    with pytest.raises(ScopeViolation, match="authorized node"):
         m.clone_vm(clone_spec(target_node="pve9", new_vmid=301))
 
 
@@ -258,7 +258,7 @@ def test_configure_nics_bridge_and_vlan_scope(sim, job):
     for nic, msg in ((NicSpec(0, "vmbr0"), "allowed networks"), (NicSpec(0, "vmbr9"), "allowed networks")):
         with pytest.raises(ScopeViolation, match=msg):
             m.configure_vm(ref(), VmConfigSpec(nics=(nic,)))
-    narrow = EndpointScope(pools=("ou-lab",), storage=("local-lvm",), networks=("vmbr1/20",))
+    narrow = EndpointScope(pools=("ou-lab",), storage=("local-lvm",), networks=("vmbr1/20",), nodes=("pve1", "pve2"))
     mm = mutations(sim, narrow)
     with pytest.raises(ScopeViolation):
         mm.configure_vm(ref(), VmConfigSpec(nics=(NicSpec(0, "vmbr1", 30),)))
@@ -292,18 +292,18 @@ def test_cicustom_needs_endpoint_opt_in_and_allowed_storage(sim, job):
     spec = VmConfigSpec(cicustom="user=local:snippets/ou-user.yaml")
     with pytest.raises(ScopeViolation, match="not enabled"):
         mutations(sim).configure_vm(ref(), spec)
-    on = EndpointScope(pools=("ou-lab",), storage=("local-lvm",), networks=("vmbr1",), allow_cicustom=True)
+    on = EndpointScope(pools=("ou-lab",), storage=("local-lvm",), networks=("vmbr1",), allow_cicustom=True, nodes=("pve1", "pve2"))
     with pytest.raises(ScopeViolation, match="storage"):                       # snippets storage 'local' is not allowed
         mutations(sim, on).configure_vm(ref(), spec)
     with pytest.raises(ProviderError):
         mutations(sim, on).configure_vm(ref(), VmConfigSpec(cicustom="user=local-lvm:../../etc/passwd"))
-    on2 = EndpointScope(pools=("ou-lab",), storage=("local-lvm", "local"), networks=("vmbr1",), allow_cicustom=True)
+    on2 = EndpointScope(pools=("ou-lab",), storage=("local-lvm", "local"), networks=("vmbr1",), allow_cicustom=True, nodes=("pve1", "pve2"))
     with pytest.raises(ProviderError, match="denied"):                         # PVE itself restricts cicustom: mapped 403
         mutations(sim, on2).configure_vm(ref(), spec)
 
 
 def test_pve_denied_nic_attach_is_mapped_to_actionable_message(sim, job):
-    wide = EndpointScope(pools=("ou-lab",), storage=("local-lvm",), networks=("vmbr0",))   # scope allows it, the token lacks SDN.Use
+    wide = EndpointScope(pools=("ou-lab",), storage=("local-lvm",), networks=("vmbr0",), nodes=("pve1", "pve2"))   # scope allows it, the token lacks SDN.Use
     with pytest.raises(ProviderError) as e:
         mutations(sim, wide).configure_vm(ref(), VmConfigSpec(nics=(NicSpec(0, "vmbr0"),)))
     assert e.value.code == "permission" and "SDN.Use" in e.value.message and "probe" in e.value.message
@@ -407,7 +407,7 @@ def test_tls_pin_mismatch_in_mutation_path(sim, job):
 # ---------------------------------------------------------------- HARD RULE: never touch the ICS's own VM
 def test_ics_own_vm_is_never_mutated_regardless_of_acl(real_sim, job):
     ident = SelfIdentity(macs=frozenset({"bc:24:11:e7:f0:24"}))
-    scope = EndpointScope(pools=("officeunbound-pve06",), storage=("PVE06-Storage",), networks=("vmbr0",))
+    scope = EndpointScope(pools=("officeunbound-pve06",), storage=("PVE06-Storage",), networks=("vmbr0",), nodes=("pve06",))
     from ics.providers.proxmox.provider import ProxmoxMutations
     m = ProxmoxMutations(rw(real_sim, REAL), scope=scope, token_id=REAL[0], allow_simulator=True, self_identity=ident)
     r = VmRef("pve06", 126, "vm", "d1")
@@ -426,7 +426,7 @@ def test_ics_own_vm_is_never_mutated_regardless_of_acl(real_sim, job):
 
 def test_self_match_by_smbios_uuid_and_fail_closed(real_sim, job):
     from ics.providers.proxmox.provider import ProxmoxMutations
-    scope = EndpointScope(pools=("officeunbound-pve06",), storage=("PVE06-Storage",), networks=("vmbr0",))
+    scope = EndpointScope(pools=("officeunbound-pve06",), storage=("PVE06-Storage",), networks=("vmbr0",), nodes=("pve06",))
     vm = real_sim.sim.vms[126]
     vm["pool"], vm["cfg"]["tags"] = "officeunbound-pve06", "ou-managed;ou-deployment-d1"
     vm["cfg"]["net0"] = "virtio=BC:24:11:00:00:01,bridge=vmbr0"           # MAC differs; UUID still identifies it
@@ -440,7 +440,7 @@ def test_self_match_by_smbios_uuid_and_fail_closed(real_sim, job):
 
 
 def test_protected_vmids_block_every_verb_and_clone_into(sim, job):
-    sc = EndpointScope(pools=("ou-lab",), storage=("local-lvm",), networks=("vmbr1",), protected=(150, 555))
+    sc = EndpointScope(pools=("ou-lab",), storage=("local-lvm",), networks=("vmbr1",), protected=(150, 555), nodes=("pve1", "pve2"))
     m = mutations(sim, sc)
     with pytest.raises(ScopeViolation, match="protected"):
         m.power(ref(150), "start")
@@ -483,7 +483,7 @@ def fixed_sim():
 def test_fixed_real_cluster_probe_clone_from_template_131_and_pool_membership_is_not_ownership(fixed_sim):
     from ics.providers.proxmox.provider import ProxmoxMutations
     ident = SelfIdentity(macs=frozenset({"bc:24:11:e7:f0:24"}))
-    scope = EndpointScope(pools=("officeunbound-pve06",), storage=("PVE06-Storage",), networks=("vmbr0",))
+    scope = EndpointScope(pools=("officeunbound-pve06",), storage=("PVE06-Storage",), networks=("vmbr0",), nodes=("pve06",))
     pr = ProxmoxProvider(ro(fixed_sim, REAL), scope=scope, inventory_token_id=REAL[0], provision_probe=ro(fixed_sim, REAL),
                          provision_token_id=REAL[0], self_identity=ident).probe()
     # the owner's role has no VM.Migrate: the probe says so (migrate is the only verb not available), everything else is fine

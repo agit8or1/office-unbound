@@ -73,8 +73,13 @@ export const rank = (r: Role) => ROLES.indexOf(r)
 
 export interface Me { id?: string; username: string; role: Role; csrf_token: string }
 export interface Endpoint {
-  id: string; name: string; type: string; base_url: string; token_id: string
-  fingerprint_sha256: string | null; has_ca_bundle: boolean; created_at: string
+  id: string; name: string; display_name?: string | null; type: string; base_url: string
+  trust: 'fingerprint' | 'ca_bundle'
+  credentials: { inventory: { present: boolean; token_id: string }; provision: { present: boolean; token_id: string | null } }
+  scope: { allowed_pools: string[]; allowed_nodes: string[]; allowed_storage: string[]; allowed_networks: string[] }
+  defaults?: { storage?: string; bridge?: string; vlan?: number }
+  enabled?: boolean
+  fingerprint_sha256: string | null; created_at: string
 }
 export interface Plan {
   id: string; action: string; params: Record<string, unknown>; risk: 'low' | 'high'

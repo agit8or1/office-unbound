@@ -40,12 +40,12 @@ class FakeProvider:
         if cb:
             cb()
 
-    def _task(self, op, vmid=None, node="pve1"):
+    def _task(self, op, vmid=None, node="pve1", name=None):
         tid = f"t{len(self.calls)}"
         if self.fail.get(op, 0) > 0:
             self.fail[op] -= 1
             self.polls[tid] = -1
-        return TaskRef(node, tid, vmid, op)
+        return TaskRef(node, tid, vmid, op, None, 9000 if op == "clone" else None, name)
 
     def discover(self):
         guests = [{"vmid": v["vmid"], "node": v["node"], "name": v["name"], "kind": "vm", "status": v["status"], "tags": [t.lower() for t in v["tags"]]}
@@ -59,14 +59,15 @@ class FakeProvider:
         node = spec.target_node or spec.template_node
         self.vms[vmid] = {"vmid": vmid, "node": node, "name": spec.name, "status": "stopped", "tags": [], "cfg": None, "disks": {},
                           "dep": spec.deployment_id}
-        t = self._task("clone", vmid, node)
+        t = self._task("clone", vmid, node, spec.name)
         if self.polls.get(t.upid) == -1:      # a failed clone task leaves no guest behind
             del self.vms[vmid]
         return t
 
     def finalize_clone(self, task):
-        self._rec("tag", self.vms[task.vmid]["name"])
         v = self.vms[task.vmid]
+        assert task.template_vmid == 9000 and task.name == v["name"] and task.upid  # the persisted clone TaskRef round-trips intact
+        self._rec("tag", v["name"])
         v["tags"] = ["ou-managed", f"ou-deployment-{v['dep']}"]
         return self._task("tag", task.vmid, task.node)
 
@@ -367,12 +368,20 @@ def test_adopts_orphan_vm_from_interrupted_clone(client, actors, rt, env):
         return t
     prov.finalize_clone = tag_then_die
     submit(actors, rt, "deployment.create", {"spec": spec_body(), "plan_hash": p["plan_hash"]})
-    n_orphans = len(prov.vms)
-    assert n_orphans == 1
+    n_cloned = len(prov.names("clone"))
+    assert n_cloned == 3 and sum(bool(v["tags"]) for v in prov.vms.values()) == 1  # all cloned; the tag step died after the first tag landed (response lost)
     prov.finalize_clone = orig
     _, jid2 = submit(actors, rt, "deployment.create", {"spec": spec_body(), "plan_hash": p["plan_hash"]})
     assert job(actors[0], jid2)["status"] == "succeeded" and len(prov.vms) == 3
-    assert any("adopted" in s["log_excerpt"] for s in steps(actors[0], jid2))
+    assert len(prov.names("clone")) == 3                          # no VM was cloned twice
+    st = {s["step_key"]: s for s in steps(actors[0], jid2)}
+    assert all(s["status"] == "succeeded" for s in st.values()) and all(st[f"vm.clone:{v['name']}"]["carried_from_job"] for v in p["vms"])
+    assert all({"ou-managed", "ou-deployment-prod"} <= set(v["tags"]) for v in prov.vms.values())
+    # the create plan tags every clone as its own step, after the clone and before configure (configure depends on it)
+    keys = [s["key"] for s in p["steps"]]
+    for v in p["vms"]:
+        n = v["name"]
+        assert keys.index(f"vm.clone:{n}") < keys.index(f"vm.tag:{n}") and keys.index(f"vm.tag:{n}") < keys.index(f"vm.configure:{n}")
 
 
 def test_untagged_guest_with_same_name_is_never_adopted(client, actors, rt, env):

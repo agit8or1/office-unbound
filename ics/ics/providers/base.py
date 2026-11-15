@@ -73,6 +73,10 @@ class TaskRef:
     vmid: int | None = None
     kind: str = "task"            # what the task does (qmclone, qmstart, ...)
     deployment_id: str | None = None
+    # clone tasks only: PVE puts the SOURCE template vmid in the UPID id field (qmclone:<template vmid>:<user>), not the new vmid, so the
+    # reference carries both; `name` is the clone spec's name, re-verified on the target guest before ownership tags are applied.
+    template_vmid: int | None = None
+    name: str | None = None
 
 
 @dataclass(frozen=True)

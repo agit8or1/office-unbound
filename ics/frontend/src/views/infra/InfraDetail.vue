@@ -63,7 +63,7 @@ const facts = computed(() => {
   return out
 })
 const cols: Col[] = [{ key: 'name', label: 'Name' }, { key: 'status', label: 'Status' }]
-const scopes = computed(() => (res.value && ['cluster', 'node', 'vm', 'lxc'].includes(res.value.kind) ? [{ scope: res.value.kind === 'lxc' ? 'guest' : res.value.kind, id: res.value.id, name: res.value.name }] : []))
+const scopes = computed(() => (res.value && ['node', 'vm', 'lxc'].includes(res.value.kind) ? [{ scope: res.value.kind === 'lxc' ? 'guest' : res.value.kind, id: res.value.id, name: res.value.name }] : []))
 const hrefFor = (kind: string) => (r: Res) => `/infrastructure/${PATH[kind]}/${encodeURIComponent(r.id)}`
 const label = (k: string) => ({ cluster: 'Cluster', node: 'Node', vm: 'Virtual machine', lxc: 'Container', storage: 'Storage pool', network: 'Network' } as Record<string, string>)[k]
 </script>

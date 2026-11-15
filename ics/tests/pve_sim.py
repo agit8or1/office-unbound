@@ -507,7 +507,7 @@ class PveSim:
 
         def done():
             self.vms[newid]["lock"] = None
-        return self._task(node, "qmclone" if kind == "qemu" else "vzclone", str(newid), tid, done)
+        return self._task(node, "qmclone" if kind == "qemu" else "vzclone", str(src["vmid"]), tid, done)  # PVE 9: source vmid, not the new one
 
     _CFG_PRIV = [(r"cores|sockets|vcpus|cpu", "VM.Config.CPU"), (r"memory|balloon", "VM.Config.Memory"),
                  (r"net\d+", "VM.Config.Network"), (r"(scsi|virtio|sata|ide)\d+|rootfs", "VM.Config.Disk"),

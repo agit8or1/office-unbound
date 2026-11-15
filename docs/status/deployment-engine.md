@@ -39,11 +39,9 @@ tampered stored plan refused, unconfigured provider fails cleanly, no secret lea
 - Job wall-clock: `run_job` uses the global job timeout; long deployments should raise `ICS_JOB_TIMEOUT_SECONDS` or rely on resume (re-submit continues).
 - Sizing numbers marked "assumption" in the catalog (per-user mailbox/file quota, office concurrency) are not measured.
 
-## Where this differs from agent F's UI types (`ics/frontend/src/wizards/api.ts`) - lead to reconcile (adapter in the UI client, or a thin mapper here)
-- `POST /deployments/plan`: mine takes `{customer_id, deployment_id, profile, users, tenants, domain, endpoint (name), pool, storage, bridge, vlan, os_image, allowed_nodes, optional{comp:bool},
-  custom_layout, backup_retention_days}`; F sends `{name, availability, endpoint_id, network{bridge,vlan}, backup{...}, optional_components[]}` (no customer_id/domain/pool).
-- Plan response: mine `steps[{key,kind,target,op,depends_on}]`, `firewall[]` (not `ports`), `checks[]` (not `monitoring`), `consumption.memory_mb`, `capacity{nodes[],storage[]}`, `errors/warnings[{code,message}]`.
-- `deployment.change`: mine `{deployment_id (slug), changes{users,profile,optional,custom_layout,backup_retention_days,allowed_nodes,tenants}, plan_hash, maintenance: window|override, maintenance_window_id}`;
-  F `{deployment_id, change{type,params}, plan_hash, maintenance_window, override}`. Change preview response: mine `{plan, diff{added,changed,removed,capacity_impact,downtime_seconds,snapshot_required,risk normal|high,requires_maintenance,steps}}`.
-- `GET /jobs/{id}/steps`: mine `{seq, step_key, kind, target, op, status, attempts, progress, log_excerpt, error_message, error_explanation}`.
-- Catalog: mine `{profiles:[{name,title,...}]}` / `{components:[...]}`; deployments are addressed by `slug`.
+## Integration with the provider and the wizards (resolved at merge)
+- `providers/base.py` is agent A's module. The executor uses its types: template looked up by name in the endpoint's pools (`VmCloneSpec.template_vmid`), the clone `TaskRef` (with `template_vmid` and `name`) is persisted in the `vm.clone` step result, and a separate `vm.tag:<vm>` step (plan step list: after the clone, before configure) runs `finalize_clone` so a crash between the two resumes from the stored reference. Guests are never adopted unless they carry `ou-managed` + `ou-deployment-<slug>`; an untagged guest with the planned name stops the step with an operator explanation.
+- `ExecEnv` is wired to `ProxmoxMutations` by `deploy/envs.py` inside job execution (needs a provision credential and authorized nodes). The agent port is still unconfigured: steps after `agent.enroll` fail with a clear message until the guest enrollment flow exists.
+- Plans only count capacity on the endpoint's authorized nodes (`allowed_nodes`).
+- Known limits: the root disk keeps the template's size (no create-time resize step yet; later disk growth uses `resize_disk` on `scsiN` by plan position); a `configure_vm` re-run after a crash in the middle of the call may re-attach an extra disk key.
+- Wizards use the backend shapes directly (`frontend/src/wizards/api.ts` maps them): `PlanInput`, `ChangeSet` (users, tenants, profile, optional, backup retention, allowed nodes; other change types are listed as Planned), `maintenance: window|override`, `job_steps` rows, catalog `name/title`.

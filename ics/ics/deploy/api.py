@@ -49,7 +49,7 @@ def register_routes(app: FastAPI, rt) -> None:
 
     @app.get(f"{API}/deployments")
     def list_deployments(user: User = Depends(require("viewer")), db: Session = Depends(get_db)):
-        rows = db.execute(text("SELECT id, slug, customer_id, profile, profile_version, status, current_revision, created_at, updated_at "
+        rows = db.execute(text("SELECT id, slug, customer_id, profile, profile_version, endpoint_id, status, current_revision, created_at, updated_at "
                                "FROM deployments ORDER BY slug")).all()
         return [_clean(r) for r in rows]
 

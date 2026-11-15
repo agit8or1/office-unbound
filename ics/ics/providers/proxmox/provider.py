@@ -7,6 +7,7 @@ re-checks scope: pool / storage / bridge(+VLAN) allowlists and the ownership tag
 """
 from __future__ import annotations
 
+import dataclasses
 import ipaddress
 import re
 import time
@@ -45,6 +46,10 @@ class EndpointScope:
     templates: tuple[int, ...] = ()         # extra template vmids allowed outside the pools (explicit operator choice)
     allow_cicustom: bool = False
     protected: tuple[int, ...] = ()         # guests that are never mutated, whatever the ACLs say
+    nodes: tuple[str, ...] = ()             # authorized cluster nodes; DENY BY DEFAULT: empty = no mutation is allowed anywhere
+
+    def node_ok(self, node: str | None) -> bool:
+        return bool(node) and node in self.nodes
 
     def network_ok(self, bridge: str, vlan: int | None) -> bool:
         for n in self.networks:
@@ -416,6 +421,9 @@ class ProxmoxProvider:
                 managed = self._node_audit(n["node"])
                 if managed is None:
                     managed = bool(n.get("maxcpu"))
+                if managed and self.scope.nodes and n["node"] not in self.scope.nodes:
+                    managed = False  # visible but outside the endpoint's authorized nodes: no capacity is counted, nothing is mutated
+                    d.warnings.append(f"node {n['node']} is not in the endpoint's authorized nodes: shown as not managed")
                 if not managed:
                     d.warnings.append(f"node {n['node']} is listed by the cluster but the token has no Sys.Audit on it: not managed "
                                       "(its capacity is unknown and is not counted)")
@@ -592,6 +600,8 @@ class ProxmoxMutations(ProxmoxProvider):
         require_job_execution()
         if not scope.pools:
             raise MutationNotAllowed("endpoint has no allowed pool; mutations refused")
+        if not scope.nodes:
+            raise MutationNotAllowed("endpoint has no authorized node; mutations refused")
         super().__init__(write, scope=scope, inventory_token_id=token_id, provision_token_id=token_id, allow_simulator=allow_simulator, sleep=sleep,
                          self_identity=self_identity)
         self._w, self._tid = write, token_id
@@ -615,12 +625,16 @@ class ProxmoxMutations(ProxmoxProvider):
     def _guest(self, ref: VmRef, *, allow_untagged: bool = False) -> dict:
         if not ref.deployment_id or not _DEP_ID.match(ref.deployment_id):
             raise ScopeViolation("a valid deployment id is required to modify a guest")
+        if not self.scope.node_ok(ref.node):
+            raise ScopeViolation(f"node {ref.node!r} is not an authorized node of this endpoint")
         self._refuse_self(ref.vmid, ref.node, ref.kind)
         r = next((x for x in self._resources() if x.get("vmid") == ref.vmid), None)
         if r is None:
             raise ScopeViolation(f"guest {ref.vmid} is not visible to the provisioning token (not in an allowed pool)")
         if r.get("node") != ref.node or r.get("type") != _KIND_PATH[ref.kind]:
             raise ScopeViolation(f"guest {ref.vmid} is not a {ref.kind} on node {ref.node}")
+        if not self.scope.node_ok(r.get("node")):
+            raise ScopeViolation(f"guest {ref.vmid} runs on node {r.get('node')!r}, which is not an authorized node of this endpoint")
         if r.get("pool") not in self.scope.pools:
             raise ScopeViolation(f"guest {ref.vmid} is in pool {r.get('pool')!r}, not in the endpoint's allowed pools")
         if r.get("template"):
@@ -669,6 +683,9 @@ class ProxmoxMutations(ProxmoxProvider):
             raise ProviderError("invalid_request", "VM name must be a valid DNS label")
         if spec.pool not in self.scope.pools:
             raise ScopeViolation(f"pool {spec.pool!r} is not in the endpoint's allowed pools")
+        for what, node in (("template node", spec.template_node), ("target node", spec.target_node or spec.template_node)):
+            if not self.scope.node_ok(node):
+                raise ScopeViolation(f"{what} {node!r} is not an authorized node of this endpoint")
         if spec.new_vmid is not None and spec.new_vmid in self.scope.protected:
             raise ScopeViolation(f"vmid {spec.new_vmid} is protected; refusing to clone into it")
         if spec.template_vmid in self.scope.protected:
@@ -699,21 +716,33 @@ class ProxmoxMutations(ProxmoxProvider):
         if spec.target_node and spec.target_node != spec.template_node:
             data["target"] = spec.target_node
         upid = self._do("post", f"/nodes/{_seg(spec.template_node)}/qemu/{spec.template_vmid}/clone", data)
-        return self._task(spec.template_node, upid, newid, "qmclone", spec.deployment_id)
+        t = self._task(spec.template_node, upid, newid, "qmclone", spec.deployment_id)
+        return dataclasses.replace(t, template_vmid=spec.template_vmid, name=spec.name)
 
     def finalize_clone(self, task: TaskRef) -> TaskRef:
         """Apply the ownership tags to a VM created by a clone task of this token. MUST be called by the executor once the clone task
-        succeeded (PVE clone cannot set tags). Refuses anything that is not that exact, successful clone task."""
+        succeeded (PVE clone cannot set tags). On PVE the clone UPID is `qmclone:<SOURCE template vmid>:<user>`, so the reference must carry
+        the template vmid; the NEW guest is then verified independently: allowed pool and node, only our tags (or none), and the name the
+        clone spec asked for."""
         require_job_execution()
         m = _UPID.match(task.upid or "")
-        if (not m or m.group(2) != "qmclone" or m.group(3) != str(task.vmid) or m.group(4) != self._tid
+        if (not m or m.group(2) != "qmclone" or task.template_vmid is None or m.group(3) != str(task.template_vmid)
+                or m.group(4) != self._tid or task.vmid is None or not task.name
                 or not task.deployment_id or not _DEP_ID.match(task.deployment_id.lower())):
-            raise ScopeViolation("finalize_clone needs the UPID of a qmclone task started by this credential")
+            raise ScopeViolation("finalize_clone needs the clone task (qmclone of the recorded template) started by this credential")
         if self.task_status(task).state != "ok":
             raise ProviderError("task_not_done", "the clone task has not completed successfully")
         r = next((x for x in self._resources() if x.get("vmid") == task.vmid), None)
-        if r is None or r.get("pool") not in self.scope.pools:
+        if r is None or r.get("pool") not in self.scope.pools or r.get("template"):
             raise ScopeViolation("cloned guest is not in an allowed pool")
+        if not self.scope.node_ok(r.get("node")):
+            raise ScopeViolation(f"cloned guest is on node {r.get('node')!r}, which is not an authorized node of this endpoint")
+        if r.get("name") != task.name:
+            raise ScopeViolation(f"guest {task.vmid} is named {r.get('name')!r}, not the {task.name!r} this clone created; refusing to tag it")
+        mine = [t for t in tags_of(r.get("tags")) if t == OWNED_TAG or t.startswith(DEP_PREFIX)]
+        foreign = [t for t in mine if t not in (OWNED_TAG, DEP_PREFIX + task.deployment_id.lower())]
+        if foreign:
+            raise ScopeViolation(f"guest {task.vmid} already carries ownership tags of another deployment ({', '.join(foreign)}); refusing")
         keep = [t for t in tags_of(r.get("tags")) if t != OWNED_TAG and not t.startswith(DEP_PREFIX)]
         tags = ";".join(keep + [OWNED_TAG, DEP_PREFIX + task.deployment_id.lower()])
         node = r["node"]
@@ -835,6 +864,8 @@ class ProxmoxMutations(ProxmoxProvider):
     def migrate(self, ref: VmRef, target_node: str, online: bool) -> TaskRef:
         require_job_execution()
         g = self._guest(ref)
+        if not self.scope.node_ok(target_node):
+            raise ScopeViolation(f"target node {target_node!r} is not an authorized node of this endpoint")
         if target_node not in self._node_names() or target_node == ref.node:
             raise ScopeViolation(f"target node {target_node!r} is not another node of this cluster")
         for k, v in self._cfg(ref).items():

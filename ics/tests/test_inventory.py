@@ -12,7 +12,7 @@ from ics.providers.base import MutationNotAllowed, VmRef
 from ics.providers.proxmox import open_mutations, open_read_provider
 from .infra_fixtures import H, INV, LAB, job, real_sim, sim  # noqa: F401
 
-SCOPE_P = {"allowed_pools": ["ou-lab"], "allowed_storage": ["local-lvm"], "allowed_networks": ["vmbr1"]}
+SCOPE_P = {"allowed_nodes": ["pve1", "pve2"], "allowed_pools": ["ou-lab"], "allowed_storage": ["local-lvm"], "allowed_networks": ["vmbr1"]}
 
 
 class World:
@@ -206,7 +206,7 @@ def test_discovery_failure_is_recorded_and_critical(w, sim, rt):
 def test_unmanaged_nodes_never_count_as_capacity(w, rt, real_sim):
     real = ("officeunbound@pam!ics", "realsecret0123456789")
     p = reg(real_sim, name="pve06", token_id=real[0], token_secret=real[1], provision_token_id=None, provision_token_secret=None,
-            allowed_pools=["officeunbound-pve06"], allowed_storage=["PVE06-Storage"], allowed_networks=["vmbr0"], defaults=None)
+            allowed_nodes=["pve06"], allowed_pools=["officeunbound-pve06"], allowed_storage=["PVE06-Storage"], allowed_networks=["vmbr0"], defaults=None)
     pl, j = w.run("endpoint.register", p)
     assert j["status"] == "succeeded", j
     refresh(w, j["result"]["endpoint_id"])
@@ -316,7 +316,7 @@ def test_setup_probe_real_scenario_flags_unnecessary_and_self_vm(w, real_sim, mo
     monkeypatch.setattr(pp, "_LOCAL", pp.SelfIdentity(macs=frozenset({"bc:24:11:e7:f0:24"})))
     real = ("officeunbound@pam!ics", "realsecret0123456789")
     b = probe_body(real_sim, token_id=real[0], token_secret=real[1], provision_token_id=real[0], provision_token_secret=real[1],
-                   allowed_pools=["officeunbound-pve06"], allowed_storage=["PVE06-Storage"], allowed_networks=["vmbr0"])
+                   allowed_nodes=["pve06"], allowed_pools=["officeunbound-pve06"], allowed_storage=["PVE06-Storage"], allowed_networks=["vmbr0"])
     out = w.ad.post(f"{H}/setup/probe", json=b, headers=w.adh).json()
     un = {u["privilege"] for u in out["permissions"]["provision"]["unnecessary"]}
     assert {"VM.Console", "VM.Backup"} <= un
@@ -467,17 +467,18 @@ def test_remove_requires_confirmation_force_when_referenced_and_keeps_history(w,
     w.plan("endpoint.remove", {"endpoint_id": eid, "confirm_name": "wrong"}, expect=422)
     p = w.plan("endpoint.remove", {"endpoint_id": eid, "confirm_name": "lab"})
     assert p["risk"] == "high"
-    with owner_engine.connect() as c:    # agent B's deployments table (introspected: endpoint_id + status)
-        c.execute(text("CREATE TABLE IF NOT EXISTS deployments (id serial PRIMARY KEY, endpoint_id uuid, status text)"))
-        c.execute(text("GRANT SELECT, INSERT, UPDATE ON deployments TO ics_test_app"))
-        c.execute(text("INSERT INTO deployments (endpoint_id, status) VALUES (:e, 'running')"), {"e": eid})
+    with rt.session() as db:    # the deployment engine's real table
+        db.execute(text("INSERT INTO deployments (slug, customer_id, profile, profile_version, endpoint_id, status, desired_spec) "
+                        "VALUES ('dep-ref', 'c1', 'lab', '1.0.0', :e, 'active', '{}'::jsonb)"), {"e": eid})
+        db.commit()
     try:
         w.plan("endpoint.remove", {"endpoint_id": eid, "confirm_name": "lab"}, expect=409)
         pl, j = w.run("endpoint.remove", {"endpoint_id": eid, "confirm_name": "lab", "force_detach": True})
         assert j["status"] == "succeeded" and j["result"]["referencing_deployments"] == 1
     finally:
-        with owner_engine.connect() as c:
-            c.execute(text("DROP TABLE deployments"))
+        with rt.session() as db:
+            db.execute(text("DELETE FROM deployments WHERE slug = 'dep-ref'"))
+            db.commit()
     assert w.v.get(f"{H}/endpoints").json() == []
     det = w.v.get(f"{H}/endpoints?include_detached=true").json()
     assert len(det) == 1 and det[0]["health"]["status"] == "detached" and det[0]["credentials"]["provision"]["present"] is False

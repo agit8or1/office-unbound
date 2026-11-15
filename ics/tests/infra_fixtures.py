@@ -11,7 +11,7 @@ from .pve_sim import PveSim, SimServer
 H = "/api/v1"
 INV = ("ics-inv@pve!inventory", "invsecret0123456789")
 LAB = ("ics-lab@pve!lab", "labsecret0123456789")
-SCOPE = EndpointScope(pools=("ou-lab",), storage=("local-lvm",), networks=("vmbr1",))
+SCOPE = EndpointScope(pools=("ou-lab",), storage=("local-lvm",), networks=("vmbr1",), nodes=("pve1", "pve2"))
 
 
 @pytest.fixture()

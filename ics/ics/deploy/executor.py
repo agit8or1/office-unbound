@@ -173,10 +173,23 @@ def h_provider_task(ctx: StepCtx) -> dict:
         spec = VmCloneSpec(template_vmid=int(tpl["vmid"]), template_node=tpl["node"], new_vmid=None, name=vm, pool=p["pool"],
                            storage=p["storage"], deployment_id=ctx.slug, target_node=p["node"])
         task = _poll(ctx, prov.clone_vm(spec), f"clone {vm}")
-        _poll(ctx, prov.finalize_clone(task), f"tag {vm}")  # PVE cannot tag at clone time: the ownership tags are applied here
         ctx.resource("vm", vm, state="creating", provider_ref={"node": p["node"], "vmid": task.vmid})
-        return {"node": p["node"], "vmid": task.vmid}
+        # the whole clone TaskRef is persisted in the step result so the tag step can resume after a crash
+        return {"node": p["node"], "vmid": task.vmid, "task": {"node": task.node, "upid": task.upid, "vmid": task.vmid, "kind": task.kind,
+                                                                 "template_vmid": task.template_vmid, "name": task.name}}
     ref = ctx.vm_ref(vm)
+    if op == "finalize_clone":  # PVE cannot tag at clone time: ownership tags are applied here, from the persisted clone TaskRef
+        if _find_guest(ctx, vm) is not None:
+            ctx.log(f"{vm} already carries the ownership tags")
+            return {"tagged": True, "already": True}
+        t = (ctx.outputs.get(f"vm.clone:{vm}") or {}).get("task")
+        if not t or not t.get("upid"):
+            raise StepFailed(f"cannot tag {vm}: the clone task was not recorded",
+                             "The guest exists but is not tagged as owned by this deployment and its clone task is unknown. Remove it in Proxmox "
+                             "(or tag it ou-managed + ou-deployment-" + ctx.slug + ") and re-run.", retryable=False)
+        task = TaskRef(t["node"], t["upid"], t["vmid"], t["kind"], ctx.slug, t.get("template_vmid"), t.get("name"))
+        _poll(ctx, prov.finalize_clone(task), f"tag {vm}")
+        return {"tagged": True}
     if op == "configure_vm":
         ci = p.get("cloud_init") or {}
         new = p.get("new_disks")  # change steps list only the disks to add; create adds every non-root disk

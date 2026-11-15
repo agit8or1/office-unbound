@@ -90,6 +90,8 @@ class EndpointRegister(endpoint_actions.ScopeLists):
             raise ValueError("provision_token_id and provision_token_secret go together")
         if self.provision_token_id and not self.allowed_pools:
             raise ValueError("a provision credential requires at least one allowed pool")
+        if self.provision_token_id and not self.allowed_nodes:
+            raise ValueError("a provision credential requires at least one authorized node (allowed_nodes)")
         return self
 
     @field_validator("token_secret", mode="before")
