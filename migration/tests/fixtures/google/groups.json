@@ -1,0 +1,4 @@
+{"kind": "admin#directory#groups", "groups": [
+  {"kind": "admin#directory#group", "id": "grp1", "email": "team@example.test", "name": "Team", "directMembersCount": "3", "adminCreated": true},
+  {"kind": "admin#directory#group", "id": "grp2", "email": "help@example.test", "name": "Help Desk", "directMembersCount": "2", "adminCreated": false}
+]}

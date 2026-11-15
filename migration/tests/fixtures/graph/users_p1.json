@@ -1,0 +1,8 @@
+{"@odata.context": "https://graph.microsoft.com/v1.0/$metadata#users(id,userPrincipalName,displayName,mail)",
+ "@odata.nextLink": "{base}/graph/v1.0/users?$select=id,userPrincipalName,displayName,mail,proxyAddresses,accountEnabled,userType,assignedLicenses,onPremisesSyncEnabled,createdDateTime&$top=2&$skiptoken=PAGE2",
+ "value": [
+  {"id": "u-0001", "userPrincipalName": "alice@contoso.example", "displayName": "Alice Adams", "mail": "alice@contoso.example", "accountEnabled": true, "userType": "Member",
+   "proxyAddresses": ["SMTP:alice@contoso.example", "smtp:a.adams@contoso.example", "smtp:alice@contosoexample.onmicrosoft.com"], "assignedLicenses": [{"skuId": "05e9a617-0261-4cee-bb44-138d3ef5d965", "disabledPlans": []}]},
+  {"id": "u-0002", "userPrincipalName": "bob.oneil@contoso.example", "displayName": "Bob O'Neil", "mail": "bob.oneil@contoso.example", "accountEnabled": true, "userType": "Member",
+   "proxyAddresses": ["SMTP:bob.oneil@contoso.example"], "assignedLicenses": [{"skuId": "05e9a617-0261-4cee-bb44-138d3ef5d965", "disabledPlans": []}]}
+ ]}

@@ -77,6 +77,18 @@ Conventions: "OU-UNASSIGNED" = no Office Unbound maintenance owner is named in a
 | opencloud-compose (reference only) | github.com/opencloud-eu/opencloud-compose | Commit `d4695d2` (`OC_COMPOSE_COMMIT`) | UNVERIFIED (not read) | Reference only; env semantics copied, not run. Not shipped | n/a | n/a | Not shipped | GitHub | None | OpenCloud (upstream); OU-UNASSIGNED | UNCLEAR (not shipped; licence not read) |
 | Reference source clones (Depl0y, St0r, rem0te, clientst0r, Collabora, grommunio, ONLYOFFICE) | `reference/` (gitignored) | Various (see component rows) | MIT for Depl0y, St0r, rem0te, clientst0r (per reuse audit); AGPL/MPL per rows above for the rest | Read-only analysis. Not shipped | n/a | n/a | Not shipped | Snapshots | None (unmodified) | OU-UNASSIGNED | n/a (not shipped) |
 
+## 7. Migration assessment tooling (`migration/`, Phase 7 step 1)
+
+Runtime code is stdlib-only (urllib, http.client, csv, socket, ssl) except `cryptography` (RS256 signing of the Google service-account JWT). Hashes: `migration/requirements.lock`, `migration/requirements-dev.lock` (copied from `ics/requirements.lock`, same versions as the ICS). Licenses below are as recorded for the same pins in ICS inventory/package metadata; re-verify with the license scan of ADR-0008 when it exists (status: recorded, not independently scanned).
+
+| Component | Repository | Pinned version | License (as found in source) | Build method | Runtime/user/connection restrictions | Branding obligations | Commercial use / redistribution | Update source | Fork/patch status | Maintenance owner | Gate |
+|---|---|---|---|---|---|---|---|---|---|---|---|
+| cryptography | PyPI `cryptography` | 50.0.2 (see also section 1 entry; ICS lock pins this version) | Apache-2.0 OR BSD-3-Clause | Vendor wheel (hash-pinned) | None found | None | Permitted (either licence) | PyPI | None | Upstream; OU-UNASSIGNED | PASS |
+| cffi (transitive) | PyPI `cffi` | 2.1.1 | MIT (metadata; UNVERIFIED by file scan) | Vendor wheel (hash-pinned) | None | None | Permitted | PyPI | None | Upstream; OU-UNASSIGNED | PASS |
+| pycparser (transitive) | PyPI `pycparser` | 3.12 | BSD-3-Clause (metadata; UNVERIFIED by file scan) | Vendor wheel (hash-pinned) | None | None | Permitted | PyPI | None | Upstream; OU-UNASSIGNED | PASS |
+| pytest + iniconfig, packaging, pluggy, Pygments (test only) | PyPI | 9.2.0 / 2.3.1 / 26.3 / 1.7.0 / 2.21.0 | MIT / MIT / Apache-2.0 OR BSD-2-Clause / MIT / BSD-2-Clause (metadata; UNVERIFIED by file scan) | Vendor wheels | None | None | Not shipped | PyPI | None | Upstream; OU-UNASSIGNED | PASS (not shipped) |
+| Microsoft Graph API, Google Admin SDK / Reports / Gmail / Drive APIs | n/a (remote services of the customer's own source tenant) | n/a | Vendor API terms apply to the customer's existing subscription; no Office Unbound-held key, no per-call fee | n/a | Source tenants throttle (documented 429 / 403 rateLimitExceeded) | None | Used only against a customer-owned source tenant during migration; NOT a runtime dependency of any delivered stack | n/a | None | n/a | PASS (optional, customer-side; not a mandatory external API) |
+
 ## Not yet inventoried
 
 - **ICS transitive Python packages** (installed in `ics/.venv`, licences not read): starlette 0.41.3, pydantic-core 2.27.2, argon2-cffi-bindings 26.2.0, cffi 2.1.1, pycparser 3.12, psycopg-binary 3.2.3 (bundles libpq), greenlet 3.5.6, Mako 1.4.3, MarkupSafe 3.0.4, anyio 4.16.0, h11 0.16.0, httpcore 1.0.9, idna 3.20, certifi 2026.10.23, click 8.5.1, annotated-types 0.8.0, typing_extensions 4.16.0, packaging 26.3, pluggy 1.7.0, iniconfig 2.3.1, pip 24.0.

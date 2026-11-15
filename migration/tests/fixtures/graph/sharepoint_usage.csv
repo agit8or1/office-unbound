@@ -1,0 +1,4 @@
+Report Refresh Date,Site Id,Site URL,Owner Display Name,Is Deleted,Last Activity Date,File Count,Active File Count,Page View Count,Visited Page Count,Storage Used (Byte),Storage Allocated (Byte),Root Web Template,Owner Principal Name,Report Period
+2026-11-13,s-1,https://contoso.sharepoint.com/sites/falcon,Falcon,False,2026-11-12,5000,100,900,50,32212254720,27487790694400,Group,,30
+2026-11-13,s-2,https://contoso.sharepoint.com/sites/intranet,Intranet,False,2026-11-12,300,10,20000,200,2147483648,27487790694400,Communication Site,,30
+2026-11-13,s-3,https://contoso.sharepoint.com/sites/old,Old,True,2025-01-01,1,0,0,0,1024,27487790694400,Team Site,,30

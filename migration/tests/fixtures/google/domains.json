@@ -1,0 +1,5 @@
+{"kind": "admin#directory#domains", "domains": [
+  {"kind": "admin#directory#domain", "domainName": "example.test", "isPrimary": true, "verified": true, "creationTime": "1427882000000",
+   "domainAliases": [{"domainAliasName": "alias.example.test", "parentDomainName": "example.test", "verified": true, "creationTime": "1427882000000"}]},
+  {"kind": "admin#directory#domain", "domainName": "second.example.test", "isPrimary": false, "verified": false, "creationTime": "1527882000000"}
+]}
