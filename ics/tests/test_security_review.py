@@ -680,3 +680,22 @@ def test_trusted_proxy_config_loopback_only(monkeypatch):
     assert cfg.proxy_headers is False and cfg.forwarded_allow_ips in ("", [])
     cfg = make_config(trusted_proxy="127.0.0.1")
     assert cfg.proxy_headers is True
+
+
+def test_cli_break_glass_disable_user_audited_and_guarded(rt, mk_user, capsys, monkeypatch):
+    import ics.cli as cli
+    from ics import audit as _audit
+    monkeypatch.setattr(cli, "Runtime", lambda: rt)
+    mk_user("bgadmin", "admin"); mk_user("bgappr", "approver")
+    assert cli.main(["disable-user", "--username", "bgappr", "--reason", "short"]) == 2          # reason required
+    assert cli.main(["disable-user", "--username", "bgappr", "--reason", "demo approver removal, owner request"]) == 0
+    with rt.session() as db:
+        assert db.execute(text("SELECT disabled FROM users WHERE username='bgappr'")).scalar() is True
+        ev = db.execute(text("SELECT action, details FROM audit_events WHERE action='user.disabled.break_glass' ORDER BY seq DESC LIMIT 1")).first()
+        assert ev and "owner request" in str(ev.details)
+        assert _audit.verify_chain(db)["ok"]
+    assert cli.main(["disable-user", "--username", "bgappr", "--reason", "idempotent second call ok"]) == 0
+    # last active admin is never disabled (other admins may exist from fixtures: disable them first via SQL in this test)
+    with rt.session() as db:
+        db.execute(text("UPDATE users SET disabled = true WHERE role='admin' AND username <> 'bgadmin'")); db.commit()
+    assert cli.main(["disable-user", "--username", "bgadmin", "--reason", "must refuse the last admin"]) == 1

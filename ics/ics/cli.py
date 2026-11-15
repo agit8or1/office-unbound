@@ -24,6 +24,9 @@ def main(argv=None) -> int:
     ul = sub.add_parser("unlock", help="clear login throttling for a user")
     ul.add_argument("--username", required=True)
     sub.add_parser("verify-chain", help="verify the audit hash chain; exit 1 if broken")
+    du = sub.add_parser("disable-user", help="BREAK-GLASS (host root): disable an operator account and end its sessions; audited")
+    du.add_argument("--username", required=True)
+    du.add_argument("--reason", required=True, help="why the normal approval workflow could not be used (recorded in the audit log)")
     args = ap.parse_args(argv)
     rt = Runtime()
     with rt.session() as db:
@@ -45,6 +48,29 @@ def main(argv=None) -> int:
             audit.append(db, "auth.unlocked", actor_name="cli", resource="user", details={"username": args.username})
             db.commit()
             print("cleared", n, "login attempt rows")
+            return 0
+        if args.cmd == "disable-user":
+            if len(args.reason.strip()) < 10:
+                print("--reason must explain the break-glass use (>= 10 characters)", file=sys.stderr)
+                return 2
+            row = db.execute(text("SELECT id, role, disabled FROM users WHERE username = :u FOR UPDATE"), {"u": args.username}).first()
+            if row is None:
+                print("no such user", file=sys.stderr)
+                return 1
+            if row.disabled:
+                print(args.username, "is already disabled")
+                return 0
+            if row.role == "admin":
+                others = db.execute(text("SELECT count(*) FROM users WHERE role = 'admin' AND NOT disabled AND id <> :i"), {"i": row.id}).scalar()
+                if not others:
+                    print("refusing: this is the last active admin", file=sys.stderr)
+                    return 1
+            db.execute(text("UPDATE users SET disabled = true WHERE id = :i"), {"i": row.id})
+            n = db.execute(text("DELETE FROM sessions WHERE user_id = :i"), {"i": row.id}).rowcount
+            audit.append(db, "user.disabled.break_glass", actor_name="cli", resource="user", resource_id=str(row.id),
+                         details={"username": args.username, "role": row.role, "sessions_revoked": n, "reason": args.reason.strip()[:500]})
+            db.commit()
+            print(f"disabled {args.username} (role {row.role}); revoked {n} session(s); recorded in audit log")
             return 0
         res = audit.verify_chain(db)
     print(res)
