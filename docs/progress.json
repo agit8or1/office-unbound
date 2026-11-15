@@ -191,7 +191,8 @@
           "id": "P2.4",
           "title": "Setup, deployment and change wizards backed by approval-gated plans",
           "status": "implementing",
-          "evidence": []
+          "evidence": [],
+          "note": "Wizards built; integration into the console in progress"
         },
         {
           "id": "P2.5",
@@ -460,7 +461,7 @@
       "id": "A22",
       "title": "Installer can repeat the installation",
       "status": "integrated_lab",
-      "note": "Groupware stack rebuilt from source on a fresh machine with byte-identical binary"
+      "note": "Groupware rebuilt from source on a fresh machine; ICS one-command installer proven on two fresh machines (install, idempotent re-run, upgrade, restore)"
     },
     {
       "id": "A23",

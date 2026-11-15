@@ -43,7 +43,7 @@ Core platform components are integrated and tested in an isolated lab: own sourc
 | P2.1 | Provider adapter with Proxmox VE as first provider (discovery, metrics, scoped VM lifecycle) | 🛠️ Implementing | [`docs/adr/0009-infrastructure-orchestration.md`](docs/adr/0009-infrastructure-orchestration.md) |
 | P2.2 | Deployment engine: profiles, sizing, dependency graph, plans, desired vs actual state, drift | 🛠️ Implementing | [`docs/status/deployment-engine.md`](docs/status/deployment-engine.md) |
 | P2.3 | Guest bootstrap: cloud-init, rootless Podman, signed digest-pinned images, agent enrollment <br><sub>Tested in lab containers; real VM boot pending</sub> | 🧪 Integrated in lab | [`docs/status/guest-bootstrap-results.md`](docs/status/guest-bootstrap-results.md) |
-| P2.4 | Setup, deployment and change wizards backed by approval-gated plans | 🛠️ Implementing | — |
+| P2.4 | Setup, deployment and change wizards backed by approval-gated plans <br><sub>Wizards built; integration into the console in progress</sub> | 🛠️ Implementing | — |
 | P2.5 | Build and release pipeline for own distributions (signed packages/images, SBOM, staged channels) | ⚪ Planned | [`docs/adr/0008-build-release-pipeline.md`](docs/adr/0008-build-release-pipeline.md) |
 | P2.6 | Continuous integration (tests, secret scanning, license checks) | 🛠️ Implementing | [`.github/workflows/`](.github/workflows/) |
 
@@ -115,7 +115,7 @@ Core platform components are integrated and tested in an isolated lab: own sourc
 | A19 | User deprovisioning removes effective access | 🧪 Integrated in lab | Known gaps listed in P1.8 |
 | A20 | Two isolated customer deployments pass access-denial tests | ⚪ Planned |  |
 | A21 | Pinned upgrades and recovery demonstrated | ⚪ Planned |  |
-| A22 | Installer can repeat the installation | 🧪 Integrated in lab | Groupware stack rebuilt from source on a fresh machine with byte-identical binary |
+| A22 | Installer can repeat the installation | 🧪 Integrated in lab | Groupware rebuilt from source on a fresh machine; ICS one-command installer proven on two fresh machines (install, idempotent re-run, upgrade, restore) |
 | A23 | Monitoring and audit history survive restarts | 🧪 Integrated in lab | Audit chain verified after controller restore |
 | A24 | Administrator documentation describes real procedures | 🛠️ Implementing |  |
 
