@@ -160,3 +160,10 @@ Probe (restart `opencloud` on ou-files1, poll `POST /app/open` every 1 s): 502 (
 Cause: readiness ordering — the collaboration app registers with OpenCloud's app registry a few seconds after the proxy is up. No data loss.
 Fix: `ou_lab.wait_app_ready()` (polls /app/list) used in T03 after restarts. Full sequence T01–T05 now 97 PASS / 0 FAIL.
 ICS follow-up: the files service health check must use `/app/list` contains the editor + a canary `app/open`, not just HTTP 200 on the proxy.
+
+## T07 Desktop sync (lead, 2026-11-15) — 11 PASS / 0 FAIL
+Client: OpenCloud Desktop v4.0.0 Linux AppImage (sha256 22c5fac4453ce2bf…1d2c matches published .sha256), `opencloudcmd` 4.0.0.3642 = the desktop client's sync engine (libsync), run headless in lab machine `ou-desk1`; trusts the lab CA via system store (no `--trust`).
+Auth: opencloudcmd sends Basic user:app-token → enabled OpenCloud app tokens (`OC_ADD_RUN_SERVICES=auth-app`, `PROXY_ENABLE_APP_AUTH=true`); test mints a 15-min token per run via `opencloud auth-app create`. Global Basic auth stays disabled. GUI client uses OIDC (client `OpenCloudDesktop`) — not exercised.
+Proven: upload; download; offline period with edits on both sides → reconcile on reconnect (new local file, local edit, remote file); conflict (same file edited both sides) → server keeps SERVER-VERSION, local edit preserved as `down (conflicted copy <ts>).txt`; local delete → server 404.
+Not proven: GUI client/OIDC login flow, virtual files (on-demand), Windows/macOS clients, notifications, large files/bandwidth, mobile apps.
+Deprovisioning note: app tokens are an additional credential type that the ICS user-disable flow must revoke (add to KI-2 scope).

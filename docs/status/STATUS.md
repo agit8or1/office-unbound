@@ -16,7 +16,8 @@
 | Files: OpenCloud 9.1.0 | Integrated in lab | T02 11/0 incl. restart, T05 versions 9/0 |
 | Documents: Collabora via WOPI | Integrated in lab with vendor CODE (lab-only) | T03 28/0 standalone, T04 13/0 (real edit → PutFile → content verified). KI-1 below |
 | Collabora own source build (unlimited, rebranded) | Implementing | docengine-build-results.md (pending) |
-| Desktop sync / offline / conflicts, mobile, real Outlook clients | Planned (manual) | blueprints/lab/tests/MANUAL-CHECKLIST.md |
+| Desktop sync engine (opencloudcmd 4.0): upload/download/offline/conflict/delete | Integrated in lab | T07 11/0 |
+| GUI desktop client, mobile, real Outlook clients | Planned (manual) | blueprints/lab/tests/MANUAL-CHECKLIST.md |
 | Build/release pipeline | Implementing (design ADR-0008; first recipe = Collabora) | |
 | MSP center, migration, chat/meetings | Planned | |
 

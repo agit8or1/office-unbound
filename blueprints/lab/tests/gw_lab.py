@@ -21,4 +21,8 @@ class Rep:
     def fail(s, name, d): s._e("FAIL", name, d)
     def skip(s, name, d): s._e("SKIP", name, d)
     def check(s, name, cond, okd, faild): (s.ok if cond else s.fail)(name, okd if cond else faild); return bool(cond)
-    def done(s): print("-- %s: %d PASS, %d FAIL, %d SKIP" % (s.t, s.n["PASS"], s.n["FAIL"], s.n["SKIP"])); sys.exit(1 if s.n["FAIL"] else 0)
+    def done(s):
+        print("-- %s: %d PASS, %d FAIL, %d SKIP" % (s.t, s.n["PASS"], s.n["FAIL"], s.n["SKIP"]))
+        if s.n["FAIL"]: sys.exit(1)
+        if s.n["SKIP"] and os.environ.get("OU_STRICT_SKIP") == "1": print("-- OU_STRICT_SKIP=1: SKIP treated as failure"); sys.exit(77)
+        sys.exit(0)

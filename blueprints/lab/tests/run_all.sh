@@ -5,7 +5,7 @@
 set -u
 cd "$(dirname "$0")"
 which="${1:-all}"
-files=(t01_oidc.py t02_files_webdav.py t03_office_roundtrip.py t04_wopi.py t05_versions.py t06_disable_user.py)
+files=(t01_oidc.py t02_files_webdav.py t03_office_roundtrip.py t04_wopi.py t05_versions.py t06_disable_user.py t07_desktop_sync.py)
 groupware=(t10_smtp_imap.py t11_caldav.py t12_carddav.py t13_ews.py t14_activesync.py t15_autodiscover.py t16_mapihttp.py)
 case "$which" in files) list=("${files[@]}");; groupware) list=("${groupware[@]}");; all) list=("${files[@]}" "${groupware[@]}");; *) echo "usage: $0 [files|groupware|all]"; exit 2;; esac
 rc=0; summary=()
