@@ -147,6 +147,10 @@ class ProbeResult:
     credentials: dict = field(default_factory=dict)        # {"inventory": {"authenticated": bool}, "provision": {...}}
     verbs: list[VerbCheck] = field(default_factory=list)
     errors: list[str] = field(default_factory=list)
+    warnings: list[str] = field(default_factory=list)
+    capabilities: list[dict] = field(default_factory=list)   # [{"name","ok","blocking","detail"}] e.g. cloud-init snippets, template import
+    discovery: dict | None = None                            # setup wizard: normalized snapshot (only when requested)
+    self_vm: dict | None = None                              # the ICS's own VM if found: {"vmid","node","mutable","privileges"}
     simulator: bool = False
 
 

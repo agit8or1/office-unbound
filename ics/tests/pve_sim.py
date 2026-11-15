@@ -63,6 +63,8 @@ class PveSim:
         self.failures: list[dict] = []
         self.fail_task_exit: str | None = None
         self.quorate = True
+        self.version = {"version": "8.2.4", "release": "8.2", "repoid": SIM_MARKER}
+        self.gzip = True
         self.seen: list[tuple[str, str]] = []
         self._pid = 1000
 
@@ -121,6 +123,33 @@ class PveSim:
             ("/pool/ou-lab", "OULabProvisioner"), ("/storage/local-lvm", "PVEDatastoreUser"),
             ("/sdn/zones/localnetwork/vmbr1", "PVESDNUser"), ("/sdn/zones/zlab/vn1", "PVESDNUser")])
         self.add_token("ics-root@pam!root", "rootsecret0123456789", [("/", "Administrator")])
+
+    def populate_realworld(self, fixed=False):
+        """The owner's first real cluster as the lead observed it (PVE 9.2.21): 6 nodes but Sys.Audit only on pve06; one lvmthin storage
+        with images,rootdir only; one pool; the ICS's own VM 126 (MAC BC:24:11:E7:F0:24) with mutating ACLs; no SDN.Use, no Pool.Audit."""
+        self.version = {"version": "9.2.21", "release": "9.2", "repoid": "realworld0000"}
+        self.cluster = "agit8or"
+        for n in ("pve01", "pve2", "pve3", "pve04", "pve05", "pve06"):
+            self.add_node(n, cpus=56, mem=251 << 30)
+        self.add_storage("PVE06-Storage", "lvmthin", "images,rootdir", total=11140 << 30, nodes=["pve06"])
+        self.bridges = {"vmbr0": {"vlan_aware": 0, "ports": "eno1", "cidr": "192.168.22.17/24"}}
+        self.pools.add("officeunbound-pve06")
+        self.add_vm(126, "pve06", "office-unbound", status="running", cores=24, memory=16384, bridge="vmbr0")
+        self.vms[126]["cfg"]["net0"] = "virtio=BC:24:11:E7:F0:24,bridge=vmbr0,firewall=0"
+        self.vms[126]["cfg"]["smbios1"] = "uuid=11111111-2222-3333-4444-555555555555"
+        self.add_role("OUProv", {"VM.Allocate", "VM.Audit", "VM.Backup", "VM.Clone", "VM.Config.CDROM", "VM.Config.CPU", "VM.Config.Cloudinit",
+                                 "VM.Config.Disk", "VM.Config.HWType", "VM.Config.Memory", "VM.Config.Network", "VM.Config.Options",
+                                 "VM.Console", "VM.GuestAgent.Audit", "VM.PowerMgmt", "VM.Snapshot", "VM.Snapshot.Rollback"})
+        self.add_role("NodeAudit", {"Sys.Audit"})
+        self.add_token("officeunbound@pam!ics", "realsecret0123456789", [
+            ("/nodes/pve06", "NodeAudit"), ("/pool/officeunbound-pve06", "OUProv"), ("/vms/126", "OUProv"),
+            ("/storage/PVE06-Storage", "PVEDatastoreUser")])
+        self.bridges["vmbr0"]["ports"] = "nic3"
+        self.add_vm(131, "pve06", "ou-debian12-template", template=True, pool="officeunbound-pve06", disk_gb=8, storage="PVE06-Storage")
+        if fixed:  # after the owner's ACL fixes: Pool.Audit + SDN.Use, VM.Console dropped, ICS VM is now a pool MEMBER
+            self.roles["OUProv"] = (self.roles["OUProv"] | {"Pool.Audit"}) - {"VM.Console", "VM.Backup"}
+            self.tokens["officeunbound@pam!ics"]["acl"] += [("/sdn/zones/localnetwork/vmbr0", "PVESDNUser")]
+            self.vms[126]["pool"] = "officeunbound-pve06"
 
     def fail(self, method, pattern, status=500, reason="injected failure", count=1):
         self.failures.append({"m": method, "re": re.compile(pattern), "s": status, "r": reason, "n": count})
@@ -251,10 +280,11 @@ class PveSim:
         return [
             R("GET", r"/version", self.r_version), R("GET", r"/cluster/status", self.r_cluster_status),
             R("GET", r"/cluster/resources", self.r_resources), R("GET", r"/cluster/nextid", self.r_nextid),
-            R("GET", r"/nodes", self.r_nodes), R("GET", r"/storage", self.r_storage_cfg),
+            R("GET", r"/nodes", self.r_nodes), R("GET", r"/pools/([^/]+)", self.r_pool), R("GET", r"/storage", self.r_storage_cfg),
             R("GET", r"/cluster/sdn/zones", self.r_zones), R("GET", r"/cluster/sdn/vnets", self.r_vnets),
             R("GET", r"/access/permissions", self.r_permissions),
             R("GET", r"/nodes/([^/]+)/" + g, self.r_list_guests),
+            R("GET", r"/nodes/([^/]+)/storage/([^/]+)/content", self.r_content),
             R("GET", r"/nodes/([^/]+)/storage", self.r_node_storage), R("GET", r"/nodes/([^/]+)/network", self.r_network),
             R("GET", r"/nodes/([^/]+)/rrddata", self.r_rrd_node),
             R("GET", r"/nodes/([^/]+)/" + g + r"/(\d+)/rrddata", self.r_rrd_vm),
@@ -280,7 +310,7 @@ class PveSim:
 
     # ---- reads
     def r_version(self, tid, q, f):
-        return {"version": "8.2.4", "release": "8.2", "repoid": SIM_MARKER}
+        return dict(self.version)
 
     def r_cluster_status(self, tid, q, f):
         out = [{"type": "cluster", "name": self.cluster, "version": 3, "nodes": len(self.nodes), "quorate": int(self.quorate), "id": "cluster"}]
@@ -290,9 +320,14 @@ class PveSim:
         return out
 
     def r_nodes(self, tid, q, f):
-        return [{"node": n["node"], "status": n["status"], "cpu": 0.05, "maxcpu": n["maxcpu"], "mem": n["maxmem"] // 4,
-                 "maxmem": n["maxmem"], "disk": 1 << 30, "maxdisk": n["maxdisk"], "uptime": n["uptime"], "level": "", "id": f"node/{n['node']}"}
-                for n in self.nodes.values() if self.can(tid, "node", n["node"], "Sys.Audit")]
+        # like PVE: every node is listed; without Sys.Audit the usage figures are zero (NOT idle capacity)
+        out = []
+        for n in self.nodes.values():
+            vis = self.can(tid, "node", n["node"], "Sys.Audit")
+            out.append({"node": n["node"], "status": n["status"], "cpu": 0.05 if vis else 0, "maxcpu": n["maxcpu"] if vis else 0,
+                        "mem": n["maxmem"] // 4 if vis else 0, "maxmem": n["maxmem"] if vis else 0, "disk": (1 << 30) if vis else 0,
+                        "maxdisk": n["maxdisk"] if vis else 0, "uptime": n["uptime"] if vis else 0, "level": "", "id": f"node/{n['node']}"})
+        return out
 
     def r_resources(self, tid, q, f):
         t = q.get("type")
@@ -318,6 +353,10 @@ class PveSim:
                     out.append({"id": f"sdn/{n}/{z}", "type": "sdn", "sdn": z, "node": n, "status": "ok"})
         return out
 
+    def r_pool(self, tid, q, f, pool):
+        self.need(tid, "pool", pool, "Pool.Audit")
+        return {"poolid": pool, "members": [{"vmid": v["vmid"], "node": v["node"], "type": v["kind"]} for v in self.vms.values() if v["pool"] == pool]}
+
     def r_nextid(self, tid, q, f):
         n = 100
         while n in self.vms:
@@ -335,6 +374,20 @@ class PveSim:
                  "enabled": 1, "total": s["total"], "used": self._disk_used(s["storage"]), "avail": s["total"] - self._disk_used(s["storage"])}
                 for s in self.storages.values() if node in s["nodes"]
                 and self.can(tid, "storage", s["storage"], "Datastore.Audit", "Datastore.AllocateSpace")]
+
+    def r_content(self, tid, q, f, node, storage):
+        if storage not in self.storages or node not in self.storages[storage]["nodes"]:
+            raise HTTPErr(500, f"storage '{storage}' does not exist")
+        self.need(tid, "storage", storage, "Datastore.Audit") if not self.can(tid, "storage", storage, "Datastore.AllocateSpace") else None
+        out = []
+        for vm in self.vms.values():
+            for k, v in vm["cfg"].items():
+                if isinstance(v, str) and v.startswith(storage + ":") and "size=" in v and self.can(tid, "vm", vm["vmid"], "VM.Audit"):
+                    out.append({"volid": v.split(",")[0], "vmid": vm["vmid"], "size": _size(_kv(v.split(",", 1)[1]).get("size")),
+                                "format": "raw", "content": "images"})
+        out += [{"volid": f"{storage}:hidden", "vmid": 0, "size": h, "format": "raw", "content": "images"}
+                for h in self.storages[storage].get("hidden_volumes", [])]
+        return out
 
     def r_network(self, tid, q, f, node):
         self.need(tid, "node", node, "Sys.Audit")
@@ -595,8 +648,14 @@ class _Handler(http.server.BaseHTTPRequestHandler):
         except HTTPErr as e:
             code, reason, body = e.code, e.reason, {"data": None, "message": e.reason}
         b = json.dumps(body).encode()
+        gz = sim.gzip and len(b) > 200 and "gzip" in (self.headers.get("Accept-Encoding") or "")
+        if gz:
+            import gzip
+            b = gzip.compress(b)
         self.send_response(code, reason)
         self.send_header("Content-Type", "application/json")
+        if gz:
+            self.send_header("Content-Encoding", "gzip")
         self.send_header("Content-Length", str(len(b)))
         self.end_headers()
         self.wfile.write(b)

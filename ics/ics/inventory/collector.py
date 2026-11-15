@@ -21,9 +21,9 @@ log = logging.getLogger("ics.inventory")
 
 _UPSERT = {
     "infra_clusters": (["name", "quorate", "nodes_total", "nodes_online", "version"], ["endpoint_id", "name"]),
-    "infra_nodes": (["name", "status", "cpu_total", "mem_total", "mem_used", "cpu_pct", "disk_total", "disk_used", "uptime", "ip"],
+    "infra_nodes": (["name", "status", "cpu_total", "mem_total", "mem_used", "cpu_pct", "disk_total", "disk_used", "uptime", "ip", "managed"],
                     ["endpoint_id", "name"]),
-    "infra_storage": (["name", "node", "type", "content", "shared", "enabled", "active", "total", "used"], ["endpoint_id", "name", "node"]),
+    "infra_storage": (["name", "node", "type", "content", "shared", "enabled", "active", "total", "used", "thin", "provisioned_bytes"], ["endpoint_id", "name", "node"]),
     "infra_networks": (["name", "node", "kind", "vlan_aware", "ports", "cidr", "zone", "tag"], ["endpoint_id", "kind", "name", "node"]),
     "infra_guests": (["vmid", "kind", "node", "name", "status", "tags", "pool", "ou_managed", "ou_deployment_id", "cpus", "mem_max",
                       "disk_max", "uptime", "cpu_pct", "mem_used"], ["endpoint_id", "vmid"]),
@@ -122,7 +122,7 @@ def collect_metrics(rt: Runtime, db: Session, endpoint_id, known: list[str] | No
     last = {(r.scope_type, r.scope_id): r.ts for r in db.execute(text(
         "SELECT scope_type, scope_id, max(ts) AS ts FROM metric_samples WHERE endpoint_id = :e AND resolution = '1m' "
         "AND scope_type IN ('node','guest') GROUP BY 1, 2"), {"e": eid})}
-    nodes = db.execute(text("SELECT id, name FROM infra_nodes WHERE endpoint_id = :e AND status = 'online'"), {"e": eid}).all()
+    nodes = db.execute(text("SELECT id, name FROM infra_nodes WHERE endpoint_id = :e AND status = 'online' AND managed"), {"e": eid}).all()
     guests = db.execute(text("SELECT id, vmid, kind, node FROM infra_guests WHERE endpoint_id = :e AND status = 'running' "
                              "ORDER BY vmid LIMIT :n"), {"e": eid, "n": max_guests}).all()
     try:

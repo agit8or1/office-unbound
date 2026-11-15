@@ -13,6 +13,8 @@ ALTER TABLE endpoints
   ADD COLUMN allowed_networks text[] NOT NULL DEFAULT '{}',
   ADD COLUMN allow_cicustom boolean NOT NULL DEFAULT false,
   ADD COLUMN allowed_templates integer[] NOT NULL DEFAULT '{}',
+  ADD COLUMN protected_vmids integer[] NOT NULL DEFAULT '{}',
+  ADD COLUMN defaults jsonb NOT NULL DEFAULT '{}',
   ADD COLUMN display_name text,
   ADD COLUMN enabled boolean NOT NULL DEFAULT true,
   ADD COLUMN detached_at timestamptz,
@@ -32,7 +34,7 @@ CREATE TABLE infra_nodes (
   id uuid PRIMARY KEY DEFAULT gen_random_uuid(),
   endpoint_id uuid NOT NULL REFERENCES endpoints(id) ON DELETE CASCADE,
   name text NOT NULL, status text NOT NULL, cpu_total integer, mem_total bigint, mem_used bigint, cpu_pct double precision,
-  disk_total bigint, disk_used bigint, uptime bigint, ip text,
+  disk_total bigint, disk_used bigint, uptime bigint, ip text, managed boolean NOT NULL DEFAULT true,
   observed_at timestamptz NOT NULL, source text NOT NULL DEFAULT 'proxmox',
   UNIQUE (endpoint_id, name)
 );
@@ -40,7 +42,7 @@ CREATE TABLE infra_storage (
   id uuid PRIMARY KEY DEFAULT gen_random_uuid(),
   endpoint_id uuid NOT NULL REFERENCES endpoints(id) ON DELETE CASCADE,
   name text NOT NULL, node text NOT NULL DEFAULT '', type text, content text[] NOT NULL DEFAULT '{}',
-  shared boolean, enabled boolean, active boolean, total bigint, used bigint,
+  shared boolean, enabled boolean, active boolean, total bigint, used bigint, thin boolean, provisioned_bytes bigint,
   observed_at timestamptz NOT NULL, source text NOT NULL DEFAULT 'proxmox',
   UNIQUE (endpoint_id, name, node)
 );

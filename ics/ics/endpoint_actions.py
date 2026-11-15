@@ -50,6 +50,35 @@ def _list(rx: str, label: str, v):
     return sorted(set(v))
 
 
+class Defaults(BaseModel):
+    """Operator-chosen deployment defaults saved with the endpoint (consumed by the plan generator; none of it is executed directly)."""
+    model_config = ConfigDict(extra="forbid")
+    storage: str | None = Field(default=None, pattern=_STORAGE)
+    bridge: str | None = Field(default=None, pattern=r"^[A-Za-z0-9][A-Za-z0-9_.-]{0,14}$")
+    vlan: int | None = Field(default=None, ge=1, le=4094)
+    ip_mode: Literal["dhcp", "static"] | None = None
+    dns_servers: list[str] | None = Field(default=None, max_length=4)
+    search_domain: str | None = Field(default=None, pattern=r"^[A-Za-z0-9]([A-Za-z0-9.-]{0,251}[A-Za-z0-9])?$")
+    backup_storage: str | None = Field(default=None, pattern=_STORAGE)
+    approved_os_images: list[str] | None = Field(default=None, max_length=20)
+    resource_policy: Literal["conservative", "balanced", "dense"] | None = None
+
+    @field_validator("dns_servers")
+    @classmethod
+    def _dns(cls, v):
+        import ipaddress
+        for x in v or []:
+            ipaddress.ip_address(x)
+        return v
+
+    @field_validator("approved_os_images")
+    @classmethod
+    def _img(cls, v):
+        if v and any(not re.fullmatch(r"[A-Za-z0-9][A-Za-z0-9_.:-]{0,63}", x) for x in v):
+            raise ValueError("approved_os_images entries must be plain image names")
+        return v
+
+
 class ScopeLists(BaseModel):
     """Scope allowlists. Networks are `bridge` (any VLAN) or `bridge/vlan` (that VLAN only)."""
     allowed_pools: list[str] | None = None
@@ -57,6 +86,15 @@ class ScopeLists(BaseModel):
     allowed_networks: list[str] | None = None
     allowed_templates: list[int] | None = Field(default=None, description="template vmids permitted outside the allowed pools")
     allow_cicustom: bool | None = None
+    protected_vmids: list[int] | None = Field(default=None, description="guests that can never be mutated (in addition to the ICS's own VM)")
+    defaults: Defaults | None = None
+
+    @field_validator("protected_vmids")
+    @classmethod
+    def _pv(cls, v):
+        if v is not None and (len(v) > 100 or any(not 1 <= x <= 999_999_999 for x in v)):
+            raise ValueError("protected_vmids must be vmids (max 100)")
+        return sorted(set(v)) if v is not None else v
 
     @field_validator("allowed_pools")
     @classmethod
@@ -194,8 +232,8 @@ def _ep(db: Session, eid):
     return db.execute(text("SELECT * FROM endpoints WHERE id = :i"), {"i": str(eid)}).first()
 
 
-def _scope(pools, storage, nets, templates, cic) -> EndpointScope:
-    return EndpointScope(tuple(pools or ()), tuple(storage or ()), tuple(nets or ()), tuple(templates or ()), bool(cic))
+def _scope(pools, storage, nets, templates, cic, protected=()) -> EndpointScope:
+    return EndpointScope(tuple(pools or ()), tuple(storage or ()), tuple(nets or ()), tuple(templates or ()), bool(cic), tuple(protected or ()))
 
 
 def _require_ok(res, want_provision: bool) -> None:
@@ -254,22 +292,22 @@ def exec_register(rt: Runtime, db: Session, m, plan, known: list[str]) -> dict:
     res = probe_connection(rt, base_url=m.base_url, token_id=m.token_id, token_secret=secret, ca_pem=m.ca_pem,
                            fingerprint_sha256=m.fingerprint_sha256, provision_token_id=m.provision_token_id,
                            provision_token_secret=psecret,
-                           scope=_scope(m.allowed_pools, m.allowed_storage, m.allowed_networks, m.allowed_templates, m.allow_cicustom))
+                           scope=_scope(m.allowed_pools, m.allowed_storage, m.allowed_networks, m.allowed_templates, m.allow_cicustom, m.protected_vmids))
     _require_ok(res, bool(m.provision_token_id))  # connectivity + TLS trust + credential check before we persist anything
     version = audit.sanitize(res.version)
     b = endpoint_binding(m.base_url, m.token_id, m.fingerprint_sha256, m.ca_pem)
     paad = f"endpoint-provision:{eid}:{b}:{m.provision_token_id}"
     db.execute(text(
         "INSERT INTO endpoints (id, name, type, base_url, token_id, token_secret_enc, ca_pem, fingerprint_sha256, created_by, display_name, "
-        "provision_token_id, provision_secret_enc, allowed_pools, allowed_storage, allowed_networks, allowed_templates, allow_cicustom, "
-        "last_probe, last_probe_at) VALUES (:id, :n, :t, :u, :ti, :ts, :ca, :fp, :cb, :dn, :pti, :pse, :ap, :ast, :an, :at, :cic, "
+        "provision_token_id, provision_secret_enc, allowed_pools, allowed_storage, allowed_networks, allowed_templates, allow_cicustom, protected_vmids, defaults, "
+        "last_probe, last_probe_at) VALUES (:id, :n, :t, :u, :ti, :ts, :ca, :fp, :cb, :dn, :pti, :pse, :ap, :ast, :an, :at, :cic, :pv, CAST(:df AS jsonb), "
         "CAST(:lp AS jsonb), now())"),
         {"id": str(eid), "n": m.name, "t": m.type, "u": m.base_url, "ti": m.token_id,
          "ts": rt.vault.encrypt(secret.encode(), f"endpoint-token:{eid}:{b}"), "ca": m.ca_pem, "fp": m.fingerprint_sha256,
          "cb": str(plan.requested_by), "dn": m.display_name, "pti": m.provision_token_id,
          "pse": rt.vault.encrypt(psecret.encode(), paad) if psecret else None,
          "ap": m.allowed_pools or [], "ast": m.allowed_storage or [], "an": m.allowed_networks or [], "at": m.allowed_templates or [],
-         "cic": bool(m.allow_cicustom), "lp": audit.canon(probe_dict(res))})
+         "cic": bool(m.allow_cicustom), "pv": m.protected_vmids or [], "df": audit.canon(m.defaults.model_dump(exclude_none=True)) if m.defaults else "{}", "lp": audit.canon(probe_dict(res))})
     audit.append(db, "endpoint.registered", actor_name="worker", resource="endpoint", resource_id=str(eid),
                  details={"name": m.name, "base_url": m.base_url, "token_id": m.token_id,
                           "trust": "fingerprint" if m.fingerprint_sha256 else "ca_bundle", "pve_version": version,
@@ -304,26 +342,27 @@ def exec_update(rt: Runtime, db: Session, m: EndpointUpdate, plan, known: list[s
     pools, storage = pick(m.allowed_pools, ep.allowed_pools), pick(m.allowed_storage, ep.allowed_storage)
     nets, tpls = pick(m.allowed_networks, ep.allowed_networks), pick(m.allowed_templates, ep.allowed_templates)
     cic = ep.allow_cicustom if m.allow_cicustom is None else m.allow_cicustom
+    prot = pick(m.protected_vmids, ep.protected_vmids)
     if prov_id and not pools:
         raise ProxmoxError("a provision credential requires at least one allowed pool")
     conn = m.changed() & {"base_url", "ca_pem", "fingerprint_sha256", "token_id", "token_secret", "provision_token_id",
-                          "provision_token_secret", "remove_provision", "allowed_pools", "allowed_storage", "allowed_networks"}
+                          "provision_token_secret", "remove_provision", "allowed_pools", "allowed_storage", "allowed_networks", "protected_vmids"}
     probe = None
     if conn:  # re-probe with the NEW configuration; nothing is persisted when it fails
         probe = probe_connection(rt, base_url=base_url, token_id=token_id, token_secret=inv_secret, ca_pem=ca, fingerprint_sha256=fp,
-                                 provision_token_id=prov_id, provision_token_secret=prov_secret, scope=_scope(pools, storage, nets, tpls, cic))
+                                 provision_token_id=prov_id, provision_token_secret=prov_secret, scope=_scope(pools, storage, nets, tpls, cic, prot))
         _require_ok(probe, bool(prov_id))
     new_b = endpoint_binding(base_url, token_id, fp, ca)
     enabled = ep.enabled if m.enabled is None else m.enabled
     db.execute(text(
         "UPDATE endpoints SET display_name = :dn, base_url = :u, ca_pem = :ca, fingerprint_sha256 = :fp, token_id = :ti, token_secret_enc = :ts, "
         "provision_token_id = :pti, provision_secret_enc = :pse, allowed_pools = :ap, allowed_storage = :ast, allowed_networks = :an, "
-        "allowed_templates = :at, allow_cicustom = :cic, enabled = :en, last_probe = COALESCE(CAST(:lp AS jsonb), last_probe), "
+        "allowed_templates = :at, allow_cicustom = :cic, protected_vmids = :pv, defaults = CAST(:df AS jsonb), enabled = :en, last_probe = COALESCE(CAST(:lp AS jsonb), last_probe), "
         "last_probe_at = CASE WHEN :lp IS NULL THEN last_probe_at ELSE now() END WHERE id = :id"),
         {"id": str(ep.id), "dn": m.display_name if m.display_name is not None else ep.display_name, "u": base_url, "ca": ca, "fp": fp,
          "ti": token_id, "ts": rt.vault.encrypt(inv_secret.encode(), f"endpoint-token:{ep.id}:{new_b}"), "pti": prov_id,
          "pse": rt.vault.encrypt(prov_secret.encode(), f"endpoint-provision:{ep.id}:{new_b}:{prov_id}") if prov_id else None,
-         "ap": pools, "ast": storage, "an": nets, "at": tpls, "cic": cic, "en": enabled,
+         "ap": pools, "ast": storage, "an": nets, "at": tpls, "cic": cic, "pv": prot, "df": audit.canon(m.defaults.model_dump(exclude_none=True)) if m.defaults is not None else audit.canon(ep.defaults or {}), "en": enabled,
          "lp": audit.canon(probe_dict(probe)) if probe else None})
     audit.append(db, "endpoint.updated", actor_name="worker", resource="endpoint", resource_id=str(ep.id),
                  details={"name": ep.name, "changed": sorted(m.changed()), "base_url": base_url,

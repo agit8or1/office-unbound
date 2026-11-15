@@ -16,7 +16,7 @@ from datetime import datetime, timezone
 from sqlalchemy import text
 from sqlalchemy.orm import Session
 
-ORDER = {"ok": 0, "unknown": 1, "warning": 2, "critical": 3}
+ORDER = {"ok": 0, "unmanaged": 0, "unknown": 1, "warning": 2, "critical": 3}
 
 
 def _worst(items: list[str]) -> str:
@@ -24,6 +24,8 @@ def _worst(items: list[str]) -> str:
 
 
 def node_status(r) -> tuple[str, str | None]:
+    if r.managed is False:
+        return "unmanaged", "the token has no Sys.Audit on this node (no visibility; not counted, not idle capacity)"
     return ("ok", None) if r.status == "online" else ("critical", f"node is {r.status}")
 
 
@@ -44,6 +46,9 @@ def storage_status(r) -> tuple[str, str | None]:
             return "critical", f"{pct:.0f}% full"
         if pct >= 85:
             return "warning", f"{pct:.0f}% full"
+    if r.thin and r.total and r.provisioned_bytes and r.provisioned_bytes > r.total:
+        return "warning", (f"thin pool overcommitted: {r.provisioned_bytes / r.total:.2f}x provisioned vs physical capacity "
+                           "(visible volumes only; real overcommit may be higher)")
     return "ok", None
 
 
@@ -59,6 +64,8 @@ def with_health(row, kind: str, now: datetime, stale_seconds: int) -> dict:
     """Row -> (status, reason) honouring staleness."""
     _, fn = _FNS[kind]
     st, why = fn(row)
+    if st == "unmanaged":
+        return {"status": st, "reason": why}
     if (now - row.observed_at).total_seconds() > stale_seconds:
         st, why = "unknown", "no recent observation"
     return {"status": st, "reason": why}
@@ -73,6 +80,8 @@ def summary(db: Session, stale_seconds: int) -> dict:
         counts[label] = len(rows)
         for r in rows:
             h = with_health(r, table, now, stale_seconds)
+            if h["status"] == "unmanaged":
+                continue
             statuses.append(h["status"])
             if h["status"] != "ok":
                 reasons.append({"resource": label, "id": str(r.id), "name": r.name, "status": h["status"], "reason": h["reason"]})

@@ -189,6 +189,53 @@ def _seg(node: str) -> str:
     return node
 
 
+def fetch_peer_certificate(base_url: str, *, ca_pem: str | None = None, fingerprint_sha256: str | None = None, timeout: float = 5.0,
+                           allow_loopback: bool = False) -> dict:
+    """TLS-ONLY setup stage: read the certificate the server presents (so an admin can compare it out of band) and report whether it
+    satisfies the supplied trust anchor. The handshake is the only traffic: no HTTP request, no credential. This connection is never
+    used for anything else; every real request goes through ProxmoxReadClient/ProxmoxWriteClient with full verification/pinning."""
+    import datetime as _dt
+    from cryptography import x509 as _x509
+    u = urlparse(base_url)
+    if u.scheme != "https" or not u.hostname:
+        return {"ok": False, "error": "base_url must be https://host[:port]"}
+    try:
+        check_destination(u.hostname, allow_loopback)
+        ctx = ssl.SSLContext(ssl.PROTOCOL_TLS_CLIENT)
+        ctx.minimum_version = ssl.TLSVersion.TLSv1_2
+        ctx.check_hostname, ctx.verify_mode = False, ssl.CERT_NONE   # read-only look at the certificate; nothing is sent over it
+        with socket.create_connection((u.hostname, u.port or 443), timeout=timeout) as raw, ctx.wrap_socket(raw, server_hostname=u.hostname) as t:
+            der = t.getpeercert(binary_form=True)
+    except ProxmoxError as e:
+        return {"ok": False, "error": str(e)}
+    except (OSError, ssl.SSLError) as e:
+        return {"ok": False, "error": f"could not complete a TLS handshake ({type(e).__name__})"}
+    fp = hashlib.sha256(der).hexdigest()
+    cert = _x509.load_der_x509_certificate(der)
+    out: dict = {"ok": False, "presented_fingerprint_sha256": fp, "subject": cert.subject.rfc4514_string()[:200],
+                 "not_after": cert.not_valid_after_utc.isoformat()}
+    if cert.not_valid_after_utc < _dt.datetime.now(_dt.timezone.utc):
+        out["error"] = "the presented certificate has expired"
+        return out
+    if fingerprint_sha256:
+        out["verified_by"] = "fingerprint"
+        out["ok"] = hmac.compare_digest(fp, normalize_fingerprint(fingerprint_sha256))
+        if not out["ok"]:
+            out["error"] = "the presented certificate does not match the supplied fingerprint"
+    elif ca_pem:
+        out["verified_by"] = "ca"
+        try:
+            vctx = ssl.create_default_context(cadata=ca_pem)
+            vctx.minimum_version = ssl.TLSVersion.TLSv1_2
+            with socket.create_connection((u.hostname, u.port or 443), timeout=timeout) as raw, vctx.wrap_socket(raw, server_hostname=u.hostname):
+                out["ok"] = True
+        except (OSError, ssl.SSLError):
+            out["error"] = "the certificate is not trusted by the supplied CA bundle (or does not match the host name)"
+    else:
+        out["error"] = "no trust anchor supplied: compare the presented fingerprint out of band, then supply it"
+    return out
+
+
 class ProxmoxWriteClient(ProxmoxReadClient):
     """Same transport, TLS trust and limits as the read client, plus POST/PUT/DELETE. Constructed only by the provisioning
     provider (providers/proxmox) with the `provision` credential; never handed to request handlers."""
