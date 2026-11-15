@@ -81,6 +81,8 @@ class ActionType(StrEnum):
     provider_permissions_reconcile = "provider.permissions.reconcile"
     provider_token_rotate = "provider.token.rotate"
     provider_token_revoke = "provider.token.revoke"
+    provider_scope_change = "provider.scope.change"
+    provider_scope_package = "provider.scope.package"
     credential_create = "credential.create"
     credential_replace = "credential.replace"
     credential_rotate = "credential.rotate"

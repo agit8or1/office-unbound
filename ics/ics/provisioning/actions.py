@@ -30,10 +30,12 @@ from .. import audit, endpoint_actions as ea
 from ..credentials import service as cred_service
 from ..providers.base import ProviderError
 from ..providers.proxmox import provisioning as pp
+from ..providers.proxmox import scope_change as sc_mod
 from ..providers.proxmox.admin import ProxmoxAdminClient
 from ..proxmox import ProxmoxError, normalize_fingerprint
 from ..runtime import Runtime
 from .model import Policy
+from .scope_model import ScopeTarget
 
 TEMP_CRED_TTL = 15 * 60
 USER_RE = r"^[^@\s!:/]{1,64}@[A-Za-z0-9._-]{1,32}$"
@@ -101,14 +103,21 @@ class TempCreds(BaseModel):
 
 class PlanPreview(Conn, TempCreds):
     model_config = ConfigDict(extra="forbid")
-    purpose: Literal["provision", "reconcile"] = "provision"
+    purpose: Literal["provision", "reconcile", "scope_change"] = "provision"
     policy: Policy | None = None
+    scope_target: ScopeTarget | None = None
     pve_major: Literal[8, 9] | None = Field(default=None, description="only for an offline preview")
 
     @model_validator(mode="after")
     def _chk(self):
         self._conn_ok(False)
         self._shape()
+        if self.purpose == "scope_change":
+            if self.endpoint_id is None or self.scope_target is None or self.policy is not None:
+                raise ValueError("a scope-change preview names an endpoint and a scope_target (the policy itself is not edited here)")
+            return self
+        if self.scope_target is not None:
+            raise ValueError("scope_target only applies to purpose=scope_change")
         if self.purpose == "reconcile" and (self.endpoint_id is None or self.policy is not None):
             raise ValueError("a reconcile preview names an endpoint and uses its stored policy (it cannot change the policy)")
         if self.purpose == "provision" and self.policy is None:
@@ -200,6 +209,41 @@ class TokenRevoke(TempCreds):
         return self
 
 
+class ScopeChange(TempCreds):
+    """provider.scope.change: apply a previewed scope change (Mode A, temporary admin credentials) or confirm that the customer ran the Mode B package."""
+    model_config = ConfigDict(extra="forbid")
+    endpoint_id: UUID
+    preview_id: UUID
+    plan_hash: str = Field(pattern=r"^[0-9a-f]{64}$")
+    direction: Literal["widen", "narrow", "same"]
+    detach: bool = False
+    execution: Literal["mode_a", "confirm_package"] = "mode_a"
+    package_id: UUID | None = None
+
+    @model_validator(mode="after")
+    def _chk(self):
+        self._shape()
+        if self.execution == "confirm_package" and (self.package_id is None or self.has_creds()):
+            raise ValueError("confirming a package needs package_id and no administrator credentials")
+        if self.execution == "mode_a" and self.package_id is not None:
+            raise ValueError("package_id only applies to execution=confirm_package")
+        return self
+
+
+class ScopePackage(BaseModel):
+    """provider.scope.package: Mode B. The customer-runnable script for a previewed scope change (no credentials involved)."""
+    model_config = ConfigDict(extra="forbid")
+    endpoint_id: UUID
+    preview_id: UUID
+    plan_hash: str = Field(pattern=r"^[0-9a-f]{64}$")
+    direction: Literal["widen", "narrow", "same"]
+    detach: bool = False
+
+
+def _scope_risk(p) -> str:
+    return "high" if (p.direction == "widen" or p.detach) else "normal"
+
+
 def _pkg_risk(p: ProvisionPackage) -> str:
     return "high" if (p.policy.preset == "full_admin" or p.policy.allow_cicustom or p.policy.approve_elevated) else "normal"
 
@@ -212,6 +256,8 @@ CATALOG = {
     "provider.permissions.reconcile": {"model": PermissionsReconcile, "risk": "high", "secrets": ("admin_password", "admin_token_secret")},
     "provider.token.rotate": {"model": TokenRotate, "risk": "high", "secrets": ("admin_password", "admin_token_secret")},
     "provider.token.revoke": {"model": TokenRevoke, "risk": "high", "secrets": ("admin_password", "admin_token_secret")},
+    "provider.scope.change": {"model": ScopeChange, "risk": _scope_risk, "secrets": ("admin_password", "admin_token_secret")},
+    "provider.scope.package": {"model": ScopePackage, "risk": _scope_risk, "secrets": ()},
 }
 
 
@@ -339,6 +385,27 @@ def precheck(db: Session, rt: Runtime, action: str, p) -> dict:
         if action == "provider.permissions.reconcile" and str(art.endpoint_id) != str(eid):
             raise PlanError(409, "preview belongs to another endpoint")
         extra["plan_summary"] = _summary(pd)
+    elif action in ("provider.scope.change", "provider.scope.package"):
+        art = _artifact(db, p.preview_id, "plan")
+        if art is None or art.data.get("purpose") != "scope_change":
+            raise PlanError(404, "scope-change preview not found: run provider.provision.plan_preview with purpose=scope_change first")
+        if str(art.endpoint_id) != str(eid):
+            raise PlanError(409, "preview belongs to another endpoint")
+        if art.plan_hash != p.plan_hash:
+            raise PlanError(409, "plan_hash does not match the stored preview")
+        sd = art.data["scope"]
+        if sd["blocked"]:
+            raise PlanError(409, "the previewed scope change is blocked: " + "; ".join(sd["blocked"]))
+        if sd["direction"] != p.direction or bool(sd["detach"]) != bool(p.detach):
+            raise PlanError(409, "direction/detach do not match the previewed change (they decide the risk and the approvals)")
+        if action == "provider.scope.change" and p.execution == "mode_a" and not p.has_creds():
+            raise PlanError(422, "temporary provisioning credentials are required (or use the Mode B package and confirm it)")
+        if action == "provider.scope.change" and p.execution == "confirm_package":
+            pk = _artifact(db, p.package_id, "package")
+            if pk is None or str(pk.data.get("scope_preview_id")) != str(p.preview_id):
+                raise PlanError(404, "scope package not found for this preview")
+        extra["scope_change"] = {"direction": sd["direction"], "old": sd["old_scope"], "new": sd["new_scope"], "detach": sd["detach"],
+                                 "acl_add": len(sd["diff"]["acl_add"]), "acl_remove": len(sd["diff"]["acl_remove"])}
     elif action == "provider.token.revoke":
         if p.confirm_name != ep.name:
             raise PlanError(422, "confirm_name does not match the endpoint name")
@@ -376,10 +443,65 @@ def _facts_client(rt: Runtime, m, db: Session, base_url, ca, fp, ep, known: list
     return None, (lambda: None)
 
 
+def _db_guests(db: Session, eid) -> list[dict]:
+    return [dict(vmid=r.vmid, node=r.node, name=r.name, ou_deployment_id=r.ou_deployment_id) for r in
+            db.execute(text("SELECT vmid, node, name, ou_deployment_id FROM infra_guests WHERE endpoint_id = :e AND ou_managed"), {"e": str(eid)}).all()]
+
+
+def _scope_inputs(cli, facts: pp.Facts, db_guests: list[dict]) -> tuple[list[dict], dict[int, set[str]]]:
+    """Node capacity rows and the storages used by managed guests (read-only GETs, best effort)."""
+    try:
+        rows = list(cli.get("/nodes"))
+    except ProxmoxError:
+        rows = []
+    stor: dict[int, set[str]] = {}
+    managed = {g["vmid"]: g for g in db_guests}
+    for vmid, g in facts.guests.items():
+        if "ou-managed" in (g.get("tags") or "").split(";"):
+            managed.setdefault(vmid, {"vmid": vmid, "node": g.get("node")})
+    for vmid, g in managed.items():
+        live = facts.guests.get(vmid, {})
+        node, kind = live.get("node") or g.get("node"), "lxc" if live.get("type") == "lxc" else "qemu"
+        if not node:
+            continue
+        try:
+            stor[vmid] = sc_mod.parse_config_storages(cli.get(f"/nodes/{node}/{kind}/{vmid}/config"))
+        except ProxmoxError:
+            pass
+    return rows, stor
+
+
+def _preview_scope(rt: Runtime, db: Session, m: PlanPreview, plan, known: list[str], base_url, ca, fp, ep, stored) -> dict:
+    if stored is None:
+        raise ProxmoxError("this endpoint has no provisioning policy; scope changes apply to provisioned integrations")
+    if m.has_creds():
+        _need_creds(rt, m, plan)
+    cli, close = _facts_client(rt, m, db, base_url, ca, fp, ep, known)
+    try:
+        facts = pp.collect_facts(cli)
+        dbg = _db_guests(db, ep.id)
+        rows, gst = _scope_inputs(cli, facts, dbg)
+    finally:
+        close()
+    old = Policy.model_validate(stored.policy)
+    sc = sc_mod.build(old, stored.design, m.scope_target, facts, dict(stored.managed), db_guests=dbg, guest_storages=gst, node_rows=rows)
+    pd = sc.plan.to_dict()
+    data = {"plan": pd, "purpose": "scope_change", "scope": {**sc.to_dict(), "detach": sc.detach}, "policy_new": sc.new.model_dump(mode="json"),
+            "target": m.scope_target.model_dump(mode="json"), "conn": {"base_url": base_url}}
+    aid = _save_artifact(db, "plan", ep.id, sc.hash, data, plan.requested_by, plan.customer_id)
+    audit.append(db, "provider.scope.previewed", actor_name="worker", resource="endpoint", resource_id=str(ep.id),
+                 details={"preview_id": aid, "scope_hash": sc.hash, "direction": sc.direction, "blocked": sc.blocked,
+                          "old": sc_mod.scope_summary(sc.old), "new": sc_mod.scope_summary(sc.new)})
+    return {"preview_id": aid, "plan_hash": sc.hash, "risk": sc.risk, "direction": sc.direction, "blocked": sc.blocked, "scope": data["scope"],
+            "summary": pd["summary"], "plan": pd}
+
+
 @safe
 def exec_preview(rt: Runtime, db: Session, m: PlanPreview, plan, known: list[str]) -> dict:
     base_url, ca, fp, ep = _resolve(db, m)
     stored = _stored(db, ep.id) if ep else None
+    if m.purpose == "scope_change":
+        return _preview_scope(rt, db, m, plan, known, base_url, ca, fp, ep, stored)
     if m.purpose == "reconcile":
         policy = Policy.model_validate(stored.policy)
     else:
@@ -423,7 +545,7 @@ def _problem(v: dict) -> str:
     for kind, r in v.items():
         if kind == "ok" or r["ok"]:
             continue
-        for k in ("missing", "unexpected", "forbidden", "unauthorized_exposure"):
+        for k in ("missing", "unexpected", "forbidden", "unauthorized_exposure", "scope_reach"):
             if r[k]:
                 bits.append(f"{kind} token {k}: " + "; ".join(f"{x['path']} {','.join(x['privileges'])}" for x in r[k])[:200])
         for vb in r["verbs"]:
@@ -549,12 +671,135 @@ def _apply(rt: Runtime, db: Session, m, plan, known: list[str], reconcile: bool)
 
 
 def _verif_public(v: dict) -> dict:
-    return {k: ({"ok": r["ok"], "verbs": r["verbs"], "missing": r["missing"], "unexpected": r["unexpected"]} if k != "ok" else r) for k, r in v.items()}
+    return {k: ({"ok": r["ok"], "verbs": r["verbs"], "missing": r["missing"], "unexpected": r["unexpected"], "scope_reach": r.get("scope_reach", [])} if k != "ok" else r) for k, r in v.items()}
 
 
 def _vault_token(rt: Runtime, ep, kind: str) -> str:
     """Token secrets live only in the credential subsystem (ics.credentials); no parallel storage."""
     return cred_service.endpoint_secret(rt, ep, kind, actor="provisioning")
+
+
+def _commit_scope(rt: Runtime, db: Session, plan, ep, stored, sc, pl, res, verification, known: list[str]) -> None:
+    """One transaction (the job's): the ICS allowlists and the stored policy change together, after Proxmox is verified."""
+    new = sc.new
+    s = new.scope
+    upd = ea.EndpointUpdate(endpoint_id=ep.id, allowed_nodes=s.nodes or None, allowed_storage=sorted(set(s.storages + s.backup_storages)) or None,
+                            allowed_templates=s.template_vmids or None)
+    ea.exec_update(rt, db, upd, plan, known)      # re-probes with the new scope and the stored tokens; nothing is persisted if that fails
+    mg = _merge_managed(dict(stored.managed), res) if res is not None else dict(stored.managed)
+    gone = {st.target for st in pl.steps if st.kind == "acl" and st.op == "remove"}
+    gone |= {f"{r['path']}|{x}|{r['role']}" for r in sc.diff["acl_remove"] for x in r["subjects"]}
+    mg["acl"] = [a for a in mg.get("acl", []) if "|".join(a) not in gone]
+    if sc.detach:
+        mg["detached_guests"] = sorted(set(mg.get("detached_guests", [])) | set(sc.detach))
+        db.execute(text("UPDATE infra_guests SET ou_managed = false WHERE endpoint_id = :e AND vmid = ANY(:v)"), {"e": str(ep.id), "v": list(sc.detach)})
+    sd = pp.stored_design(pl)
+    sd["tokens"] = dict(stored.design["tokens"])
+    _upsert_policy(db, ep.id, new, pl.to_dict(), sd, stored.mode, mg, stored.tokens, verification)
+    audit.append(db, "provider.scope.changed", actor_name="worker", resource="endpoint", resource_id=str(ep.id),
+                 details={"direction": sc.direction, "old": sc_mod.scope_summary(sc.old), "new": sc_mod.scope_summary(sc.new), "scope_hash": sc.hash,
+                          "detached": sc.detach, "verification_ok": True, "acl_added": len(sc.diff["acl_add"]), "acl_removed": len(sc.diff["acl_remove"])})
+
+
+def _scope_artifact(db: Session, m, ep, stored):
+    art = _artifact(db, m.preview_id, "plan")
+    if art is None or art.plan_hash != m.plan_hash or art.data.get("purpose") != "scope_change":
+        raise ProxmoxError("the approved scope-change preview is missing or does not match the approved hash")
+    if stored is None or str(art.endpoint_id) != str(ep.id):
+        raise ProxmoxError("the preview does not belong to this integration")
+    return art
+
+
+def _vault_secrets(rt: Runtime, ep, stored, known: list[str]) -> dict:
+    secrets = {kind: (t["id"], _vault_token(rt, ep, kind)) for kind, t in stored.tokens.items()}
+    known += [x for _, x in secrets.values()]
+    return secrets
+
+
+@safe
+def exec_scope_change(rt: Runtime, db: Session, m: ScopeChange, plan, known: list[str]) -> dict:
+    base_url, ca, fp, ep = _resolve(db, m)
+    stored = _stored(db, ep.id)
+    art = _scope_artifact(db, m, ep, stored)
+    old = Policy.model_validate(stored.policy)
+    new = Policy.model_validate(art.data["policy_new"])
+    detach_req = bool(art.data["scope"]["detach"])
+    managed = dict(stored.managed)
+    if m.execution == "confirm_package":
+        from ..actions import _client_for
+        c0 = _client_for(rt, ep, known)
+        try:
+            facts = pp.collect_facts(_Reader(c0))
+        finally:
+            c0.close()
+        sc = sc_mod.build_from(old, stored.design, new, None, managed, detach_requested=detach_req, db_guests=_db_guests(db, ep.id))
+        if sc.direction != art.data["scope"]["direction"]:
+            raise ProxmoxError("the scope change no longer matches the approved preview")
+        d = pp.design_from_stored(new, stored.design)
+        verification = _verify_all(rt, base_url, ca, fp, new, d, _vault_secrets(rt, ep, stored, known), facts, known)
+        if not verification["ok"]:
+            raise ProxmoxError("Proxmox does not yet match the new scope (has the package been run on the cluster?): " + _problem(verification))
+        _commit_scope(rt, db, plan, ep, stored, sc, sc.plan, None, verification, known)
+        return {"endpoint_id": str(ep.id), "direction": sc.direction, "mode": "B", "scope": sc_mod.scope_summary(new), "verification": _verif_public(verification)}
+    _need_creds(rt, m, plan)
+    admin = open_admin(rt, m, base_url, ca, fp, known)
+    res = None
+    restore_needed = False
+    try:
+        facts = pp.collect_facts(admin)
+        dbg = _db_guests(db, ep.id)
+        rows, gst = _scope_inputs(admin, facts, dbg)
+        sc = sc_mod.build_from(old, stored.design, new, facts, managed, detach_requested=detach_req, db_guests=dbg, guest_storages=gst, node_rows=rows)
+        if sc.hash != m.plan_hash:
+            raise ProxmoxError("the cluster or the managed guests changed since the scope change was previewed and approved: nothing was applied; preview again")
+        if sc.blocked:
+            raise ProxmoxError("scope change is blocked: " + "; ".join(sc.blocked))
+        d = pp.design_from_stored(sc.new, stored.design)
+        restore_needed = True
+        res = pp.apply_plan(admin, sc.plan, pp.design_from_plan(sc.plan, sc.new))
+        verification = _verify_all(rt, base_url, ca, fp, sc.new, d, _vault_secrets(rt, ep, stored, known), facts, known)
+        if not verification["ok"]:
+            raise ProxmoxError("verification of the resulting permissions failed: " + _problem(verification))
+        _commit_scope(rt, db, plan, ep, stored, sc, sc.plan, res, verification, known)
+        restore_needed = False
+        return {"endpoint_id": str(ep.id), "direction": sc.direction, "mode": "A", "scope": sc_mod.scope_summary(sc.new), "applied": res.log,
+                "verification": _verif_public(verification), "temporary_credentials": "discarded"}
+    except BaseException:
+        if restore_needed:
+            try:   # put the previous permissions back: the stored policy is still the old one, so a reconcile-style plan restores exactly it
+                f2 = pp.collect_facts(admin)
+                back = pp.plan_for(old, f2, managed=managed, prune=True, mode="A")
+                left = pp.apply_plan(admin, back, pp.design_from_stored(old, stored.design))
+                audit.append(db, "provider.scope.reverted", actor_name="worker", resource="endpoint", resource_id=str(ep.id), details={"restored": left.log})
+            except Exception as e:  # noqa: BLE001
+                audit.append(db, "provider.scope.revert_failed", actor_name="worker", resource="endpoint", resource_id=str(ep.id), details={"error": str(e)[:200]})
+        raise
+    finally:
+        admin.discard()
+
+
+@safe
+def exec_scope_package(rt: Runtime, db: Session, m: ScopePackage, plan, known: list[str]) -> dict:
+    base_url, ca, fp, ep = _resolve(db, m)
+    stored = _stored(db, ep.id)
+    art = _scope_artifact(db, m, ep, stored)
+    old = Policy.model_validate(stored.policy)
+    new = Policy.model_validate(art.data["policy_new"])
+    sc = sc_mod.build_from(old, stored.design, new, None, dict(stored.managed), detach_requested=bool(art.data["scope"]["detach"]), db_guests=_db_guests(db, ep.id))
+    if sc.direction != art.data["scope"]["direction"] or sc.blocked and not art.data["scope"]["blocked"]:
+        raise ProxmoxError("the scope change cannot be recomputed as previewed: " + "; ".join(sc.blocked))
+    pid = str(uuid.uuid4())
+    meta = {"package_id": pid, **sc_mod.package_meta(sc, stored.design)}
+    files = pp.ProxmoxPackageGenerator(new).generate(sc.plan, meta)
+    sd = pp.stored_design(sc.plan)
+    sd["tokens"] = dict(stored.design["tokens"])
+    db.execute(text("INSERT INTO provision_artifacts (id, kind, endpoint_id, plan_hash, data, created_by, customer_id) VALUES "
+                    "(:i, 'package', :e, :h, CAST(:d AS jsonb), :u, :c)"),
+               {"i": pid, "e": str(ep.id), "h": art.plan_hash, "u": plan.requested_by, "c": str(plan.customer_id) if plan.customer_id else None,
+                "d": json.dumps({"files": files, "plan": sc.plan.to_dict(), "design": sd, "policy": new.model_dump(mode="json"), "scope_preview_id": str(m.preview_id)})})
+    audit.append(db, "provider.scope.package_generated", actor_name="worker", resource="package", resource_id=pid,
+                 details={"scope_hash": art.plan_hash, "direction": sc.direction, "files": sorted(files)})
+    return {"package_id": pid, "plan_hash": art.plan_hash, "files": sorted(files), "direction": sc.direction}
 
 
 @safe
@@ -747,14 +992,14 @@ _customer_plan.register()   # the customer approval link shows the real permissi
 
 EXECUTORS = {"provider.provision.plan_preview": exec_preview, "provider.provision.apply": exec_apply, "provider.provision.package": exec_package,
              "provider.credential.import": exec_import, "provider.permissions.reconcile": exec_reconcile, "provider.token.rotate": exec_rotate,
-             "provider.token.revoke": exec_revoke}
+             "provider.token.revoke": exec_revoke, "provider.scope.change": exec_scope_change, "provider.scope.package": exec_scope_package}
 
 
 def scrub_expired_credentials(db: Session) -> int:
     """Discard temporary provisioning credentials: (1) legacy plan-row secrets of provisioning plans past the TTL / rejected, and (2) every
     `temporary_provisioning` credential that is expired, whose plan was rejected or vanished, or whose job has finished (ciphertext destroyed)."""
     r = db.execute(text("UPDATE plans SET secret_enc = NULL WHERE action IN ('provider.provision.plan_preview', 'provider.provision.apply', "
-                        "'provider.permissions.reconcile', 'provider.token.rotate', 'provider.token.revoke') AND secret_enc IS NOT NULL AND "
+                        "'provider.permissions.reconcile', 'provider.token.rotate', 'provider.token.revoke', 'provider.scope.change') AND secret_enc IS NOT NULL AND "
                         "(created_at < now() - make_interval(secs => :t) OR status = 'rejected')"), {"t": TEMP_CRED_TTL})
     n = r.rowcount or 0
     rows = db.execute(text(

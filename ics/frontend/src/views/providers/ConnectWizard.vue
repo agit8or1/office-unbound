@@ -42,8 +42,8 @@ const shellSteps = computed(() => steps.value.map((x) => ({ id: x.id, title: x.t
 function onNext() {
   const before = w.m.index
   const leaving = w.current.value.id
-  if (leaving === 'discover' && !m.scopeSuggested && m.discovery) { Object.assign(m.scope, suggestScope(m.discovery, m.preset)); m.scopeSuggested = true }
-  if (w.next() && before === 0 && m.discovery && !m.scopeSuggested) { Object.assign(m.scope, suggestScope(m.discovery, m.preset)); m.scopeSuggested = true }
+  if (leaving === 'discover' && !m.scopeSuggested && m.discovery) { Object.assign(m.scope, suggestScope(m.discovery, m.preset, m.scopeMode)); m.scopeSuggested = true }
+  if (w.next() && before === 0 && m.discovery && !m.scopeSuggested) { Object.assign(m.scope, suggestScope(m.discovery, m.preset, m.scopeMode)); m.scopeSuggested = true }
 }
 function setErrors(e: Record<string, string>) { w.m.errors = e }
 const errs = computed(() => w.m.errors)

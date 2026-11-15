@@ -3,6 +3,7 @@ import {
   adminCreds, applyParams, buildPolicy, capacityHeadroom, changedOnly, connectionKey, credentialState, credentialsFor, daysUntil, describeStep, diffPolicies, discoverySummary, driftItems,
   fingerprintMismatch, identityKey, identityVerified, importParams, mergeSeries, mergeStorage, newModel, newSecrets, normDiscovery, packageParams, parseRanges, parseVmids, policyFromView,
   policyStatus, previewKeyOf, previewParams, probeRequest, ratioSeries, registerParams, reviewVerdict, riskOf, runView, splitEnforcement, stepRows, suggestName, suggestScope,
+  blockedStorages, scopeChangeParams, scopePackageParams, scopePreviewParams, scopeTargetOf, scopeTargetValid, storageChoices, storageLocality,
   tlsRequest, tokenPathEnforcement, troubleshoot, validateConnect, validateCreds, validateScope, wipe, worstCredential,
   type CredentialMeta, type PlanPreviewOut, type PlanStep, type ProviderEndpoint, type WizardModel,
 } from './model'
@@ -292,5 +293,73 @@ describe('metrics and capacity', () => {
       { id: 'g', vmid: 100, kind: 'vm', node: 'a', name: null, status: 'running', pool: null, ou_managed: true, cpus: 1, mem_max: 1 }])
     expect(cap).toMatchObject({ memFree: 60, diskFree: 600, nodesCounted: 1, running: 1, authorisedStorage: 1 })
     expect(cap.cpuFree).toBeCloseTo(4)
+  })
+})
+
+
+describe('scope modes (one node only / whole cluster)', () => {
+  const disc = () => normDiscovery({
+    nodes: [{ name: 'pve05', status: 'online', managed: true }, { name: 'pve06', status: 'online', managed: true }],
+    storage: [
+      { name: 'PVE06-Storage', node: 'pve06', type: 'lvmthin', content: ['images', 'rootdir'], shared: false, total: 100, used: 10, active: true },
+      { name: 'ha-zfs', node: 'pve05', type: 'zfspool', content: ['images', 'rootdir'], shared: true, total: 500, used: 10, active: true },
+      { name: 'ha-zfs', node: 'pve06', type: 'zfspool', content: ['images', 'rootdir'], shared: true, total: 500, used: 10, active: true },
+      { name: 'PBS1', node: 'pve06', type: 'pbs', content: ['backup'], shared: true, total: 900, used: 1, active: true },
+    ],
+  })!
+  it('defaults to one node and sends the mode, never a node list for the whole cluster', () => {
+    const m = model(); m.scope.nodes = ['pve06']
+    expect(buildPolicy(m).scope_mode).toBe('single_node')
+    m.scopeMode = 'whole_cluster'
+    const p = buildPolicy(m)
+    expect(p.scope_mode).toBe('whole_cluster'); expect(p.scope.nodes).toEqual([]); expect(p.scope_risk_overrides).toEqual([])
+  })
+  it('full administration is always a whole-cluster scope', () => {
+    const m = model({ preset: 'full_admin', acknowledgeFullAdmin: true }); m.scope.nodes = ['pve06']
+    expect(buildPolicy(m).scope_mode).toBe('whole_cluster')
+  })
+  it('one node: migration and cloud-init snippets are not sent without the explicit exception', () => {
+    const m = model({ allowMigrate: true, allowCicustom: true }); m.scope.nodes = ['pve06']
+    let p = buildPolicy(m); expect(p.allow_migrate).toBe(false); expect(p.allow_cicustom).toBe(false)
+    m.riskOverrides = ['migrate']; p = buildPolicy(m); expect(p.allow_migrate).toBe(true); expect(p.scope_risk_overrides).toEqual(['migrate'])
+  })
+  it('only node-local storage is selectable in one-node mode; shared and multi-node storage is refused with a reason', () => {
+    const d = disc()
+    const rows = storageChoices(d, 'single_node', ['pve06'], [])
+    const by = Object.fromEntries(rows.map((r) => [r.name, r]))
+    expect(by['PVE06-Storage']!.selectable).toBe(true)
+    expect(by['ha-zfs']!.selectable).toBe(false); expect(by['ha-zfs']!.reason).toMatch(/Shared/)
+    expect(by['PBS1']!.selectable).toBe(true)          // backup-only storage cannot hold VM disks
+    expect(storageChoices(d, 'whole_cluster', ['pve06'], []).every((r) => r.selectable)).toBe(true)
+    expect(storageLocality({ shared: false, nodes: ['pve05', 'pve06'] }, ['pve06']).reason).toMatch(/pve05/)
+  })
+  it('a shared storage only becomes selectable with the explicit high-risk exception', () => {
+    const d = disc()
+    expect(storageChoices(d, 'single_node', ['pve06'], ['shared_storage:ha-zfs']).find((r) => r.name === 'ha-zfs')!.selectable).toBe(true)
+    const m = model(); m.discovery = d; m.scope.nodes = ['pve06']; m.scope.storages = ['ha-zfs']
+    expect(blockedStorages(m).map((b) => b.name)).toEqual(['ha-zfs']); expect(validateScope(m).storages).toMatch(/other nodes/)
+    m.riskOverrides = ['shared_storage:ha-zfs']; expect(blockedStorages(m)).toEqual([])
+  })
+  it('suggests exactly one node and only storage local to it', () => {
+    const s = suggestScope(disc(), 'deploy', 'single_node')
+    expect(s.nodes).toEqual(['pve05']); expect(s.storages).toEqual([])        // pve05 has no node-local storage: nothing unsafe is pre-selected
+    expect(suggestScope(disc(), 'deploy', 'whole_cluster').nodes).toEqual(['pve05', 'pve06'])
+  })
+  it('one node needs a node', () => { const m = model(); expect(validateScope(m).nodes).toMatch(/Choose the node/) })
+  it('builds scope-change requests: preview, apply (Mode A), package and confirm (Mode B)', () => {
+    const t = scopeTargetOf({ endpoint_id: 'e', managed_by_provisioning: true }, 'single_node', ['pve06'], ['PVE06-Storage'], [], false)
+    expect(t).toEqual({ mode: 'single_node', nodes: ['pve06'], storages: ['PVE06-Storage'], risk_overrides: [], detach_orphans: false })
+    expect(scopeTargetValid({ ...t, nodes: [] })).toMatch(/at least one/)
+    expect(scopeTargetOf({ endpoint_id: 'e', managed_by_provisioning: true }, 'whole_cluster', ['pve06'], [], ['migrate'], false).nodes).toEqual([])
+    expect(scopePreviewParams('e', t, { admin_username: 'root@pam', admin_password: 'x' })).toMatchObject({ purpose: 'scope_change', endpoint_id: 'e', scope_target: t })
+    const pv = { preview_id: 'p', plan_hash: 'h', risk: 'high', direction: 'widen', blocked: [], scope: { detach: [7] } } as never
+    expect(scopeChangeParams('e', pv, 'mode_a', { admin_token_id: 'a@pam!t', admin_token_secret: 's' })).toMatchObject({ direction: 'widen', detach: true, execution: 'mode_a', admin_token_id: 'a@pam!t' })
+    const b = scopeChangeParams('e', pv, 'confirm_package', { admin_token_id: 'a@pam!t', admin_token_secret: 's' }, 'pkg')
+    expect(b).toMatchObject({ execution: 'confirm_package', package_id: 'pkg' }); expect(JSON.stringify(b)).not.toContain('admin_token')
+    expect(scopePackageParams('e', pv)).toEqual({ endpoint_id: 'e', preview_id: 'p', plan_hash: 'h', direction: 'widen', detach: true })
+  })
+  it('shows an injected cluster-wide grant as out of scope in the drift list', () => {
+    const items = driftItems({ ok: false, kinds: { inventory: { ok: false, missing: [], unexpected: [], forbidden: [], suggestion: [], scope_reach: [{ path: '/nodes', privileges: ['Sys.Audit'], reaches: 'every node in the cluster', enforced_by: 'proxmox' }] } } })
+    expect(items).toHaveLength(1); expect(items[0]).toMatchObject({ type: 'exposed', path: '/nodes' }); expect(items[0]!.text).toMatch(/single-node/)
   })
 })
