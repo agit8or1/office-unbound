@@ -24,6 +24,7 @@ from .inventory import api as inventory_api
 from .provisioning import service as prov_service
 from .credentials import api as credentials_api, service as cred_service
 from .tenancy import api as tenancy_api, public as tenancy_public, scope as tscope
+from .msp import api as msp_api, console as msp_console
 from .runtime import Runtime
 from .worker import Worker
 
@@ -522,6 +523,8 @@ def create_app(settings: Settings | None = None, runtime: Runtime | None = None)
         return audit.verify_chain(db)
 
     credentials_api.mount(app)
+    msp_console.mount(app, API)
+    msp_api.register(app)  # /api/msp/v1/* machine-to-machine API (ADR-0013)
     tenancy_api.mount(app)
     tenancy_public.mount(app)
 

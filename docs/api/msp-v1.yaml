@@ -1,0 +1,808 @@
+openapi: 3.1.0
+info:
+  title: Office Unbound MSP Provisioning API
+  version: 1.0.0
+  summary: Machine-to-machine API for MSP systems (clientst0r and others) to plan and track Office Unbound provisioning.
+  description: |
+    Base path `/api/msp/v1`. Separate from the operator console API (`/api/v1`, cookie sessions).
+
+    ## Model
+    * Every **mutation creates a plan**, never a direct change. A plan is approved by humans (two approvers for high risk) and then
+      executed by the ICS worker as a durable job. The response to a mutation is `202` with the plan id and its approval status;
+      follow it with `GET /plans/{plan_id}`, a webhook (`plan.approved`, `job.completed`, ...) or `GET /events`.
+    * An API client can never approve its own plans. `approve` and `execute` are off by default and can only be granted by an
+      approved plan (`msp.client.set_permissions`); even then they are limited to non-high-risk plans of MSP-owned customers.
+    * Out-of-scope customers answer `404`, not `403`.
+
+    ## Authentication (HMAC-SHA256 request signing)
+    Credentials are created by an approved console plan (`msp.client.create`) and shown once: a `client_id` (`mspc_` + 16 hex) and a
+    secret (`mspk_...`). Every request carries:
+
+    | Header | Value |
+    |---|---|
+    | `X-MSP-Client` | the client id |
+    | `X-MSP-Timestamp` | unix seconds; must be within +-120 s of the server clock |
+    | `X-MSP-Nonce` | 16-64 chars `[A-Za-z0-9_-]`, unique per request (a reused nonce is `401 replayed_request`) |
+    | `X-MSP-Signature` | `v1=` + hex(HMAC-SHA256(secret, string_to_sign)) |
+
+    ```
+    string_to_sign = "OU-MSP1" "\n" METHOD "\n" REQUEST_TARGET "\n" TIMESTAMP "\n" NONCE "\n" hex(sha256(body))
+    ```
+    `REQUEST_TARGET` is the raw path plus `?query` exactly as sent; the body hash of an empty body is the SHA-256 of the empty string.
+    Clients may additionally be bound to a TLS client certificate (mTLS terminated by the reverse proxy, which forwards
+    `X-Client-Cert-SHA256`). After a key rotation the previous key keeps working for the grace period chosen in the rotation plan
+    (responses carry `X-MSP-Key-Status` while it is used).
+
+    ## Idempotency
+    Every `POST`, `PATCH` and `DELETE` requires an `Idempotency-Key` header (8-128 chars of `A-Za-z0-9._:~-`). The first successful
+    response is stored (24 h) with a hash of method, target and body. A retry with the same key and request returns the original
+    response (`Idempotent-Replay: true`); the same key with a different request is `409 idempotency_key_reused`; a retry while the
+    first is still running is `409 idempotency_in_progress`. Failed requests (4xx/5xx) are not stored, so they can be corrected and retried.
+
+    ## Permissions
+    `view` (reads, webhooks, events), `plan` (previews, submitting plans, reading one-time enrollment tokens of own plans),
+    `approve` (peer approval, default off), `execute` (low-risk plans on MSP-owned customers run without a human, default off).
+
+    ## Errors
+    `{"error": {"code", "message", "request_id", "details"?}}`. Codes: `auth_headers_missing`, `auth_malformed`, `timestamp_out_of_window`,
+    `invalid_signature`, `replayed_request`, `client_certificate_required`, `forbidden`, `not_found`, `validation_error`, `conflict`,
+    `policy_denied`, `idempotency_key_required`, `idempotency_key_invalid`, `idempotency_key_reused`, `idempotency_in_progress`,
+    `rate_limited`, `too_many_failures`, `approval_not_permitted`, `approval_refused`, `no_identity_stack`, `internal_error`.
+
+    ## Rate limits
+    Per client token bucket (`rate_limit_per_minute`, default 120). `X-RateLimit-Limit`, `X-RateLimit-Remaining`; `429` carries `Retry-After`.
+
+    ## Versioning
+    No breaking change within `v1`: only new optional request fields, new response fields, new endpoints and new enum values in
+    *responses* are added; clients must ignore unknown response fields. A breaking change ships as `/api/msp/v2`. A deprecated v1
+    operation answers with `Deprecation: true`, `Sunset: <HTTP date>` and `Link: <successor>; rel="successor-version"` for at least
+    180 days before removal. Every response carries `X-MSP-API-Version: 1` and `X-Request-Id`.
+
+    ## Webhooks
+    Event types: `plan.approved`, `plan.rejected`, `job.completed`, `job.failed`, `incident.opened`, `incident.recovered`. Delivery is
+    **at least once**: failed deliveries (non-2xx, timeout, TLS error) are retried after 5 s, 30 s, 2 min, 10 min, 1 h, 6 h, 12 h
+    (8 attempts, then marked dead; see `GET /webhooks/{id}/deliveries`). De-duplicate on the event `id`. Each POST has the JSON
+    envelope `Event` and headers `X-MSP-Event-Id`, `X-MSP-Event-Type`, `X-MSP-Delivery-Id`, `X-MSP-Delivery-Attempt` and
+    `X-MSP-Signature: t=<unix>,v1=<hex HMAC-SHA256(webhook secret, "<t>.<raw body>")>` - reject if `t` is older than 5 minutes.
+    Webhook urls must be https and may not resolve to loopback, link-local or reserved addresses.
+  license:
+    name: AGPL-3.0-or-later
+    identifier: AGPL-3.0-or-later
+servers:
+  - url: /api/msp/v1
+security:
+  - mspHmac: []
+tags:
+  - name: Meta
+  - name: Customers
+  - name: Deployments
+  - name: Users
+  - name: Plans
+  - name: Usage
+  - name: Webhooks
+paths:
+  /me:
+    get:
+      tags: [Meta]
+      operationId: getMe
+      summary: The calling API client (permissions, scope, rate limit)
+      x-permission: view
+      responses:
+        "200": {description: ok, content: {application/json: {schema: {$ref: "#/components/schemas/Me"}}}}
+        "4XX": {$ref: "#/components/responses/Error"}
+  /customers:
+    get:
+      tags: [Customers]
+      operationId: listCustomers
+      x-permission: view
+      parameters:
+        - {$ref: "#/components/parameters/Limit"}
+        - {$ref: "#/components/parameters/Cursor"}
+        - {name: external_ref, in: query, schema: {type: string}, description: Filter by the MSP system's own customer id}
+      responses:
+        "200": {description: ok, content: {application/json: {schema: {$ref: "#/components/schemas/CustomerList"}}}}
+        "4XX": {$ref: "#/components/responses/Error"}
+    post:
+      tags: [Customers]
+      operationId: createCustomer
+      summary: Plan a new customer (high risk, two human approvers; all-customers clients only)
+      x-permission: plan
+      parameters: [{$ref: "#/components/parameters/IdempotencyKey"}]
+      requestBody: {required: true, content: {application/json: {schema: {$ref: "#/components/schemas/CustomerCreate"}}}}
+      responses:
+        "202": {$ref: "#/components/responses/PlanAccepted"}
+        "4XX": {$ref: "#/components/responses/Error"}
+  /customers/{customer_id}:
+    parameters: [{$ref: "#/components/parameters/CustomerId"}]
+    get:
+      tags: [Customers]
+      operationId: getCustomer
+      x-permission: view
+      responses:
+        "200": {description: ok, content: {application/json: {schema: {$ref: "#/components/schemas/Customer"}}}}
+        "4XX": {$ref: "#/components/responses/Error"}
+    patch:
+      tags: [Customers]
+      operationId: updateCustomer
+      summary: Plan a change of the customer's contact data
+      x-permission: plan
+      parameters: [{$ref: "#/components/parameters/IdempotencyKey"}]
+      requestBody: {required: true, content: {application/json: {schema: {$ref: "#/components/schemas/CustomerPatch"}}}}
+      responses:
+        "202": {$ref: "#/components/responses/PlanAccepted"}
+        "4XX": {$ref: "#/components/responses/Error"}
+  /customers/{customer_id}/usage:
+    parameters: [{$ref: "#/components/parameters/CustomerId"}]
+    get:
+      tags: [Usage]
+      operationId: getCustomerUsage
+      summary: Metering snapshot (users, mailboxes, storage, VM resources) with the definition of every figure
+      x-permission: view
+      responses:
+        "200": {description: ok, content: {application/json: {schema: {$ref: "#/components/schemas/Usage"}}}}
+        "4XX": {$ref: "#/components/responses/Error"}
+  /customers/{customer_id}/deployments/preview:
+    parameters: [{$ref: "#/components/parameters/CustomerId"}]
+    post:
+      tags: [Deployments]
+      operationId: previewDeployment
+      summary: Dry-run deployment plan against the latest inventory (writes nothing). Returns the plan_hash the create call must echo.
+      x-permission: plan
+      parameters: [{$ref: "#/components/parameters/IdempotencyKey"}]
+      requestBody: {required: true, content: {application/json: {schema: {$ref: "#/components/schemas/DeploymentSpec"}}}}
+      responses:
+        "200": {description: ok, content: {application/json: {schema: {$ref: "#/components/schemas/DeploymentPreview"}}}}
+        "4XX": {$ref: "#/components/responses/Error"}
+  /customers/{customer_id}/deployments:
+    parameters: [{$ref: "#/components/parameters/CustomerId"}]
+    post:
+      tags: [Deployments]
+      operationId: createDeployment
+      summary: Plan a deployment (high risk, two approvers). `spec.customer_id` is set from the path.
+      x-permission: plan
+      parameters: [{$ref: "#/components/parameters/IdempotencyKey"}]
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [spec, plan_hash]
+              additionalProperties: false
+              properties:
+                spec: {$ref: "#/components/schemas/DeploymentSpec"}
+                plan_hash: {type: string, pattern: "^[0-9a-f]{64}$"}
+      responses:
+        "202": {$ref: "#/components/responses/PlanAccepted"}
+        "4XX": {$ref: "#/components/responses/Error"}
+  /deployments:
+    get:
+      tags: [Deployments]
+      operationId: listDeployments
+      x-permission: view
+      parameters:
+        - {$ref: "#/components/parameters/Limit"}
+        - {$ref: "#/components/parameters/Cursor"}
+        - {name: customer_id, in: query, schema: {type: string, format: uuid}}
+      responses:
+        "200": {description: ok, content: {application/json: {schema: {$ref: "#/components/schemas/DeploymentList"}}}}
+        "4XX": {$ref: "#/components/responses/Error"}
+  /deployments/{slug}:
+    parameters: [{$ref: "#/components/parameters/Slug"}]
+    get:
+      tags: [Deployments]
+      operationId: getDeployment
+      summary: Status, revisions, resource summary and the steps of the latest job
+      x-permission: view
+      responses:
+        "200": {description: ok, content: {application/json: {schema: {$ref: "#/components/schemas/Deployment"}}}}
+        "4XX": {$ref: "#/components/responses/Error"}
+  /deployments/{slug}/health:
+    parameters: [{$ref: "#/components/parameters/Slug"}]
+    get:
+      tags: [Deployments]
+      operationId: getDeploymentHealth
+      summary: Service status / health summary (checks, open incidents, drift)
+      x-permission: view
+      responses:
+        "200": {description: ok, content: {application/json: {schema: {$ref: "#/components/schemas/Health"}}}}
+        "4XX": {$ref: "#/components/responses/Error"}
+  /deployments/{slug}/changes/preview:
+    parameters: [{$ref: "#/components/parameters/Slug"}]
+    post:
+      tags: [Deployments]
+      operationId: previewChange
+      x-permission: plan
+      parameters: [{$ref: "#/components/parameters/IdempotencyKey"}]
+      requestBody:
+        required: true
+        content: {application/json: {schema: {type: object, required: [changes], additionalProperties: false, properties: {changes: {$ref: "#/components/schemas/ChangeSet"}}}}}
+      responses:
+        "200": {description: ok, content: {application/json: {schema: {type: object, additionalProperties: true}}}}
+        "4XX": {$ref: "#/components/responses/Error"}
+  /deployments/{slug}/changes:
+    parameters: [{$ref: "#/components/parameters/Slug"}]
+    post:
+      tags: [Deployments]
+      operationId: createChange
+      summary: Plan a change (risk follows the diff; disruptive changes need a maintenance window or an override)
+      x-permission: plan
+      parameters: [{$ref: "#/components/parameters/IdempotencyKey"}]
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [changes, plan_hash]
+              additionalProperties: false
+              properties:
+                changes: {$ref: "#/components/schemas/ChangeSet"}
+                plan_hash: {type: string, pattern: "^[0-9a-f]{64}$"}
+                maintenance: {type: [string, "null"], enum: [window, override, null]}
+                maintenance_window_id: {type: [string, "null"], format: uuid}
+      responses:
+        "202": {$ref: "#/components/responses/PlanAccepted"}
+        "4XX": {$ref: "#/components/responses/Error"}
+  /deployments/{slug}/destroy/preview:
+    parameters: [{$ref: "#/components/parameters/Slug"}]
+    post:
+      tags: [Deployments]
+      operationId: previewDestroy
+      x-permission: plan
+      parameters: [{$ref: "#/components/parameters/IdempotencyKey"}]
+      responses:
+        "200": {description: ok, content: {application/json: {schema: {type: object, required: [plan_hash], additionalProperties: true, properties: {plan_hash: {type: string}}}}}}
+        "4XX": {$ref: "#/components/responses/Error"}
+  /deployments/{slug}/destroy:
+    parameters: [{$ref: "#/components/parameters/Slug"}]
+    post:
+      tags: [Deployments]
+      operationId: createDestroy
+      summary: Plan a destroy (high risk). `confirm` must equal the slug.
+      x-permission: plan
+      parameters: [{$ref: "#/components/parameters/IdempotencyKey"}]
+      requestBody:
+        required: true
+        content: {application/json: {schema: {type: object, required: [confirm, plan_hash], additionalProperties: false, properties: {confirm: {type: string}, plan_hash: {type: string, pattern: "^[0-9a-f]{64}$"}}}}}
+      responses:
+        "202": {$ref: "#/components/responses/PlanAccepted"}
+        "4XX": {$ref: "#/components/responses/Error"}
+  /customers/{customer_id}/users:
+    parameters: [{$ref: "#/components/parameters/CustomerId"}]
+    get:
+      tags: [Users]
+      operationId: listUsers
+      x-permission: view
+      parameters:
+        - {$ref: "#/components/parameters/Limit"}
+        - {$ref: "#/components/parameters/Cursor"}
+        - {name: state, in: query, schema: {type: string, enum: [active, disabled, deleted]}}
+      responses:
+        "200": {description: ok, content: {application/json: {schema: {$ref: "#/components/schemas/UserList"}}}}
+        "4XX": {$ref: "#/components/responses/Error"}
+    post:
+      tags: [Users]
+      operationId: createUser
+      summary: Plan a user (idm.user.create). The initial credential is a one-time enrollment token, see POST /plans/{plan_id}/enrollment.
+      x-permission: plan
+      parameters: [{$ref: "#/components/parameters/IdempotencyKey"}]
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [uid, display_name, mail]
+              additionalProperties: false
+              properties:
+                stack: {type: string, description: Required only when the customer has several identity stacks}
+                uid: {type: string, pattern: "^[a-z][a-z0-9._-]{1,31}$"}
+                display_name: {type: string}
+                mail: {type: string}
+                groups: {type: array, items: {type: string}}
+                mailbox: {type: boolean, default: true}
+      responses:
+        "202": {$ref: "#/components/responses/PlanAccepted"}
+        "4XX": {$ref: "#/components/responses/Error"}
+  /customers/{customer_id}/users/{uid}:
+    parameters: [{$ref: "#/components/parameters/CustomerId"}, {$ref: "#/components/parameters/Uid"}]
+    patch:
+      tags: [Users]
+      operationId: updateUserGroups
+      summary: Plan a group membership change (privileged groups raise the risk to high)
+      x-permission: plan
+      parameters: [{$ref: "#/components/parameters/IdempotencyKey"}]
+      requestBody:
+        required: true
+        content: {application/json: {schema: {type: object, additionalProperties: false, properties: {stack: {type: string}, add: {type: array, items: {type: string}}, remove: {type: array, items: {type: string}}}}}}
+      responses:
+        "202": {$ref: "#/components/responses/PlanAccepted"}
+        "4XX": {$ref: "#/components/responses/Error"}
+    delete:
+      tags: [Users]
+      operationId: deleteUser
+      summary: Plan a user deletion (high risk; mailbox data is retained). `reason` (3-200 chars) is mandatory in the body.
+      x-permission: plan
+      parameters: [{$ref: "#/components/parameters/IdempotencyKey"}]
+      requestBody:
+        required: true
+        content: {application/json: {schema: {type: object, required: [reason], additionalProperties: false, properties: {stack: {type: string}, reason: {type: string, minLength: 3, maxLength: 200}}}}}
+      responses:
+        "202": {$ref: "#/components/responses/PlanAccepted"}
+        "4XX": {$ref: "#/components/responses/Error"}
+  /customers/{customer_id}/users/{uid}/disable:
+    parameters: [{$ref: "#/components/parameters/CustomerId"}, {$ref: "#/components/parameters/Uid"}]
+    post:
+      tags: [Users]
+      operationId: disableUser
+      x-permission: plan
+      parameters: [{$ref: "#/components/parameters/IdempotencyKey"}]
+      requestBody: {content: {application/json: {schema: {$ref: "#/components/schemas/UserOp"}}}}
+      responses:
+        "202": {$ref: "#/components/responses/PlanAccepted"}
+        "4XX": {$ref: "#/components/responses/Error"}
+  /customers/{customer_id}/users/{uid}/enable:
+    parameters: [{$ref: "#/components/parameters/CustomerId"}, {$ref: "#/components/parameters/Uid"}]
+    post:
+      tags: [Users]
+      operationId: enableUser
+      x-permission: plan
+      parameters: [{$ref: "#/components/parameters/IdempotencyKey"}]
+      requestBody: {content: {application/json: {schema: {$ref: "#/components/schemas/UserOp"}}}}
+      responses:
+        "202": {$ref: "#/components/responses/PlanAccepted"}
+        "4XX": {$ref: "#/components/responses/Error"}
+  /customers/{customer_id}/identity/reconcile:
+    parameters: [{$ref: "#/components/parameters/CustomerId"}]
+    post:
+      tags: [Users]
+      operationId: reconcileIdentity
+      summary: Plan a read-only reconcile of the customer's identity stack (low risk)
+      x-permission: plan
+      parameters: [{$ref: "#/components/parameters/IdempotencyKey"}]
+      requestBody: {content: {application/json: {schema: {$ref: "#/components/schemas/UserOp"}}}}
+      responses:
+        "202": {$ref: "#/components/responses/PlanAccepted"}
+        "4XX": {$ref: "#/components/responses/Error"}
+  /plans:
+    get:
+      tags: [Plans]
+      operationId: listPlans
+      x-permission: view
+      parameters:
+        - {$ref: "#/components/parameters/Limit"}
+        - {$ref: "#/components/parameters/Cursor"}
+        - {name: status, in: query, schema: {type: string, enum: [pending_approval, approved, rejected]}}
+        - {name: customer_id, in: query, schema: {type: string, format: uuid}}
+      responses:
+        "200": {description: ok, content: {application/json: {schema: {$ref: "#/components/schemas/PlanList"}}}}
+        "4XX": {$ref: "#/components/responses/Error"}
+  /plans/{plan_id}:
+    parameters: [{$ref: "#/components/parameters/PlanId"}]
+    get:
+      tags: [Plans]
+      operationId: getPlan
+      summary: Approval status and execution state of a plan
+      x-permission: view
+      responses:
+        "200": {description: ok, content: {application/json: {schema: {$ref: "#/components/schemas/PlanView"}}}}
+        "4XX": {$ref: "#/components/responses/Error"}
+  /plans/{plan_id}/approve:
+    parameters: [{$ref: "#/components/parameters/PlanId"}]
+    post:
+      tags: [Plans]
+      operationId: approvePlan
+      summary: Peer approval by an API client (needs `approve`, off by default; never own plans; MSP-owned customers; not high risk)
+      x-permission: approve
+      parameters: [{$ref: "#/components/parameters/IdempotencyKey"}]
+      responses:
+        "200": {description: ok, content: {application/json: {schema: {type: object, required: [plan_id, status], additionalProperties: true, properties: {plan_id: {type: string}, status: {type: string}, job_id: {type: [string, "null"]}}}}}}
+        "4XX": {$ref: "#/components/responses/Error"}
+  /plans/{plan_id}/enrollment:
+    parameters: [{$ref: "#/components/parameters/PlanId"}]
+    post:
+      tags: [Plans]
+      operationId: revealEnrollment
+      summary: One-time enrollment token of an executed idm.user.create/enable plan this client requested (shown once)
+      x-permission: plan
+      parameters: [{$ref: "#/components/parameters/IdempotencyKey"}]
+      responses:
+        "200": {description: ok, content: {application/json: {schema: {type: object, required: [token, uid], additionalProperties: true, properties: {token: {type: string}, uid: {type: string}, stack: {type: string}, expires_at: {type: string}}}}}}
+        "4XX": {$ref: "#/components/responses/Error"}
+  /jobs/{job_id}:
+    parameters: [{name: job_id, in: path, required: true, schema: {type: string, format: uuid}}]
+    get:
+      tags: [Plans]
+      operationId: getJob
+      x-permission: view
+      responses:
+        "200": {description: ok, content: {application/json: {schema: {$ref: "#/components/schemas/Job"}}}}
+        "4XX": {$ref: "#/components/responses/Error"}
+  /webhooks:
+    get:
+      tags: [Webhooks]
+      operationId: listWebhooks
+      x-permission: view
+      responses:
+        "200": {description: ok, content: {application/json: {schema: {type: object, required: [items], properties: {items: {type: array, items: {$ref: "#/components/schemas/Webhook"}}}}}}}
+        "4XX": {$ref: "#/components/responses/Error"}
+    post:
+      tags: [Webhooks]
+      operationId: createWebhook
+      summary: Subscribe an https endpoint; the signing secret is returned once
+      x-permission: view
+      parameters: [{$ref: "#/components/parameters/IdempotencyKey"}]
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [url, events]
+              additionalProperties: false
+              properties:
+                url: {type: string}
+                events: {type: array, minItems: 1, items: {$ref: "#/components/schemas/EventType"}}
+                description: {type: string}
+      responses:
+        "201": {description: created, content: {application/json: {schema: {$ref: "#/components/schemas/WebhookCreated"}}}}
+        "4XX": {$ref: "#/components/responses/Error"}
+  /webhooks/{webhook_id}:
+    parameters: [{$ref: "#/components/parameters/WebhookId"}]
+    get:
+      tags: [Webhooks]
+      operationId: getWebhook
+      x-permission: view
+      responses:
+        "200": {description: ok, content: {application/json: {schema: {$ref: "#/components/schemas/Webhook"}}}}
+        "4XX": {$ref: "#/components/responses/Error"}
+    delete:
+      tags: [Webhooks]
+      operationId: deleteWebhook
+      x-permission: view
+      parameters: [{$ref: "#/components/parameters/IdempotencyKey"}]
+      responses:
+        "200": {description: ok, content: {application/json: {schema: {type: object, required: [id, deleted], properties: {id: {type: string}, deleted: {type: boolean}}}}}}
+        "4XX": {$ref: "#/components/responses/Error"}
+  /webhooks/{webhook_id}/rotate-secret:
+    parameters: [{$ref: "#/components/parameters/WebhookId"}]
+    post:
+      tags: [Webhooks]
+      operationId: rotateWebhookSecret
+      x-permission: view
+      parameters: [{$ref: "#/components/parameters/IdempotencyKey"}]
+      responses:
+        "200": {description: ok, content: {application/json: {schema: {$ref: "#/components/schemas/WebhookCreated"}}}}
+        "4XX": {$ref: "#/components/responses/Error"}
+  /webhooks/{webhook_id}/deliveries:
+    parameters: [{$ref: "#/components/parameters/WebhookId"}]
+    get:
+      tags: [Webhooks]
+      operationId: listWebhookDeliveries
+      x-permission: view
+      responses:
+        "200": {description: ok, content: {application/json: {schema: {type: object, required: [items], properties: {items: {type: array, items: {$ref: "#/components/schemas/Delivery"}}}}}}}
+        "4XX": {$ref: "#/components/responses/Error"}
+  /events:
+    get:
+      tags: [Webhooks]
+      operationId: listEvents
+      summary: Polling alternative / catch-up feed of the same events, oldest first
+      x-permission: view
+      parameters:
+        - {name: after_seq, in: query, schema: {type: integer, minimum: 0}}
+        - {name: limit, in: query, schema: {type: integer, minimum: 1, maximum: 500}}
+      responses:
+        "200": {description: ok, content: {application/json: {schema: {type: object, required: [items, next_after_seq], properties: {items: {type: array, items: {$ref: "#/components/schemas/Event"}}, next_after_seq: {type: integer}}}}}}
+        "4XX": {$ref: "#/components/responses/Error"}
+webhooks:
+  event:
+    post:
+      summary: Event delivery (sent by ICS to your endpoint)
+      requestBody: {required: true, content: {application/json: {schema: {$ref: "#/components/schemas/Event"}}}}
+      responses:
+        "2XX": {description: acknowledged}
+components:
+  securitySchemes:
+    mspHmac:
+      type: apiKey
+      in: header
+      name: X-MSP-Signature
+      description: See "Authentication" in the API description; also send X-MSP-Client, X-MSP-Timestamp and X-MSP-Nonce.
+  parameters:
+    IdempotencyKey: {name: Idempotency-Key, in: header, required: true, schema: {type: string, minLength: 8, maxLength: 128}}
+    Limit: {name: limit, in: query, schema: {type: integer, minimum: 1, maximum: 200, default: 50}}
+    Cursor: {name: cursor, in: query, schema: {type: string}, description: "`next_cursor` of the previous page"}
+    CustomerId: {name: customer_id, in: path, required: true, schema: {type: string, format: uuid}}
+    Slug: {name: slug, in: path, required: true, schema: {type: string, pattern: "^[a-z0-9][a-z0-9-]{1,30}$"}}
+    Uid: {name: uid, in: path, required: true, schema: {type: string}}
+    PlanId: {name: plan_id, in: path, required: true, schema: {type: string, format: uuid}}
+    WebhookId: {name: webhook_id, in: path, required: true, schema: {type: string, format: uuid}}
+  responses:
+    Error:
+      description: Error
+      content: {application/json: {schema: {$ref: "#/components/schemas/Error"}}}
+    PlanAccepted:
+      description: A plan was created (or the original response of an idempotent replay). Nothing has changed yet.
+      content: {application/json: {schema: {$ref: "#/components/schemas/PlanSubmitted"}}}
+  schemas:
+    Error:
+      type: object
+      required: [error]
+      properties:
+        error:
+          type: object
+          required: [code, message, request_id]
+          properties:
+            code: {type: string}
+            message: {type: string}
+            request_id: {type: string}
+            details: {}
+    Me:
+      type: object
+      required: [client_id, name, permissions, all_customers, rate_limit_per_minute, api_version]
+      properties:
+        client_id: {type: string}
+        name: {type: string}
+        permissions: {type: array, items: {type: string, enum: [view, plan, approve, execute]}}
+        all_customers: {type: boolean}
+        customer_ids: {type: [array, "null"], items: {type: string}}
+        rate_limit_per_minute: {type: integer}
+        api_version: {type: string}
+    Customer:
+      type: object
+      required: [id, name, slug, external_ref, msp_owned, provisioning_mode, contact_name, contact_email, disabled, created_at]
+      properties:
+        id: {type: string, format: uuid}
+        name: {type: string}
+        slug: {type: string, description: "The `customer_id` of this customer's deployments"}
+        external_ref: {type: [string, "null"]}
+        msp_owned: {type: boolean}
+        provisioning_mode: {type: string, enum: [auto, customer_approval, monitoring_only]}
+        contact_name: {type: [string, "null"]}
+        contact_email: {type: [string, "null"]}
+        disabled: {type: boolean}
+        created_at: {type: string}
+    CustomerList:
+      type: object
+      required: [items, next_cursor]
+      properties:
+        items: {type: array, items: {$ref: "#/components/schemas/Customer"}}
+        next_cursor: {type: [string, "null"]}
+    CustomerCreate:
+      type: object
+      required: [name]
+      additionalProperties: false
+      properties:
+        name: {type: string}
+        slug: {type: string, pattern: "^[a-z0-9][a-z0-9-]{1,30}$"}
+        external_ref: {type: string, description: "The MSP system's own id (unique); use it to find the customer again"}
+        contact_name: {type: string}
+        contact_email: {type: string}
+        msp_owned: {type: boolean, default: false}
+    CustomerPatch:
+      type: object
+      additionalProperties: false
+      minProperties: 1
+      properties:
+        contact_name: {type: string}
+        contact_email: {type: string}
+    PlanSubmitted:
+      type: object
+      required: [plan_id, status, risk, approvals_required, params_hash, links]
+      properties:
+        plan_id: {type: string, format: uuid}
+        status: {type: string, enum: [pending_approval, approved, rejected]}
+        risk: {type: string, enum: [low, normal, high]}
+        approvals_required: {type: integer}
+        job_id: {type: [string, "null"]}
+        params_hash: {type: string}
+        customer_id: {type: [string, "null"]}
+        waiting_for: {type: [string, "null"], enum: [customer_approval, null]}
+        customer_approval_id: {type: [string, "null"]}
+        links: {type: object, required: [plan], properties: {plan: {type: string}}}
+    PlanView:
+      type: object
+      required: [plan_id, action, risk, status, customer_id, requested_by, own, created_at, approvals, approvals_required, execution]
+      properties:
+        plan_id: {type: string}
+        action: {type: string}
+        risk: {type: string, enum: [low, normal, high]}
+        status: {type: string, enum: [pending_approval, approved, rejected]}
+        customer_id: {type: [string, "null"]}
+        requested_by: {type: string, description: "`console` or `msp_client:<client_id>`"}
+        own: {type: boolean}
+        created_at: {type: string}
+        decided_at: {type: [string, "null"]}
+        approvals: {type: integer}
+        approvals_required: {type: integer}
+        waiting_for: {type: [string, "null"]}
+        customer_approval: {type: [object, "null"]}
+        params: {type: [object, "null"], description: Only for plans this client submitted}
+        execution:
+          type: [object, "null"]
+          required: [job_id, status]
+          properties:
+            job_id: {type: string}
+            status: {type: string, enum: [queued, running, succeeded, failed]}
+            queued_at: {type: [string, "null"]}
+            started_at: {type: [string, "null"]}
+            finished_at: {type: [string, "null"]}
+            result: {type: [object, "null"]}
+            error: {type: [object, "null"]}
+    PlanList:
+      type: object
+      required: [items, next_cursor]
+      properties:
+        items: {type: array, items: {$ref: "#/components/schemas/PlanView"}}
+        next_cursor: {type: [string, "null"]}
+    Job:
+      type: object
+      required: [job_id, status, plan_id, action, steps]
+      properties:
+        job_id: {type: string}
+        status: {type: string}
+        plan_id: {type: string}
+        action: {type: string}
+        result: {type: [object, "null"]}
+        error: {type: [object, "null"]}
+        steps: {type: array, items: {type: object, required: [seq, key, status], properties: {seq: {type: integer}, key: {type: string}, status: {type: string}}}}
+    DeploymentSpec:
+      type: object
+      description: The deployment engine's PlanInput without `customer_id` (taken from the path).
+      required: [deployment_id, profile, users, domain, endpoint, pool]
+      properties:
+        deployment_id: {type: string, pattern: "^[a-z0-9][a-z0-9-]{1,30}$"}
+        profile: {type: string}
+        users: {type: integer, minimum: 1}
+        tenants: {type: integer, minimum: 1}
+        domain: {type: string}
+        endpoint: {type: string}
+        pool: {type: string}
+        storage: {type: [string, "null"]}
+        bridge: {type: string}
+        vlan: {type: [integer, "null"]}
+        os_image: {type: [string, "null"]}
+        allowed_nodes: {type: [array, "null"], items: {type: string}}
+        optional: {type: object, additionalProperties: {type: boolean}}
+        backup_retention_days: {type: [integer, "null"]}
+    DeploymentPreview:
+      type: object
+      required: [plan_hash, executable, vms, steps, consumption, warnings, errors]
+      additionalProperties: true
+      properties:
+        plan_hash: {type: string}
+        executable: {type: boolean}
+        vms: {type: array, items: {type: object}}
+        steps: {type: array, items: {type: object}}
+        consumption: {type: object, required: [vms, cores, memory_mb, disk_gb]}
+        warnings: {type: array}
+        errors: {type: array}
+    ChangeSet:
+      type: object
+      additionalProperties: false
+      properties:
+        users: {type: integer, minimum: 1}
+        profile: {type: string}
+        optional: {type: object, additionalProperties: {type: boolean}}
+        backup_retention_days: {type: integer}
+        allowed_nodes: {type: array, items: {type: string}}
+        tenants: {type: integer}
+    DeploymentList:
+      type: object
+      required: [items, next_cursor]
+      properties:
+        items: {type: array, items: {$ref: "#/components/schemas/DeploymentSummary"}}
+        next_cursor: {type: [string, "null"]}
+    DeploymentSummary:
+      type: object
+      required: [slug, customer_id, profile, status, current_revision]
+      properties:
+        slug: {type: string}
+        customer_id: {type: [string, "null"]}
+        profile: {type: string}
+        profile_version: {type: string}
+        status: {type: string, enum: [planned, provisioning, active, failed, changing, destroying, destroyed]}
+        current_revision: {type: integer}
+        created_at: {type: string}
+        updated_at: {type: string}
+    Deployment:
+      type: object
+      required: [slug, status, current_revision, revisions, resource_summary, latest_job_steps]
+      properties:
+        slug: {type: string}
+        customer_id: {type: [string, "null"]}
+        profile: {type: string}
+        status: {type: string}
+        current_revision: {type: integer}
+        revisions: {type: array, items: {type: object, required: [revision, kind, status]}}
+        resource_summary: {type: array, items: {type: object, required: [kind, state, count]}}
+        latest_job_id: {type: [string, "null"]}
+        latest_job_steps: {type: array, items: {type: object, required: [seq, key, status]}}
+    Health:
+      type: object
+      required: [slug, deployment_status, health, checks, active_incidents, drift]
+      properties:
+        slug: {type: string}
+        deployment_status: {type: string}
+        health: {type: string, enum: [healthy, degraded, unhealthy, unknown]}
+        inventory_at: {type: [string, "null"]}
+        checks: {type: object, required: [ok, warning, critical, unknown], properties: {ok: {type: integer}, warning: {type: integer}, critical: {type: integer}, unknown: {type: integer}}}
+        active_incidents: {type: array, items: {type: object, required: [id, severity, title, status]}}
+        drift: {type: object, required: [in_sync, findings, types]}
+    UserOp:
+      type: object
+      additionalProperties: false
+      properties:
+        stack: {type: string}
+        reason: {type: string, maxLength: 200}
+    UserList:
+      type: object
+      required: [items, next_cursor]
+      properties:
+        items: {type: array, items: {type: object, required: [stack, uid, mail, display_name, groups, state], properties: {stack: {type: string}, uid: {type: string}, mail: {type: string}, display_name: {type: string}, groups: {type: array, items: {type: string}}, state: {type: string, enum: [active, disabled, deleted]}}}}
+        next_cursor: {type: [string, "null"]}
+    Usage:
+      type: object
+      required: [customer_id, as_of, users, mailboxes, vm, storage, stacks, deployments, definitions]
+      properties:
+        customer_id: {type: string}
+        as_of: {type: string}
+        users: {type: object, required: [active, disabled, deleted, total_live], properties: {active: {type: integer}, disabled: {type: integer}, deleted: {type: integer}, total_live: {type: integer}}}
+        mailboxes: {type: object, required: [active, retained], properties: {active: {type: integer}, retained: {type: integer}}}
+        vm:
+          type: object
+          required: [provisioned, observed]
+          properties:
+            provisioned: {type: object, required: [vms, vcpus, memory_mb, disk_gb]}
+            observed: {type: [object, "null"]}
+        storage: {type: object, required: [provisioned_gb, mailbox_used_bytes], properties: {provisioned_gb: {type: integer}, mailbox_used_bytes: {type: [integer, "null"]}}}
+        stacks: {type: array, items: {type: object}}
+        deployments: {type: array, items: {type: object}}
+        definitions: {type: object, additionalProperties: {type: string}}
+    EventType:
+      type: string
+      enum: [plan.approved, plan.rejected, job.completed, job.failed, incident.opened, incident.recovered]
+    Event:
+      type: object
+      required: [id, type, api_version, created_at, customer_id, data]
+      properties:
+        seq: {type: integer, description: Only in GET /events}
+        id: {type: string, format: uuid}
+        type: {$ref: "#/components/schemas/EventType"}
+        api_version: {type: string, enum: [v1]}
+        created_at: {type: string}
+        customer_id: {type: [string, "null"]}
+        data: {type: object}
+    Webhook:
+      type: object
+      required: [id, url, events, enabled, created_at]
+      properties:
+        id: {type: string}
+        url: {type: string}
+        events: {type: array, items: {$ref: "#/components/schemas/EventType"}}
+        description: {type: [string, "null"]}
+        enabled: {type: boolean}
+        created_at: {type: string}
+    WebhookCreated:
+      allOf:
+        - {$ref: "#/components/schemas/Webhook"}
+        - type: object
+          required: [secret]
+          properties:
+            secret: {type: string}
+            secret_note: {type: string}
+    Delivery:
+      type: object
+      required: [id, event_id, type, status, attempts]
+      properties:
+        id: {type: string}
+        event_id: {type: string}
+        type: {type: string}
+        status: {type: string, enum: [pending, delivered, dead]}
+        attempts: {type: integer}
+        last_status: {type: [integer, "null"]}
+        last_error: {type: [string, "null"]}
+        next_attempt_at: {type: [string, "null"]}
+        delivered_at: {type: [string, "null"]}

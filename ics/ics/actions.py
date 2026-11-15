@@ -29,6 +29,7 @@ from .proxmox import ProxmoxError, ProxmoxReadClient, check_destination, normali
 from .providers.base import ProviderError, job_execution
 from .credentials import actions as cred_actions, service as cred_service
 from .runtime import Runtime
+from .msp import actions as msp_actions
 from .tenancy import actions as ten_actions, approvals as tapprovals, policy as tpolicy, scope as tscope
 from .vault import VaultError
 
@@ -89,6 +90,11 @@ class ActionType(StrEnum):
     customer_create = "customer.create"
     customer_update = "customer.update"
     operator_set_scope = "operator.set_scope"
+    msp_client_create = "msp.client.create"
+    msp_client_set_permissions = "msp.client.set_permissions"
+    msp_client_rotate = "msp.client.rotate"
+    msp_client_revoke = "msp.client.revoke"
+    msp_stack_link = "msp.stack.link"
 
 
 class EndpointRegister(endpoint_actions.ScopeLists):
@@ -385,7 +391,7 @@ CATALOG: dict[ActionType, dict] = {
 }
 CATALOG.update({ActionType(k): v for k, v in prov_actions.CATALOG.items()})   # provider provisioning (ics/provisioning/actions.py)
 _PROV = {ActionType(k) for k in prov_actions.CATALOG}
-CATALOG.update({ActionType(k): v for k, v in {**cred_actions.SPECS, **ten_actions.SPECS}.items()})
+CATALOG.update({ActionType(k): v for k, v in {**cred_actions.SPECS, **ten_actions.SPECS, **msp_actions.SPECS}.items()})
 _IDM = {a for a in ActionType if a.value.startswith("idm.")}
 _DEPLOY = {a for a in ActionType if a.value.startswith("deployment.")}
 
@@ -533,7 +539,7 @@ _PRECHECK = {ActionType.node_enroll: _pre_node_enroll, ActionType.check_create: 
              ActionType.check_delete: removal.pre_check_delete, ActionType.alert_channel_delete: removal.pre_channel_delete,
              ActionType.node_decommission: removal.pre_node_decommission, ActionType.maintenance_cancel: removal.pre_maintenance_cancel,
              ActionType.maintenance_delete: removal.pre_maintenance_delete, ActionType.plan_archive: removal.pre_plan_archive,
-**{ActionType(k): v for k, v in {**cred_actions.PRECHECK, **ten_actions.PRECHECK}.items()}}
+**{ActionType(k): v for k, v in {**cred_actions.PRECHECK, **ten_actions.PRECHECK, **msp_actions.PRECHECK}.items()}}
 
 
 _USER_TARGET_ACTIONS = {ActionType.user_set_role, ActionType.user_revoke_invite, ActionType.user_disable, ActionType.user_enable,
@@ -584,9 +590,15 @@ def _user_precheck(db: Session, user, action: ActionType, p, risk: str) -> str:
     return risk
 
 
-def create_plan(db: Session, rt: Runtime, user, action: ActionType, params: dict, ip: str | None) -> dict:
+def create_plan(db: Session, rt: Runtime, user, action: ActionType, params: dict, ip: str | None, *, commit: bool = True,
+                msp_auto=None) -> dict:
+    """`commit=False` leaves the transaction open (the MSP API stores its idempotency record in the same transaction).
+    `msp_auto(customer_id, risk) -> bool`, when given, replaces the implicit low-risk auto-approval (MSP API clients never auto-approve
+    unless their approved policy says so). `user.msp_client` marks an API principal (customer.create/update are allowed for it; the plan
+    is still high risk and needs human approvers)."""
     spec = CATALOG[action]
-    if spec.get("admin_only") and auth.RANK[user.role] < auth.RANK["admin"]:
+    msp_principal = getattr(user, "msp_client", None) is not None and action.value in ("customer.create", "customer.update")
+    if spec.get("admin_only") and auth.RANK[user.role] < auth.RANK["admin"] and not msp_principal:
         raise PlanError(403, "requires role admin")
     p = spec["model"].model_validate(params)  # ValidationError -> 422 at the API layer
     full = p.model_dump(mode="json")
@@ -651,7 +663,8 @@ def create_plan(db: Session, rt: Runtime, user, action: ActionType, params: dict
             cust = prov_actions.bind_customer(db, action.value, p, full, cust, spec["model"], tscope.DEFAULT_CUSTOMER)
         except ValueError as e:
             raise PlanError(409, str(e)) from None
-    if getattr(user, "customer_ids", None) is not None and (cust is None or action.value in ("customer.create", "customer.update", "operator.set_scope")):
+    if getattr(user, "customer_ids", None) is not None and (cust is None or action.value in ("customer.create", "customer.update", "operator.set_scope")) \
+            and not (msp_principal and action.value == "customer.update" and cust):
         raise PlanError(404, "not found")  # scoped operators may only act on objects of their customers
     if cust and not tscope.allowed(user, cust):
         raise PlanError(404, "not found")
@@ -679,6 +692,8 @@ def create_plan(db: Session, rt: Runtime, user, action: ActionType, params: dict
         enc = rt.vault.encrypt(json.dumps(secret_part).encode(), f"plan:{pid}") if secret_part else None
         digest = plan_digest(action.value, full, enc, binding)
     auto = risk == "low" and not decision.customer_approval and decision.extra_approvals == 0
+    if auto and msp_auto is not None:
+        auto = bool(msp_auto(cust, risk))
     db.execute(text(
         "INSERT INTO plans (id, action, params, secret_enc, risk, status, requested_by, decided_at, params_hash, customer_id, extra_approvals) "
         "VALUES (:id, :a, CAST(:p AS jsonb), :s, :r, :st, :u, :d, :h, :cu, :xa)"),
@@ -702,7 +717,10 @@ def create_plan(db: Session, rt: Runtime, user, action: ActionType, params: dict
         db.execute(text("INSERT INTO plan_approvals (plan_id, approver_id, params_hash) VALUES (:p, :u, :h)"),
                    {"p": str(pid), "u": user.id, "h": digest})
         job_id = _enqueue(db, pid, action, user, ip, auto=True)
-    db.commit()
+    if commit:
+        db.commit()
+    else:
+        db.flush()
     return {"plan_id": str(pid), "status": "approved" if auto else "pending_approval", "risk": risk, "job_id": job_id,
             "params_hash": digest, "approvals_required": (rt.settings.required_approvals_high if risk == "high" else 1) + decision.extra_approvals, **extra}
 
@@ -1293,4 +1311,4 @@ _EXEC = {ActionType.endpoint_register: endpoint_actions.exec_register, ActionTyp
          **{ActionType(k): v for k, v in deploy_ops.EXECUTORS.items()},
          **{ActionType(k): v for k, v in endpoint_actions.EXECUTORS.items()},
          **{ActionType(k): v for k, v in prov_actions.EXECUTORS.items()},
-         **{ActionType(k): v for k, v in {**cred_actions.EXECUTORS, **ten_actions.EXECUTORS}.items()}}
+         **{ActionType(k): v for k, v in {**cred_actions.EXECUTORS, **ten_actions.EXECUTORS, **msp_actions.EXECUTORS}.items()}}

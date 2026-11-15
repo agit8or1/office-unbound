@@ -11,7 +11,7 @@ from sqlalchemy import text
 from ics.credentials import service as cred_service
 
 HERE = os.path.dirname(__file__)
-EXPECTED = ["0001", "0002", "0003", "0004", "0005", "0006d", "0006b", "0006a", "0007", "0007s3", "0007l", "0007m", "0008i"]
+EXPECTED = ["0001", "0002", "0003", "0004", "0005", "0006d", "0006b", "0006a", "0007", "0007s3", "0007l", "0007m", "0008i", "0009p"]
 
 
 def _cfg(url):
@@ -24,7 +24,7 @@ def _cfg(url):
 
 def test_single_linear_chain():
     sd = ScriptDirectory(os.path.join(HERE, "..", "migrations"))
-    assert sd.get_heads() == ["0008i"]
+    assert sd.get_heads() == ["0009p"]
     assert [s.revision for s in reversed(list(sd.walk_revisions()))] == EXPECTED
 
 
