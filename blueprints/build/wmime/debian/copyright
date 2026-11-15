@@ -1,0 +1,13 @@
+Format: https://www.debian.org/doc/packaging-manuals/copyright-format/1.0/
+Upstream-Name: wmime
+Source: https://github.com/grommunio/wmime
+
+Files: *
+Copyright: Vincent Richard and vmime contributors; grommunio GmbH
+License: GPL-3+ with OpenSSL exception
+ GPLv3 (see /usr/share/common-licenses/GPL-3) with the additional OpenSSL
+ linking permission in upstream file COPYING.OpenSSL.
+
+Files: debian/*
+Copyright: Office Unbound
+License: GPL-3+

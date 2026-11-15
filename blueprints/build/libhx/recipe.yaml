@@ -1,0 +1,23 @@
+# ADR-0008 recipe: libHX (Gromox build/runtime dependency; Debian 12 has an older libhx32)
+component: libhx
+src_name: ou-libhx
+description: libHX helper library (needed >= 4.28 by Gromox)
+source:
+  repo: https://github.com/jengelh/libhx
+  tag: v4.28
+  tag_object: 5107b45fb6a44e4062b407254374081eb80f0681   # annotated tag
+  commit: 37aba2e4c56fc1253623797a6e72259ef7ecc79b       # peeled commit, verified after fetch
+  upstream_version: "4.28"
+verification:
+  kind: pgp-tag            # tag carries an OpenPGP signature
+  signer_fingerprint: 2BDA563E9DDE46AF71CC171DAEB6941A2F9C9944   # key that made the signature (ERRSIG), tagger Jan Engelhardt
+  note: Signer key is not obtainable from an authorized endpoint, so the signature is not cryptographically validated; commit SHA pin is the control.
+packages: [ou-libhx, ou-libhx-dev]
+licenses:                  # expected, reviewed licence set of the source tree (SPDX); scan must find nothing outside it
+  - LGPL-2.1-or-later
+  - LGPL-3.0-only
+  - GPL-3.0-only          # LICENSE.GPL3 text referenced by LGPL-3
+  - MIT                   # a few files with SPDX header
+inventory_match: "libHX"
+patches: []
+branding: none (library)

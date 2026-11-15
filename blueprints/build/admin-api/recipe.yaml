@@ -1,0 +1,28 @@
+# ADR-0008 recipe: admin-api (user/domain management REST API + CLI). The ONLY place with an artificial user cap.
+component: admin-api
+src_name: ou-admin-api
+description: "Admin REST API and grommunio-admin CLI; patched: no user cap, no licence-portal call-home, rebranded strings"
+source:
+  repo: https://github.com/grommunio/admin-api
+  tag: "1.21"
+  tag_object: 49b16fc13f04b1bb1486c3e7d29f581bd2a7de15   # lightweight tag: object == commit
+  commit: 49b16fc13f04b1bb1486c3e7d29f581bd2a7de15
+  upstream_version: "1.21"
+verification:
+  kind: sha-pin
+  note: lightweight unsigned tag; commit SHA pin is the only control.
+# builder step with network, before the network-less compile: python dependencies from PyPI, hash-pinned
+# (requirements.lock, `pip install --require-hashes`), installed into a private tree (--target), never the system python.
+prefetch: |
+  python3 -m venv /tmp/ou-pip && /tmp/ou-pip/bin/pip install --quiet --upgrade "pip==23.0.1"
+  /tmp/ou-pip/bin/pip install --quiet --require-hashes --no-deps --target "$PWD/debian/pylib" -r "$PWD/debian/requirements.lock"
+packages: [ou-admin-api]
+licenses: [AGPL-3.0-only, AGPL-3.0-or-later]
+inventory_match: "admin-api"
+patches:
+  - 0001-remove-user-cap.patch: remove both user-count checks (create/reactivate); default licence = unlimited
+  - 0002-no-licence-portal-callhome.patch: PUT /system/license/creds no longer posts credentials to the vendor portal
+  - 0003-branding-product-strings.patch: OpenAPI title/description, systemd unit descriptions
+branding: >
+  Done: OpenAPI title/description, systemd unit descriptions. Remaining: CLI banner/help text naming "grommunio", man pages,
+  package/unit/user names (grommunio-admin-api, user grommunio) and the JWT scheme name are internal identifiers and kept.

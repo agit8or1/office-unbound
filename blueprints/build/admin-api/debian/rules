@@ -1,0 +1,30 @@
+#!/usr/bin/make -f
+PKG=debian/ou-admin-api
+%:
+	dh $@ --buildsystem=cmake
+
+override_dh_auto_test:
+
+# debian/pylib was populated by the recipe prefetch step (hash-locked pip install, --target)
+override_dh_auto_install:
+	dh_auto_install
+	install -d $(PKG)/usr/lib/ou-admin-api
+	cp -a debian/pylib $(PKG)/usr/lib/ou-admin-api/site-packages
+	find $(PKG)/usr/lib/ou-admin-api/site-packages -name '__pycache__' -prune -exec rm -rf {} +
+	rm -rf $(PKG)/usr/lib/ou-admin-api/site-packages/bin
+	# upstream sudoers also grants a vendor update command; ship only what the API needs
+	rm -f $(PKG)/etc/sudoers.d/grommunio-sudo
+	install -D -m0440 debian/ou-admin-api.sudoers $(PKG)/etc/sudoers.d/ou-admin-api
+	install -D -m0644 debian/ou-pythonpath.conf $(PKG)/usr/lib/systemd/system/grommunio-admin-api.service.d/ou-pythonpath.conf
+
+override_dh_installsystemd:
+	dh_installsystemd --no-enable --no-start --name=grommunio-admin-api grommunio-admin-api.service
+	dh_installsystemd --no-enable --no-start --name=grommunio-admin-api grommunio-admin-api.socket
+
+override_dh_shlibdeps:
+	dh_shlibdeps -Xsite-packages
+override_dh_strip_nondeterminism:
+	dh_strip_nondeterminism
+override_dh_python3:
+override_dh_dwz:
+override_dh_strip:

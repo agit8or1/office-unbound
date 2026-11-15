@@ -1,0 +1,16 @@
+Format: https://www.debian.org/doc/packaging-manuals/copyright-format/1.0/
+Upstream-Name: Gromox
+Source: https://github.com/grommunio/gromox
+
+Files: *
+Copyright: grommunio GmbH, Jan Engelhardt, Steep/Samba-derived authors and contributors (see per-file headers)
+License: AGPL-3+ and GPL-2 with linking exception and GPL-3+
+ Mixed licence. Most files are AGPL-3.0-or-later; the Steep-derived files are
+ GPL-2.0-only WITH a linking exception; Samba-derived files are GPL-3.0-or-later.
+ Per-file SPDX headers are authoritative; full texts are in the upstream
+ LICENSE.txt and in /usr/share/common-licenses/{GPL-2,GPL-3}.
+ Documentation is CC-BY-SA-4.0.
+
+Files: debian/*
+Copyright: Office Unbound
+License: AGPL-3+

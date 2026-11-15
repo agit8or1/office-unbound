@@ -1,0 +1,21 @@
+Source: ou-grommunio-dav
+Section: web
+Priority: optional
+Maintainer: Office Unbound Build <build@officeunbound.com>
+Build-Depends: debhelper-compat (= 13), composer, php-cli, php-xml, php-mbstring, php-curl, ou-mapi-header-php
+Standards-Version: 4.6.2
+Rules-Requires-Root: no
+
+Package: ou-grommunio-dav
+Architecture: all
+Depends: ${misc:Depends}, ou-mapi-header-php, ou-gromox-php-mapi, php-fpm, php-sqlite3, php-xml, php-mbstring, php-curl
+Conflicts: grommunio-dav
+Replaces: grommunio-dav
+Provides: grommunio-dav
+Description: CalDAV/CardDAV server for Gromox (Office Unbound build)
+ grommunio-dav (sabre/dav based) exposes calendars, tasks and contacts of
+ Gromox mailboxes over CalDAV/CardDAV. Application tree in
+ /usr/share/grommunio-dav including the composer vendor tree (locked
+ versions, see the package SBOM), configuration in
+ /etc/grommunio-dav/config.php (conffile). nginx and php-fpm snippets are
+ shipped as examples under /usr/share/doc/ou-grommunio-dav/examples.

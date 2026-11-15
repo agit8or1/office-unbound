@@ -1,0 +1,42 @@
+Description: Rebrand user-visible product strings of the admin API
+ Only user-visible text is changed: OpenAPI title/description and the systemd
+ unit descriptions. Internal identifiers (package paths, user and unit names
+ such as grommunio-admin-api, JWT scheme names) are unchanged on purpose to
+ keep upstream rebases small; copyright and SPDX headers are untouched.
+Author: Office Unbound
+Forwarded: not-needed
+Last-Update: 2026-11-15
+
+diff -ruN c/data/grommunio-admin-api.service d/data/grommunio-admin-api.service
+--- a/data/grommunio-admin-api.service
++++ b/data/grommunio-admin-api.service
+@@ -1,5 +1,5 @@
+ [Unit]
+-Description=grommunio admin api
++Description=Office Unbound admin API
+ After=grommunio-admin-api.socket
+ Requires=grommunio-admin-api.socket
+ 
+diff -ruN c/data/grommunio-admin-api.socket d/data/grommunio-admin-api.socket
+--- a/data/grommunio-admin-api.socket
++++ b/data/grommunio-admin-api.socket
+@@ -1,5 +1,5 @@
+ [Unit]
+-Description=Socket for grommunio admin api
++Description=Socket for the Office Unbound admin API
+ 
+ [Socket]
+ ListenStream=/run/grommunio/admin-api.socket
+diff -ruN c/res/openapi.yaml d/res/openapi.yaml
+--- a/res/openapi.yaml
++++ b/res/openapi.yaml
+@@ -1,7 +1,7 @@
+ openapi: 3.0.0
+ info:
+-  title: grommunio Admin API
+-  description: grommunio administration REST API
++  title: Office Unbound Admin API
++  description: Office Unbound administration REST API (based on grommunio admin-api)
+   version: 1.21.0
+ servers:
+   - url: '/api/v1'

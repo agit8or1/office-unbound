@@ -1,0 +1,34 @@
+# ADR-0008 recipe: Gromox (groupware server: EWS, MAPI/HTTP, IMAP/POP3, delivery, EXMDB). Core of the groupware stack.
+component: gromox
+src_name: ou-gromox
+description: Gromox server, built from the pinned upstream tag; no vendor repo, no licence logic
+source:
+  repo: https://github.com/grommunio/gromox
+  tag: gromox-3.13
+  tag_object: 90d11adbd59545179143b6a0e67cb1bb1e936967
+  commit: 8b620206f91b4766c48537b54575fe65e131abab
+  upstream_version: "3.13"
+verification:
+  kind: pgp-tag
+  signer_fingerprint: 2BDA563E9DDE46AF71CC171DAEB6941A2F9C9944
+  note: Tagger Jan Engelhardt; key not available from an authorized endpoint, so signature is not validated; commit SHA pin is the control.
+packages: [ou-gromox, ou-gromox-php-mapi]
+licenses:    # source-eval section 1; mixed licence, see docs/status/third-party-inventory.md and open lawyer item 1
+  - AGPL-3.0-only
+  - AGPL-3.0-or-later
+  - GPL-2.0-only
+  - GPL-2.0-or-later
+  - GPL-3.0-only
+  - GPL-3.0-or-later
+  - linking exception
+  - licensing exception
+  - CC-BY-SA-4.0
+  - MIT
+  - BSD-2-Clause
+  - BSD-3-Clause
+  - ICU
+inventory_match: "gromox"
+patches: []        # no functional patches: no licence/user-cap logic exists in Gromox (source-eval section 2.2)
+branding: >
+  Product/binary names (gromox-*) and the "Gromox" name are kept (nominative use, "built from grommunio source");
+  pending the trademark review (inventory open lawyer item 2). Copyright/SPDX headers untouched.
