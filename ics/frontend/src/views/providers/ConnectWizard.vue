@@ -18,7 +18,7 @@ const run = useRun()
 const outcome = reactive<Outcome>({ verification: null, applied: [], version: null })
 onBeforeUnmount(() => wipe(s))
 
-const applyTitle = computed(() => (m.method === 'package' ? 'Package' : m.method === 'admin' ? 'Apply' : 'Connect'))
+const applyTitle = computed(() => (m.method === 'package' ? 'Package' : m.method === 'admin' ? 'Apply' : 'Register'))
 const stepsOf = (): StepDef<WizardModel>[] => [
   { id: 'connect', title: 'Connect', validate: (x) => validateConnect(x, s) },
   { id: 'discover', title: 'Discover' },

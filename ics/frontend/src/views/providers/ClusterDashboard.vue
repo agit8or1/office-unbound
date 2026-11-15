@@ -61,8 +61,9 @@ const alerts = computed(() => {
   if (x.ep.health.status === 'critical' || x.ep.health.status === 'warning') out.push({ tone: x.ep.health.status === 'critical' ? 'bad' : 'warn', text: x.ep.health.reason ?? 'The cluster needs attention.' })
   for (const w of x.ep.last_discovery.warnings) out.push({ tone: 'warn', text: w })
   const ps = policyStatus(x.perms)
-  if (x.perms?.managed_by_provisioning && ps.tone !== 'ok') out.push({ tone: ps.tone === 'bad' ? 'bad' : 'warn', text: `${ps.text}: ${ps.detail}`, to: `/infrastructure/providers/${props.id}/permissions` })
-  const di = driftItems(x.perms?.last_drift); if (di.length) out.push({ tone: 'warn', text: `${di.length} permission difference(s) from the approved policy.`, to: `/infrastructure/providers/${props.id}/permissions` })
+  const di = driftItems(x.perms?.last_drift)
+  if (x.perms?.managed_by_provisioning && ps.tone !== 'ok' && !(ps.text === 'Drift detected' && di.length)) out.push({ tone: ps.tone === 'bad' ? 'bad' : 'warn', text: `${ps.text}: ${ps.detail}`, to: `/infrastructure/providers/${props.id}/permissions` })
+  if (di.length) out.push({ tone: 'warn', text: `${di.length} permission difference(s) from the approved policy.`, to: `/infrastructure/providers/${props.id}/permissions` })
   for (const c of x.creds) { const s = credentialState(c); if (s.tone === 'warn' || s.tone === 'bad') out.push({ tone: s.tone, text: `Credential ${c.label}: ${s.text}.`, to: `/infrastructure/providers/${props.id}/credentials` }) }
   for (const n of x.nodes) if (n.status !== 'online' && n.managed) out.push({ tone: 'bad', text: `Node ${n.name} is ${n.status}.`, to: `/infrastructure/nodes/${n.id}` })
   for (const s of uniqueStorage.value) { const p = pctOf(s.used, s.total); if (p !== null && p >= 85) out.push({ tone: p >= 95 ? 'bad' : 'warn', text: `Storage ${s.name} is ${Math.round(p)}% full.`, to: `/infrastructure/storage/${s.id}` }) }
