@@ -26,6 +26,19 @@ class ProxmoxError(Exception):
     pass
 
 
+def _clean_reason(v: str | None) -> str:
+    """Server-supplied reason phrase (PVE puts the permission/validation message there). Printable ASCII only, bounded."""
+    return re.sub(r"[^\x20-\x7e]", "", v or "")[:200]
+
+
+class ProxmoxHTTPError(ProxmoxError):
+    """Non-200 answer; keeps the status and PVE's own message so providers can map it to an operator-readable error."""
+
+    def __init__(self, method: str, path: str, status: int, reason: str):
+        super().__init__(f"{method} {path} returned HTTP {status}" + (f" ({reason})" if reason else ""))
+        self.status, self.reason = status, reason
+
+
 _SECRET_RE = re.compile(r"^[A-Za-z0-9_-]{8,200}$")
 _TOKEN_ID_RE = re.compile(r"^[A-Za-z0-9._-]+@[A-Za-z0-9._-]+![A-Za-z0-9._-]+$")
 
@@ -113,34 +126,39 @@ class ProxmoxReadClient:
         self._client.close()
 
     def _get(self, path: str) -> Any:
-        """GET with an overall wall-clock deadline and a response size cap. Errors never include transport text
-        (it can echo request headers); only the exception class name is reported."""
+        return self._request("GET", path)
+
+    def _request(self, method: str, path: str, data: dict | None = None) -> Any:
+        """Request with an overall wall-clock deadline and a response size cap. Errors never include transport text
+        (it can echo request headers); only the exception class name is reported. Only ProxmoxWriteClient exposes
+        non-GET methods; this class's public surface is read-only."""
         end = time.monotonic() + self._deadline
         buf = bytearray()
         try:
-            with self._client.stream("GET", self._base + path) as r:
+            with self._client.stream(method, self._base + path, data=data) as r:
                 if r.status_code != 200:
-                    raise ProxmoxError(f"GET {path} returned HTTP {r.status_code}")
+                    reason = _clean_reason(r.reason_phrase)
+                    raise ProxmoxHTTPError(method, path, r.status_code, reason)
                 if int(r.headers.get("content-length", "0") or 0) > self._max_bytes:
-                    raise ProxmoxError(f"GET {path}: response too large")
+                    raise ProxmoxError(f"{method} {path}: response too large")
                 for chunk in r.iter_bytes():  # decoded (PVE gzips larger bodies); cap applies to DECOMPRESSED size (bomb guard)
                     if time.monotonic() > end:
-                        raise ProxmoxError(f"GET {path}: overall deadline of {self._deadline:g}s exceeded")
+                        raise ProxmoxError(f"{method} {path}: overall deadline of {self._deadline:g}s exceeded")
                     buf += chunk
                     if len(buf) > self._max_bytes:
-                        raise ProxmoxError(f"GET {path}: response exceeds {self._max_bytes} bytes")
+                        raise ProxmoxError(f"{method} {path}: response exceeds {self._max_bytes} bytes")
                 if time.monotonic() > end:
-                    raise ProxmoxError(f"GET {path}: overall deadline of {self._deadline:g}s exceeded")
+                    raise ProxmoxError(f"{method} {path}: overall deadline of {self._deadline:g}s exceeded")
         except ProxmoxError:
             raise
         except (httpx.ConnectError, ssl.SSLError) as e:  # TLS/connect layer: no request headers involved
-            raise ProxmoxError(f"GET {path} failed: {type(e).__name__}: {str(e)[:200]}") from None
+            raise ProxmoxError(f"{method} {path} failed: {type(e).__name__}: {str(e)[:200]}") from None
         except (httpx.HTTPError, OSError, ValueError) as e:
-            raise ProxmoxError(f"GET {path} failed: {type(e).__name__}") from None
+            raise ProxmoxError(f"{method} {path} failed: {type(e).__name__}") from None
         try:
             return json.loads(bytes(buf))["data"]
         except (ValueError, KeyError, TypeError):
-            raise ProxmoxError(f"GET {path}: unexpected response body") from None
+            raise ProxmoxError(f"{method} {path}: unexpected response body") from None
 
     def version(self) -> dict: return self._get("/version")
     def cluster_status(self) -> list: return self._get("/cluster/status")
@@ -169,3 +187,67 @@ def _seg(node: str) -> str:
     if not re.fullmatch(r"[A-Za-z0-9][A-Za-z0-9.-]{0,62}", node):
         raise ProxmoxError("invalid node name")
     return node
+
+
+def fetch_peer_certificate(base_url: str, *, ca_pem: str | None = None, fingerprint_sha256: str | None = None, timeout: float = 5.0,
+                           allow_loopback: bool = False) -> dict:
+    """TLS-ONLY setup stage: read the certificate the server presents (so an admin can compare it out of band) and report whether it
+    satisfies the supplied trust anchor. The handshake is the only traffic: no HTTP request, no credential. This connection is never
+    used for anything else; every real request goes through ProxmoxReadClient/ProxmoxWriteClient with full verification/pinning."""
+    import datetime as _dt
+    from cryptography import x509 as _x509
+    u = urlparse(base_url)
+    if u.scheme != "https" or not u.hostname:
+        return {"ok": False, "error": "base_url must be https://host[:port]"}
+    try:
+        check_destination(u.hostname, allow_loopback)
+        ctx = ssl.SSLContext(ssl.PROTOCOL_TLS_CLIENT)
+        ctx.minimum_version = ssl.TLSVersion.TLSv1_2
+        ctx.check_hostname, ctx.verify_mode = False, ssl.CERT_NONE   # read-only look at the certificate; nothing is sent over it
+        with socket.create_connection((u.hostname, u.port or 443), timeout=timeout) as raw, ctx.wrap_socket(raw, server_hostname=u.hostname) as t:
+            der = t.getpeercert(binary_form=True)
+    except ProxmoxError as e:
+        return {"ok": False, "error": str(e)}
+    except (OSError, ssl.SSLError) as e:
+        return {"ok": False, "error": f"could not complete a TLS handshake ({type(e).__name__})"}
+    fp = hashlib.sha256(der).hexdigest()
+    cert = _x509.load_der_x509_certificate(der)
+    out: dict = {"ok": False, "presented_fingerprint_sha256": fp, "subject": cert.subject.rfc4514_string()[:200],
+                 "not_after": cert.not_valid_after_utc.isoformat()}
+    if cert.not_valid_after_utc < _dt.datetime.now(_dt.timezone.utc):
+        out["error"] = "the presented certificate has expired"
+        return out
+    if fingerprint_sha256:
+        out["verified_by"] = "fingerprint"
+        out["ok"] = hmac.compare_digest(fp, normalize_fingerprint(fingerprint_sha256))
+        if not out["ok"]:
+            out["error"] = "the presented certificate does not match the supplied fingerprint"
+    elif ca_pem:
+        out["verified_by"] = "ca"
+        try:
+            vctx = ssl.create_default_context(cadata=ca_pem)
+            vctx.minimum_version = ssl.TLSVersion.TLSv1_2
+            with socket.create_connection((u.hostname, u.port or 443), timeout=timeout) as raw, vctx.wrap_socket(raw, server_hostname=u.hostname):
+                out["ok"] = True
+        except (OSError, ssl.SSLError):
+            out["error"] = "the certificate is not trusted by the supplied CA bundle (or does not match the host name)"
+    else:
+        out["error"] = "no trust anchor supplied: compare the presented fingerprint out of band, then supply it"
+    return out
+
+
+class ProxmoxWriteClient(ProxmoxReadClient):
+    """Same transport, TLS trust and limits as the read client, plus POST/PUT/DELETE. Constructed only by the provisioning
+    provider (providers/proxmox) with the `provision` credential; never handed to request handlers."""
+
+    def get(self, path: str) -> Any:
+        return self._request("GET", path)
+
+    def post(self, path: str, data: dict | None = None) -> Any:
+        return self._request("POST", path, data or {})
+
+    def put(self, path: str, data: dict | None = None) -> Any:
+        return self._request("PUT", path, data or {})
+
+    def delete(self, path: str) -> Any:
+        return self._request("DELETE", path)

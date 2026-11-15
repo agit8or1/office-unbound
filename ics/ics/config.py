@@ -78,6 +78,10 @@ class Settings:
     # (M4) alert silencing needs a second person beyond these bounds
     maintenance_max_unapproved_minutes: int = 60
     ack_burst_limit: int = 5                     # incident.ack plans per user per hour before approval is required
+    inventory_discovery_seconds: int = 300
+    metrics_interval_seconds: int = 60
+    metrics_retention_days: int = 30
+    inventory_stale_seconds: int = 900
     trusted_proxy: str | None = None             # exact IP of a local reverse proxy whose X-Forwarded-For is honoured (e.g. 127.0.0.1); None = ignore XFF
 
 

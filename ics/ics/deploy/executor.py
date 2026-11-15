@@ -16,7 +16,7 @@ from dataclasses import dataclass, field
 
 from sqlalchemy import text
 
-from ..providers.base import DiskSpec, NicSpec, TaskRef, VmCloneSpec, VmConfigSpec, VmRef
+from ..providers.base import NicSpec, ProviderError, ProviderTimeout, ScopeViolation, TaskRef, VmCloneSpec, VmConfigSpec, VmRef
 from . import state
 from .ports import Cancelled, DeployError, ExecEnv, StepFailed
 
@@ -102,7 +102,7 @@ class StepCtx:
             ref = state.provider_ref(db, self.deployment_id, vm)
         if not ref or ref.get("vmid") is None:
             raise StepFailed(f"VM {vm} has no provider reference yet", "The VM was never created; re-run the deployment.", retryable=False)
-        return VmRef(ref["node"], int(ref["vmid"]))
+        return VmRef(ref["node"], int(ref["vmid"]), "vm", self.slug)  # the slug is the ownership tag the provider re-checks live
 
 
 def _poll(ctx: StepCtx, task: TaskRef, what: str) -> TaskRef:
@@ -112,19 +112,37 @@ def _poll(ctx: StepCtx, task: TaskRef, what: str) -> TaskRef:
         st = env.provider.task_status(task)
         if st.state == "ok":
             return task
-        if st.state == "failed":
-            raise StepFailed(f"{what} failed: {st.message[:200]}", "The infrastructure provider reported the task as failed.", retryable=True)
+        if st.state == "error":
+            raise StepFailed(f"{what} failed: {(st.message or st.exitstatus or 'unknown error')[:200]}",
+                             "The infrastructure provider reported the task as failed.", retryable=True)
         if env.clock() - t0 > env.task_timeout:
             raise StepFailed(f"{what} did not finish within {int(env.task_timeout)} s", "The provider task is still running or stuck; "
                              "check the task on the infrastructure and re-run.", retryable=True)
-        ctx.log(f"{what}: {st.state} {st.progress}%", progress=st.progress)
+        ctx.log(f"{what}: {st.state}")
         env.sleep(env.poll_interval)
 
 
-def _find_guest(ctx: StepCtx, name: str):
-    d = ctx.env.provider.discover()
+_TRANSIENT = {"timeout", "unreachable", "node_unreachable", "locked"}
+
+
+def provider_failure(e: ProviderError) -> StepFailed:
+    """Provider errors are operator-readable and secret-free (providers.base); scope refusals and bad requests never retry."""
+    if isinstance(e, ScopeViolation):
+        return StepFailed(f"refused by the provider scope check: {e.message}"[:300],
+                          "The action touches something outside this endpoint's approved pool/storage/network, or a guest this deployment does not own.",
+                          retryable=False)
+    return StepFailed(e.message[:300], "The infrastructure provider refused or could not complete the operation.",
+                      retryable=isinstance(e, ProviderTimeout) or e.code in _TRANSIENT)
+
+
+def _find_guest(ctx: StepCtx, name: str) -> dict | None:
     tag = f"ou-deployment-{ctx.slug}"
-    return next((g for g in d.guests if g.name == name and tag in g.tags and "ou-managed" in g.tags), None)
+    return next((g for g in ctx.env.provider.discover().guests if g["name"] == name and tag in g["tags"] and "ou-managed" in g["tags"]), None)
+
+
+def _disk_key(index: int) -> str:
+    """Plan disks are ordered: index 0 = the template's root disk (scsi0), then scsi1.. in plan order."""
+    return f"scsi{index}"
 
 
 def h_provider_task(ctx: StepCtx) -> dict:
@@ -138,30 +156,43 @@ def h_provider_task(ctx: StepCtx) -> dict:
             return {"node": ref["node"], "vmid": ref["vmid"], "reused": True}
         g = _find_guest(ctx, vm)
         if g is not None:  # a previous attempt cloned but crashed before recording it: adopt (tag-verified), never clone twice
-            ctx.resource("vm", vm, state="creating", provider_ref={"node": g.node, "vmid": g.vmid})
-            ctx.log(f"adopted existing tagged guest vmid {g.vmid} left by an interrupted attempt")
-            return {"node": g.node, "vmid": g.vmid, "adopted": True}
-        spec = VmCloneSpec(name=vm, template=p["template"], node=p["node"], pool=p["pool"], storage=p["storage"], tags=list(p["tags"]))
+            ctx.resource("vm", vm, state="creating", provider_ref={"node": g["node"], "vmid": g["vmid"]})
+            ctx.log(f"adopted existing tagged guest vmid {g['vmid']} left by an interrupted attempt")
+            return {"node": g["node"], "vmid": g["vmid"], "adopted": True}
+        d = prov.discover()
+        stray = next((x for x in d.guests if x["name"] == vm), None)
+        if stray is not None:  # same name, no ownership tags: a crash between clone and tagging, or somebody else's guest
+            raise StepFailed(f"a guest named {vm} (vmid {stray['vmid']}) already exists and is not tagged as owned by this deployment",
+                             "ICS never adopts or overwrites an untagged guest. If it is a leftover of an interrupted deployment, remove it in "
+                             f"Proxmox (or tag it ou-managed + ou-deployment-{ctx.slug}), then re-run.", retryable=False)
+        tpl = next((t for t in d.templates if t["name"] == p["template"]), None)
+        if tpl is None:
+            raise StepFailed(f"template {p['template']!r} was not found in the approved pool(s)",
+                             "The OS image template is not visible to the provisioning credential; add it to an allowed pool "
+                             "(or list its VM id in the endpoint's allowed templates).", retryable=False)
+        spec = VmCloneSpec(template_vmid=int(tpl["vmid"]), template_node=tpl["node"], new_vmid=None, name=vm, pool=p["pool"],
+                           storage=p["storage"], deployment_id=ctx.slug, target_node=p["node"])
         task = _poll(ctx, prov.clone_vm(spec), f"clone {vm}")
-        vmid = task.vmid
-        if vmid is None:
-            g = _find_guest(ctx, vm)
-            vmid = g.vmid if g else None
-        if vmid is None:
-            raise StepFailed(f"clone of {vm} finished but the new VM id is unknown", "The provider did not report the new VM.", retryable=True)
-        ctx.resource("vm", vm, state="creating", provider_ref={"node": task.node or p["node"], "vmid": vmid})
-        return {"node": task.node or p["node"], "vmid": vmid}
+        _poll(ctx, prov.finalize_clone(task), f"tag {vm}")  # PVE cannot tag at clone time: the ownership tags are applied here
+        ctx.resource("vm", vm, state="creating", provider_ref={"node": p["node"], "vmid": task.vmid})
+        return {"node": p["node"], "vmid": task.vmid}
     ref = ctx.vm_ref(vm)
     if op == "configure_vm":
-        spec = VmConfigSpec(cores=p["cores"], memory_mb=p["memory_mb"], disks=[DiskSpec(d["name"], d["size_gb"], d["storage"]) for d in p["disks"]],
-                            nics=[NicSpec(n["bridge"], n.get("vlan")) for n in p["nics"]], cloud_init=dict(p.get("cloud_init", {})))
+        ci = p.get("cloud_init") or {}
+        new = p.get("new_disks")  # change steps list only the disks to add; create adds every non-root disk
+        spec = VmConfigSpec(cores=p["cores"], memory_mb=p["memory_mb"],
+                            nics=tuple(NicSpec(i, n["bridge"], n.get("vlan")) for i, n in enumerate(p["nics"])),
+                            new_disks=tuple((_disk_key(i), d["storage"], d["size_gb"]) for i, d in enumerate(p["disks"])
+                                            if i > 0 and (new is None or d["name"] in new)),
+                            cloudinit_storage=p["disks"][0]["storage"] if ci else None,
+                            description=f"Office Unbound deployment {ctx.slug}: {ci.get('hostname', vm)}" if ci else None)
         _poll(ctx, prov.configure_vm(ref, spec), f"configure {vm}")
         return {"configured": True}
     if op == "power":
         want = p["op"]
         g = _find_guest(ctx, vm)
-        if g is not None and ((want == "start" and g.status == "running") or (want in ("stop", "shutdown") and g.status == "stopped")):
-            ctx.log(f"{vm} is already {g.status}")
+        if g is not None and ((want == "start" and g["status"] == "running") or (want in ("stop", "shutdown") and g["status"] == "stopped")):
+            ctx.log(f"{vm} is already {g['status']}")
         else:
             _poll(ctx, prov.power(ref, want), f"{want} {vm}")
         if want == "start":
@@ -171,7 +202,7 @@ def h_provider_task(ctx: StepCtx) -> dict:
         _poll(ctx, prov.snapshot(ref, p["name"]), f"snapshot {vm}")
         return {"snapshot": p["name"]}
     if op == "resize_disk":
-        _poll(ctx, prov.resize_disk(ref, p["disk"], p["new_size_gb"]), f"resize {vm}/{p['disk']}")
+        _poll(ctx, prov.resize_disk(ref, _disk_key(p["disk_index"]), p["new_size_gb"]), f"resize {vm}/{p['disk']}")
         return {"disk": p["disk"], "size_gb": p["new_size_gb"]}
     if op == "destroy_vm":
         try:
@@ -307,6 +338,14 @@ def run_steps(rt, *, job_id: str, deployment_id: str, slug: str, revision: int, 
                     continue
                 _fail(rt, r.id, e.message, e.explanation, deployment_id, job_id, r.step_key)
                 raise
+            except ProviderError as e:
+                sf = provider_failure(e)
+                if sf.retryable and attempts - r.attempts < env.max_attempts:
+                    ctx.log(f"attempt {attempts} failed: {sf.message}; retrying")
+                    env.sleep(env.retry_delay * (attempts - r.attempts))
+                    continue
+                _fail(rt, r.id, sf.message, sf.explanation, deployment_id, job_id, r.step_key)
+                raise sf from None
             except DeployError as e:
                 _fail(rt, r.id, str(e)[:300], "", deployment_id, job_id, r.step_key)
                 raise StepFailed(str(e)) from e

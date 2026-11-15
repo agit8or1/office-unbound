@@ -14,6 +14,7 @@ from sqlalchemy import text
 from .. import audit
 from . import executor, state
 from .catalog import get_catalog
+from .envs import real_env_factory
 from .plan import PlanInput, VmLayout, canon, capacity_from_inventory, generate_plan, plan_hash
 from .ports import Cancelled, DeployError, ExecEnv, StepFailed
 
@@ -73,7 +74,7 @@ class DeploymentDestroy(BaseModel):
 
 # ---- environment (providers/agents) wiring -----------------------------------------------------------------------
 
-_env_factory: Callable[[object, dict], ExecEnv] = lambda rt, dep: ExecEnv()  # noqa: E731  (unconfigured: steps fail with a clear message)
+_env_factory: Callable[[object, dict], ExecEnv] = lambda rt, dep: real_env_factory(rt, dep)  # noqa: E731  (real Proxmox provider; agent port still unconfigured)
 
 
 def set_env_factory(fn: Callable[[object, dict], ExecEnv]) -> None:
