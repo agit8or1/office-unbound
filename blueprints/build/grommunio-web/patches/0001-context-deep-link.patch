@@ -1,0 +1,70 @@
+grommunio-web 5.2: deep links into one view (?action=context&view=calendar|contacts|tasks|notes|mail)
+Upstream only supports ?action=mailto and ?action=profile (server/includes/util.php storeURLDataToSession).
+Apply with: patch -p1 < this file
+---
+--- a/client/grommunio/core/ContextURLAction.js
++++ b/client/grommunio/core/ContextURLAction.js
+@@ -0,0 +1,43 @@
++/*
++ * SPDX-FileCopyrightText: Copyright 2026 Office Unbound contributors
++ * SPDX-License-Identifier: AGPL-3.0-or-later
++ */
++
++/*
++ * #dependsFile client/grommunio/core/URLActionMgr.js
++ */
++Ext.namespace('Grommunio.core');
++
++/**
++ * @class Grommunio.core.ContextURLAction
++ * @extends Object
++ *
++ * URL action "context": opens the named context (mail, calendar, contact, task, note)
++ * after login, e.g. https://host/web/?action=context&view=calendar. The server side
++ * (storeURLDataToSession) whitelists the value and keeps it in the session, so the
++ * link also survives a redirect to an OpenID Connect provider.
++ * @singleton
++ */
++Grommunio.core.ContextURLAction = Ext.extend(Object, {
++	constructor: function()
++	{
++		Grommunio.core.URLActionMgr.register('context', {
++			handler: this.handleContext,
++			scope: this
++		});
++	},
++
++	/**
++	 * @param {String} action The url action that is executed
++	 * @param {String} name The context name
++	 */
++	handleContext: function(action, name)
++	{
++		var context = container.getContextByName(name);
++		if (context && container.getCurrentContext() !== context) {
++			container.switchContext(context);
++		}
++	}
++});
++
++Grommunio.core.ContextURLAction = new Grommunio.core.ContextURLAction();
+--- a/server/includes/util.php
++++ b/server/includes/util.php
+@@ -480,6 +480,17 @@
+ 		$data['profile'] = true;
+ 	}
+ 
++	// Deep link into one view, e.g. /web/?action=context&view=calendar. The value
++	// is mapped through a fixed whitelist and never echoed from user input.
++	if (!empty($_GET['action']) && $_GET['action'] === 'context') {
++		$views = ['mail' => 'mail', 'calendar' => 'calendar', 'contacts' => 'contact', 'contact' => 'contact',
++			'tasks' => 'task', 'task' => 'task', 'notes' => 'note', 'note' => 'note'];
++		$view = is_string($_GET['view'] ?? null) ? strtolower($_GET['view']) : '';
++		if (isset($views[$view])) {
++			$data['context'] = $views[$view];
++		}
++	}
++
+ 	if (!empty($data)) {
+ 		// finally store all data to session
+ 		$_SESSION['url_action'] = $data;

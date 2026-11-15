@@ -2,7 +2,7 @@
 # nginx front for gw1: TLS on 443; proxy MAPI/HTTP, EWS, OAB, Autodiscover to gromox-http (127.0.0.1:10080).
 # sync/dav/web locations are appended by the corresponding stages of lab-apps.sh.
 set -eu
-HOSTN=gw1.ou-lab.internal
+HOSTN=${GW_HOST:-gw1.ou-lab.internal}   # override for additional nodes (lab-sso.sh)
 rm -f /etc/nginx/sites-enabled/default
 sed -i 's/^worker_processes .*/worker_processes 2;/' /etc/nginx/nginx.conf
 mkdir -p /etc/nginx/ou-locations
