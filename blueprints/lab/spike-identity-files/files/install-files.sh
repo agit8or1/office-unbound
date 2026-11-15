@@ -12,7 +12,8 @@ need_root; secrets_dir_init
 
 export DEBIAN_FRONTEND=noninteractive
 apt-get update -qq
-apt-get install -y -qq nginx-light curl ca-certificates openssl jq ldap-utils inotify-tools   # inotify-tools: posix driver panics without inotifywait
+. "$(dirname "$0")/../../common/packages.env"
+apt-get install -y -qq $FILES_PKGS
 add_lab_hosts
 install_bundle
 

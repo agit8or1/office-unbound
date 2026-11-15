@@ -17,6 +17,7 @@
 | Documents: Collabora via WOPI | Integrated in lab with vendor CODE (lab-only) | T03 28/0 standalone, T04 13/0 (real edit → PutFile → content verified). KI-1 below |
 | Collabora own source build (unlimited, rebranded) | Implementing | docengine-build-results.md (pending) |
 | Desktop sync engine (opencloudcmd 4.0): upload/download/offline/conflict/delete | Integrated in lab | T07 11/0 |
+| Backup → restore to separate machine (files tier) | Tested in lab | restore-drill-results.md: 18 s restore, content + version history byte-identical |
 | GUI desktop client, mobile, real Outlook clients | Planned (manual) | blueprints/lab/tests/MANUAL-CHECKLIST.md |
 | Build/release pipeline | Implementing (design ADR-0008; first recipe = Collabora) | |
 | MSP center, migration, chat/meetings | Planned | |
@@ -35,5 +36,5 @@
 ## Next tasks
 - Integrate monitoring/remediation demo (acceptance 15–16), Collabora own build, Gromox↔LDAP.
 - ICS provisioning action: one user lifecycle (LDAP → Keycloak/OpenCloud/Gromox) incl. revoke.
-- Backup/restore drill to a separate machine (acceptance 17); clean-room reinstall (22).
+- Restore drills for identity + groupware tiers; clean-room reinstall (22).
 - Rebranding patch queues + package recipes for gromox stack (ADR-0008).
