@@ -18,10 +18,11 @@ from sqlalchemy import text
 from sqlalchemy.orm import Session
 
 from . import agentclient, alerts, audit, auth, checks as checkmod, endpoint_actions, identity, monitor
+from .provisioning import actions as prov_actions
 from .identity import IdentityError
 from .agentclient import AgentError
 from .proxmox import ProxmoxError, ProxmoxReadClient, check_destination, normalize_fingerprint
-from .providers.base import job_execution
+from .providers.base import ProviderError, job_execution
 from .runtime import Runtime
 from .vault import VaultError
 
@@ -53,6 +54,13 @@ class ActionType(StrEnum):
     idm_user_enable = "idm.user.enable"
     idm_user_delete = "idm.user.delete"
     idm_reconcile = "idm.reconcile"
+    provider_provision_plan_preview = "provider.provision.plan_preview"
+    provider_provision_apply = "provider.provision.apply"
+    provider_provision_package = "provider.provision.package"
+    provider_credential_import = "provider.credential.import"
+    provider_permissions_reconcile = "provider.permissions.reconcile"
+    provider_token_rotate = "provider.token.rotate"
+    provider_token_revoke = "provider.token.revoke"
 
 
 class EndpointRegister(endpoint_actions.ScopeLists):
@@ -297,6 +305,8 @@ CATALOG: dict[ActionType, dict] = {
     ActionType.idm_user_delete: {"model": identity.UserDelete, "risk": "high", "secrets": ()},
     ActionType.idm_reconcile: {"model": identity.Reconcile, "risk": "low", "secrets": ()},
 }
+CATALOG.update({ActionType(k): v for k, v in prov_actions.CATALOG.items()})   # provider provisioning (ics/provisioning/actions.py)
+_PROV = {ActionType(k) for k in prov_actions.CATALOG}
 _IDM = {a for a in ActionType if a.value.startswith("idm.")}
 
 
@@ -464,6 +474,8 @@ def create_plan(db: Session, rt: Runtime, user, action: ActionType, params: dict
             raise PlanError(404, "user not found")
     elif action in _PRECHECK:
         extra.update(_PRECHECK[action](db, rt, p) or {})
+    if action in _PROV:
+        extra.update(prov_actions.precheck(db, rt, action.value, p))
     pid = uuid.uuid4()
     enc = rt.vault.encrypt(json.dumps(secret_part).encode(), f"plan:{pid}") if secret_part else None
     digest = plan_digest(action.value, full, enc, binding)
@@ -605,11 +617,12 @@ def reap_expired(rt: Runtime) -> int:
             n += 1
         db.execute(text("UPDATE plans SET secret_enc = NULL WHERE status = 'pending_approval' AND secret_enc IS NOT NULL "
                         "AND created_at < now() - make_interval(secs => :e)"), {"e": rt.settings.plan_expiry_seconds})
+        prov_actions.scrub_expired_credentials(db)   # temporary provisioning credentials live at most 15 minutes
         db.commit()
     return n
 
 
-_SAFE_ERRORS = (ProxmoxError, VaultError, PlanIntegrityError, JobTimeout, AgentError, IdentityError)
+_SAFE_ERRORS = (ProxmoxError, ProviderError, VaultError, PlanIntegrityError, JobTimeout, AgentError, IdentityError)
 
 
 def _error_dict(e: BaseException, known: list[str]) -> dict:
@@ -915,4 +928,5 @@ _EXEC = {ActionType.endpoint_register: endpoint_actions.exec_register, ActionTyp
          ActionType.maintenance_create: _exec_maintenance, ActionType.alert_channel_create: _exec_channel_create,
          ActionType.alert_channel_test: _exec_channel_test, ActionType.incident_ack: _exec_ack, ActionType.runbook_execute: _exec_runbook,
          **{ActionType(k): v for k, v in identity.EXECUTORS.items()},
-         **{ActionType(k): v for k, v in endpoint_actions.EXECUTORS.items()}}
+         **{ActionType(k): v for k, v in endpoint_actions.EXECUTORS.items()},
+         **{ActionType(k): v for k, v in prov_actions.EXECUTORS.items()}}

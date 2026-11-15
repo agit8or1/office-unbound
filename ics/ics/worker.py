@@ -5,6 +5,7 @@ from sqlalchemy import text
 
 from . import identity, monitor
 from .inventory import collector
+from .provisioning import service as prov_service
 from .actions import claim_job, reap_expired, run_job
 from .runtime import Runtime
 
@@ -53,6 +54,7 @@ class Worker(threading.Thread):
                     monitor.tick(self.rt)
                     identity.reconcile_due(self.rt)
                     collector.tick(self.rt)
+                    prov_service.tick(self.rt)
             except Exception:  # noqa: BLE001
                 log.exception("worker loop error")
             self._stop_evt.wait(self.interval)

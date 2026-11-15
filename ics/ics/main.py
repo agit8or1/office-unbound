@@ -19,6 +19,7 @@ from .auth import ROLES, User, client_ip, cookie_name, get_db, require
 from .blueprint import preview
 from .config import Settings
 from .inventory import api as inventory_api
+from .provisioning import service as prov_service
 from .runtime import Runtime
 from .worker import Worker
 
@@ -316,6 +317,7 @@ def create_app(settings: Settings | None = None, runtime: Runtime | None = None)
 
     # ---- endpoints / inventory (token secret never selected) ----
     inventory_api.mount(app)  # GET /endpoints[/{id}], /infra/*, /setup/*
+    prov_service.mount(app, rt)  # GET /providers/{id}/permissions, /providers/{id}/provisioning/packages/{pkg}
 
     @app.get(f"{API}/endpoints/{{endpoint_id}}/inventory")
     def latest_inventory(endpoint_id: UUID, user: User = Depends(require("viewer")), db: Session = Depends(get_db)):
