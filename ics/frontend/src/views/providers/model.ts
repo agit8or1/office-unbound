@@ -75,7 +75,7 @@ export interface DiscStorage { name: string; node: string; type: string | null; 
 export interface DiscNetwork { name: string; node: string; kind: string; vlan_aware: boolean | null; tag: number | null; zone: string | null }
 export interface DiscGuest { vmid: number; name: string | null; kind: string; node: string; status: string; pool: string | null }
 export interface DiscTemplate { vmid: number; name: string | null; kind: string; node: string; pool: string | null }
-export interface Discovery { nodes: DiscNode[]; storage: DiscStorage[]; networks: DiscNetwork[]; guests: DiscGuest[]; templates: DiscTemplate[]; warnings: string[] }
+export interface Discovery { nodes: DiscNode[]; storage: DiscStorage[]; networks: DiscNetwork[]; guests: DiscGuest[]; templates: DiscTemplate[]; warnings: string[]; pools?: string[] }
 
 /** The setup probe returns raw provider rows; tolerate missing sections instead of inventing values. */
 export function normDiscovery(raw: unknown): Discovery | null {
@@ -92,6 +92,27 @@ export function normDiscovery(raw: unknown): Discovery | null {
     warnings: arr<string>('warnings'),
   }
 }
+/** Body of the read-only discovery with a TEMPORARY administrator credential (POST /setup/probe, stage "discover"). Held in memory by the server for
+ * this one request; the caller wipes the SecretBag afterwards. */
+export function discoverRequest(m: WizardModel, s: SecretBag) {
+  const c = adminCreds(m, s)
+  return { stage: 'discover' as const, base_url: baseUrl(m), ...trustFields(m), username: c.admin_username, password: c.admin_password, token_id: c.admin_token_id, token_secret: c.admin_token_secret }
+}
+/** The admin discovery answers with cluster-level lists (node names, storages with their content and node list, bridges, templates, pools). */
+export function fromAdminDiscovery(raw: unknown): Discovery | null {
+  if (!raw || typeof raw !== 'object') return null
+  const o = raw as { nodes?: { name: string; status: string }[]; storages?: { name: string; type?: string | null; shared?: boolean; content?: string; nodes?: string[] }[]
+    bridges?: { name: string; zone?: string | null }[]; templates?: { vmid: number; name: string | null; node: string; pool: string | null }[]; pools?: string[]; guests?: number; notes?: string[] }
+  return {
+    nodes: (o.nodes ?? []).map((n) => ({ name: n.name, status: n.status, managed: true, cpu_total: null, mem_total: null, mem_used: null, cpu_pct: null })),
+    storage: (o.storages ?? []).flatMap((s) => (s.nodes?.length ? s.nodes : ['']).map((node) => ({ name: s.name, node, type: s.type ?? null,
+      content: (s.content ?? '').split(',').filter(Boolean), shared: !!s.shared, total: null, used: null, active: true }))),
+    networks: (o.bridges ?? []).map((b) => ({ name: b.name, node: '', kind: 'bridge', vlan_aware: null, tag: null, zone: b.zone ?? null })),
+    guests: [], pools: o.pools ?? [],
+    templates: (o.templates ?? []).map((t) => ({ vmid: t.vmid, name: t.name, kind: 'vm', node: t.node, pool: t.pool })),
+    warnings: o.notes ?? [],
+  }
+}
 /** Storage is reported once per node; shared storage appears on every node. Merge to one row per storage name. */
 export function mergeStorage(rows: DiscStorage[]): (DiscStorage & { nodes: string[] })[] {
   const by = new Map<string, DiscStorage & { nodes: string[] }>()
@@ -105,7 +126,7 @@ export function mergeStorage(rows: DiscStorage[]): (DiscStorage & { nodes: strin
   }
   return [...by.values()].sort((a, b) => a.name.localeCompare(b.name))
 }
-export const poolsOf = (d: Discovery): string[] => [...new Set([...d.guests.map((g) => g.pool), ...d.templates.map((t) => t.pool)].filter((p): p is string => !!p))].sort()
+export const poolsOf = (d: Discovery): string[] => [...new Set([...(d.pools ?? []), ...d.guests.map((g) => g.pool), ...d.templates.map((t) => t.pool)].filter((p): p is string => !!p))].sort()
 export const bridgesOf = (d: Discovery): { name: string; kind: string; vlan_aware: boolean | null }[] => {
   const seen = new Map<string, { name: string; kind: string; vlan_aware: boolean | null }>()
   for (const n of d.networks) if (n.kind !== 'sdn_zone' && !seen.has(n.name)) seen.set(n.name, { name: n.name, kind: n.kind === 'sdn_vnet' ? 'SDN network' : 'bridge', vlan_aware: n.vlan_aware })
@@ -456,6 +477,8 @@ export interface PermissionsView {
   tokens?: Record<string, { id: string; gen?: number; [k: string]: unknown }>; plan_hash?: string
   roles?: Record<string, { name: string; privileges: string[] }>; expected?: Record<string, Record<string, string[]>>
   last_verification?: { ok?: boolean; [k: string]: unknown } | null; last_verified_at?: string | null; last_drift?: DriftReport | null; last_drift_at?: string | null
+  grants?: { path: string; capability: string; role: string; privileges: string[]; propagate: boolean; tokens: string[]; enforced_by: 'proxmox' | 'ics'; note: string }[]
+  custom_grants?: unknown[]; ics_enforced?: EnforcementNote[]
   enforcement?: EnforcementNote[]; scope?: Partial<Scope>; never_granted?: string[]; managed_objects?: { user?: string; roles?: string[]; tokens?: string[]; pools?: string[]; acl?: unknown[]; assumed?: string }
 }
 export interface KindDrift { ok: boolean; missing: { path: string; privileges: string[] }[]; unexpected: { path: string; privileges: string[] }[]; forbidden: { path: string; privileges: string[] }[]; suggestion: string[]; unauthorized_exposure?: { path: string; privileges: string[] }[] }

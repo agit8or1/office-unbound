@@ -113,6 +113,25 @@ def tick(rt: Runtime) -> None:
             log.exception("permission drift check failed")
 
 
+def effective_grants(d, policy) -> list[dict]:
+    """The full effective grant set the design assigns: one row per (ACL path, role) with its privileges, the propagate flag, which tokens
+    carry it and who enforces it. /pool, /storage, /vms, /sdn grants are enforced by Proxmox itself; node paths only give VISIBILITY (Proxmox
+    does not confine pooled guests to nodes), so the node allowlist is enforced by the ICS broker."""
+    out = []
+    for a in d.acl:
+        name, privs = d.roles[a.cap]
+        node_path = a.path.startswith("/nodes")
+        out.append({"path": a.path, "capability": a.cap, "role": name, "privileges": sorted(privs), "propagate": bool(a.propagate),
+                    "tokens": ["user"] + list(a.tokens), "enforced_by": "proxmox",
+                    "note": ("visibility only; which nodes ICS may change is enforced by the ICS node allowlist" if node_path
+                             else "enforced by Proxmox ACL")})
+    out.sort(key=lambda r: (r["path"], r["role"]))
+    if policy.scope.nodes:
+        out.append({"path": "(ICS node allowlist)", "capability": "scope", "role": "-", "privileges": [], "propagate": False, "tokens": [],
+                    "enforced_by": "ics", "note": "nodes: " + ", ".join(policy.scope.nodes)})
+    return out
+
+
 def permissions_view(db: Session, eid) -> dict:
     ep = db.execute(text("SELECT id, name, token_id, provision_token_id, enabled FROM endpoints WHERE id = :i AND detached_at IS NULL"), {"i": str(eid)}).first()
     if ep is None:
@@ -125,6 +144,8 @@ def permissions_view(db: Session, eid) -> dict:
     d = pp.design_from_stored(policy, st.design)
     expected = {k: {p: sorted(v) for p, v in pp.expected_permissions(d, k).items()} for k in d.tokens}
     return {
+        "grants": effective_grants(d, policy), "custom_grants": [g.model_dump(mode="json") for g in policy.custom_grants],
+        "ics_enforced": [e.__dict__ for e in pp.enforcement_matrix(policy) if e.enforced_by in ("ics", "both")],
         "endpoint_id": str(eid), "managed_by_provisioning": True, "mode": st.mode, "status": st.status, "preset": policy.preset,
         "service_user": d.userid, "tokens": st.tokens, "plan_hash": st.plan_hash,
         "roles": {cap: {"name": n, "privileges": sorted(p)} for cap, (n, p) in d.roles.items()},

@@ -1,9 +1,25 @@
 <script setup lang="ts">
 // Step 2: what Office Unbound found. Read-only. Nothing here is authorised yet.
-import { computed } from 'vue'
+import { computed, ref } from 'vue'
 import { Banner, CapacityBar } from '../../../wizards/kit'
-import { bridgesOf, discoverySummary, gbOf, hasUnmanaged, mergeStorage, poolsOf, type WizardModel } from '../model'
-const props = defineProps<{ m: WizardModel }>()
+import type { Errors } from '../../../wizards/kit'
+import { api, msg } from '../api'
+import CredFields from '../CredFields.vue'
+import { bridgesOf, discoverRequest, discoverySummary, fromAdminDiscovery, gbOf, hasUnmanaged, mergeStorage, poolsOf, validateCreds, type SecretBag, type WizardModel } from '../model'
+const props = defineProps<{ m: WizardModel; s: SecretBag; errors: Errors }>()
+const emit = defineEmits<{ errors: [Errors] }>()
+const reading = ref(false), readError = ref('')
+async function readCluster() {
+  readError.value = ''
+  const e = validateCreds(props.m, props.s)
+  emit('errors', e)
+  if (Object.keys(e).length) return
+  reading.value = true
+  try {
+    props.m.discovery = fromAdminDiscovery(await api.discover(discoverRequest(props.m, props.s)))
+    props.m.scopeSuggested = false
+  } catch (x) { readError.value = msg(x) } finally { props.s.adminPassword = ''; props.s.adminTokenSecret = ''; reading.value = false }
+}
 const d = computed(() => props.m.discovery)
 const storages = computed(() => (d.value ? mergeStorage(d.value.storage) : []))
 const unmanaged = computed(() => (d.value ? hasUnmanaged(d.value) : []))
@@ -53,6 +69,12 @@ const unmanaged = computed(() => (d.value ? hasUnmanaged(d.value) : []))
     </template>
     <template v-else>
       <Banner kind="info" title="Your cluster will be read after setup">With {{ m.method === 'admin' ? 'a temporary administrator login' : 'a setup package' }}, Office Unbound does not read the cluster before it has a token of its own. On the next step, type the names of what you want to authorise, exactly as they appear in Proxmox. The Review and Verify steps check them.</Banner>
+      <div v-if="m.method === 'admin'" class="wz-card"><h2>Look at the cluster now (optional)</h2>
+        <p class="muted">Sign in once with the temporary administrator login to list nodes, storage, networks, templates and pools, so you can pick them on the next step instead of typing names. This is read-only: nothing is changed and the login is not stored.</p>
+        <CredFields :m="m" :s="s" :errors="errors" />
+        <Banner v-if="readError" kind="bad">{{ readError }}</Banner>
+        <div class="wz-row mt"><button type="button" class="wz-btn" :disabled="reading" @click="readCluster">{{ reading ? 'Reading...' : 'Read the cluster' }}</button></div>
+      </div>
       <div class="wz-card"><h2>What happens next</h2>
         <ul class="pv-list"><li>You choose an access level and the nodes, storage, pools and networks that are allowed.</li><li>You see every account, role and permission that will be created before anything changes.</li><li>Office Unbound verifies the result against what Proxmox actually enforces.</li></ul>
       </div>

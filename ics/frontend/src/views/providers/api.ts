@@ -51,6 +51,7 @@ export const api = {
   job: (id: string) => get<JobRow>(`jobs/${id}`),
   probeTls: (b: unknown) => post<{ tls: TlsResult }>('setup/probe', b),
   probe: (b: unknown) => post<ProbeResult>('setup/probe', b),
+  discover: (b: unknown) => post<unknown>('setup/probe', b),
   packageFiles: (providerId: string, packageId: string) => get<{ package_id: string; plan_hash: string; files: Record<string, string> }>(`providers/${providerId}/provisioning/packages/${packageId}?format=json`),
   /** The only mutation path. */
   submit: (action: string, params: Record<string, unknown>) => post<PlanCreated & { customer_approval_id?: string }>('plans', { action, params }),

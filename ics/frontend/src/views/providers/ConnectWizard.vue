@@ -57,7 +57,7 @@ const id = computed(() => w.current.value.id)
       :steps="shellSteps" :index="w.m.index" :reached="w.m.reached" :next-label="id === 'review' ? (m.method === 'token' ? 'Continue' : 'Continue to ' + applyTitle.toLowerCase()) : id === 'verify' ? 'Finish' : 'Next'"
       :hide-next="last" :busy="run.busy.value" @next="onNext" @back="w.back()" @goto="w.goto($event)">
       <ConnectStep v-if="id === 'connect'" :m="m" :s="s" :errors="errs" @errors="setErrors" />
-      <DiscoverStep v-else-if="id === 'discover'" :m="m" />
+      <DiscoverStep v-else-if="id === 'discover'" :m="m" :s="s" :errors="errs" @errors="setErrors" />
       <div v-else-if="id === 'access'">
         <h2>What may Office Unbound do?</h2>
         <p class="muted">Start from an access level, then choose exactly where it applies. You can change this later; widening access always needs approval.</p>

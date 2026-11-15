@@ -21,6 +21,70 @@ from . import health
 from .collector import RANGES, query_metrics
 
 API = "/api/v1"
+class AdminDiscover(BaseModel):
+    """Temporary admin credentials for ONE read-only discovery. Held in memory only; wiped in `finally`; never stored, audited or returned."""
+    model_config = ConfigDict(extra="forbid", hide_input_in_errors=True)
+    stage: Literal["discover"]
+    base_url: str
+    ca_pem: str | None = Field(default=None, max_length=100_000)
+    fingerprint_sha256: str | None = None
+    username: str | None = Field(default=None, max_length=70)
+    password: SecretStr | None = None
+    token_id: str | None = Field(default=None, pattern=ea.TOKEN_ID_RE)
+    token_secret: SecretStr | None = None
+
+    @field_validator("base_url")
+    @classmethod
+    def _u(cls, v):
+        return ea._check_url(v)
+
+    @field_validator("ca_pem")
+    @classmethod
+    def _c(cls, v):
+        return ea._check_ca(v)
+
+    @model_validator(mode="after")
+    def _one(self):
+        pw, tok = bool(self.username and self.password), bool(self.token_id and self.token_secret)
+        if pw == tok:
+            raise ValueError("supply either username+password or token_id+token_secret")
+        return self
+
+
+def _discover(rt, db, user, request, body: dict):
+    from ..providers.base import ProviderError
+    from ..providers.proxmox import provisioning as pp
+    from ..providers.proxmox.admin import ProxmoxAdminClient
+    try:
+        a = AdminDiscover.model_validate(body)
+    except ValidationError as e:
+        raise HTTPException(422, [{"loc": list(x["loc"]), "msg": x["msg"]} for x in e.errors()]) from None
+    client = None
+    try:
+        client = ProxmoxAdminClient(a.base_url, username=a.username, password=a.password.get_secret_value() if a.password else None,
+                                    token_id=a.token_id, token_secret=a.token_secret.get_secret_value() if a.token_secret else None,
+                                    ca_pem=a.ca_pem, fingerprint_sha256=a.fingerprint_sha256, allow_loopback=rt.settings.allow_loopback_endpoints)
+        f = pp.collect_facts(client)   # GET-only
+    except (ProxmoxError, ProviderError, ValueError) as e:
+        audit.append(db, "setup.discover", actor_id=user.id, actor_name=user.username, ip=client_ip(request), resource="setup",
+                     details={"base_url": a.base_url, "ok": False})
+        db.commit()
+        raise HTTPException(422, str(e)[:200]) from None
+    finally:
+        if client is not None:
+            client.discard()
+    audit.append(db, "setup.discover", actor_id=user.id, actor_name=user.username, ip=client_ip(request), resource="setup",
+                 details={"base_url": a.base_url, "ok": True, "nodes": len(f.nodes)})  # no credential in the audit record
+    db.commit()
+    return {"ok": True, "version": f.version, "readonly": True,
+            "nodes": [{"name": n, "status": st} for n, st in sorted(f.nodes.items())],
+            "storages": [{"name": n, **v} for n, v in sorted(f.storages.items())],
+            "pools": sorted(f.pools),
+            "bridges": [{"name": n, "zone": z} for n, z in sorted(f.networks.items())],
+            "templates": [{"vmid": v, "name": g["name"], "node": g["node"], "pool": g["pool"]} for v, g in sorted(f.guests.items()) if g["template"]],
+            "guests": len(f.guests), "notes": f.notes}
+
+
 def _active(db) -> str:
     return f"{_ACTIVE} AND {tscope.endpoint_clause(db)}"
 
@@ -283,6 +347,8 @@ def mount(app: FastAPI) -> None:
                          details={"stage": "tls", "base_url": t.base_url, "ok": out["ok"]})
             db.commit()
             return {"tls": out}
+        if body.get("stage") == "discover":
+            return _discover(rt, db, user, request, body)
         try:
             p = SetupProbe.model_validate(body)
         except ValidationError as e:

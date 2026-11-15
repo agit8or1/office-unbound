@@ -83,7 +83,12 @@ const tone = (t: string) => t
             </Card>
           </div>
 
-          <Card title="Permission paths (ACL)" hint="Where each token holds privileges">
+          <Card title="Effective grants" hint="Every role on every path, who carries it and who enforces it">
+            <div class="tablewrap"><table class="pv-table"><thead><tr><th>Path</th><th>Role</th><th>Privileges</th><th>Propagates</th><th>Held by</th><th>Enforced by</th></tr></thead><tbody>
+              <tr v-for="(g, n) in v.grants ?? []" :key="n"><td class="mono">{{ g.path }}</td><td class="mono small">{{ g.role }}</td><td class="mono small">{{ g.privileges.join(', ') || '-' }}</td><td>{{ g.propagate ? 'yes' : 'no' }}</td><td class="small">{{ g.tokens.join(', ') || '-' }}</td><td><span class="badge" :class="g.enforced_by === 'proxmox' ? 'ok' : 'info'">{{ g.enforced_by === 'proxmox' ? 'Proxmox' : 'Office Unbound' }}</span><div class="muted small">{{ g.note }}</div></td></tr>
+              <tr v-if="!(v.grants ?? []).length"><td colspan="6" class="muted">No grants recorded.</td></tr></tbody></table></div>
+          </Card>
+          <Card title="Permission paths per token (expected)" hint="Where each token holds privileges">
             <div class="tablewrap"><table class="pv-table"><thead><tr><th>Path</th><th>Token</th><th>Privileges</th></tr></thead><tbody>
               <tr v-for="(r, n) in aclRows" :key="n"><td class="mono">{{ r.path }}</td><td>{{ r.kind }}</td><td class="mono small">{{ r.privs.join(', ') }}</td></tr>
               <tr v-if="!aclRows.length"><td colspan="3" class="muted">No ACL entries recorded.</td></tr></tbody></table></div>
