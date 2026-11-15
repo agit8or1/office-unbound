@@ -455,3 +455,40 @@ def test_l5_check_results_are_capped_per_check(env, rt, monkeypatch):
     monitor._last_retention = None
     assert monitor.retention(env.rt) >= 5
     assert env.q("SELECT count(*) FROM check_results WHERE check_id = :c", c=cid)[0][0] == 3
+
+
+def test_worker_initialises_vault_timer_and_monitor_pass_completes(env, rt, monkeypatch):
+    """Production bug 2026-11-15: `_next_vault` was assigned in dead code after `return` in healthy(), so EVERY monitor pass
+    raised AttributeError (credential + approval expiry never ran) while /readyz stayed green."""
+    w = worker.Worker(rt, interval=0.05)
+    assert hasattr(w, "_next_vault") and w.monitor_failures == 0
+    called = []
+    monkeypatch.setattr(worker.cred_expiry, "tick", lambda r: called.append("cred"))
+    monkeypatch.setattr(worker.tapprovals, "expire_due", lambda r: called.append("approvals"))
+    w.beat_interval = 0.2
+    w.start()
+    try:
+        deadline = time.monotonic() + 5
+        while time.monotonic() < deadline and not called:
+            time.sleep(0.05)
+        assert "cred" in called and "approvals" in called and w.monitor_failures == 0 and w.healthy()
+    finally:
+        w.stop()
+
+
+def test_worker_unhealthy_when_monitor_pass_fails_repeatedly(env, rt, monkeypatch):
+    """A monitor loop that raises on every pass must turn the heartbeat (and /readyz) red, not keep it green."""
+    def boom(r):
+        raise RuntimeError("simulated persistent monitor failure")
+    monkeypatch.setattr(monitor, "tick", boom)
+    w = worker.Worker(rt, interval=0.05)
+    w.beat_interval = 0.2
+    w.start()
+    try:
+        deadline = time.monotonic() + 5
+        while time.monotonic() < deadline and w.monitor_failures < w.MONITOR_MAX_CONSECUTIVE_FAILURES:
+            time.sleep(0.05)
+        assert w.monitor_failures >= w.MONITOR_MAX_CONSECUTIVE_FAILURES
+        assert not w.healthy()
+    finally:
+        w.stop()

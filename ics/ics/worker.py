@@ -38,6 +38,7 @@ class Worker(threading.Thread):
     """Three independent threads (review M2): the job loop, the monitor loop (checks, remediation sync, notifications, identity
     reconcile) and a heartbeat timer. A check that stalls can no longer block jobs or approvals, and the heartbeat is only written
     while BOTH loops are making progress, so a stalled component turns /readyz red instead of staying falsely green."""
+    MONITOR_MAX_CONSECUTIVE_FAILURES = 3
 
     def __init__(self, rt: Runtime, interval: float = 1.0):
         super().__init__(daemon=True, name="ics-worker")
@@ -47,6 +48,10 @@ class Worker(threading.Thread):
         self.job_stall_seconds = rt.settings.job_timeout_seconds + 30.0
         rt.progress_hook = self._job_progress  # long deployment jobs renew their lease and report progress here
         self.monitor_stall_seconds = float(rt.settings.monitor_stall_seconds)
+        # Production bug 2026-11-15: this was assigned after the `return` in healthy() (dead code) -> every monitor pass raised
+        # AttributeError while /readyz stayed green. A loop that fails on every pass must also make the worker unhealthy.
+        self._next_vault = 0.0
+        self.monitor_failures = 0
 
     def _job_progress(self) -> None:
         self.progress["jobs"] = time.monotonic()
@@ -54,8 +59,8 @@ class Worker(threading.Thread):
     def healthy(self) -> bool:
         now = time.monotonic()
         return (now - self.progress["jobs"] <= self.job_stall_seconds
-                and (not self.rt.settings.monitor_enabled or now - self.progress["monitor"] <= self.monitor_stall_seconds))
-        self._next_vault = 0.0
+                and (not self.rt.settings.monitor_enabled or (now - self.progress["monitor"] <= self.monitor_stall_seconds
+                                                               and self.monitor_failures < self.MONITOR_MAX_CONSECUTIVE_FAILURES)))
 
     def _beat(self) -> None:
         """Own timer thread, so the heartbeat keeps ticking while a long job runs (old M8) but stops when a loop is stalled."""
@@ -95,8 +100,10 @@ class Worker(threading.Thread):
                     cred_expiry.tick(self.rt)
                     tapprovals.expire_due(self.rt)
                     self.progress["monitor"] = time.monotonic()
+                self.monitor_failures = 0
             except Exception:  # noqa: BLE001
-                log.exception("monitor loop error")
+                self.monitor_failures += 1
+                log.exception("monitor loop error (%d consecutive)", self.monitor_failures)
             self._stop_evt.wait(self.interval)
 
     def _inventory_loop(self) -> None:
@@ -110,11 +117,18 @@ class Worker(threading.Thread):
             self._stop_evt.wait(self.interval)
 
     def run(self) -> None:
-        threading.Thread(target=self._beat, daemon=True, name="ics-heartbeat").start()
+        self._children = [threading.Thread(target=self._beat, daemon=True, name="ics-heartbeat")]
         if self.rt.settings.monitor_enabled:
-            threading.Thread(target=self._monitor_loop, daemon=True, name="ics-monitor").start()
-            threading.Thread(target=self._inventory_loop, daemon=True, name="ics-inventory").start()
+            self._children += [threading.Thread(target=self._monitor_loop, daemon=True, name="ics-monitor"),
+                               threading.Thread(target=self._inventory_loop, daemon=True, name="ics-inventory")]
+        for t in self._children:
+            t.start()
         self._job_loop()
 
-    def stop(self) -> None:
+    def stop(self, timeout: float = 15.0) -> None:
+        """Signal every loop and wait for them, so no loop is still inside a DB transaction when stop() returns
+        (found 2026-11-15: stop() only set the event; test teardown deadlocked against a still-running loop)."""
         self._stop_evt.set()
+        deadline = time.monotonic() + timeout
+        for t in list(getattr(self, "_children", [])) + ([self] if self.is_alive() and threading.current_thread() is not self else []):
+            t.join(max(0.0, deadline - time.monotonic()))
