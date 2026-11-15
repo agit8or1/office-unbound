@@ -1,0 +1,7 @@
+table bridge ou_tenant_t20 {
+  chain forward {
+    type filter hook forward priority -1; policy accept;
+    iifname "vb-ou-ca-*" oifname "vb-ou-cb-*" counter drop
+    iifname "vb-ou-cb-*" oifname "vb-ou-ca-*" counter drop
+  }
+}

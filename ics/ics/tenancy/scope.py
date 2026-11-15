@@ -66,6 +66,9 @@ def customer_of_params(db: Session, params: dict) -> str | None:
         return str(params["customer_id"])
     if params.get("endpoint_id"):
         return endpoint_customer(db, params["endpoint_id"])
+    if params.get("stack"):   # identity actions name the customer stack; its owning customer is in the stack config
+        r = db.execute(text("SELECT config->>'customer_id' AS c FROM idm_stacks WHERE name = :n"), {"n": str(params["stack"])}).first()
+        return r.c if r and r.c else None
     if params.get("credential_id"):
         r = db.execute(text("SELECT customer_id FROM credentials WHERE id = :i"), {"i": str(params["credential_id"])}).first()
         return str(r.customer_id) if r else None

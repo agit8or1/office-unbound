@@ -99,6 +99,7 @@ class StackRegister(BaseModel):
     mas_client_id: str | None = Field(default=None, pattern=NAME_RE, description="MAS OAuth2 client (client credentials, scope urn:mas:admin) dedicated to the ICS")
     mas_client_secret: SecretStr | None = None
     reconcile_interval_seconds: int = Field(default=900, ge=0, le=86400, description="0 disables the periodic reconcile")
+    customer_id: UUID | None = Field(default=None, description="owning customer (customers.id): scoped operators only see/act on their customers' stacks; part of the secret's AAD (config hash)")
 
     _s1 = field_validator("ldap_bind_password", "kc_client_secret", mode="before")(lambda cls, v: _secret(v))
     _s2 = field_validator("mas_client_secret", mode="before")(lambda cls, v: None if v is None else _secret(v))
@@ -722,6 +723,8 @@ def precheck(db, rt: Runtime, action: str, p) -> dict:
     if action == "idm.stack.register":
         if db.execute(text("SELECT 1 FROM idm_stacks WHERE name = :n"), {"n": p.name}).first():
             raise LookupError("stack name already exists")
+        if p.customer_id and db.execute(text("SELECT 1 FROM customers WHERE id = :i"), {"i": str(p.customer_id)}).first() is None:
+            raise ValueError("customer not found")
         for h in (p.ldap_url.split("//")[1].split(":")[0], p.kc_url.split("//")[1].split(":")[0], *( [p.files_url.split("//")[1].split(":")[0]] if p.files_url else []),
                   *([p.mail_host] if p.mail_host else [])):
             _guard(rt, h)

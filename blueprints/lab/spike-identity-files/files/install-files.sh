@@ -75,7 +75,9 @@ sed -e "s#__FILES_HOST__#${HOST_FILES}#g" "${HERE}/nginx-cloud.conf.tmpl" > /etc
 ln -sf /etc/nginx/sites-available/ou-lab-cloud /etc/nginx/sites-enabled/ou-lab-cloud
 rm -f /etc/nginx/sites-enabled/default
 nginx -t
-systemctl daemon-reload; systemctl enable --now opencloud; sleep 15; systemctl enable --now opencloud-collaboration; systemctl reload nginx || systemctl restart nginx
+systemctl daemon-reload; systemctl enable --now opencloud; sleep 15
+# OU_SKIP_COLLAB=1: stacks without a document-editing tier (tenant-isolation lab) do not start the WOPI service
+[ "${OU_SKIP_COLLAB:-0}" = 1 ] || systemctl enable --now opencloud-collaboration; systemctl reload nginx || systemctl restart nginx
 
 
 log "waiting for OpenCloud"
