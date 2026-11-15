@@ -1,0 +1,4 @@
+.dev-ribbon { background: #7a4f08; color: #fff; text-align: center; padding: 4px 8px; font: 600 12px system-ui; letter-spacing: .04em; }
+.dev-nav { display: flex; flex-wrap: wrap; gap: 14px; padding: 8px 16px; background: var(--surface, #fff); border-bottom: 1px solid var(--line, #d8d2c6); }
+.dev-nav a[aria-current="page"] { font-weight: 700; }
+.dev-main { padding: 16px; }
