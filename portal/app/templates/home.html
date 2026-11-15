@@ -11,8 +11,8 @@
   <h2 id="h-apps" class="sr">Your apps</h2>
   <ul class="tiles">
     <li><a class="tile" href="{{ cfg.mail_web_url }}" data-app="mail">{{ icon('mail') }}<span class="t">Mail</span><span class="d">Read and send messages</span></a></li>
-    <li><a class="tile" href="{{ cfg.mail_web_url }}" data-app="calendar">{{ icon('calendar') }}<span class="t">Calendar</span><span class="d">Meetings and events</span></a></li>
-    <li><a class="tile" href="{{ cfg.mail_web_url }}" data-app="contacts">{{ icon('contacts') }}<span class="t">Contacts</span><span class="d">People and address books</span></a></li>
+    <li><a class="tile" href="{{ cfg.mail_view_url('calendar') }}" data-app="calendar">{{ icon('calendar') }}<span class="t">Calendar</span><span class="d">Meetings and events</span></a></li>
+    <li><a class="tile" href="{{ cfg.mail_view_url('contacts') }}" data-app="contacts">{{ icon('contacts') }}<span class="t">Contacts</span><span class="d">People and address books</span></a></li>
     <li><a class="tile" href="{{ cfg.files_url }}/" data-app="files">{{ icon('files') }}<span class="t">Files</span><span class="d">Your documents, anywhere</span></a></li>
   </ul>
 </section>

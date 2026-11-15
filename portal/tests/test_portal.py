@@ -298,3 +298,18 @@ def test_parse_recent_limit_and_ago():
     assert [i["name"] for i in items] == ["new.xlsx"]
     assert services.ago(items[0]["mtime"], now=items[0]["mtime"].timestamp() + 7200) == "2 hours ago"
     assert services.human_size(1536) == "1.5 KB"
+
+
+def test_mail_calendar_contacts_tiles_use_sso_deep_links_and_no_separate_password_note(env):
+    c, m, _ = env
+    _, q = login(c, m)
+    finish(c, q)
+    html = c.get("/").text
+    found = re.findall(r'<a class="tile" href="([^"]+)" data-app="(mail|calendar|contacts)"', html)
+    assert {app: href for href, app in found} == {"mail": "https://mail.test/web/",
+                                                  "calendar": "https://mail.test/web/?action=context&amp;view=calendar",
+                                                  "contacts": "https://mail.test/web/?action=context&amp;view=contacts"}
+    assert not re.search(r"separate password|own password|same password|sign[- ]in of its own", html, re.I)
+    assert CFG.mail_view_url("calendar") == "https://mail.test/web/?action=context&view=calendar"
+    with pytest.raises(ValueError):
+        CFG.mail_view_url("calendar&view=x")

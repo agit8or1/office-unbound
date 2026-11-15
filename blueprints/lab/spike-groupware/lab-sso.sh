@@ -40,6 +40,8 @@ JSON
 chown root:gromoxcf bearer_pubkey keycloak.json; chmod 0640 bearer_pubkey keycloak.json
 usermod -aG gromoxcf groweb 2>/dev/null || true
 systemctl restart gromox-zcore php8.2-fpm"
+# 5b: follow realm key rotation (timer; see ou-sync-bearer-key.py)
+GW_MACHINE=$M "$HERE/lab-sso-keysync.sh" >/dev/null
 # 6: deep-link patch (upstream has no calendar/contacts URL action): copy patches, rebuild web
 sudo install -d /var/lib/machines/$M/root/patches
 sudo cp "$HERE"/../../build/grommunio-web/patches/*.patch /var/lib/machines/$M/root/patches/

@@ -50,6 +50,11 @@ client = {
 _, cl = call("GET", f"{A}/clients?clientId=ou-webmail", T)
 if cl:
     cid = cl[0]["id"]
+    # several groupware nodes share the client: keep the redirect URIs / post-logout URIs already registered for other hosts
+    old = cl[0]
+    client["redirectUris"] = sorted(set(old.get("redirectUris", [])) | set(client["redirectUris"]))
+    pl = set(filter(None, (old.get("attributes", {}).get("post.logout.redirect.uris") or "").split("##"))) | {WEB + "/web/"}
+    client["attributes"]["post.logout.redirect.uris"] = "##".join(sorted(pl))
     call("PUT", f"{A}/clients/{cid}", T, {**client, "id": cid})
     print("client ou-webmail updated")
 else:
