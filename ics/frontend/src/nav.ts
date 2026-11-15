@@ -38,6 +38,7 @@ export const NAV: NavGroup[] = [
     { label: 'Audit log', to: '/audit', icon: 'file', min: 'approver' },
     { label: 'Access policies', icon: 'shield', planned: true, min: 'admin' },
     { label: 'Configuration', icon: 'gear', planned: true, min: 'admin' },
+    { label: 'System', to: '/system', icon: 'gear' },
   ] },
 ]
 

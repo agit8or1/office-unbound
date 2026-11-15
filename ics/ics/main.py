@@ -21,6 +21,7 @@ from . import userdir
 from .config import Settings
 from .deploy.api import register_routes as register_deploy_routes
 from .inventory import api as inventory_api
+from . import version as ver
 from .runtime import Runtime
 from .worker import Worker
 
@@ -166,7 +167,7 @@ def create_app(settings: Settings | None = None, runtime: Runtime | None = None)
             worker.stop()
 
     docs = rt.settings.enable_docs  # off in production: Swagger UI is CDN-hosted (M6)
-    app = FastAPI(title="Office Unbound ICS", version="0.1.0", lifespan=lifespan,
+    app = FastAPI(title="Office Unbound ICS", version=ver.__version__, lifespan=lifespan,
                   docs_url="/docs" if docs else None, redoc_url=None, openapi_url="/openapi.json" if docs else None)
     app.state.rt = rt
     app.add_middleware(SecurityHeadersAndLimits, max_body=rt.settings.max_body_bytes, relax_paths=("/docs",) if docs else ())
@@ -193,7 +194,34 @@ def create_app(settings: Settings | None = None, runtime: Runtime | None = None)
         ok = all(c.get("ok") for c in checks.values()) and len(checks) == 3
         if not ok:
             response.status_code = 503
-        return {"ready": ok, "checks": checks}
+        return {"ready": ok, "version": ver.__version__, "checks": checks}
+
+    # ---- version (ADR-0011) ----
+    def _full_version(db: Session) -> dict:
+        i = ver.build_info()
+        try:
+            db_rev = db.execute(text("SELECT version_num FROM alembic_version")).scalar()
+        except Exception:  # noqa: BLE001
+            db.rollback()
+            db_rev = None
+        return {"product": i["product"], "version": i["version"], "commit": i.get("commit"), "dirty": i.get("dirty"),
+                "built_at": i.get("built_at"), "build_source": i.get("source"), "api": ver.API_VERSION,
+                "schema": {"build_head": i.get("schema_head"), "database": db_rev},
+                "components": {"ics": i["version"], **i.get("components", {})}, "interfaces": i.get("interfaces", {})}
+
+    @app.get(f"{API}/version")
+    def version_info(request: Request, db: Session = Depends(get_db)):
+        """Public: product name and version only. With a valid session: commit, build date, schema and component versions."""
+        try:
+            auth.current_user(request, db)
+        except HTTPException:
+            return {"product": ver.PRODUCT, "version": ver.__version__}
+        return _full_version(db)
+
+    @app.get(f"{API}/system")
+    def system_info(user: User = Depends(require("viewer")), db: Session = Depends(get_db)):
+        """Administration -> System: all component versions plus the read-only pending-updates comparison (local data only)."""
+        return {**_full_version(db), "updates": ver.update_status()}
 
     # ---- auth ----
     @app.post(f"{API}/auth/login")

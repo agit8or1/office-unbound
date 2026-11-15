@@ -24,3 +24,13 @@ export function fmtRate(bytesPerSec: number): string {
 
 /** Breadcrumb detail label, set by detail views once the resource name is known. */
 export const crumbLabel = ref('')
+
+/** Console footer text, e.g. "Office Unbound ICS v0.1.0 (abc1234)"; the version always comes from the API, never a constant. */
+export function buildLabel(b: { version: string; commit?: string | null; dirty?: boolean | null } | null | undefined): string {
+  if (!b) return 'Office Unbound ICS'
+  return `Office Unbound ICS v${b.version}` + (b.commit ? ` (${b.commit.slice(0, 7)}${b.dirty ? ', modified' : ''})` : '')
+}
+
+export const COMPONENT_LABELS: Record<string, string> = {
+  ics: 'ICS core', node_agent: 'Node agent', portal: 'User portal', migration_toolkit: 'Migration toolkit', docs_engine: 'Office Unbound Docs engine',
+}

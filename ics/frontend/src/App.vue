@@ -1,9 +1,9 @@
 <script setup lang="ts">
 import { computed, onMounted, onUnmounted, ref, watch } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
-import { get, type Incident, type Plan } from './api'
+import { get, type BuildInfo, type Incident, type Plan } from './api'
 import { hasRole, loadSession, logout, session } from './store'
-import { crumbLabel } from './format'
+import { buildLabel, crumbLabel } from './format'
 import { hasPath } from './router'
 import { NAV, isActive, type NavItem } from './nav'
 import Icon from './ui/Icon.vue'
@@ -24,6 +24,12 @@ function toggleTheme() {
   applyTheme()
 }
 
+const build = ref<BuildInfo | null>(null)
+async function loadBuild() {
+  try { build.value = await get<BuildInfo>('version') } catch { /* footer falls back to the product name */ }
+}
+watch(() => session.user?.username, () => { if (session.user) void loadBuild() })
+
 // nav badges: active incidents and plans waiting for approval (real counts, refreshed every 20 s)
 const badges = ref({ incidents: 0, approvals: 0 })
 let timer: number | undefined
@@ -38,6 +44,7 @@ onMounted(async () => {
   try { theme.value = (localStorage.getItem('ics-theme') as typeof theme.value) || 'auto' } catch { /* ignore */ }
   applyTheme()
   await loadSession()
+  void loadBuild()
   void refreshBadges()
   timer = window.setInterval(() => { if (!document.hidden) void refreshBadges() }, 20000)
 })
@@ -90,7 +97,7 @@ watch(() => route.meta.title, (t) => { document.title = (t ? t + ' - ' : '') + '
           </template>
         </div>
       </nav>
-      <div class="foot">Signed in as {{ session.user.username }} ({{ session.user.role }})</div>
+      <div class="foot">Signed in as {{ session.user.username }} ({{ session.user.role }})<div class="build" data-testid="build-label">{{ buildLabel(build) }}</div></div>
     </aside>
     <div class="scrim" :class="{ open: navOpen }" @click="navOpen = false"></div>
     <div class="main-col">

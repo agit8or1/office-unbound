@@ -49,6 +49,7 @@ export const routes: RouteRecordRaw[] = [
   { path: '/endpoints', name: 'endpoints', component: () => import('./views/Endpoints.vue'), meta: { title: 'Integrations', section: 'Administration' } },
   { path: '/inventory/:id?', name: 'inventory', component: () => import('./views/Inventory.vue'), meta: { title: 'Inventory snapshots', section: 'Administration' } },
   { path: '/preview', name: 'preview', component: () => import('./views/Preview.vue'), meta: { title: 'Plan preview', section: 'Administration', min: 'operator' } },
+  { path: '/system', name: 'system', component: () => import('./views/System.vue'), meta: { title: 'System', section: 'Administration' } },
   { path: '/audit', name: 'audit', component: () => import('./views/Audit.vue'), meta: { title: 'Audit log', section: 'Administration', min: 'approver' } },
   ...wizardRoutes.map(wizardRecord),
   { path: '/:pathMatch(.*)*', name: 'not-found', component: () => import('./views/NotFound.vue'), meta: { title: 'Not found' } },
