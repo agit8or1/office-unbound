@@ -299,13 +299,16 @@
     {
       "id": "P7",
       "name": "Migration Center (Microsoft 365, Google Workspace)",
-      "status": "planned",
+      "status": "implementing",
       "items": [
         {
           "id": "P7.1",
           "title": "Read-only migration readiness assessment",
-          "status": "planned",
-          "evidence": []
+          "status": "implementing",
+          "evidence": [
+            "docs/status/migration-assessment.md"
+          ],
+          "note": "Implemented and tested against API-shaped fixtures; awaiting a real tenant"
         },
         {
           "id": "P7.2",

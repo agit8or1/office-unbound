@@ -77,11 +77,11 @@ Core platform components are integrated and tested in an isolated lab: own sourc
 |---|---|---|---|
 | P6.1 | Zero-cost collaboration stack evaluation (Matrix, Jitsi/LiveKit, Asterisk) | 🔎 Researching | [`docs/status/collaboration-eval.md`](docs/status/collaboration-eval.md) |
 
-## P7 — Migration Center (Microsoft 365, Google Workspace)  (⚪ Planned)
+## P7 — Migration Center (Microsoft 365, Google Workspace)  (🛠️ Implementing)
 
 | | Item | Status | Evidence |
 |---|---|---|---|
-| P7.1 | Read-only migration readiness assessment | ⚪ Planned | — |
+| P7.1 | Read-only migration readiness assessment <br><sub>Implemented and tested against API-shaped fixtures; awaiting a real tenant</sub> | 🛠️ Implementing | [`docs/status/migration-assessment.md`](docs/status/migration-assessment.md) |
 | P7.2 | Mail, calendar, contacts and file migration engine | ⚪ Planned | — |
 
 ## P8 — MSP pilot and production hardening  (⚪ Planned)
