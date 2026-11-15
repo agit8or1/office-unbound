@@ -7,7 +7,7 @@ Each entry is a real issue found in the lab, with the evidence document.
 | Editor (Collabora) unavailable for ~5 s after an OpenCloud restart (KI-1) | The editor app re-registers after restart. No data loss. Wait on OpenCloud `/app/list` listing CollaboraOnline; an ICS check for editing must use it | [STATUS.md](../status/STATUS.md) |
 | Every Proxmox call except `/version` fails with "unexpected response body" | pveproxy gzips larger responses; old client read the raw stream. Fixed (decoded with a size cap on the decompressed stream). Make sure the ICS build includes it | [provider-proxmox-real.md](../status/provider-proxmox-real.md) |
 | Proxmox probe: 403 on the pool, NIC attach would fail | Token lacked `Pool.Audit` on the pool and `SDN.Use` on the bridge. Grant to the user **and** the token (privsep intersection) | provider-proxmox-real.md |
-| Token can mutate the ICS's own VM | VM in the provisioning pool. Remove it from the pool, audit-only ACL | [connecting-proxmox.md](connecting-proxmox.md) |
+| Token can mutate the ICS's own VM | VM in the provisioning pool. Remove it from the pool, audit-only ACL, list it as protected | [connecting-proxmox.md](connecting-proxmox.md) |
 | Deployment plan refused for thin-pool capacity | Thin pools are judged on physical space and `thin_max_ratio_pct` (default 100). The real cluster was 15.17 TiB provisioned on 10.91 TiB physical with autoextend off: an owner item | provider-proxmox-real.md, [deployment-engine.md](../status/deployment-engine.md) |
 | Restore: `Permission denied` on the uploaded archive in an nspawn machine | `PrivateUsers=pick` shifts uids; restore scripts chown to the container's shifted root (`stat -c %u <rootfs>/root`) | [restore-drill-results.md](../status/restore-drill-results.md) |
 | Restored ICS: `status=203/EXEC Permission denied` | `umask 077` made release/venv unreadable; fixed (secrets 077, code 022). Ownership is re-applied by name because gids differ per host | restore-drill-results.md |
@@ -22,4 +22,8 @@ Each entry is a real issue found in the lab, with the evidence document.
 | All remediation requests `expired` | Node clock more than 60 s ahead of the ICS; run NTP on nodes | monitoring security review |
 | `/readyz` returns `ready:false` on a restored controller | Expected while passive (worker off) | [ics-recovery.md](../runbooks/ics-recovery.md) |
 | Lab machine unreachable by name | Lab IPs are DHCP from zone `oulab`; `/etc/hosts` entries on the ICS must be updated | [host-changes.md](../status/host-changes.md) |
+| Installer refuses: missing key while the database has data / key too short or a symlink / `0.0.0.0/0` / hostname outside the CA's constraints | By design; restore the key from backup, fix the argument, or (for a new name) use a new CA. Nothing is changed | [ics-installer-results.md](../status/ics-installer-results.md) |
+| Login right after enrollment rejected, then 429 | TOTP codes are single use; wait for the next 30 s code. Clear throttling with `ics.cli unlock` | ics-installer-results.md |
+| Provision credential cannot be registered / clone refused on a node | The endpoint's allowed nodes are empty or do not include it (deny by default) | [provider-proxmox.md](../status/provider-proxmox.md) |
+| Destroy refused right after a stop on Proxmox | Fixed: the provider confirms with live status because the cluster cache lags a few seconds | provider-proxmox-real.md |
 | Console login throttled | `sudo -u ics .venv/bin/python -m ics.cli unlock --username X` | ics/README.md |

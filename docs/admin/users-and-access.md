@@ -19,8 +19,16 @@ The Users page and `GET access-policy` show the effective rules.
 
 **Lockout / recovery:** `ics.cli unlock --username X` clears login throttling; `issue-enrollment` resets password, TOTP and sessions.
 
+**Console:** **Administration > Users & roles** (admin) has the directory, invitations and roles; disabling, role changes and invites there create the same plans. Evidence: [ui-verification-main.md](../status/ui-verification-main.md) (invitation, disable and privileged-account flows checked end to end; the Users page overflows horizontally on narrow screens).
+
+**Break-glass disable:** if an operator account must be shut off and the approval workflow cannot be used (no second approver available, compromised approver), root on the ICS host runs
+```
+sudo -u ics /opt/office-unbound/ics/.venv/bin/python -m ics.cli disable-user --username <name> --reason "<at least 10 characters>"
+```
+It refuses the last active admin, deletes the account's sessions, and records `user.disabled.break_glass` (actor `cli`, with your reason). Re-enable through the normal `user.enable` plan. Evidence: host-changes.md (used on the lab controller); [ics/README.md](../../ics/README.md).
+
 **Break-glass:** anyone with root on the ICS host (or `sudo -u ics`) can create accounts and read keys through the CLI. This is by design (ADR-0002), is audited as actor `cli`, and cannot be prevented. Restrict host root accordingly.
-Lab demo accounts (`lab-op`, `lab-ap1`, `lab-ap2`) hold all two-person roles: delete them before any real use (accepted lab risk, review M5).
+**Production contains no demo accounts.** The lab demo accounts (`lab-op`, `lab-ap1`, `lab-ap2`) were disabled with the break-glass command and then purged from the production lab controller; a fresh install has none. See [Installing the ICS](installing-the-ics.md#production-contains-no-sample-data). Do not create throwaway accounts on a real controller.
 Not implemented: password change endpoint, session listing UI (**Planned**).
 
 ## Customer users (one stack: LDAP + Keycloak + OpenCloud + Gromox)
@@ -47,3 +55,12 @@ There is **no initial password**. Only the plan's requester can reveal the enrol
 - An LDAP lock alone does **not** end Keycloak SSO/offline tokens (>420 s measured, KI-2). Always deprovision through the ICS action, which revokes in Keycloak.
 - The user portal keeps a session until its access token (5 min) cannot be refreshed; back-channel logout is not implemented, and disabled-user behaviour was not tested with the portal ([portal-results.md](../status/portal-results.md)).
 - Mailbox purge/export is **Planned**; deleted users' mailboxes stay on disk.
+
+## Customers, scoping and external approval links
+Evidence: [credential-vault.md](../status/credential-vault.md) and [provider-stack-integration.md](../status/provider-stack-integration.md) (executed in `ics/tests/test_vault_m.py` and `test_provider_stack.py` against the test database and a mock Proxmox; **not run on a real cluster**; the customer screens are limited to the Providers console of [providers-ui.md](../status/providers-ui.md)).
+- **Customers.** Every endpoint and credential belongs to exactly one customer; pre-existing endpoints belong to the default "MSP (internal)" customer. A customer has a provisioning mode: `auto`, `customer_approval` or `monitoring_only`, and optional extra approvals per category (delete guest, remove storage, network change, expand permissions, revoke credential). Manage with `customer.create` / `customer.update` (requires an all-customers admin).
+- **Scoping operators.** By default an operator sees all customers. `operator.set_scope` (admin) restricts an operator to listed customers; this is enforced on the server for endpoints, infrastructure, metrics, credentials, customers, approvals, plans and jobs (out of scope = 404), and a scoped operator cannot create plans without a customer. Known gap: checks, nodes, alert channels and IdM stacks are not customer-bound yet, so scoped operators cannot create those plans, and the audit log needs the all-customers scope.
+- **Policy at plan time.** `monitoring_only` customers refuse mutating actions (403); `customer_approval` customers need the customer's approval before the job is released; extra approvals add distinct ICS approvers.
+- **Customer approval links.** Customers have no ICS account. An operator creates an approval (`POST /customer-approvals`, then `.../submit`), and the ICS returns a link of the form `/approve#t=<token>` **once**; the token sits in the URL fragment so it never reaches server logs. **The ICS sends no email: deliver the link out of band.** The link is single use, expires (default 72 h, maximum 7 days) and is rate-limited. It shows the customer the exact proposal (for Proxmox permission changes: every role, path and privilege, plus the package files). Approving needs the customer's name, email, a statement and the proposal hash they saw; the decision, IP and user agent go to the hash-chained audit (`customer_approval.approved|rejected|changes_requested|provisioned`). A separate single-use completion link confirms provisioning afterwards.
+- A customer login is never an infrastructure credential, and the ICS never recreates or works around a credential the customer revoked ([provider-access-recovery.md](../runbooks/provider-access-recovery.md)).
+- Since security review 3: `user.revoke_invite` for an approver or admin invitation is high risk (L5), and directory detail (lockout, MFA, sessions) is visible to admins only (L8) ([security-review-3-2026-11-15.md](../status/security-review-3-2026-11-15.md)).
