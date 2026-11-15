@@ -320,8 +320,11 @@
         {
           "id": "P6.3",
           "title": "Business telephony (Asterisk + browser softphone)",
-          "status": "implementing",
-          "evidence": []
+          "status": "integrated_lab",
+          "evidence": [
+            "docs/status/telephony-lab-results.md"
+          ],
+          "note": "WebRTC + native SIP calls, voicemail to email, LDAP extensions, deprovisioning 0.6 s; no PSTN/E911 yet"
         }
       ]
     },

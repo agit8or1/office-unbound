@@ -77,7 +77,7 @@ Core platform components are integrated and tested in an isolated lab: own sourc
 |---|---|---|---|
 | P6.1 | Zero-cost collaboration stack evaluation (Matrix, Jitsi/LiveKit, Asterisk) | ✅ Tested | [`docs/status/collaboration-eval.md`](docs/status/collaboration-eval.md) |
 | P6.2 | Chat (Synapse + MAS + Element) and meetings (Jitsi with SSO-issued tokens) | 🧪 Integrated in lab | [`docs/status/collaboration-lab-results.md`](docs/status/collaboration-lab-results.md) |
-| P6.3 | Business telephony (Asterisk + browser softphone) | 🛠️ Implementing | — |
+| P6.3 | Business telephony (Asterisk + browser softphone) <br><sub>WebRTC + native SIP calls, voicemail to email, LDAP extensions, deprovisioning 0.6 s; no PSTN/E911 yet</sub> | 🧪 Integrated in lab | [`docs/status/telephony-lab-results.md`](docs/status/telephony-lab-results.md) |
 
 ## P7 — Migration Center (Microsoft 365, Google Workspace)  (🛠️ Implementing)
 
