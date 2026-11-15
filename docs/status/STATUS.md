@@ -17,7 +17,8 @@
 | Documents: Collabora via WOPI | Integrated in lab with vendor CODE (lab-only) | T03 28/0 standalone, T04 13/0 (real edit → PutFile → content verified). KI-1 below |
 | Collabora own source build (unlimited, rebranded) | Implementing | docengine-build-results.md (pending) |
 | Desktop sync engine (opencloudcmd 4.0): upload/download/offline/conflict/delete | Integrated in lab | T07 11/0 |
-| Backup → restore to separate machine (files tier) | Tested in lab | restore-drill-results.md: 18 s restore, content + version history byte-identical |
+| Backup → restore to separate machine: files tier | Tested in lab | restore-drill-results.md: 18 s restore, content + version history byte-identical |
+| Backup → restore to separate machine: identity tier | Tested in lab | online backup; 79 s restore; logins via restored KC+LDAP, DB-only canary, identical realm keys + entryUUIDs |
 | GUI desktop client, mobile, real Outlook clients | Planned (manual) | blueprints/lab/tests/MANUAL-CHECKLIST.md |
 | Build/release pipeline | Implementing (design ADR-0008; first recipe = Collabora) | |
 | MSP center, migration, chat/meetings | Planned | |
@@ -36,5 +37,6 @@
 ## Next tasks
 - Integrate monitoring/remediation demo (acceptance 15–16), Collabora own build, Gromox↔LDAP.
 - ICS provisioning action: one user lifecycle (LDAP → Keycloak/OpenCloud/Gromox) incl. revoke.
-- Restore drills for identity + groupware tiers; clean-room reinstall (22).
+- Restore drill for groupware tier to separate machine; clean-room reinstall (22).
+- Fix monitoring security review findings (security-review-ics-monitoring-2026-11-15.md: H1 agent idle-connection DoS, H2 approval mode ineffective, M1–M5) once user-lifecycle work lands.
 - Rebranding patch queues + package recipes for gromox stack (ADR-0008).
