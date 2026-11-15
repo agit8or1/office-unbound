@@ -67,7 +67,9 @@ def rt(base_settings, owner_engine):
     with owner_engine.connect() as c:
         c.execute(text("TRUNCATE users, sessions, login_attempts, audit_events, endpoints, plans, jobs, "
                        "worker_heartbeat, inventory_snapshots, plan_approvals, nodes, agent_requests, checks, check_results, incidents, "
-                       "maintenance_windows, alert_channels, notifications, remediation_attempts, idm_stacks, idm_users, idm_enrollments, idm_reconcile_runs RESTART IDENTITY CASCADE"))
+                       "maintenance_windows, alert_channels, notifications, remediation_attempts, idm_stacks, idm_users, idm_enrollments, idm_reconcile_runs, "
+                       "customers, credentials, credential_events, credential_alerts, customer_approvals, operator_customers RESTART IDENTITY CASCADE"))
+        c.execute(text("INSERT INTO customers (id, name, msp_owned, provisioning_mode) VALUES ('00000000-0000-0000-0000-00000000a001', 'MSP (internal)', true, 'auto')"))
     r = Runtime(base_settings)
     yield r
     r.engine.dispose()
