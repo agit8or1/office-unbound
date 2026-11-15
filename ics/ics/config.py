@@ -62,6 +62,10 @@ class Settings:
     notify_max_attempts: int = 5
     incident_renotify_seconds: int = 3600        # re-notify unacknowledged incidents; 0 = never
     allow_loopback_agents: bool = False
+    inventory_discovery_seconds: int = 300
+    metrics_interval_seconds: int = 60
+    metrics_retention_days: int = 30
+    inventory_stale_seconds: int = 900
     trusted_proxy: str | None = None             # exact IP of a local reverse proxy whose X-Forwarded-For is honoured (e.g. 127.0.0.1); None = ignore XFF
 
 

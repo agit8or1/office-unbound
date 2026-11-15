@@ -26,6 +26,19 @@ class ProxmoxError(Exception):
     pass
 
 
+def _clean_reason(v: str | None) -> str:
+    """Server-supplied reason phrase (PVE puts the permission/validation message there). Printable ASCII only, bounded."""
+    return re.sub(r"[^\x20-\x7e]", "", v or "")[:200]
+
+
+class ProxmoxHTTPError(ProxmoxError):
+    """Non-200 answer; keeps the status and PVE's own message so providers can map it to an operator-readable error."""
+
+    def __init__(self, method: str, path: str, status: int, reason: str):
+        super().__init__(f"{method} {path} returned HTTP {status}" + (f" ({reason})" if reason else ""))
+        self.status, self.reason = status, reason
+
+
 _SECRET_RE = re.compile(r"^[A-Za-z0-9_-]{8,200}$")
 _TOKEN_ID_RE = re.compile(r"^[A-Za-z0-9._-]+@[A-Za-z0-9._-]+![A-Za-z0-9._-]+$")
 
@@ -113,34 +126,39 @@ class ProxmoxReadClient:
         self._client.close()
 
     def _get(self, path: str) -> Any:
-        """GET with an overall wall-clock deadline and a response size cap. Errors never include transport text
-        (it can echo request headers); only the exception class name is reported."""
+        return self._request("GET", path)
+
+    def _request(self, method: str, path: str, data: dict | None = None) -> Any:
+        """Request with an overall wall-clock deadline and a response size cap. Errors never include transport text
+        (it can echo request headers); only the exception class name is reported. Only ProxmoxWriteClient exposes
+        non-GET methods; this class's public surface is read-only."""
         end = time.monotonic() + self._deadline
         buf = bytearray()
         try:
-            with self._client.stream("GET", self._base + path) as r:
+            with self._client.stream(method, self._base + path, data=data) as r:
                 if r.status_code != 200:
-                    raise ProxmoxError(f"GET {path} returned HTTP {r.status_code}")
+                    reason = _clean_reason(r.reason_phrase)
+                    raise ProxmoxHTTPError(method, path, r.status_code, reason)
                 if int(r.headers.get("content-length", "0") or 0) > self._max_bytes:
-                    raise ProxmoxError(f"GET {path}: response too large")
+                    raise ProxmoxError(f"{method} {path}: response too large")
                 for chunk in r.iter_raw():
                     if time.monotonic() > end:
-                        raise ProxmoxError(f"GET {path}: overall deadline of {self._deadline:g}s exceeded")
+                        raise ProxmoxError(f"{method} {path}: overall deadline of {self._deadline:g}s exceeded")
                     buf += chunk
                     if len(buf) > self._max_bytes:
-                        raise ProxmoxError(f"GET {path}: response exceeds {self._max_bytes} bytes")
+                        raise ProxmoxError(f"{method} {path}: response exceeds {self._max_bytes} bytes")
                 if time.monotonic() > end:
-                    raise ProxmoxError(f"GET {path}: overall deadline of {self._deadline:g}s exceeded")
+                    raise ProxmoxError(f"{method} {path}: overall deadline of {self._deadline:g}s exceeded")
         except ProxmoxError:
             raise
         except (httpx.ConnectError, ssl.SSLError) as e:  # TLS/connect layer: no request headers involved
-            raise ProxmoxError(f"GET {path} failed: {type(e).__name__}: {str(e)[:200]}") from None
+            raise ProxmoxError(f"{method} {path} failed: {type(e).__name__}: {str(e)[:200]}") from None
         except (httpx.HTTPError, OSError, ValueError) as e:
-            raise ProxmoxError(f"GET {path} failed: {type(e).__name__}") from None
+            raise ProxmoxError(f"{method} {path} failed: {type(e).__name__}") from None
         try:
             return json.loads(bytes(buf))["data"]
         except (ValueError, KeyError, TypeError):
-            raise ProxmoxError(f"GET {path}: unexpected response body") from None
+            raise ProxmoxError(f"{method} {path}: unexpected response body") from None
 
     def version(self) -> dict: return self._get("/version")
     def cluster_status(self) -> list: return self._get("/cluster/status")
@@ -169,3 +187,20 @@ def _seg(node: str) -> str:
     if not re.fullmatch(r"[A-Za-z0-9][A-Za-z0-9.-]{0,62}", node):
         raise ProxmoxError("invalid node name")
     return node
+
+
+class ProxmoxWriteClient(ProxmoxReadClient):
+    """Same transport, TLS trust and limits as the read client, plus POST/PUT/DELETE. Constructed only by the provisioning
+    provider (providers/proxmox) with the `provision` credential; never handed to request handlers."""
+
+    def get(self, path: str) -> Any:
+        return self._request("GET", path)
+
+    def post(self, path: str, data: dict | None = None) -> Any:
+        return self._request("POST", path, data or {})
+
+    def put(self, path: str, data: dict | None = None) -> Any:
+        return self._request("PUT", path, data or {})
+
+    def delete(self, path: str) -> Any:
+        return self._request("DELETE", path)

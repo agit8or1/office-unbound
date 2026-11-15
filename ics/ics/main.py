@@ -18,6 +18,7 @@ from .actions import CATALOG, ActionType, PlanError, create_plan, decide_plan
 from .auth import ROLES, User, client_ip, cookie_name, get_db, require
 from .blueprint import preview
 from .config import Settings
+from .inventory import api as inventory_api
 from .runtime import Runtime
 from .worker import Worker
 
@@ -314,11 +315,7 @@ def create_app(settings: Settings | None = None, runtime: Runtime | None = None)
         return _row(r)
 
     # ---- endpoints / inventory (token secret never selected) ----
-    @app.get(f"{API}/endpoints")
-    def list_endpoints(user: User = Depends(require("viewer")), db: Session = Depends(get_db)):
-        rows = db.execute(text("SELECT id, name, type, base_url, token_id, fingerprint_sha256, (ca_pem IS NOT NULL) AS has_ca_bundle, "
-                               "created_at FROM endpoints ORDER BY name")).all()
-        return [_row(r) for r in rows]
+    inventory_api.mount(app)  # GET /endpoints[/{id}], /infra/*, /setup/*
 
     @app.get(f"{API}/endpoints/{{endpoint_id}}/inventory")
     def latest_inventory(endpoint_id: UUID, user: User = Depends(require("viewer")), db: Session = Depends(get_db)):

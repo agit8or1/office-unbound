@@ -17,10 +17,11 @@ from pydantic import BaseModel, ConfigDict, Field, SecretStr, field_validator, m
 from sqlalchemy import text
 from sqlalchemy.orm import Session
 
-from . import agentclient, alerts, audit, auth, checks as checkmod, identity, monitor
+from . import agentclient, alerts, audit, auth, checks as checkmod, endpoint_actions, identity, monitor
 from .identity import IdentityError
 from .agentclient import AgentError
 from .proxmox import ProxmoxError, ProxmoxReadClient, check_destination, normalize_fingerprint
+from .providers.base import job_execution
 from .runtime import Runtime
 from .vault import VaultError
 
@@ -30,6 +31,10 @@ log = logging.getLogger("ics.actions")
 class ActionType(StrEnum):
     endpoint_register = "endpoint.register"
     inventory_refresh = "inventory.refresh"
+    endpoint_update = "endpoint.update"
+    endpoint_remove = "endpoint.remove"
+    endpoint_disable = "endpoint.disable"
+    endpoint_enable = "endpoint.enable"
     user_create = "user.create"
     user_set_role = "user.set_role"
     node_enroll = "node.enroll"
@@ -50,7 +55,7 @@ class ActionType(StrEnum):
     idm_reconcile = "idm.reconcile"
 
 
-class EndpointRegister(BaseModel):
+class EndpointRegister(endpoint_actions.ScopeLists):
     model_config = ConfigDict(extra="forbid")
     name: str = Field(pattern=r"^[a-z0-9][a-z0-9_-]{0,62}$")
     type: Literal["proxmox"]
@@ -59,6 +64,22 @@ class EndpointRegister(BaseModel):
     token_secret: SecretStr = Field(description="Proxmox API token secret (surrounding whitespace is stripped; [A-Za-z0-9_-]{8,200})")
     ca_pem: str | None = Field(default=None, max_length=100_000)
     fingerprint_sha256: str | None = None
+    display_name: str | None = Field(default=None, max_length=80, pattern=r"^[^\x00-\x1f]*$")
+    provision_token_id: str | None = Field(default=None, pattern=endpoint_actions.TOKEN_ID_RE, description="optional second credential (role provision)")
+    provision_token_secret: SecretStr | None = None
+
+    @field_validator("provision_token_secret", mode="before")
+    @classmethod
+    def _psecret(cls, v):
+        return endpoint_actions.norm_secret(v)
+
+    @model_validator(mode="after")
+    def _prov(self) -> Self:
+        if (self.provision_token_id is None) != (self.provision_token_secret is None):
+            raise ValueError("provision_token_id and provision_token_secret go together")
+        if self.provision_token_id and not self.allowed_pools:
+            raise ValueError("a provision credential requires at least one allowed pool")
+        return self
 
     @field_validator("token_secret", mode="before")
     @classmethod
@@ -249,8 +270,13 @@ def _runbook_risk(p: RunbookExecute) -> str:
 
 
 CATALOG: dict[ActionType, dict] = {
-    ActionType.endpoint_register: {"model": EndpointRegister, "risk": "high", "secrets": ("token_secret",)},
+    ActionType.endpoint_register: {"model": EndpointRegister, "risk": "high", "secrets": ("token_secret", "provision_token_secret")},
     ActionType.inventory_refresh: {"model": InventoryRefresh, "risk": "low", "secrets": ()},
+    ActionType.endpoint_update: {"model": endpoint_actions.EndpointUpdate, "risk": endpoint_actions.update_risk,
+                                 "secrets": ("token_secret", "provision_token_secret")},
+    ActionType.endpoint_remove: {"model": endpoint_actions.EndpointRemove, "risk": "high", "secrets": ()},
+    ActionType.endpoint_disable: {"model": endpoint_actions.EndpointToggle, "risk": "normal", "secrets": ()},
+    ActionType.endpoint_enable: {"model": endpoint_actions.EndpointToggle, "risk": "normal", "secrets": ()},
     ActionType.user_create: {"model": UserCreate, "risk": "high", "secrets": (), "admin_only": True},
     ActionType.user_set_role: {"model": UserSetRole, "risk": "high", "secrets": (), "admin_only": True},
     ActionType.node_enroll: {"model": NodeEnroll, "risk": "high", "secrets": ("enrollment_token",)},
@@ -417,10 +443,12 @@ def create_plan(db: Session, rt: Runtime, user, action: ActionType, params: dict
             raise PlanError(409, str(e)) from None
         except (ValueError, IdentityError) as e:
             raise PlanError(422, str(e)) from None
-    if action == ActionType.inventory_refresh:
+    if action.value in endpoint_actions.BINDING_ACTIONS:
         binding = _ep_binding(db, p.endpoint_id)
         if binding is None:
             raise PlanError(404, "endpoint not found")
+        if action != ActionType.inventory_refresh:
+            extra.update(endpoint_actions.precheck(db, rt, action.value, p))
     elif action == ActionType.endpoint_register:
         try:  # SSRF guard (L3); the resolved addresses are shown to the approver
             extra["resolved_ips"] = check_destination(urlparse(p.base_url).hostname, rt.settings.allow_loopback_endpoints)
@@ -595,7 +623,7 @@ def _error_dict(e: BaseException, known: list[str]) -> dict:
 
 def _verify_approval(rt: Runtime, db: Session, plan) -> None:
     """Re-verify, immediately before executing, that the plan still matches what was approved (M5) and approvals suffice."""
-    binding = _ep_binding(db, plan.params["endpoint_id"]) if plan.action == ActionType.inventory_refresh.value else None
+    binding = _ep_binding(db, plan.params["endpoint_id"]) if plan.action in endpoint_actions.BINDING_ACTIONS else None
     digest = plan_digest(plan.action, plan.params, plan.secret_enc, binding)
     appr = db.execute(text("SELECT approver_id, params_hash FROM plan_approvals WHERE plan_id = :p"), {"p": str(plan.id)}).all()
     need = rt.settings.required_approvals_high if plan.risk == "high" else 1
@@ -622,7 +650,8 @@ def run_job(rt: Runtime, job: dict) -> None:
                 known.extend(str(v) for v in secrets_.values())
                 action = ActionType(job["action"])
                 m = CATALOG[action]["model"].model_validate({**plan.params, **secrets_})
-                res = _EXEC[action](rt, db, m, plan, known)
+                with job_execution(job["id"]):  # provider mutations are only reachable from here (providers.base)
+                    res = _EXEC[action](rt, db, m, plan, known)
                 with lock:
                     if cancelled.is_set():
                         db.rollback()
@@ -692,30 +721,16 @@ def collect_inventory(rt: Runtime, db: Session, endpoint_id, known: list[str] | 
     return {"snapshot_id": sid, "nodes": len(data["nodes"])}
 
 
-def _exec_register(rt: Runtime, db: Session, m: EndpointRegister, plan, known: list[str]) -> dict:
-    eid = uuid.uuid4()
-    secret = m.token_secret.get_secret_value()
-    c = _new_client(rt, m.base_url, m.token_id, secret, m.ca_pem, m.fingerprint_sha256)
-    try:
-        version = c.version()  # connectivity + TLS trust + credential check before we persist anything
-    finally:
-        c.close()
-    pve_version = audit.sanitize(version.get("version") if isinstance(version, dict) else None)  # remote-controlled value
-    aad = f"endpoint-token:{eid}:{endpoint_binding(m.base_url, m.token_id, m.fingerprint_sha256, m.ca_pem)}"
-    db.execute(text(
-        "INSERT INTO endpoints (id, name, type, base_url, token_id, token_secret_enc, ca_pem, fingerprint_sha256, created_by) "
-        "VALUES (:id, :n, :t, :u, :ti, :ts, :ca, :fp, :cb)"),
-        {"id": str(eid), "n": m.name, "t": m.type, "u": m.base_url, "ti": m.token_id,
-         "ts": rt.vault.encrypt(secret.encode(), aad), "ca": m.ca_pem, "fp": m.fingerprint_sha256,
-         "cb": str(plan.requested_by)})
-    audit.append(db, "endpoint.registered", actor_name="worker", resource="endpoint", resource_id=str(eid),
-                 details={"name": m.name, "base_url": m.base_url, "token_id": m.token_id,
-                          "trust": "fingerprint" if m.fingerprint_sha256 else "ca_bundle", "pve_version": pve_version})
-    return {"endpoint_id": str(eid), "pve_version": pve_version}
-
-
 def _exec_refresh(rt: Runtime, db: Session, m: InventoryRefresh, plan, known: list[str]) -> dict:
-    return collect_inventory(rt, db, m.endpoint_id, known)
+    out = collect_inventory(rt, db, m.endpoint_id, known)
+    db.commit()  # keep the raw snapshot even if the normalized discovery below has problems
+    try:
+        from .inventory import collector
+        d = collector.collect_discovery(rt, db, m.endpoint_id, known)
+        out["discovery"] = {"ok": d["ok"], "counts": d.get("counts"), "error": d.get("error")}
+    except Exception as e:  # noqa: BLE001
+        out["discovery"] = {"ok": False, "error": type(e).__name__}
+    return out
 
 
 def _exec_user_create(rt: Runtime, db: Session, m: UserCreate, plan, known: list[str]) -> dict:
@@ -893,10 +908,11 @@ def _exec_runbook(rt: Runtime, db: Session, m: RunbookExecute, plan, known: list
     return out
 
 
-_EXEC = {ActionType.endpoint_register: _exec_register, ActionType.inventory_refresh: _exec_refresh,
+_EXEC = {ActionType.endpoint_register: endpoint_actions.exec_register, ActionType.inventory_refresh: _exec_refresh,
          ActionType.user_create: _exec_user_create, ActionType.user_set_role: _exec_user_set_role,
          ActionType.node_enroll: _exec_node_enroll, ActionType.check_create: _exec_check_create,
          ActionType.check_set_enabled: _exec_check_set_enabled, ActionType.check_bind_remediation: _exec_check_bind,
          ActionType.maintenance_create: _exec_maintenance, ActionType.alert_channel_create: _exec_channel_create,
          ActionType.alert_channel_test: _exec_channel_test, ActionType.incident_ack: _exec_ack, ActionType.runbook_execute: _exec_runbook,
-         **{ActionType(k): v for k, v in identity.EXECUTORS.items()}}
+         **{ActionType(k): v for k, v in identity.EXECUTORS.items()},
+         **{ActionType(k): v for k, v in endpoint_actions.EXECUTORS.items()}}
