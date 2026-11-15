@@ -41,18 +41,18 @@ Core platform components are integrated and tested in an isolated lab: own sourc
 | | Item | Status | Evidence |
 |---|---|---|---|
 | P2.1 | Provider adapter with Proxmox VE as first provider (discovery, metrics, scoped VM lifecycle) | 🛠️ Implementing | [`docs/adr/0009-infrastructure-orchestration.md`](docs/adr/0009-infrastructure-orchestration.md) |
-| P2.2 | Deployment engine: profiles, sizing, dependency graph, plans, desired vs actual state, drift | 🛠️ Implementing | [`docs/adr/0009-infrastructure-orchestration.md`](docs/adr/0009-infrastructure-orchestration.md) |
-| P2.3 | Guest bootstrap: cloud-init, rootless Podman, signed digest-pinned images, agent enrollment | 🛠️ Implementing | — |
+| P2.2 | Deployment engine: profiles, sizing, dependency graph, plans, desired vs actual state, drift | 🛠️ Implementing | [`docs/status/deployment-engine.md`](docs/status/deployment-engine.md) |
+| P2.3 | Guest bootstrap: cloud-init, rootless Podman, signed digest-pinned images, agent enrollment <br><sub>Tested in lab containers; real VM boot pending</sub> | 🧪 Integrated in lab | [`docs/status/guest-bootstrap-results.md`](docs/status/guest-bootstrap-results.md) |
 | P2.4 | Setup, deployment and change wizards backed by approval-gated plans | 🛠️ Implementing | — |
 | P2.5 | Build and release pipeline for own distributions (signed packages/images, SBOM, staged channels) | ⚪ Planned | [`docs/adr/0008-build-release-pipeline.md`](docs/adr/0008-build-release-pipeline.md) |
-| P2.6 | Continuous integration (tests, secret scanning, license checks) | 🛠️ Implementing | — |
+| P2.6 | Continuous integration (tests, secret scanning, license checks) | 🛠️ Implementing | [`.github/workflows/`](.github/workflows/) |
 
-## P3 — First working user experience  (⚪ Planned)
+## P3 — First working user experience  (🛠️ Implementing)
 
 | | Item | Status | Evidence |
 |---|---|---|---|
-| P3.1 | Redesigned infrastructure console (dashboard, infrastructure views, operations, monitoring) | 🛠️ Implementing | — |
-| P3.2 | Unified user portal (mail, calendar, contacts, files, documents) with SSO | ⚪ Planned | — |
+| P3.1 | Redesigned infrastructure console (dashboard, infrastructure views, operations, monitoring) <br><sub>Redesigned console deployed; infrastructure views await Proxmox provider integration</sub> | 🧪 Integrated in lab | [`docs/screenshots/`](docs/screenshots/) |
+| P3.2 | Unified user portal (mail, calendar, contacts, files, documents) with SSO <br><sub>SSO launcher, recent files, new documents; webmail still has its own login</sub> | 🧪 Integrated in lab | [`docs/status/portal-results.md`](docs/status/portal-results.md) |
 | P3.3 | Guided desktop and mobile onboarding | ⚪ Planned | — |
 
 ## P4 — MSP and organization administration  (⚪ Planned)
@@ -90,14 +90,14 @@ Core platform components are integrated and tested in an isolated lab: own sourc
 |---|---|---|---|
 | P8.1 | Deliverability, performance, security testing and support documentation | ⚪ Planned | — |
 
-## First functional demo — acceptance tests (18/24 demonstrated in lab)
+## First functional demo — acceptance tests (19/24 demonstrated in lab)
 
 | | Test | Status | Note |
 |---|---|---|---|
 | A1 | ICS deploys the required components into approved lab infrastructure | 🛠️ Implementing |  |
 | A2 | Services reachable through correctly configured TLS endpoints | 🧪 Integrated in lab | Lab CA |
 | A3 | Keycloak login and user provisioning | 🧪 Integrated in lab |  |
-| A4 | User can enter the Office Unbound portal | ⚪ Planned |  |
+| A4 | User can enter the Office Unbound portal | 🧪 Integrated in lab | Portal with Keycloak SSO in lab |
 | A5 | User can access mail | 🧪 Integrated in lab |  |
 | A6 | Send and receive real test messages | 🧪 Integrated in lab | Within the lab; external deliverability not yet tested |
 | A7 | Calendar events created and synchronized | 🧪 Integrated in lab |  |

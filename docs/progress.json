@@ -175,14 +175,17 @@
           "title": "Deployment engine: profiles, sizing, dependency graph, plans, desired vs actual state, drift",
           "status": "implementing",
           "evidence": [
-            "docs/adr/0009-infrastructure-orchestration.md"
+            "docs/status/deployment-engine.md"
           ]
         },
         {
           "id": "P2.3",
           "title": "Guest bootstrap: cloud-init, rootless Podman, signed digest-pinned images, agent enrollment",
-          "status": "implementing",
-          "evidence": []
+          "status": "integrated_lab",
+          "evidence": [
+            "docs/status/guest-bootstrap-results.md"
+          ],
+          "note": "Tested in lab containers; real VM boot pending"
         },
         {
           "id": "P2.4",
@@ -202,26 +205,34 @@
           "id": "P2.6",
           "title": "Continuous integration (tests, secret scanning, license checks)",
           "status": "implementing",
-          "evidence": []
+          "evidence": [
+            ".github/workflows/"
+          ]
         }
       ]
     },
     {
       "id": "P3",
       "name": "First working user experience",
-      "status": "planned",
+      "status": "implementing",
       "items": [
         {
           "id": "P3.1",
           "title": "Redesigned infrastructure console (dashboard, infrastructure views, operations, monitoring)",
-          "status": "implementing",
-          "evidence": []
+          "status": "integrated_lab",
+          "evidence": [
+            "docs/screenshots/"
+          ],
+          "note": "Redesigned console deployed; infrastructure views await Proxmox provider integration"
         },
         {
           "id": "P3.2",
           "title": "Unified user portal (mail, calendar, contacts, files, documents) with SSO",
-          "status": "planned",
-          "evidence": []
+          "status": "integrated_lab",
+          "evidence": [
+            "docs/status/portal-results.md"
+          ],
+          "note": "SSO launcher, recent files, new documents; webmail still has its own login"
         },
         {
           "id": "P3.3",
@@ -352,7 +363,8 @@
     {
       "id": "A4",
       "title": "User can enter the Office Unbound portal",
-      "status": "planned"
+      "status": "integrated_lab",
+      "note": "Portal with Keycloak SSO in lab"
     },
     {
       "id": "A5",
