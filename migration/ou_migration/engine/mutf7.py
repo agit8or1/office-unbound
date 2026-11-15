@@ -31,6 +31,9 @@ def decode(s: str) -> str:
             return "&"
         t = t.replace(",", "/")
         t += "=" * (-len(t) % 4)
-        return base64.b64decode(t).decode("utf-16-be", "replace")
+        try:
+            return base64.b64decode(t, validate=True).decode("utf-16-be", "replace")
+        except ValueError:      # binascii.Error: hostile/broken name from the source must not crash the run
+            return m.group(0)
 
     return re.sub(r"&([^-]*)-", rep, s)

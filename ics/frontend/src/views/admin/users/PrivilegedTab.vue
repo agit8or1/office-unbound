@@ -28,13 +28,13 @@ const LABEL: Record<string, string> = { 'user.set_role': 'Role change', 'user.in
     </div>
     <div class="ux-card">
       <h2 class="ux-pad">Privileged accounts <span class="chip info">{{ priv.length }}</span></h2>
-      <div class="ux-scroll">
-        <table v-if="priv.length" class="ux-table">
+      <div class="ux-scroll" tabindex="0" role="region" aria-label="Scrollable table">
+        <table v-if="priv.length" class="ux-table stack">
           <thead><tr><th>User</th><th>Role</th><th>Status</th><th>Role granted by</th><th class="ux-hide-sm">Created by</th><th>Last sign-in</th></tr></thead>
           <tbody><tr v-for="u in priv" :key="u.id">
             <td><a :href="'#/users/directory/' + u.id"><strong>{{ u.username }}</strong></a></td>
-            <td><span class="chip warn">{{ u.role }}</span></td><td><StatusChip :status="u.status" /></td>
-            <td>{{ u.role_set_by ?? 'host CLI (bootstrap)' }}</td><td class="ux-hide-sm">{{ u.created_by ?? 'host CLI' }}</td><td>{{ ago(u.last_login_at) }}</td>
+            <td data-label="Role"><span class="chip warn">{{ u.role }}</span></td><td data-label="Status"><StatusChip :status="u.status" /></td>
+            <td data-label="Role granted by">{{ u.role_set_by ?? 'host CLI (bootstrap)' }}</td><td class="ux-hide-sm" data-label="Created by">{{ u.created_by ?? 'host CLI' }}</td><td data-label="Last sign-in">{{ ago(u.last_login_at) }}</td>
           </tr></tbody>
         </table>
         <p v-else class="empty">No privileged accounts yet.</p>

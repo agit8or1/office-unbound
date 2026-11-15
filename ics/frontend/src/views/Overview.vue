@@ -75,6 +75,11 @@ const notReady = computed(() => ready.data.value && !ready.data.value.ready ? Ob
       <EmptyState icon="cluster" title="Connect your first Proxmox cluster" text="The guided setup walks you through connecting Proxmox in a few steps — it checks the connection and permissions and shows everything before anything is saved. Afterwards this dashboard fills with live node, VM and storage status, utilization charts and a health matrix.">
         <Button variant="primary" icon="plus" :to="hasPath('/setup') ? '/setup' : '/endpoints'">Start guided setup</Button>
       </EmptyState>
+      <ol class="steps3" aria-label="Getting started">
+        <li><b>1. Connect</b><span>Add your Proxmox cluster with the guided setup.</span></li>
+        <li><b>2. Deploy</b><span>Pick a size; ICS plans and shows every change first.</span></li>
+        <li><b>3. Invite users</b><span>Add colleagues under Administration, Users and roles.</span></li>
+      </ol>
     </div>
     <div v-else-if="loaded && deployments.data.value && !deployments.data.value.data.length && hasPath('/deployments/new')" class="card">
       <EmptyState icon="rocket" title="Deploy Office Unbound" text="Your cluster is connected. Pick a size and ICS plans the virtual machines, shows you exactly what it will create, and runs it after approval.">

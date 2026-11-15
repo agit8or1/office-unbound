@@ -8,15 +8,20 @@ Keycloak OIDC (confidential client `ou-phone`, code + PKCE) -> the logged-in use
 Every credential issue re-validates the Keycloak session (userinfo) AND the LDAP state (user must have an unlocked extension).
 The identity used for SIP is the Keycloak `preferred_username` = LDAP uid; a user can never ask for somebody else's credential.
 Strict CSP: scripts/styles only from 'self', WSS only to the PBX.
+
+Security review 4:
+  * M11: this process is UNPRIVILEGED (no asterisk group, no config/state write access, no LDAP password). Provisioning is done by the separate
+    ou-pbx-helper over a unix socket that accepts only me/issue/revoke for one validated uid (pbx/ou_pbx_helper.py).
+  * M10: the SIP web credential lives exactly as long as this app session (TTL = remaining session time, enforced by the PBX), is rotated per
+    session, is revoked on /logout and on a Keycloak back-channel logout (POST /backchannel-logout, signed logout_token).
+  * L7: bounded PENDING/SESSIONS.
 """
-import base64, hashlib, os, secrets, sys, time
+import base64, hashlib, json, os, re, secrets, socket, time, urllib.parse
 import httpx
+import jwt
 from fastapi import FastAPI, Request
 from fastapi.responses import JSONResponse, PlainTextResponse, RedirectResponse, FileResponse
 from fastapi.staticfiles import StaticFiles
-
-sys.path.insert(0, os.environ.get("OU_PBX_LIB", "/opt/ou-pbx"))
-import ou_pbx  # noqa: E402
 
 ISSUER = os.environ.get("KC_ISSUER", "https://auth.ou-lab.internal/realms/ou-lab")
 CLIENT_ID = os.environ.get("CLIENT_ID", "ou-phone")
@@ -24,7 +29,10 @@ PUBLIC_BASE = os.environ.get("PUBLIC_BASE", "https://phone.ou-lab.internal")
 STATIC = os.environ.get("STATIC_DIR", "/opt/ou-phone/static")
 SESSION_TTL = int(os.environ.get("SESSION_TTL", "3600"))
 CLIENT_SECRET = open(os.environ["CLIENT_SECRET_FILE"]).read().strip()
-WSS_ORIGIN = ou_pbx.cfg()["wss_url"]
+WSS_ORIGIN = os.environ.get("WSS_URL", "wss://pbx.ou-lab.internal:8089/ws")
+HELPER_SOCKET = os.environ.get("OU_HELPER_SOCKET", "/run/ou-pbx/helper.sock")
+UID_RE = re.compile(r"^[a-z][a-z0-9_-]{0,30}$")
+MAX_SESSIONS, MAX_PENDING = 2000, 500
 
 CSP = ("default-src 'none'; script-src 'self'; style-src 'self'; connect-src 'self' %s; img-src 'self'; media-src 'self' blob:; "
        "base-uri 'none'; form-action 'self'; frame-ancestors 'none'" % WSS_ORIGIN)
@@ -52,6 +60,30 @@ def disco():
     return _disc
 
 
+def helper(op: str, uid: str, **kw) -> dict:
+    """One JSON line to the unprivileged-side socket of ou-pbx-helper. Raises OSError/ValueError when the helper is unavailable."""
+    with socket.socket(socket.AF_UNIX, socket.SOCK_STREAM) as c:
+        c.settimeout(25)
+        c.connect(HELPER_SOCKET)
+        c.sendall(json.dumps({"op": op, "uid": uid, **kw}).encode() + b"\n")
+        buf = b""
+        while not buf.endswith(b"\n") and len(buf) < 65536:
+            chunk = c.recv(4096)
+            if not chunk:
+                break
+            buf += chunk
+    return json.loads(buf)
+
+
+def prune():
+    now = time.time()
+    for store, cap in ((SESSIONS, MAX_SESSIONS), (PENDING, MAX_PENDING)):
+        for k in [k for k, v in store.items() if v["exp"] < now]:
+            store.pop(k, None)
+        while len(store) >= cap:                       # unauthenticated /login floods must not grow memory without bound
+            store.pop(min(store, key=lambda k: store[k]["exp"]), None)
+
+
 def session(req: Request):
     s = SESSIONS.get(req.cookies.get("ouphone", ""))
     return s if s and s["exp"] > time.time() else None
@@ -74,9 +106,8 @@ def healthz():
 def login():
     verifier = secrets.token_urlsafe(48)
     state = secrets.token_urlsafe(24)
+    prune()
     PENDING[state] = {"verifier": verifier, "exp": time.time() + 600}
-    for k in [k for k, v in PENDING.items() if v["exp"] < time.time()]:
-        PENDING.pop(k, None)
     ch = base64.urlsafe_b64encode(hashlib.sha256(verifier.encode()).digest()).rstrip(b"=").decode()
     q = httpx.QueryParams({"client_id": CLIENT_ID, "response_type": "code", "scope": "openid profile email",
                            "redirect_uri": PUBLIC_BASE + "/callback", "state": state, "code_challenge": ch, "code_challenge_method": "S256"})
@@ -96,9 +127,10 @@ def callback(code: str = "", state: str = "", error: str = ""):
     at = t.json()["access_token"]
     ui = httpx.get(d["userinfo_endpoint"], headers={"Authorization": "Bearer " + at}, timeout=10).json()
     uid = ui.get("preferred_username", "")
-    if not ou_pbx.UID_RE.match(uid):
+    if not UID_RE.match(uid):
         return PlainTextResponse("unsupported account name", status_code=403)
     sid = secrets.token_urlsafe(32)
+    prune()
     SESSIONS[sid] = {"access_token": at, "sub": ui["sub"], "uid": uid, "csrf": secrets.token_urlsafe(24), "exp": time.time() + SESSION_TTL}
     resp = RedirectResponse(PUBLIC_BASE + "/", status_code=302)
     resp.set_cookie("ouphone", sid, httponly=True, secure=True, samesite="strict", max_age=SESSION_TTL, path="/")
@@ -107,10 +139,45 @@ def callback(code: str = "", state: str = "", error: str = ""):
 
 @app.get("/logout")
 def logout(req: Request):
-    SESSIONS.pop(req.cookies.get("ouphone", ""), None)
+    s = SESSIONS.pop(req.cookies.get("ouphone", ""), None)
+    if s:
+        revoke_web_credential(s["uid"])
     resp = RedirectResponse(PUBLIC_BASE + "/", status_code=302)
     resp.delete_cookie("ouphone", path="/")
     return resp
+
+
+def revoke_web_credential(uid: str):
+    """The SIP web credential must not outlive the login: remove it and kick its registration (best effort; the PBX TTL is the backstop)."""
+    try:
+        helper("revoke", uid)
+    except (OSError, ValueError):
+        pass
+
+
+@app.post("/backchannel-logout")
+async def backchannel_logout(req: Request):
+    """OIDC back-channel logout (Keycloak: client attribute backchannel.logout.url). Signed logout_token -> end all sessions of that subject
+    and revoke their SIP credential. Anything unverifiable is refused with 400 and changes nothing."""
+    raw = await req.body()                        # form body parsed by hand: no python-multipart dependency, hard size cap
+    if len(raw) > 16384:
+        return PlainTextResponse("too large", status_code=413)
+    tok = (urllib.parse.parse_qs(raw.decode("utf-8", "replace")).get("logout_token") or [""])[0]
+    try:
+        jwks = httpx.get(disco()["jwks_uri"], timeout=10).json()["keys"]
+        hdr = jwt.get_unverified_header(tok)
+        key = next(jwt.PyJWK(k).key for k in jwks if k.get("kid") == hdr.get("kid") and k.get("use", "sig") == "sig")
+        claims = jwt.decode(tok, key, algorithms=["RS256"], audience=CLIENT_ID, issuer=ISSUER, options={"require": ["exp", "iat", "iss", "aud"]})
+        if "http://schemas.openid.net/event/backchannel-logout" not in (claims.get("events") or {}) or "nonce" in claims or not claims.get("sub"):
+            raise ValueError("not a logout token")
+    except (jwt.PyJWTError, ValueError, StopIteration, KeyError, httpx.HTTPError):
+        return PlainTextResponse("invalid logout_token", status_code=400)
+    uids = set()
+    for k in [k for k, v in SESSIONS.items() if v["sub"] == claims["sub"]]:
+        uids.add(SESSIONS.pop(k)["uid"])
+    for uid in uids:
+        revoke_web_credential(uid)
+    return PlainTextResponse("", status_code=200, headers={"Cache-Control": "no-store"})
 
 
 @app.get("/")
@@ -127,10 +194,9 @@ def me(req: Request):
     if not (s and validate(s)):
         return JSONResponse({"error": "login required"}, status_code=401)
     try:
-        u = ou_pbx.ldap_users().get(s["uid"])
-    except Exception:  # noqa: BLE001
+        ext = helper("me", s["uid"]).get("extension")
+    except (OSError, ValueError):
         return JSONResponse({"error": "directory unavailable"}, status_code=503)
-    ext = u["ext"] if u and not u["locked"] else None
     return {"user": s["uid"], "extension": ext, "csrf": s["csrf"]}
 
 
@@ -141,11 +207,16 @@ def credential(req: Request):
         return JSONResponse({"error": "login required"}, status_code=401)
     if req.headers.get("x-ou-csrf") != s["csrf"] or req.headers.get("origin", PUBLIC_BASE) != PUBLIC_BASE:
         return JSONResponse({"error": "csrf"}, status_code=403)
+    ttl = int(s["exp"] - time.time())          # the SIP credential expires with this login session (min 60 s enforced by the helper)
     try:
-        cred = ou_pbx.issue(s["uid"], "web")
-    except PermissionError:
+        cred = helper("issue", s["uid"], ttl=ttl)
+    except (OSError, ValueError):
+        return JSONResponse({"error": "provisioning failed"}, status_code=503)
+    if cred.get("error") == "no active extension":
         return JSONResponse({"error": "no active extension"}, status_code=403)
-    except Exception:  # noqa: BLE001
+    if cred.get("error") == "rate limited":
+        return JSONResponse({"error": "too many requests"}, status_code=429, headers={"Retry-After": "5"})
+    if cred.get("error"):
         return JSONResponse({"error": "provisioning failed"}, status_code=503)
     return JSONResponse(cred, headers={"Cache-Control": "no-store"})
 

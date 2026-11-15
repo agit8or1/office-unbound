@@ -34,7 +34,7 @@ async function confirm() {
 }
 </script>
 <template>
-  <div class="center">
+  <main id="main" tabindex="-1" class="center">
     <div class="panel auth">
       <h1>Enroll account</h1>
       <p class="muted">Step {{ step }} of 3. Use the one-time enrollment token an operator gave you.</p>
@@ -46,7 +46,7 @@ async function confirm() {
           <input v-model="password" type="password" autocomplete="new-password" required minlength="12" maxlength="1024"></label>
         <label>Repeat password<input v-model="password2" type="password" autocomplete="new-password" required maxlength="1024"></label>
         <button class="primary" :disabled="busy">Set password</button>
-        <p class="muted small"><a href="#/login">Back to sign in</a></p>
+        <a class="btn ghost sm" href="#/login">Back to sign in</a>
       </form>
       <form v-else-if="step === 2" @submit.prevent="confirm">
         <div class="alert warn">This authenticator secret is shown once. Add it to your authenticator app now.</div>
@@ -60,5 +60,5 @@ async function confirm() {
         <button class="primary" @click="go('login')">Go to sign in</button>
       </div>
     </div>
-  </div>
+  </main>
 </template>

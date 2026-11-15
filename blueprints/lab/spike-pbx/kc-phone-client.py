@@ -34,7 +34,10 @@ for name, c in CLIENTS.items():
     rep = {"clientId": name, "name": c["name"], "enabled": True, "publicClient": False, "protocol": "openid-connect",
            "standardFlowEnabled": True, "directAccessGrantsEnabled": False, "implicitFlowEnabled": False, "serviceAccountsEnabled": False,
            "clientAuthenticatorType": "client-secret", "redirectUris": c["redirectUris"], "webOrigins": [], "rootUrl": c["rootUrl"],
-           "attributes": {"pkce.code.challenge.method": "S256", "post.logout.redirect.uris": "+", **c.get("attributes", {})}}
+           # M10: Keycloak tells the app when the user's session ends (logout, "sign out all", admin session kill) so the SIP credential is revoked at once
+           "attributes": {"pkce.code.challenge.method": "S256", "post.logout.redirect.uris": "+",
+                          "backchannel.logout.url": c["rootUrl"] + "/backchannel-logout", "backchannel.logout.session.required": "true",
+                          "backchannel.logout.revoke.offline.tokens": "false", **c.get("attributes", {})}}
     cl = call("GET", f"{A}/clients?clientId={name}", T)
     if cl:
         call("PUT", f"{A}/clients/{cl[0]['id']}", T, {**cl[0], **rep})

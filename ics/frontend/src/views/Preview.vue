@@ -32,7 +32,7 @@ async function run() {
           </div>
           <div v-else-if="out.plan">
             <div class="alert ok">Valid. Deployment <strong>{{ out.plan.deployment_id }}</strong> for {{ out.plan.customer_id }} on endpoint {{ out.plan.endpoint }}.</div>
-            <div class="scroll short">
+            <div class="scroll short" tabindex="0" role="region" aria-label="Scrollable table">
               <table>
                 <thead><tr><th>#</th><th>Operation</th><th>Component</th><th>VM name</th><th>Cores</th><th>Memory</th><th>Disk</th><th>After</th></tr></thead>
                 <tbody><tr v-for="s in out.plan.steps" :key="s.order">

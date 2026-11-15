@@ -25,6 +25,7 @@ from .deploy.ports import DeployError
 from .provisioning import actions as prov_actions
 from .identity import IdentityError
 from .agentclient import AgentError
+from .backups import ops as backup_ops
 from .proxmox import ProxmoxError, ProxmoxReadClient, check_destination, normalize_fingerprint
 from .providers.base import ProviderError, job_execution
 from .credentials import actions as cred_actions, service as cred_service
@@ -65,6 +66,7 @@ class ActionType(StrEnum):
     idm_user_enable = "idm.user.enable"
     idm_user_delete = "idm.user.delete"
     idm_reconcile = "idm.reconcile"
+    idm_user_devices = "idm.user.devices"
     deployment_create = "deployment.create"
     deployment_change = "deployment.change"
     deployment_destroy = "deployment.destroy"
@@ -89,6 +91,11 @@ class ActionType(StrEnum):
     customer_create = "customer.create"
     customer_update = "customer.update"
     operator_set_scope = "operator.set_scope"
+    backup_policy_create = "backup.policy.create"
+    backup_policy_update = "backup.policy.update"
+    backup_run = "backup.run"
+    backup_verify = "backup.verify"
+    backup_prune = "backup.prune"
 
 
 class EndpointRegister(endpoint_actions.ScopeLists):
@@ -242,7 +249,7 @@ class NodeEnroll(BaseModel):
 class CheckCreate(BaseModel):
     model_config = ConfigDict(extra="forbid")
     name: str = Field(pattern=NAME_RE)
-    kind: Literal["http", "tcp_tls", "imap_login", "smtp_banner", "ews_getfolder"]
+    kind: Literal["http", "tcp_tls", "imap_login", "smtp_banner", "ews_getfolder", "backup"]
     config: dict
     password: SecretStr | None = Field(default=None, description="mailbox/EWS password for imap_login / ews_getfolder (stored in the vault)")
     interval_seconds: int = Field(default=60, ge=5, le=86400)
@@ -371,6 +378,7 @@ CATALOG: dict[ActionType, dict] = {
     ActionType.idm_user_enable: {"model": identity.UserEnable, "risk": "normal", "secrets": ()},
     ActionType.idm_user_delete: {"model": identity.UserDelete, "risk": "high", "secrets": ()},
     ActionType.idm_reconcile: {"model": identity.Reconcile, "risk": "low", "secrets": ()},
+    ActionType.idm_user_devices: {"model": identity.UserDevices, "risk": "low", "secrets": ()},
     # deployment engine (deploy/ops.py). "risk" is the catalog default; create_plan takes the real tier from the change diff (override => high)
     ActionType.deployment_create: {"model": deploy_ops.DeploymentCreate, "risk": "high", "secrets": ()},
     ActionType.deployment_change: {"model": deploy_ops.DeploymentChange, "risk": "normal", "secrets": ()},
@@ -382,12 +390,19 @@ CATALOG: dict[ActionType, dict] = {
     ActionType.maintenance_cancel: {"model": removal.MaintenanceTarget, "risk": "normal", "secrets": ()},
     ActionType.maintenance_delete: {"model": removal.MaintenanceTarget, "risk": "normal", "secrets": ()},
     ActionType.plan_archive: {"model": removal.PlanArchive, "risk": "low", "secrets": ()},
+    # backup product (backups/ops.py). "risk" is the catalog default; create_plan takes the real tier from backups.ops.risk_for
+    ActionType.backup_policy_create: {"model": backup_ops.MODELS["backup.policy.create"], "risk": "normal", "secrets": backup_ops.SECRETS["backup.policy.create"]},
+    ActionType.backup_policy_update: {"model": backup_ops.PolicyUpdate, "risk": "normal", "secrets": ()},
+    ActionType.backup_run: {"model": backup_ops.BackupRun, "risk": "low", "secrets": ()},
+    ActionType.backup_verify: {"model": backup_ops.BackupVerify, "risk": "low", "secrets": ()},
+    ActionType.backup_prune: {"model": backup_ops.BackupPrune, "risk": "low", "secrets": ()},
 }
 CATALOG.update({ActionType(k): v for k, v in prov_actions.CATALOG.items()})   # provider provisioning (ics/provisioning/actions.py)
 _PROV = {ActionType(k) for k in prov_actions.CATALOG}
 CATALOG.update({ActionType(k): v for k, v in {**cred_actions.SPECS, **ten_actions.SPECS}.items()})
 _IDM = {a for a in ActionType if a.value.startswith("idm.")}
 _DEPLOY = {a for a in ActionType if a.value.startswith("deployment.")}
+_BACKUP = {a for a in ActionType if a.value.startswith("backup.")}
 
 
 class PlanIntegrityError(Exception):
@@ -482,6 +497,10 @@ def _pre_check_create(db, rt, p: CheckCreate):
     if p.interval_seconds < floor:
         raise PlanError(422, f"interval_seconds must be >= {floor} for {p.kind} checks")
     _validate_remediation(db, p.remediation, rt)
+    if p.kind == "backup":   # no network destination; the policy must exist
+        if db.execute(text("SELECT 1 FROM backup_policies WHERE name = :n"), {"n": p.config["policy"]}).first() is None:
+            raise PlanError(404, "backup policy not found")
+        return {}
     return {"resolved_ips": _guard(rt, checkmod.config_host(p.kind, p.config))}
 
 
@@ -609,6 +628,16 @@ def create_plan(db: Session, rt: Runtime, user, action: ActionType, params: dict
         except LookupError as e:
             raise PlanError(409, str(e)) from None
         except (ValueError, IdentityError) as e:
+            raise PlanError(422, str(e)) from None
+    if action in _BACKUP:
+        try:
+            extra.update(backup_ops.precheck(db, rt, action.value, p))
+            risk = backup_ops.risk_for(db, action.value, p)
+        except KeyError as e:
+            raise PlanError(404, str(e.args[0])) from None
+        except LookupError as e:
+            raise PlanError(409, str(e)) from None
+        except ValueError as e:
             raise PlanError(422, str(e)) from None
     if action in _DEPLOY:
         try:
@@ -834,18 +863,19 @@ def decide_plan(db: Session, rt: Runtime, user, plan_id: UUID, approve: bool, ip
 
 # ---- execution ------------------------------------------------------------------
 
-def claim_job(rt: Runtime) -> dict | None:
-    """Atomically claim one queued job. Concurrent claimers never get the same row. Sets a lease (L2)."""
+def claim_job(rt: Runtime, backup_lane: bool = False) -> dict | None:
+    """Atomically claim one queued job. Concurrent claimers never get the same row. Sets a lease (L2).
+    Two lanes: backup.* jobs (minutes to an hour) are claimed only by the backup lane, everything else only by the main lane."""
     s = rt.settings
     with rt.session() as db:
         row = db.execute(text(
-            "SELECT id, plan_id, action FROM jobs WHERE status = 'queued' ORDER BY created_at "
-            "LIMIT 1 FOR UPDATE SKIP LOCKED")).first()
+            "SELECT id, plan_id, action FROM jobs WHERE status = 'queued' AND (action LIKE 'backup.%') = :b ORDER BY created_at "
+            "LIMIT 1 FOR UPDATE SKIP LOCKED"), {"b": backup_lane}).first()
         if row is None:
             return None
         db.execute(text("UPDATE jobs SET status = 'running', started_at = now(), "
                         "lease_expires_at = now() + make_interval(secs => :l) WHERE id = :i"),
-                   {"i": row.id, "l": s.job_timeout_seconds + s.job_lease_slack_seconds})
+                   {"i": row.id, "l": (s.backup_job_timeout_seconds if backup_lane else s.job_timeout_seconds) + s.job_lease_slack_seconds})
         audit.append(db, "job.started", actor_name="worker", resource="job", resource_id=str(row.id), details={"action": row.action})
         db.commit()
         return {"id": row.id, "plan_id": row.plan_id, "action": row.action}
@@ -874,7 +904,7 @@ def reap_expired(rt: Runtime) -> int:
     return n
 
 
-_SAFE_ERRORS = (cred_service.CredentialUnavailable, ProviderError, ProxmoxError, VaultError, PlanIntegrityError, JobTimeout, AgentError, IdentityError, DeployError)
+_SAFE_ERRORS = (cred_service.CredentialUnavailable, ProviderError, ProxmoxError, VaultError, PlanIntegrityError, JobTimeout, AgentError, IdentityError, DeployError, backup_ops.BackupError)
 
 
 def _error_dict(e: BaseException, known: list[str]) -> dict:
@@ -950,11 +980,12 @@ def run_job(rt: Runtime, job: dict) -> None:
                 return
         deploy_ports.STOP_EVENTS.pop(str(job["id"]), None)
     else:
-        t.join(rt.settings.job_timeout_seconds)
+        budget = rt.settings.backup_job_timeout_seconds if job["action"].startswith("backup.") else rt.settings.job_timeout_seconds
+        t.join(budget)
     with lock:
         if t.is_alive() and "result" not in box:
             cancelled.set()
-            error = _error_dict(JobTimeout(f"job exceeded its {rt.settings.job_timeout_seconds}s wall-clock budget"), known)
+            error = _error_dict(JobTimeout(f"job exceeded its {rt.settings.backup_job_timeout_seconds if str(job["action"]).startswith("backup.") else rt.settings.job_timeout_seconds}s wall-clock budget"), known)
         elif "error" in box:
             error = _error_dict(box["error"], known)
         else:
@@ -1293,4 +1324,5 @@ _EXEC = {ActionType.endpoint_register: endpoint_actions.exec_register, ActionTyp
          **{ActionType(k): v for k, v in deploy_ops.EXECUTORS.items()},
          **{ActionType(k): v for k, v in endpoint_actions.EXECUTORS.items()},
          **{ActionType(k): v for k, v in prov_actions.EXECUTORS.items()},
-         **{ActionType(k): v for k, v in {**cred_actions.EXECUTORS, **ten_actions.EXECUTORS}.items()}}
+         **{ActionType(k): v for k, v in {**cred_actions.EXECUTORS, **ten_actions.EXECUTORS}.items()},
+         **{ActionType(k): v for k, v in backup_ops.EXECUTORS.items()}}

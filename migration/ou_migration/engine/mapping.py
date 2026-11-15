@@ -68,6 +68,8 @@ class Mapper:
         def skip(why):
             return FolderPlan(name, disp, delim, None, None, "skipped:" + why)
 
+        if _CTRL.search(name) or _CTRL.search(disp) or not name.isascii():
+            return skip("unsafe-name")   # CR/LF/NUL/control chars are never put on a source connection (IMAP command injection)
         if flags & {"\\noselect", "\\nonexistent"}:
             return skip("not-selectable")
         if not self.include_virtual and flags & VIRTUAL_ATTRS:

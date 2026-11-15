@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { computed, ref } from 'vue'
+import { computed, ref, watch } from 'vue'
 import { ApiError, get, post, type AuditEvent, type Plan } from '../api'
 import { fmtTime, hasRole, pretty, route, session, short, useLoad, go } from '../store'
 import ErrorBox from '../components/ErrorBox.vue'
@@ -23,13 +23,15 @@ const mine = computed(() => !!requester.value && requester.value === session.use
 const hash = computed(() => (created.value?.details?.params_hash as string | undefined) ?? null)
 const resolved = computed(() => (created.value?.details?.resolved_ips as string[] | undefined) ?? null)
 
-const err = ref<ApiError | null>(null), ok = ref(''), busy = ref(false)
+const err = ref<ApiError | null>(null), ok = ref(''), okFor = ref(''), busy = ref(false)
+watch(selId, () => { ok.value = ''; err.value = null })
 async function decide(kind: 'approve' | 'reject') {
   if (!sel.value) return
   busy.value = true; err.value = null; ok.value = ''
   try {
     const r = await post<{ status: string; job_id: string | null }>(`plans/${sel.value.id}/${kind}`)
     ok.value = kind === 'reject' ? 'Plan rejected.' : r.job_id ? `Approved; job ${r.job_id} queued.` : `Approval recorded (status: ${r.status.replace('_', ' ')}); another approver is still required.`
+    okFor.value = sel.value.id
     await plans.reload()
   } catch (e) { err.value = e as ApiError } finally { busy.value = false }
 }
@@ -43,7 +45,7 @@ async function decide(kind: 'approve' | 'reject') {
     <ErrorBox :error="plans.error.value" />
     <div class="split">
       <section class="card flush">
-        <div class="scroll">
+        <div class="scroll" tabindex="0" role="region" aria-label="Scrollable table">
           <table v-if="rows.length">
             <thead><tr><th>Action</th><th>Target</th><th>Risk</th><th>Status</th><th>Created</th></tr></thead>
             <tbody>
@@ -74,10 +76,11 @@ async function decide(kind: 'approve' | 'reject') {
           <h3>Parameters</h3>
           <pre class="code" tabindex="0">{{ pretty(sel.params) }}</pre>
           <p class="muted small">Secrets are never returned by the API.</p>
+          <div v-if="ok && okFor === sel.id" class="alert ok" role="status"><span class="grow">{{ ok }}</span>
+            <button type="button" class="ghost sm" @click="ok = ''">Dismiss</button></div>
           <template v-if="sel.status === 'pending_approval'">
             <div v-if="!hasRole('approver')" class="alert info">Only approvers can decide plans.</div>
             <div v-else-if="mine" class="alert warn">You requested this plan; the server will refuse your approval or rejection.</div>
-            <div v-if="ok" class="alert ok" role="status">{{ ok }}</div>
             <ErrorBox :error="err" />
             <div v-if="hasRole('approver')" class="row">
               <button class="primary" :disabled="busy" @click="decide('approve')">Approve</button>

@@ -35,7 +35,16 @@ do_create() {
     /bin/sh -c "date +%s > /root/build.start; JOBS=$JOBS sh /root/lab/spike-groupware/build-from-source.sh ${GW_STAGES:-}; echo EXIT=\$?; date +%s > /root/build.end" >/dev/null
   echo "machine $M created, build started (log: $ROOTFS/root/build.log)"
 }
+# OU_INTO_EXISTING=1 (backup product, verification restore): the scratch machine was restored before. Return it to the "built, not restored" state
+# (services stopped, database + users + mailbox stores removed, marker removed). The source build (binaries) is kept: it is pinned and checked.
+do_reset() {
+  in_m "systemctl stop postfix nginx gromox-http gromox-zcore gromox-imap gromox-midb gromox-delivery gromox-delivery-queue gromox-event gromox-timer 2>/dev/null; \
+        mysql -e \"DROP DATABASE IF EXISTS email; DROP USER IF EXISTS 'grommunio'@'localhost'; DROP USER IF EXISTS 'grommunio'@'127.0.0.1'\" 2>/dev/null; \
+        for u in \$(mysql -N -e \"select user from mysql.user where user not in ('root','mariadb.sys','mysql','PUBLIC')\" 2>/dev/null); do mysql -e \"DROP USER IF EXISTS '\$u'@'localhost'; DROP USER IF EXISTS '\$u'@'127.0.0.1'\"; done; \
+        rm -rf /var/lib/gromox/user /var/lib/gromox/domain; rm -f /root/ou-restore.done; true"
+}
 do_restore() {
+  [ "${OU_INTO_EXISTING:-0}" = 1 ] && do_reset
   build_ok || { echo "source build of $M not finished OK (no EXIT=0 in /root/build.log)" >&2; exit 5; }
   [ ! -e "$ROOTFS/root/ou-restore.done" ] || { echo "refusing: $M was already restored" >&2; exit 3; }
   local C; C="$(croot)"

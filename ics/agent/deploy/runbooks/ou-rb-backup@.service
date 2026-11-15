@@ -1,0 +1,20 @@
+[Unit]
+Description=Office Unbound backup runbook request %i (backup.run / backup.verify / backup.prune)
+
+[Service]
+Type=oneshot
+User=root
+# The helper re-validates the spooled request against the root-owned /etc/ou-backup/<tier>.json; nothing from the request selects a path, a
+# repository, a machine or a command. It needs machinectl/systemd-run -M (nspawn lab) or the node's own tools, so no filesystem sandbox beyond:
+ExecStart=/usr/local/sbin/ou-backup %i
+RuntimeDirectory=ou-rb-backup
+RuntimeDirectoryMode=0755
+RuntimeDirectoryPreserve=yes
+UMask=0077
+TimeoutStartSec=3600
+NoNewPrivileges=true
+PrivateTmp=true
+ProtectHome=true
+ProtectKernelModules=true
+ProtectKernelTunables=true
+LockPersonality=true

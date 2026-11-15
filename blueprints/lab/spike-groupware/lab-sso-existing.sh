@@ -33,6 +33,8 @@ JSON
 chown root:gromoxcf keycloak.json bearer_pubkey; chmod 0640 keycloak.json bearer_pubkey
 usermod -aG gromoxcf groweb 2>/dev/null || true
 systemctl restart gromox-zcore php8.2-fpm"
+# 5a: M1 (security review 4): zcore.sock only for groweb/grosync/grodav (group gromox-zcore), applied after every zcore start by a drop-in
+MX 'sh -s' < "$HERE/ou-zcore-lockdown.sh"; MX "systemctl restart gromox-zcore php8.2-fpm"
 # 6: deep-link patch: rebuild only grommunio-web (build tree already on the node)
 MX 'install -d /root/patches'
 sudo cp "$HERE"/../../build/grommunio-web/patches/*.patch /var/lib/machines/$M/root/patches/

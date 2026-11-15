@@ -20,7 +20,7 @@ const count = (r: string) => props.users.filter((u) => u.role === r && (u.status
     </div>
     <div v-if="policy.data.value" class="ux-card">
       <h2 class="ux-pad">Permission matrix</h2>
-      <div class="ux-scroll">
+      <div class="ux-scroll" tabindex="0" role="region" aria-label="Scrollable table">
         <table class="ux-table ux-matrix">
           <caption class="sr">What each role can do</caption>
           <thead><tr><th scope="col">Capability</th><th v-for="r in ROLES" :key="r" scope="col" class="ux-c">{{ r }}</th></tr></thead>

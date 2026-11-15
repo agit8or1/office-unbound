@@ -26,11 +26,13 @@ CATEGORY_OF = {
     "provider.credential.import": "expand_permissions", "provider.permissions.reconcile": "expand_permissions",
     "provider.token.rotate": "revoke_credential",   # deletes the previous token at the provider
     "provider.token.revoke": "revoke_credential",
+    # backup product (ADR-0010): a prune deletes history for good; a restore verification writes restored data (destructive-class)
+    "backup.prune": "remove_storage",
 }
 # actions that change infrastructure (blocked for monitoring_only, gated by customer approval for customer-owned infra)
 # provider.provision.package and provider.credential.import are decided in classify(): they are monitoring-compatible unless the policy /
 # token set goes beyond the inventory (monitor) role. Mode A actions use ADMIN credentials on the customer's cluster: always mutating.
-MUTATING_PREFIXES = ("deployment.", "guest.", "storage.", "network.", "provider.provision.apply", "provider.permissions.", "provider.token.")
+MUTATING_PREFIXES = ("deployment.", "guest.", "storage.", "network.", "provider.provision.apply", "provider.permissions.", "provider.token.", "backup.")
 READ_ONLY = ("provider.provision.plan_preview",)
 EXPANDING_ENDPOINT_FIELDS = {"allowed_pools", "allowed_nodes", "allowed_storage", "allowed_networks", "allowed_templates", "provision_token_id",
                              "provision_token_secret", "allow_cicustom"}
@@ -52,6 +54,8 @@ def classify(action: str, p) -> tuple[bool, str | None]:
     """-> (mutating, category)"""
     cat = CATEGORY_OF.get(action)
     mut = action.startswith(MUTATING_PREFIXES) and action not in READ_ONLY
+    if action == "backup.verify" and getattr(p, "level", None) == "restore":
+        cat = "remove_storage"
     if action == "endpoint.update" and getattr(p, "changed", None) and p.changed() & EXPANDING_ENDPOINT_FIELDS:
         mut, cat = True, "expand_permissions"
     if action == "credential.create" and getattr(p, "purpose", "inventory") != "inventory":

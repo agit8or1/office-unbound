@@ -20,6 +20,7 @@ export const NAV: NavGroup[] = [
     { label: 'Catalog', icon: 'book', planned: true },
     { label: 'New deployment', to: '/deployments/new', icon: 'plus', min: 'operator', ifPath: '/deployments/new' },
     { label: 'Environments', to: '/deployments', icon: 'rocket', match: ['/deployments'] },
+    { label: 'History', to: '/deployments/history', icon: 'clock' },
   ] },
   { title: 'Operations', items: [
     { label: 'Jobs', to: '/jobs', icon: 'list' },
@@ -38,6 +39,7 @@ export const NAV: NavGroup[] = [
     { label: 'Customers', to: '/administration/customers', icon: 'users', min: 'admin' },
     { label: 'Integrations', to: '/endpoints', icon: 'plug' },
     { label: 'Audit log', to: '/audit', icon: 'file', min: 'approver' },
+    { label: 'System', to: '/system', icon: 'server', min: 'admin' },
     { label: 'Access policies', icon: 'shield', planned: true, min: 'admin' },
     { label: 'Configuration', icon: 'gear', planned: true, min: 'admin' },
   ] },
@@ -46,6 +48,6 @@ export const NAV: NavGroup[] = [
 export function isActive(item: NavItem, path: string): boolean {
   if (!item.to) return false
   const bases = item.match ?? [item.to]
-  if (item.to === '/deployments' && path === '/deployments/new') return false
+  if (item.to === '/deployments' && (path === '/deployments/new' || path === '/deployments/history')) return false
   return bases.some((b) => path === b || path.startsWith(b + '/'))
 }

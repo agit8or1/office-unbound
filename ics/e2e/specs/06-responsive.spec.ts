@@ -39,13 +39,16 @@ test.describe('layout', () => {
     if (await menu.isVisible()) {
       await menu.click()
       await expect(menu).toHaveAttribute('aria-expanded', 'true')
+      await page.waitForTimeout(500) // let the drawer finish sliding in before measuring overlaps
     }
     await expect(nav.getByRole('link', { name: 'Health checks' })).toBeVisible()
+    await nav.getByRole('link', { name: 'Health checks' }).click()
+    await expect(page.getByRole('heading', { name: 'Health checks' })).toBeVisible()
+    // the open drawer legitimately covers the page, so layout is measured once it has closed again
+    await page.waitForTimeout(500)
     const p = await layoutProblems(page)
     for (const x of p) finding('layout', `nav@${w}`, x, info)
     expect.soft(p).toEqual([])
-    await nav.getByRole('link', { name: 'Health checks' }).click()
-    await expect(page.getByRole('heading', { name: 'Health checks' })).toBeVisible()
   })
 })
 

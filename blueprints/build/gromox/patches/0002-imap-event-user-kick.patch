@@ -1,0 +1,182 @@
+diff -ruN a/mra/imap/imap.hpp b/mra/imap/imap.hpp
+--- a/mra/imap/imap.hpp	2026-10-29 15:39:55.000000000 +0000
++++ b/mra/imap/imap.hpp	2026-11-15 21:20:59.065858972 +0000
+@@ -48,7 +48,7 @@
+ 
+ enum class isched_stat {
+ 	none = 0, rdcmd, appending, appended, stls, wrlst, wrdat, idling,
+-	notifying, autologout, disconnected,
++	notifying, autologout, disconnected, kicked,
+ };
+ 
+ /* For use in report_what, imap_context::async_change_flags */
+@@ -115,6 +115,8 @@
+ 	std::string mid, append_folder, append_flags;
+ 	time_t append_time = 0;
+ 	iproto_stat proto_stat = iproto_stat::none;
++	/* time the session became authenticated; 0 = not yet recorded (USER-KICK only affects sessions that predate it) */
++	gromox::time_point auth_time{};
+ 	isched_stat sched_stat = isched_stat::none;
+ 	char *write_buff = nullptr;
+ 	size_t write_length = 0, write_offset = 0;
+@@ -159,6 +161,7 @@
+ 	bool enabled_rev2 = false;
+ };
+ 
++extern bool imap_parser_user_kicked(const imap_context &);
+ extern void imap_parser_init(int context_num, gromox::time_duration timeout, gromox::time_duration autologout_time, int max_auth_times, int block_auth_fail, bool support_tls, bool force_tls, const char *certificate_path, const char *cb_passwd, const char *key_path);
+ extern int imap_parser_run();
+ extern tproc_status imap_parser_process(schedule_context *);
+diff -ruN a/mra/imap/parser.cpp b/mra/imap/parser.cpp
+--- a/mra/imap/parser.cpp	2026-10-29 15:39:55.000000000 +0000
++++ b/mra/imap/parser.cpp	2026-11-15 21:20:59.067859049 +0000
+@@ -60,6 +60,9 @@
+ static void *imps_thrwork(void *);
+ static void *imps_scanwork(void *);
+ static void imap_parser_event_proc(char *event);
++static constexpr size_t kick_max = 10000;
++static std::mutex g_kick_lock;
++static std::unordered_map<std::string, time_point> g_kicked_users; /* lowercased user -> when USER-KICK arrived */
+ static void imap_parser_event_touch(const char *user, const char *folder);
+ static void imap_parser_event_flag(const char *username, const char *folder, uint32_t uid);
+ static int imap_parser_dispatch_cmd(std::span<std::string> argv, imap_context &);
+@@ -272,6 +275,13 @@
+ 	return ps_end_processing(pcontext, imap_reply_str, string_length);
+ }
+ 
++static tproc_status ps_stat_kicked(imap_context &ctx)
++{
++	imap_parser_log_info(&ctx, LV_NOTICE, "session terminated (USER-KICK)");
++	static constexpr char bye[] = "BYE [UNAVAILABLE] Session terminated by administrator\r\n";
++	return ps_end_processing(&ctx, bye, sizeof(bye) - 1);
++}
++
+ static tproc_status ps_stat_disconnected(imap_context &ctx)
+ {
+ 	auto pcontext = &ctx;
+@@ -947,8 +957,12 @@
+ {
+ 	auto &ctx = *static_cast<imap_context *>(vctx);
+ 	auto ret = tproc_status::context_processing;
++	if (imap_parser_user_kicked(ctx))
++		ctx.sched_stat = isched_stat::kicked;
+ 	while (ret >= tproc_status::app_specific_codes) {
+-		if (ret == tproc_status::cmd_processing)
++		if (ctx.sched_stat == isched_stat::kicked)
++			ret = ps_stat_kicked(ctx);
++		else if (ret == tproc_status::cmd_processing)
+ 			ret = ps_cmd_processing(ctx);
+ 		else if (ret == tproc_status::literal_checking)
+ 			ret = ps_literal_checking(ctx);
+@@ -978,6 +992,8 @@
+ 		if (ctx.sched_stat != isched_stat::wrdat)
+ 			ctx.io_actor.clear();
+ 	}
++	if (ctx.is_authed() && ctx.auth_time == time_point{})
++		ctx.auth_time = tp_now();
+ 	return ret;
+ }
+ 
+@@ -1683,6 +1699,7 @@
+ 	auto &ctx = *pcontext;
+ 	pcontext->connection.reset();
+ 	pcontext->proto_stat = iproto_stat::none;
++	pcontext->auth_time = {};
+ 	pcontext->sched_stat = isched_stat::none;
+ 	ctx.enabled_rev2 = false;
+ 	ctx.wrdat_content = nullptr;
+@@ -1749,6 +1766,13 @@
+ 			ll_hold.unlock();
+ 			if (pcontext == nullptr)
+ 				break;
++			if (imap_parser_user_kicked(*pcontext)) {
++				pcontext->sched_stat = isched_stat::kicked;
++				contexts_pool_wakeup_context(pcontext, sctx_status::turning);
++				if (pcontext == ptail)
++					break;
++				continue;
++			}
+ 			if (pcontext->sched_stat == isched_stat::idling) {
+ 				if (pcontext->async_change_mask != 0) {
+ 					pcontext->sched_stat = isched_stat::notifying;
+@@ -1781,6 +1805,25 @@
+ 	return nullptr;
+ }
+ 
++/* Was a USER-KICK for this session's user received after the session authenticated? */
++bool imap_parser_user_kicked(const imap_context &ctx)
++{
++	if (!ctx.is_authed() || ctx.auth_time == time_point{})
++		return false;
++	/*
++	 * Match the AUTHENTICATED identity, not the mailbox the session is
++	 * attached to: for a delegated login "actor!target", ctx.username is
++	 * the target mailbox and authenticated_actor is the actor. Kicking bob
++	 * must end bob's sessions (including bob!shared) and must not end the
++	 * delegate sessions of other users on bob's mailbox.
++	 */
++	std::string user = ctx.authenticated_actor[0] != '\0' ? ctx.authenticated_actor : ctx.username;
++	HX_strlower(user.data());
++	std::lock_guard kl(g_kick_lock);
++	auto it = g_kicked_users.find(user);
++	return it != g_kicked_users.end() && it->second >= ctx.auth_time;
++}
++
+ void imap_parser_log_info(imap_context *ctx, int level, const char *format, ...)
+ {
+ 	char log_buf[2048];
+@@ -1804,7 +1847,28 @@
+ 	auto argc = HX_split_fixed(line, " ", std::size(argv), argv);
+ 	if (argc < 1)
+ 		return;
+-	if (strcasecmp(argv[0], "FOLDER-TOUCH") == 0) {
++	if (strcasecmp(argv[0], "USER-KICK") == 0) {
++		/* "USER-KICK <user> *": terminate every session of <user> that was authenticated before now (sent by an administrator via the event bus) */
++		if (argc < 2)
++			return;
++		std::string user = argv[1];
++		HX_strlower(user.data());
++		auto now = tp_now();
++		std::lock_guard kl(g_kick_lock);
++		/* bounded table: prune only when it has grown, and never keep more than kick_max entries (oldest goes first) */
++		if (g_kicked_users.size() >= 1024)
++			for (auto it = g_kicked_users.begin(); it != g_kicked_users.end(); )
++				it = now - it->second > std::chrono::hours(24) ? g_kicked_users.erase(it) : std::next(it);
++		while (g_kicked_users.size() >= kick_max) {
++			auto oldest = g_kicked_users.begin();
++			for (auto it = g_kicked_users.begin(); it != g_kicked_users.end(); ++it)
++				if (it->second < oldest->second)
++					oldest = it;
++			g_kicked_users.erase(oldest);
++		}
++		g_kicked_users[std::move(user)] = now;
++		mlog(LV_NOTICE, "imap: USER-KICK received for %s", argv[1]);
++	} else if (strcasecmp(argv[0], "FOLDER-TOUCH") == 0) {
+ 		if (argc < 3)
+ 			return;
+ 		imap_parser_event_touch(argv[1], argv[2]);
+diff -ruN a/tools/event.cpp b/tools/event.cpp
+--- a/tools/event.cpp	2026-10-29 15:39:55.000000000 +0000
++++ b/tools/event.cpp	2026-11-15 21:20:59.069859125 +0000
+@@ -573,6 +573,12 @@
+ 		penqueue->sk_write("FALSE\r\n");
+ 		return;
+ 	}
++	/*
++	 * USER-KICK <user> <anything> is an administrative broadcast: every
++	 * listener gets it, not just the hosts that have the user's folder
++	 * selected (a session that selected nothing must be reachable, too).
++	 */
++	const bool bcast_all = strncasecmp(penqueue->line, "USER-KICK ", 10) == 0;
+ 	auto temp_len = pspace1 - (pspace + 1);
+ 	char temp_string[256];
+ 	memcpy(temp_string, pspace + 1, temp_len);
+@@ -586,7 +592,7 @@
+ 	for (auto &hnode : g_host_list) {
+ 		auto phost = &hnode;
+ 		if (0 == strcmp(penqueue->res_id, phost->res_id) ||
+-		    phost->hash.find(temp_string) == phost->hash.cend())
++		    (!bcast_all && phost->hash.find(temp_string) == phost->hash.cend()))
+ 			continue;
+ 
+ 		if (phost->list.size() > 0) {

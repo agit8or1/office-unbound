@@ -30,12 +30,12 @@ class StateError(Exception):
 class State:
     def __init__(self, path: str, job_key: str):
         self.path = path
-        new = not os.path.exists(path)
-        if new:
-            fd = os.open(path, os.O_CREAT | os.O_WRONLY, 0o600)
+        # O_NOFOLLOW: a symlink planted at the state path must not redirect writes or chmod to another file (review 4, L6)
+        fd = os.open(path, os.O_CREAT | os.O_RDWR | os.O_NOFOLLOW, 0o600)
+        try:
+            os.fchmod(fd, 0o600)
+        finally:
             os.close(fd)
-        else:
-            os.chmod(path, 0o600)
         self.db = sqlite3.connect(path, isolation_level=None)
         self.db.execute("PRAGMA synchronous=FULL")
         self.db.executescript(SCHEMA)

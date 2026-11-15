@@ -7,5 +7,5 @@ export const router = createRouter({ history: createWebHashHistory('/ui/'), rout
 /** True when a path is registered (used to show or hide links into wizards that may not be merged yet). */
 export function hasPath(path: string): boolean {
   const r = router.resolve(path)
-  return r.matched.length > 0 && r.name !== 'not-found'
+  return r.matched.length > 0 && r.name !== 'not-found' && Object.keys(r.params).length === 0
 }
