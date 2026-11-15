@@ -2,3 +2,10 @@
 Status: Proposed — pending spike (2026-11-15)
 OpenCloud 9.x (Apache-2.0, posix storage) + its built-in collaboration/WOPI service + Collabora Online. OpenCloud is the authoritative file store and WOPI host; no second document store (clientst0r WOPI code is reference only).
 Per ADR-0007 no Collabora subscription. Vendor CODE images are lab-only; production path = Office Unbound's own build of Collabora Online (MPL-2.0 source, to be verified) with connection/document limits configured off, our own branding, signed images and release channel — pending docs/status/docengine-source-eval.md. Alternatives if blocked: other LibreOffice-based or unrestricted engines. Seafile CE = file-platform fallback if OpenCloud fails mandatory tests.
+
+## Document-engine source evaluation (docs/status/docengine-source-eval.md, 2026-11-15)
+- Collabora Online source (online.mirror, branch distro/collabora/co-26.04, tags cp-26.04.x-y; core in-tree under engine/ since 26.04) is MPL-2.0 (+LGPL-3.0 core files). Plain source build: MAX_CONNECTIONS/MAX_DOCUMENTS default 9999 (configurable higher), no "home mode" 20/10 cap unless built with --with-welcome-url, support-key/watermark code compiled out unless --with-support-public-key. → Unlimited, nag-free build is possible.
+- Obligation: remove Collabora name/logos from custom builds (browser/branding/README.md); trademark policy text still to be reviewed.
+- Decision direction: Office Unbound builds and signs its own engine from pinned cp-26.04 tags; move to new stable branch ~yearly; track commit logs for non-CVE security fixes. Build runner needs ≫15 GiB RAM for reasonable times (ICS host: build with reduced -j, or dedicated build machine later).
+- Fallback: ONLYOFFICE Docs open-source build (connection limit 0x7fffffff in source) but AGPL §7 additional terms (mandatory ONLYOFFICE attribution, no rebrand) — second choice.
+- Lab: vendor CODE packages acceptable for functional tests only.
