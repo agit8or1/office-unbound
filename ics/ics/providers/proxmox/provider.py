@@ -719,6 +719,26 @@ class ProxmoxMutations(ProxmoxProvider):
         t = self._task(spec.template_node, upid, newid, "qmclone", spec.deployment_id)
         return dataclasses.replace(t, template_vmid=spec.template_vmid, name=spec.name)
 
+    def recover_clone_task(self, template_vmid: int, template_node: str, new_vmid: int, name: str, deployment_id: str) -> TaskRef | None:
+        """Crash recovery: an executor died after PVE accepted the clone but before it recorded the TaskRef. Find the newest successful
+        `qmclone:<template>:<this token>` task on the template's node so finalize_clone can tag the guest. The tag step re-verifies the guest
+        itself (allowed pool/node, name, only our tags), so a mismatched task can never tag a foreign guest. Read-only."""
+        require_job_execution()
+        if not self.scope.node_ok(template_node):
+            raise ScopeViolation(f"template node {template_node!r} is not an authorized node of this endpoint")
+        rows = self._get(f"/nodes/{_seg(template_node)}/tasks?typefilter=qmclone&source=all&limit=100", self._w) or []
+        best = None
+        for x in rows:
+            m = _UPID.match(str(x.get("upid") or ""))
+            if (m and m.group(1) == template_node and m.group(2) == "qmclone" and m.group(3) == str(int(template_vmid))
+                    and m.group(4) == self._tid and (x.get("status") or "") == "OK"):
+                if best is None or int(x.get("starttime") or 0) > int(best.get("starttime") or 0):
+                    best = x
+        if best is None:
+            return None
+        t = self._task(template_node, best["upid"], int(new_vmid), "qmclone", deployment_id)
+        return dataclasses.replace(t, template_vmid=int(template_vmid), name=name)
+
     def finalize_clone(self, task: TaskRef) -> TaskRef:
         """Apply the ownership tags to a VM created by a clone task of this token. MUST be called by the executor once the clone task
         succeeded (PVE clone cannot set tags). On PVE the clone UPID is `qmclone:<SOURCE template vmid>:<user>`, so the reference must carry

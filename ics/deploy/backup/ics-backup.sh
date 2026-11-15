@@ -14,7 +14,7 @@ for f in etc/office-unbound/tls etc/office-unbound/ics-admin-fw.nft etc/systemd/
   [ -e "/$f" ] && FILES+=("$f"); done
 tar --numeric-owner -cpzf "$W/etc.tgz" -C / "${FILES[@]}"
 # the deployed release that produced this DB schema (code only; the venv is rebuilt from requirements.lock with --require-hashes)
-tar -cpzf "$W/release.tgz" -C /opt/office-unbound --exclude .venv --exclude __pycache__ ics
+tar -cpzf "$W/release.tgz" -C /opt/office-unbound --exclude .venv --exclude __pycache__ ics $( [ -d /opt/office-unbound/blueprints ] && echo blueprints )
 ( cd "$W" && sha256sum ./* > SHA256SUMS ) && tar -cf "$DEST/ics-backup.tar" -C "$W" .
 chmod 0600 "$DEST/ics-backup.tar"
 {

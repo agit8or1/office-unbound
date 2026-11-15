@@ -16,10 +16,79 @@ from .. import audit, endpoint_actions as ea
 from ..auth import User, client_ip, get_db, require
 from ..proxmox import ProxmoxError, fetch_peer_certificate, normalize_fingerprint
 from ..providers.proxmox import EndpointScope, probe_connection
+from ..tenancy import scope as tscope
 from . import health
 from .collector import RANGES, query_metrics
 
 API = "/api/v1"
+class AdminDiscover(BaseModel):
+    """Temporary admin credentials for ONE read-only discovery. Held in memory only; wiped in `finally`; never stored, audited or returned."""
+    model_config = ConfigDict(extra="forbid", hide_input_in_errors=True)
+    stage: Literal["discover"]
+    base_url: str
+    ca_pem: str | None = Field(default=None, max_length=100_000)
+    fingerprint_sha256: str | None = None
+    username: str | None = Field(default=None, max_length=70)
+    password: SecretStr | None = None
+    token_id: str | None = Field(default=None, pattern=ea.TOKEN_ID_RE)
+    token_secret: SecretStr | None = None
+
+    @field_validator("base_url")
+    @classmethod
+    def _u(cls, v):
+        return ea._check_url(v)
+
+    @field_validator("ca_pem")
+    @classmethod
+    def _c(cls, v):
+        return ea._check_ca(v)
+
+    @model_validator(mode="after")
+    def _one(self):
+        pw, tok = bool(self.username and self.password), bool(self.token_id and self.token_secret)
+        if pw == tok:
+            raise ValueError("supply either username+password or token_id+token_secret")
+        return self
+
+
+def _discover(rt, db, user, request, body: dict):
+    from ..providers.base import ProviderError
+    from ..providers.proxmox import provisioning as pp
+    from ..providers.proxmox.admin import ProxmoxAdminClient
+    try:
+        a = AdminDiscover.model_validate(body)
+    except ValidationError as e:
+        raise HTTPException(422, [{"loc": list(x["loc"]), "msg": x["msg"]} for x in e.errors()]) from None
+    client = None
+    try:
+        client = ProxmoxAdminClient(a.base_url, username=a.username, password=a.password.get_secret_value() if a.password else None,
+                                    token_id=a.token_id, token_secret=a.token_secret.get_secret_value() if a.token_secret else None,
+                                    ca_pem=a.ca_pem, fingerprint_sha256=a.fingerprint_sha256, allow_loopback=rt.settings.allow_loopback_endpoints)
+        f = pp.collect_facts(client)   # GET-only
+    except (ProxmoxError, ProviderError, ValueError) as e:
+        audit.append(db, "setup.discover", actor_id=user.id, actor_name=user.username, ip=client_ip(request), resource="setup",
+                     details={"base_url": a.base_url, "ok": False})
+        db.commit()
+        raise HTTPException(422, str(e)[:200]) from None
+    finally:
+        if client is not None:
+            client.discard()
+    audit.append(db, "setup.discover", actor_id=user.id, actor_name=user.username, ip=client_ip(request), resource="setup",
+                 details={"base_url": a.base_url, "ok": True, "nodes": len(f.nodes)})  # no credential in the audit record
+    db.commit()
+    return {"ok": True, "version": f.version, "readonly": True,
+            "nodes": [{"name": n, "status": st} for n, st in sorted(f.nodes.items())],
+            "storages": [{"name": n, **v} for n, v in sorted(f.storages.items())],
+            "pools": sorted(f.pools),
+            "bridges": [{"name": n, "zone": z} for n, z in sorted(f.networks.items())],
+            "templates": [{"vmid": v, "name": g["name"], "node": g["node"], "pool": g["pool"]} for v, g in sorted(f.guests.items()) if g["template"]],
+            "guests": len(f.guests), "notes": f.notes}
+
+
+def _active(db) -> str:
+    return f"{_ACTIVE} AND {tscope.endpoint_clause(db)}"
+
+
 _ACTIVE = "endpoint_id IN (SELECT id FROM endpoints WHERE detached_at IS NULL)"
 
 
@@ -164,13 +233,13 @@ def mount(app: FastAPI) -> None:
 
     @app.get(f"{API}/endpoints")
     def list_endpoints(request: Request, include_detached: bool = False, user: User = Depends(require("viewer")), db: Session = Depends(get_db)):
-        rows = db.execute(text(_EP_SQL + ("" if include_detached else " WHERE e.detached_at IS NULL") + " ORDER BY e.name")).all()
+        rows = db.execute(text(_EP_SQL + f" WHERE {tscope.clause(db, 'e.customer_id')}" + ("" if include_detached else " AND e.detached_at IS NULL") + " ORDER BY e.name")).all()
         now = datetime.now(timezone.utc)
         return [_ep_out(r, now, stale(request)) for r in rows]
 
     @app.get(f"{API}/endpoints/{{endpoint_id}}")
     def get_endpoint(endpoint_id: UUID, request: Request, user: User = Depends(require("viewer")), db: Session = Depends(get_db)):
-        r = db.execute(text(_EP_SQL + " WHERE e.id = :i"), {"i": str(endpoint_id)}).first()
+        r = db.execute(text(_EP_SQL + f" WHERE e.id = :i AND {tscope.clause(db, 'e.customer_id')}"), {"i": str(endpoint_id)}).first()
         if r is None:
             raise HTTPException(404, "endpoint not found")
         return _ep_out(r, datetime.now(timezone.utc), stale(request))
@@ -181,24 +250,24 @@ def mount(app: FastAPI) -> None:
         h = health.summary(db, st)
         q = lambda sql: db.execute(text(sql)).first()  # noqa: E731
         g = q(f"SELECT count(*) FILTER (WHERE kind='vm') AS vms, count(*) FILTER (WHERE kind='lxc') AS lxc, "
-              f"count(*) FILTER (WHERE status='running') AS running FROM infra_guests WHERE {_ACTIVE}")
+              f"count(*) FILTER (WHERE status='running') AS running FROM infra_guests WHERE {_active(db)}")
         n = q(f"SELECT count(*) AS total, count(*) FILTER (WHERE status='online') AS online, count(*) FILTER (WHERE managed) AS managed, "
               f"COALESCE(sum(cpu_total) FILTER (WHERE managed), 0)::bigint AS cpu, COALESCE(sum(mem_total) FILTER (WHERE managed), 0)::bigint AS mem "
-              f"FROM infra_nodes WHERE {_ACTIVE}")
+              f"FROM infra_nodes WHERE {_active(db)}")
         s = q(f"SELECT count(DISTINCT name) AS total, COALESCE(sum(total),0)::bigint AS bytes_total, COALESCE(sum(used),0)::bigint AS bytes_used "
-              f"FROM infra_storage WHERE {_ACTIVE}")
+              f"FROM infra_storage WHERE {_active(db)}")
         return {"health": {"status": h["status"], "reasons": h["reasons"]},
                 "endpoints": {"active": h["endpoints_active"], "total": h["endpoints_total"]},
                 "clusters": h["resources"]["cluster"],
                 "nodes": {"total": n.total, "online": n.online, "managed": n.managed},
                 "capacity": {"scope": "managed nodes only (token has Sys.Audit)", "cpu_total": n.cpu, "mem_total": n.mem},
                 "guests": {"vms": g.vms, "containers": g.lxc, "running": g.running},
-                "templates": q(f"SELECT count(*) AS c FROM infra_templates WHERE {_ACTIVE}").c,
+                "templates": q(f"SELECT count(*) AS c FROM infra_templates WHERE {_active(db)}").c,
                 "storage": {"pools": s.total, "bytes_total": s.bytes_total, "bytes_used": s.bytes_used},
-                "networks": q(f"SELECT count(*) AS c FROM infra_networks WHERE {_ACTIVE}").c}
+                "networks": q(f"SELECT count(*) AS c FROM infra_networks WHERE {_active(db)}").c}
 
     def _list(request: Request, db: Session, table: str, kind: str | None, where: list[str], params: dict, order: str, limit: int):
-        sql = f"SELECT * FROM {table} WHERE {_ACTIVE}" + "".join(f" AND {w}" for w in where) + f" ORDER BY {order} LIMIT :lim"
+        sql = f"SELECT * FROM {table} WHERE {_active(db)}" + "".join(f" AND {w}" for w in where) + f" ORDER BY {order} LIMIT :lim"
         rows = db.execute(text(sql), {**params, "lim": max(1, min(limit, 2000))}).all()
         now, st = datetime.now(timezone.utc), stale(request)
         return [_ser(r, kind, now, st) for r in rows]
@@ -257,6 +326,9 @@ def mount(app: FastAPI) -> None:
             raise HTTPException(422, "range must be one of " + ", ".join(RANGES))
         if not re.fullmatch(r"[a-z0-9_]{1,40}", metric):
             raise HTTPException(422, "invalid metric name")
+        table = {"node": "infra_nodes", "guest": "infra_guests", "storage": "infra_storage"}[scope]
+        if user.customer_ids is not None and not db.execute(text(f"SELECT 1 FROM {table} WHERE id = :i AND {tscope.endpoint_clause(db)}"), {"i": str(id)}).first():
+            raise HTTPException(404, "resource not found")
         return query_metrics(db, scope, str(id), metric, range)
 
     # ---- setup wizard ----
@@ -275,6 +347,8 @@ def mount(app: FastAPI) -> None:
                          details={"stage": "tls", "base_url": t.base_url, "ok": out["ok"]})
             db.commit()
             return {"tls": out}
+        if body.get("stage") == "discover":
+            return _discover(rt, db, user, request, body)
         try:
             p = SetupProbe.model_validate(body)
         except ValidationError as e:
@@ -308,7 +382,7 @@ def mount(app: FastAPI) -> None:
             "count(*) FILTER (WHERE cardinality(e.allowed_pools) > 0) AS defaults, "
             "count(*) FILTER (WHERE e.provision_token_id IS NOT NULL) AS prov, "
             "count(*) FILTER (WHERE e.defaults <> '{}'::jsonb) AS saved_defaults "
-            "FROM endpoints e LEFT JOIN infra_collect_state s ON s.endpoint_id = e.id WHERE e.detached_at IS NULL")).first()
+            f"FROM endpoints e LEFT JOIN infra_collect_state s ON s.endpoint_id = e.id WHERE e.detached_at IS NULL AND {tscope.clause(db, 'e.customer_id')}")).first()
         step = "register_endpoint" if r.n == 0 else "discover" if r.discovered == 0 else "save_defaults" if r.defaults == 0 else "done"
         return {"has_endpoint": r.n > 0, "has_endpoints": r.n > 0, "endpoints": r.n, "discovery_done": r.discovered > 0, "defaults_saved": r.defaults > 0 or r.saved_defaults > 0,
                 "provision_configured": r.prov > 0, "next_step": step}

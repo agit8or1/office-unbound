@@ -41,7 +41,7 @@ def validate_config(cfg: dict) -> dict:
             raise ValueError(f"{name} takes exactly {{\"enabled\": true}}")
     for name in ("service.restart", "service.status"):
         for u in rb.get(name, {}).get("units", []):
-            if not UNIT_RE.match(u):
+            if not UNIT_RE.fullmatch(u):
                 raise ValueError(f"bad unit name {u!r}")
     for p in rb.get("disk.usage", {}).get("paths", []):
         if not (isinstance(p, str) and p.startswith("/") and "\0" not in p):
@@ -72,7 +72,7 @@ def check_allowed(cfg: dict, action: str, params: dict) -> dict:
     if action in guestspec.GUEST_RUNBOOKS:
         return guestspec.CHECKS[action](params, spec)   # typed, closed-shape validation; nothing is spooled before this passes
     if action in USER_RUNBOOKS:
-        if set(params) != {"user"} or not isinstance(params["user"], str) or not UID_RE.match(params["user"]):
+        if set(params) != {"user"} or not isinstance(params["user"], str) or not UID_RE.fullmatch(params["user"]):
             raise Reject("bad_params", "params must be exactly {user} (lowercase uid)")
         return {"user": params["user"]}
     if action.startswith("service."):

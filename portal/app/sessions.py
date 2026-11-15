@@ -34,6 +34,7 @@ class Flow:
     nonce: str
     created: float
     next: str
+    ip: str = ""
 
 
 class Store:
@@ -49,12 +50,24 @@ class Store:
         for k in [k for k, f in self.flows.items() if now - f.created > 600]:
             del self.flows[k]
 
-    def new_flow(self, verifier: str, nonce: str, next_path: str) -> str:
+    FLOWS_PER_IP = 20      # in-flight sign-ins one source address may hold; its own oldest are evicted first
+    FLOWS_MAX = 2000
+
+    def new_flow(self, verifier: str, nonce: str, next_path: str, ip: str = "") -> str:
+        """Review 3 L6: pending-auth state is bounded PER source address, so a /login flood evicts only the flooder's own flows.
+        At the global cap the address holding the most flows loses its oldest one (never an arbitrary victim)."""
         self._gc()
-        if len(self.flows) > 2000:                      # unauthenticated endpoint: bound memory
-            self.flows.pop(next(iter(self.flows)))
+        mine = [k for k, f in self.flows.items() if f.ip == ip]       # insertion order = oldest first
+        while len(mine) >= self.FLOWS_PER_IP:
+            self.flows.pop(mine.pop(0), None)
+        if len(self.flows) >= self.FLOWS_MAX:
+            counts: dict[str, int] = {}
+            for f in reversed(list(self.flows.values())):   # ties: the most recent address pays, older sign-ins survive
+                counts[f.ip] = counts.get(f.ip, 0) + 1
+            worst = max(counts, key=counts.get)
+            self.flows.pop(next(k for k, f in self.flows.items() if f.ip == worst))
         state = secrets.token_urlsafe(24)
-        self.flows[state] = Flow(verifier, nonce, time.time(), next_path)
+        self.flows[state] = Flow(verifier, nonce, time.time(), next_path, ip)
         return state
 
     def pop_flow(self, state: str) -> Flow | None:

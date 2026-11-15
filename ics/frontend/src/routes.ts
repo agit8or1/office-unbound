@@ -2,6 +2,7 @@ import type { RouteRecordRaw } from 'vue-router'
 import type { Role } from './api'
 import { wizardRoutes } from './wizards'
 import type { WizardRoute } from './wizards'
+import { providerRoutes } from './views/providers/routes'
 
 declare module 'vue-router' {
   interface RouteMeta {
@@ -51,6 +52,7 @@ export const routes: RouteRecordRaw[] = [
   { path: '/preview', name: 'preview', component: () => import('./views/Preview.vue'), meta: { title: 'Plan preview', section: 'Administration', min: 'operator' } },
   { path: '/system', name: 'system', component: () => import('./views/System.vue'), meta: { title: 'System', section: 'Administration' } },
   { path: '/audit', name: 'audit', component: () => import('./views/Audit.vue'), meta: { title: 'Audit log', section: 'Administration', min: 'approver' } },
+  ...providerRoutes,
   ...wizardRoutes.map(wizardRecord),
   { path: '/:pathMatch(.*)*', name: 'not-found', component: () => import('./views/NotFound.vue'), meta: { title: 'Not found' } },
 ]

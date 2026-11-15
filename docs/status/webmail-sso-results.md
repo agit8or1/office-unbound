@@ -98,3 +98,6 @@ Licence: grommunio-web is AGPL-3.0; the patch is a derivative work under the sam
 ## 8. Files
 `blueprints/lab/spike-groupware/{lab-sso.sh,kc-webmail-client.py,webmail-patch-inner.sh}` (new; `lab-configure.sh`, `lab-nginx.sh`, `lab-ldap.sh` gained `GW_HOST/GW_USERS/GW_SHARED/GW_MACHINE` overrides with the old values as defaults), `blueprints/build/grommunio-web/patches/0001-context-deep-link.patch`,
 `blueprints/lab/tests/{webmail_sso_e2e.js,webmail_sso_negative.sh}`, `blueprints/lab/common/packages.env` (php-gd), `docs/screenshots/webmail-sso/`.
+
+## 9. Follow-up (agent AA, 2026-11-15)
+Email/username read-only profile, bearer key follower with rotation test, gromox claim-validation patch (alg/iss/aud/exp/nbf/email), ou-gw1 switch and the portal deep links are done: see `docs/status/sso-rollout-results.md`. Sections 4 and 6.4 above describe the state before that work.

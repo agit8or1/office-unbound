@@ -8,6 +8,7 @@ export interface NavGroup { title?: string; items: NavItem[] }
 export const NAV: NavGroup[] = [
   { items: [{ label: 'Overview', to: '/overview', icon: 'dashboard' }] },
   { title: 'Infrastructure', items: [
+    { label: 'Proxmox clusters', to: '/infrastructure/providers', icon: 'plug', match: ['/infrastructure/providers'] },
     { label: 'Clusters', to: '/infrastructure/clusters', icon: 'cluster' },
     { label: 'Nodes', to: '/infrastructure/nodes', icon: 'server' },
     { label: 'Virtual machines', to: '/infrastructure/vms', icon: 'vm' },
@@ -34,6 +35,7 @@ export const NAV: NavGroup[] = [
   ] },
   { title: 'Administration', items: [
     { label: 'Users & roles', to: '/users', icon: 'users', min: 'admin' },
+    { label: 'Customers', to: '/administration/customers', icon: 'users', min: 'admin' },
     { label: 'Integrations', to: '/endpoints', icon: 'plug' },
     { label: 'Audit log', to: '/audit', icon: 'file', min: 'approver' },
     { label: 'Access policies', icon: 'shield', planned: true, min: 'admin' },

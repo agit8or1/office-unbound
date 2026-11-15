@@ -7,6 +7,7 @@ import secrets
 import time
 from contextlib import asynccontextmanager
 from pathlib import Path
+from urllib.parse import urlsplit
 
 import httpx
 from fastapi import FastAPI, Form, Request
@@ -28,7 +29,9 @@ KINDS = ("document", "spreadsheet", "presentation")
 
 def safe_next(p: str | None) -> str:
     """Only same-site absolute paths: blocks open redirects (//evil, /\\evil, schemes)."""
-    if p and p.startswith("/") and not p.startswith("//") and "\\" not in p and "\n" not in p and "\r" not in p:
+    if (p and p.startswith("/") and not p.startswith("//") and "\\" not in p
+            and all(0x20 < ord(c) < 0x7f or ord(c) > 0xa0 for c in p)      # review 3 L7: no control chars (incl. TAB), space or DEL
+            and not urlsplit(p).netloc and not urlsplit(p).scheme):
         return p
     return "/"
 
@@ -143,7 +146,7 @@ def create_app(cfg: Settings | None = None, transport: httpx.AsyncBaseTransport 
     async def login(request: Request, next: str = "/") -> Response:
         verifier, challenge = new_pkce()
         nonce = secrets.token_urlsafe(24)
-        st = store.new_flow(verifier, nonce, safe_next(next))
+        st = store.new_flow(verifier, nonce, safe_next(next), request.client.host if request.client else "")
         try:
             url = await state["oidc"].auth_url(st, nonce, challenge)
         except (httpx.HTTPError, OIDCError):

@@ -111,6 +111,29 @@ def test_safe_next():
         assert safe_next(bad) == "/"
 
 
+def test_safe_next_rejects_control_characters_review3_l7():
+    for bad in ("/\t/evil.example", "/a\tb", "/a\x00b", "/a b", "/a\x7fb", "/\x0b/x", "/\u0085x"):
+        assert safe_next(bad) == "/", repr(bad)
+    assert safe_next("/files/%E2%9C%93?x=1#y") == "/files/%E2%9C%93?x=1#y"
+
+
+def test_login_flood_cannot_evict_other_users_flows_review3_l6():
+    from app.sessions import Store
+    st = Store(3600)
+    victim = st.new_flow("v", "n", "/", "198.51.100.7")
+    for _ in range(Store.FLOWS_MAX + 500):              # the reviewer's probe: > 2000 unauthenticated /login requests from one address
+        st.new_flow("v", "n", "/", "203.0.113.9")
+    assert len(st.flows) <= Store.FLOWS_PER_IP + 1
+    assert st.pop_flow(victim) is not None               # the victim's in-flight sign-in survived
+    # global cap reached by many distinct addresses: the heaviest address pays, not a random/oldest victim
+    st2 = Store(3600)
+    keep = st2.new_flow("v", "n", "/", "198.51.100.7")
+    for i in range(Store.FLOWS_MAX):
+        st2.new_flow("v", "n", "/", f"10.{i // 250}.{i % 250}.1")
+    assert len(st2.flows) <= Store.FLOWS_MAX
+    assert st2.pop_flow(keep) is not None
+
+
 def test_login_uses_pkce_and_bound_state(env):
     c, m, _ = env
     r, q = login(c, m)
@@ -309,3 +332,18 @@ def test_about_page_and_footer_show_version(env):
     _, q = login(c, m)
     finish(c, q)
     assert PORTAL_VERSION in c.get("/about").text
+
+
+def test_mail_calendar_contacts_tiles_use_sso_deep_links_and_no_separate_password_note(env):
+    c, m, _ = env
+    _, q = login(c, m)
+    finish(c, q)
+    html = c.get("/").text
+    found = re.findall(r'<a class="tile" href="([^"]+)" data-app="(mail|calendar|contacts)"', html)
+    assert {app: href for href, app in found} == {"mail": "https://mail.test/web/",
+                                                  "calendar": "https://mail.test/web/?action=context&amp;view=calendar",
+                                                  "contacts": "https://mail.test/web/?action=context&amp;view=contacts"}
+    assert not re.search(r"separate password|own password|same password|sign[- ]in of its own", html, re.I)
+    assert CFG.mail_view_url("calendar") == "https://mail.test/web/?action=context&view=calendar"
+    with pytest.raises(ValueError):
+        CFG.mail_view_url("calendar&view=x")

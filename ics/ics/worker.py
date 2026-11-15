@@ -5,7 +5,10 @@ import time
 from sqlalchemy import text
 
 from . import identity, monitor
+from .credentials import expiry as cred_expiry
+from .tenancy import approvals as tapprovals
 from .inventory import collector
+from .provisioning import service as prov_service
 from .actions import claim_job, reap_expired, run_job
 from .runtime import Runtime
 
@@ -42,12 +45,17 @@ class Worker(threading.Thread):
         now = time.monotonic()
         self.progress = {"jobs": now, "monitor": now}
         self.job_stall_seconds = rt.settings.job_timeout_seconds + 30.0
+        rt.progress_hook = self._job_progress  # long deployment jobs renew their lease and report progress here
         self.monitor_stall_seconds = float(rt.settings.monitor_stall_seconds)
+
+    def _job_progress(self) -> None:
+        self.progress["jobs"] = time.monotonic()
 
     def healthy(self) -> bool:
         now = time.monotonic()
         return (now - self.progress["jobs"] <= self.job_stall_seconds
                 and (not self.rt.settings.monitor_enabled or now - self.progress["monitor"] <= self.monitor_stall_seconds))
+        self._next_vault = 0.0
 
     def _beat(self) -> None:
         """Own timer thread, so the heartbeat keeps ticking while a long job runs (old M8) but stops when a loop is stalled."""
@@ -82,6 +90,11 @@ class Worker(threading.Thread):
                 self.progress["monitor"] = time.monotonic()
                 identity.reconcile_due(self.rt)
                 self.progress["monitor"] = time.monotonic()
+                if time.monotonic() >= self._next_vault:
+                    self._next_vault = time.monotonic() + 60
+                    cred_expiry.tick(self.rt)
+                    tapprovals.expire_due(self.rt)
+                    self.progress["monitor"] = time.monotonic()
             except Exception:  # noqa: BLE001
                 log.exception("monitor loop error")
             self._stop_evt.wait(self.interval)
@@ -91,6 +104,7 @@ class Worker(threading.Thread):
         while not self._stop_evt.is_set():
             try:
                 collector.tick(self.rt)
+                prov_service.tick(self.rt)
             except Exception:  # noqa: BLE001
                 log.exception("inventory loop error")
             self._stop_evt.wait(self.interval)

@@ -79,11 +79,11 @@ _BASE = (
 def _shape(r, is_admin: bool, locked: bool) -> dict:
     d = {
         "id": str(r.id), "username": r.username, "role": r.role, "privileged": r.role in PRIVILEGED,
-        "status": _status(r, locked), "created_by": r.created_by, "created_at": _iso(r.created_at),
+        "status": _status(r, locked and is_admin), "created_by": r.created_by, "created_at": _iso(r.created_at),
         "role_set_by": r.role_set_by, "role_set_at": _iso(r.role_set_at),
-        "last_login_at": _iso(r.last_login_at), "mfa_enrolled": bool(r.mfa_enrolled),
-        "active_sessions": int(r.active_sessions), "pending_plans": int(r.pending_plans),
-    }
+        "last_login_at": _iso(r.last_login_at) if is_admin else None, "mfa_enrolled": bool(r.mfa_enrolled) if is_admin else None,
+        "active_sessions": int(r.active_sessions) if is_admin else None, "pending_plans": int(r.pending_plans),
+    }  # review 3 L8: lockout state, MFA status, session counts and last sign-in are admin-only
     if is_admin:
         d["last_login_ip"] = r.last_login_ip
     return d
@@ -132,7 +132,7 @@ def register(app: FastAPI, rt: Runtime, API: str) -> None:
             "at": _iso(h.at), "role": h.details.get("role"), "previous_role": h.details.get("previous_role"),
             "kind": "invited" if h.action == "user.invite" else "role_change",
             "by": names.get(h.details.get("requested_by")) or (d["created_by"] if h.action == "user.invite" else None),
-            "plan_id": h.details.get("plan_id"), "justification": h.details.get("justification"),
+            "plan_id": h.details.get("plan_id"), "justification": h.details.get("justification") if is_admin else None,
         } for h in hist]
         if is_admin:
             ss = db.execute(text("SELECT created_at, last_seen, expires_at FROM sessions WHERE user_id = :i AND expires_at > now() "

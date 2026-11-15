@@ -452,6 +452,6 @@ def test_l5_check_results_are_capped_per_check(env, rt, monkeypatch):
     settings(rt, monkeypatch, check_results_max_per_check=3)
     cid = smtp_check(env, 9)
     feed(env, cid, *["ok"] * 8)
-    monitor._last_retention = 0.0
+    monitor._last_retention = None
     assert monitor.retention(env.rt) >= 5
     assert env.q("SELECT count(*) FROM check_results WHERE check_id = :c", c=cid)[0][0] == 3
