@@ -1,0 +1,296 @@
+authmgr: validate alg, iss, aud, exp/nbf and email of bearer (OIDC) tokens
+
+Apply with `patch -p1` on gromox-3.13 (8b620206). AGPL-3.0-or-later, same as gromox.
+
+verify_token() only checked the RS256 signature and "exp". Any token signed
+by the realm key was accepted for any mailbox named in its "email" claim,
+including tokens issued to a different OAuth client (audience confusion).
+
+- JOSE header must have alg == "RS256" (the only algorithm implemented).
+- "exp" must be present, integral and in the future; "nbf" (if present) passed.
+- "email" must be a non-empty string.
+- New gromox.cfg directives bearer_issuer and bearer_audience (default empty
+  = unchanged behaviour, with a NOTICE in the log): "iss" must equal the
+  issuer; the audience must equal "aud" or be an element of it.
+- The claim logic is a header-only function (include/gromox/bearer.hpp) with
+  a unit test (tests/bearer.cpp, part of `make check`).
+
+Tested (docs/status/sso-rollout-results.md): unit test 27/27; real Keycloak
+tokens through zcore mapi_logon_token with different policies
+(blueprints/lab/tests/gromox_bearer_claims_test.sh).
+
+--- a/Makefile.am
++++ b/Makefile.am
+@@ -240,7 +240,7 @@
+ endif
+ EXTRA_mapi_la_DEPENDENCIES = default.sym
+ 
+-noinst_PROGRAMS = dldcheck tests/bodyconv tests/compress tests/imapargs tests/dnsbl_check tests/exrpctest tests/gxl-383 tests/jsontest tests/oxcmail_ie tests/ucvttest tests/udb tests/utf8filter tests/utiltest tests/vcard tools/tzdump
++noinst_PROGRAMS = dldcheck tests/bearer tests/bodyconv tests/compress tests/imapargs tests/dnsbl_check tests/exrpctest tests/gxl-383 tests/jsontest tests/oxcmail_ie tests/ucvttest tests/udb tests/utf8filter tests/utiltest tests/vcard tools/tzdump
+ if HAVE_ESEDB
+ noinst_PROGRAMS += tests/epv_unpack
+ endif
+@@ -249,7 +249,7 @@
+ endif
+ dldcheck_SOURCES = tools/dldcheck.cpp
+ dldcheck_LDADD = ${dl_LIBS} ${libHX_LIBS}
+-TESTS = tests/bodyconv tests/imapargs tests/jsontest tests/oxcmail_ie tests/utiltest
++TESTS = tests/bearer tests/bodyconv tests/imapargs tests/jsontest tests/oxcmail_ie tests/utiltest
+ tests_udb_SOURCES = tests/userdb.cpp
+ tests_udb_LDADD = ${libHX_LIBS} libgromox_common.la libgxs_mysql_adaptor.la
+ tests_bodyconv_SOURCES = tests/bodyconv.cpp
+@@ -266,6 +266,8 @@
+ tests_gssauth_LDADD = ${libHX_LIBS} ${gss_LIBS} libgromox_common.la
+ tests_gxl_383_SOURCES = tests/gxl-383.cpp
+ tests_gxl_383_LDADD = libgromox_common.la libgromox_exrpc.la libgromox_mapi.la
++tests_bearer_SOURCES = tests/bearer.cpp
++tests_bearer_LDADD = ${jsoncpp_LIBS}
+ tests_jsontest_SOURCES = tests/jsontest.cpp
+ tests_jsontest_LDADD = ${jsoncpp_LIBS} libgromox_common.la libgromox_mapi.la
+ tests_oxcmail_ie_SOURCES = tests/oxcmail_ie.cpp
+@@ -336,7 +338,7 @@
+ tzd_files += data/Greenland.tzd data/Greenwich.tzd data/Haiti.tzd data/Hawaiian.tzd data/India.tzd data/Iran.tzd data/Israel.tzd data/Jordan.tzd data/Kaliningrad.tzd data/Kamchatka.tzd data/Korea.tzd data/Libya.tzd data/Line_Islands.tzd data/Lord_Howe.tzd data/Magadan.tzd data/Magallanes.tzd data/Marquesas.tzd data/Mauritius.tzd data/Mid-Atlantic.tzd data/Middle_East.tzd data/Montevideo.tzd data/Morocco.tzd data/Mountain.tzd data/Mountain__Mexico_.tzd data/Myanmar.tzd data/N__Central_Asia.tzd data/Namibia.tzd data/Nepal.tzd data/New_Zealand.tzd data/Newfoundland.tzd data/Norfolk.tzd data/North_Asia.tzd data/North_Asia_East.tzd data/North_Korea.tzd data/Omsk.tzd data/Pacific.tzd data/Pacific_SA.tzd data/Pacific__Mexico_.tzd data/Pakistan.tzd data/Paraguay.tzd data/Qyzylorda.tzd data/Romance.tzd data/Russia_Time_Zone_10.tzd data/Russia_Time_Zone_11.tzd data/Russia_Time_Zone_3.tzd data/Russian.tzd data/SA_Eastern.tzd data/SA_Pacific.tzd data/SA_Western.tzd data/SE_Asia.tzd data/Saint_Pierre.tzd data/Sakhalin.tzd data/Samoa.tzd data/Sao_Tome.tzd
+ tzd_files += data/Saratov.tzd data/Singapore.tzd data/South_Africa.tzd data/South_Sudan.tzd data/Sri_Lanka.tzd data/Sudan.tzd data/Syria.tzd data/Taipei.tzd data/Tasmania.tzd data/Tocantins.tzd data/Tokyo.tzd data/Tomsk.tzd data/Tonga.tzd data/Transbaikal.tzd data/Turkey.tzd data/Turks_And_Caicos.tzd data/US_Eastern.tzd data/US_Mountain.tzd data/UTC+12.tzd data/UTC+13.tzd data/UTC-02.tzd data/UTC-08.tzd data/UTC-09.tzd data/UTC-11.tzd data/UTC.tzd data/Ulaanbaatar.tzd data/Venezuela.tzd data/Vladivostok.tzd data/Volgograd.tzd data/W__Australia.tzd data/W__Central_Africa.tzd data/W__Europe.tzd data/W__Mongolia.tzd data/West_Asia.tzd data/West_Bank.tzd data/West_Pacific.tzd data/Yakutsk.tzd data/Yukon.tzd
+ tzd_files += data/windowsZones.xml
+-header_files = include/gromox/ab_tree.hpp include/gromox/algorithm.hpp include/gromox/archive.hpp include/gromox/atomic.hpp include/gromox/authmgr.hpp include/gromox/bounce_gen.hpp include/gromox/clock.hpp include/gromox/common_types.hpp include/gromox/config_file.hpp include/gromox/contexts_pool.hpp include/gromox/cookie_parser.hpp include/gromox/cryptoutil.hpp include/gromox/database.h include/gromox/database_mysql.hpp include/gromox/dbop.h include/gromox/dcerpc.hpp include/gromox/defs.h include/gromox/double_list.hpp include/gromox/dsn.hpp include/gromox/element_data.hpp include/gromox/exmdb_allcalls.hpp include/gromox/exmdb_client.hpp include/gromox/exmdb_common_util.hpp include/gromox/exmdb_ext.hpp include/gromox/exmdb_idef.hpp include/gromox/exmdb_provider_client.hpp include/gromox/exmdb_rpc.hpp include/gromox/exmdb_server.hpp include/gromox/ext_buffer.hpp
++header_files = include/gromox/ab_tree.hpp include/gromox/algorithm.hpp include/gromox/archive.hpp include/gromox/atomic.hpp include/gromox/authmgr.hpp include/gromox/bearer.hpp include/gromox/bounce_gen.hpp include/gromox/clock.hpp include/gromox/common_types.hpp include/gromox/config_file.hpp include/gromox/contexts_pool.hpp include/gromox/cookie_parser.hpp include/gromox/cryptoutil.hpp include/gromox/database.h include/gromox/database_mysql.hpp include/gromox/dbop.h include/gromox/dcerpc.hpp include/gromox/defs.h include/gromox/double_list.hpp include/gromox/dsn.hpp include/gromox/element_data.hpp include/gromox/exmdb_allcalls.hpp include/gromox/exmdb_client.hpp include/gromox/exmdb_common_util.hpp include/gromox/exmdb_ext.hpp include/gromox/exmdb_idef.hpp include/gromox/exmdb_provider_client.hpp include/gromox/exmdb_rpc.hpp include/gromox/exmdb_server.hpp include/gromox/ext_buffer.hpp
+ header_files += include/gromox/fileio.h include/gromox/flat_set.hpp include/gromox/flusher_common.h include/gromox/freebusy.hpp include/gromox/gab.hpp include/gromox/generic_connection.hpp include/gromox/hook_common.h include/gromox/hpm_common.h include/gromox/http.hpp include/gromox/ical.hpp include/gromox/icase.hpp include/gromox/idset.hpp include/gromox/json.hpp include/gromox/list_file.hpp include/gromox/listener_ctx.hpp include/gromox/lzxpress.hpp include/gromox/mail.hpp include/gromox/mail_func.hpp include/gromox/mapi_types.hpp include/gromox/mapidefs.h include/gromox/mapierr.hpp include/gromox/mapitags.hpp include/gromox/midb.hpp include/gromox/midb_agent.hpp include/gromox/mime.hpp include/gromox/mjson.hpp include/gromox/mysql_adaptor.hpp include/gromox/ndr.hpp include/gromox/notify_types.hpp include/gromox/oxcmail.hpp include/gromox/oxoabkt.hpp
+ header_files += include/gromox/paths.h include/gromox/pcl.hpp include/gromox/plugin.hpp include/gromox/poll_ctx.hpp include/gromox/proc_common.h include/gromox/process.hpp include/gromox/propval.hpp include/gromox/range_set.hpp include/gromox/resource_pool.hpp include/gromox/restriction.hpp include/gromox/rop_util.hpp include/gromox/rpc_types.hpp include/gromox/rule_actions.hpp include/gromox/safeint.hpp include/gromox/simple_tree.hpp
+ header_files += include/gromox/sent_copy.hpp include/gromox/socketpass.hpp include/gromox/sortorder_set.hpp include/gromox/stream.hpp include/gromox/svc_common.h include/gromox/svc_loader.hpp include/gromox/textmaps.hpp include/gromox/threads_pool.hpp include/gromox/tie.hpp include/gromox/tnef.hpp include/gromox/unordered_map_assist.hpp include/gromox/usercvt.hpp include/gromox/util.hpp include/gromox/vcard.hpp include/gromox/workqueue.hpp include/gromox/xarray2.hpp include/gromox/zcore_allcalls.hpp include/gromox/zcore_client.hpp include/gromox/zcore_rpc.hpp include/gromox/zcore_types.hpp include/gromox/zz_ndr_stack.hpp
+--- a/doc/authmgr.4gx
++++ b/doc/authmgr.4gx
+@@ -37,6 +37,24 @@
+ .br
+ Default: \fI1s\fP
+ .TP
++\fBbearer_issuer\fP
++Required value of the \fBiss\fP claim of OIDC bearer tokens (JWT) that are
++presented for login (e.g. by grommunio-web with Keycloak, see
++\fB/etc/gromox/bearer_pubkey\fP). When empty, the issuer is not checked.
++.br
++Default: (empty)
++.TP
++\fBbearer_audience\fP
++Value that must be contained in the \fBaud\fP claim of bearer tokens (string,
++or one element of an array). Without this, any token signed by the issuer's
++key is accepted, including tokens that were issued to a different
++application. Setting both \fBbearer_issuer\fP and \fBbearer_audience\fP is
++recommended. Independent of these settings, bearer tokens are only accepted
++when the JOSE header has \fBalg\fP=\fBRS256\fP, when \fBexp\fP is present and
++in the future, \fBnbf\fP (if present) has passed, and \fBemail\fP is non-empty.
++.br
++Default: (empty)
++.TP
+ \fBauth_backend_selection\fP
+ This controls how authmgr will verify passwords supplied with login operations.
+ See the "Authentication modes" section below for details.
+--- a/exch/authmgr.cpp
++++ b/exch/authmgr.cpp
+@@ -32,6 +32,7 @@
+ #	include <security/pam_appl.h>
+ #endif
+ #include <gromox/authmgr.hpp>
++#include <gromox/bearer.hpp>
+ #include <gromox/clock.hpp>
+ #include <gromox/common_types.hpp>
+ #include <gromox/config_file.hpp>
+@@ -75,10 +76,14 @@
+ static std::mutex am_cred_lock;
+ static std::unordered_map<std::string, cred_entry> am_cred_cache;
+ static constexpr size_t am_cred_max = 65536;
++static std::mutex am_bearer_lock;
++static bearer_policy am_bearer_policy;
+ 
+ static constexpr cfg_directive authmgr_cfg_defaults[] = {
+ 	{"auth_cred_caching", "1min", CFG_TIME_NS},
+ 	{"auth_fail_delay", "1s", CFG_TIME_NS},
++	{"bearer_issuer", ""},
++	{"bearer_audience", ""},
+ 	CFG_TABLE_END,
+ };
+ 
+@@ -235,11 +240,23 @@
+ 	payload.insert(payload.size(), (4 - payload.size() % 4) % 4, '=');
+ 	signature.insert(signature.size(), (4 - signature.size() % 4) % 4, '=');
+ 
+-	/* Grab username */
+-	Json::Value root;
+-	if (!str_to_json(base64_decode(std::move(payload)), root))
++	/* Header and claims. alg/iss/aud/exp/nbf are checked in bearer_claims_valid. */
++	Json::Value hdr, root;
++	std::string header(token.c_str(), strchr(token.c_str(), '.') - token.c_str());
++	std::replace(header.begin(), header.end(), '-', '+');
++	std::replace(header.begin(), header.end(), '_', '/');
++	header.insert(header.size(), (4 - header.size() % 4) % 4, '=');
++	if (!str_to_json(base64_decode(std::move(header)), hdr) ||
++	    !str_to_json(base64_decode(std::move(payload)), root))
+ 		return false;
+ 	payload.clear();
++	bearer_policy pol;
++	{
++		std::lock_guard hold(am_bearer_lock);
++		pol = am_bearer_policy;
++	}
++	if (!bearer_claims_valid(hdr, root, pol, time(nullptr)))
++		return false;
+ 	ex_user = root["email"].asString();
+ 
+ 	/* Load pubkey */
+@@ -255,8 +272,7 @@
+ 		mlog(LV_ERR, "%s: this does not look like a PEM-encoded RSA key", pk_file);
+ 		return false;
+ 	}
+-	return time(nullptr) < root["exp"].asInt64() &&
+-	       verify_sig(std::move(pkey), signed_msg,
++	return verify_sig(std::move(pkey), signed_msg,
+ 	       base64_decode(std::move(signature)));
+ }
+ 
+@@ -397,6 +413,13 @@
+ 	}
+ 	am_fail_delay = std::chrono::nanoseconds(pfile->get_ll("auth_fail_delay"));
+ 	am_cred_lifetime = std::chrono::nanoseconds(pfile->get_ll("auth_cred_caching"));
++	{
++		std::lock_guard hold(am_bearer_lock);
++		am_bearer_policy.issuer = znul(pfile->get_value("bearer_issuer"));
++		am_bearer_policy.audience = znul(pfile->get_value("bearer_audience"));
++		if (am_bearer_policy.issuer.empty() || am_bearer_policy.audience.empty())
++			mlog(LV_NOTICE, "authmgr: bearer_issuer/bearer_audience not both set; bearer tokens are accepted from any client of the key's issuer");
++	}
+ 
+ 	auto val = pfile->get_value("auth_backend_selection");
+ 	if (val == nullptr) {
+--- a/include/gromox/bearer.hpp
++++ b/include/gromox/bearer.hpp
+@@ -0,0 +1,70 @@
++// SPDX-License-Identifier: AGPL-3.0-or-later
++// SPDX-FileCopyrightText: 2026 grommunio GmbH
++// This file is part of Gromox.
++#pragma once
++#include <ctime>
++#include <string>
++#include <string_view>
++#include <json/value.h>
++
++namespace gromox {
++
++/**
++ * Policy for OIDC bearer tokens (JWT) presented to authmgr. Empty strings
++ * mean "do not check", which is the historic behavior.
++ */
++struct bearer_policy {
++	std::string issuer;   /* required value of "iss" */
++	std::string audience; /* must be "aud" (string) or one element of "aud" (array) */
++};
++
++/**
++ * Validate the claims of an already signature-verified JWT. This does not
++ * check the signature itself.
++ * @hdr:	decoded JOSE header
++ * @claims:	decoded payload
++ * @now:	current time, in seconds since the epoch
++ *
++ * The token is rejected when:
++ * - the JOSE "alg" is anything but "RS256" (the only algorithm the signature
++ *   code implements; "none" and HMAC variants must never be accepted),
++ * - "exp" is missing, not a number, or in the past; "nbf" is in the future,
++ * - "email" (the account name) is missing or empty,
++ * - an issuer is configured and "iss" differs,
++ * - an audience is configured and "aud" does not contain it.
++ */
++inline bool bearer_claims_valid(const Json::Value &hdr, const Json::Value &claims,
++    const bearer_policy &pol, time_t now)
++{
++	if (!hdr.isObject() || !claims.isObject())
++		return false;
++	if (!hdr["alg"].isString() || hdr["alg"].asString() != "RS256")
++		return false;
++	if (!claims["exp"].isIntegral() || now >= claims["exp"].asInt64())
++		return false;
++	if (claims.isMember("nbf") && (!claims["nbf"].isIntegral() || now < claims["nbf"].asInt64()))
++		return false;
++	if (!claims["email"].isString() || claims["email"].asString().empty())
++		return false;
++	if (!pol.issuer.empty() &&
++	    (!claims["iss"].isString() || claims["iss"].asString() != pol.issuer))
++		return false;
++	if (!pol.audience.empty()) {
++		const auto &aud = claims["aud"];
++		if (aud.isString()) {
++			if (aud.asString() != pol.audience)
++				return false;
++		} else if (aud.isArray()) {
++			bool found = false;
++			for (const auto &e : aud)
++				found = found || (e.isString() && e.asString() == pol.audience);
++			if (!found)
++				return false;
++		} else {
++			return false;
++		}
++	}
++	return true;
++}
++
++}
+--- a/tests/bearer.cpp
++++ b/tests/bearer.cpp
+@@ -0,0 +1,58 @@
++// SPDX-License-Identifier: AGPL-3.0-or-later
++// SPDX-FileCopyrightText: 2026 grommunio GmbH
++// This file is part of Gromox.
++#include <cstdio>
++#include <string>
++#include <cstdlib>
++#include <json/reader.h>
++#include <json/value.h>
++#include <gromox/bearer.hpp>
++
++using namespace gromox;
++
++static Json::Value J(const char *s)
++{
++	Json::Value v;
++	Json::Reader r;
++	if (!r.parse(s, v)) {
++		fprintf(stderr, "bad test json: %s\n", s);
++		exit(2);
++	}
++	return v;
++}
++
++static int fails;
++#define CHECK(name, expr) do { if (!(expr)) { ++fails; fprintf(stderr, "FAIL %s\n", name); } else { printf("ok   %s\n", name); } } while (0)
++
++int main()
++{
++	const time_t now = 1000000;
++	const auto H = J(R"({"alg":"RS256","typ":"JWT","kid":"k"})");
++	const char *good = R"({"exp":1000100,"iss":"https://kc/realms/r","aud":["account","ou-webmail"],"email":"bob@x.test"})";
++	bearer_policy none, both{"https://kc/realms/r", "ou-webmail"};
++
++	CHECK("legacy: no policy accepts a valid token", bearer_claims_valid(H, J(good), none, now));
++	CHECK("policy: iss+aud match (aud array)", bearer_claims_valid(H, J(good), both, now));
++	CHECK("policy: aud as plain string", bearer_claims_valid(H, J(R"({"exp":1000100,"iss":"https://kc/realms/r","aud":"ou-webmail","email":"b@x"})"), both, now));
++	CHECK("reject: wrong audience (token of another client)", !bearer_claims_valid(H, J(R"({"exp":1000100,"iss":"https://kc/realms/r","aud":"account","email":"b@x"})"), both, now));
++	CHECK("reject: missing aud when audience configured", !bearer_claims_valid(H, J(R"({"exp":1000100,"iss":"https://kc/realms/r","email":"b@x"})"), both, now));
++	CHECK("reject: wrong issuer", !bearer_claims_valid(H, J(R"({"exp":1000100,"iss":"https://evil/realms/r","aud":"ou-webmail","email":"b@x"})"), both, now));
++	CHECK("reject: missing iss when issuer configured", !bearer_claims_valid(H, J(R"({"exp":1000100,"aud":"ou-webmail","email":"b@x"})"), both, now));
++	CHECK("reject: audience substring is not a match", !bearer_claims_valid(H, J(R"({"exp":1000100,"iss":"https://kc/realms/r","aud":"ou-webmail-evil","email":"b@x"})"), both, now));
++	CHECK("reject: aud array with non-string/other entries only", !bearer_claims_valid(H, J(R"({"exp":1000100,"iss":"https://kc/realms/r","aud":[1,"x"],"email":"b@x"})"), both, now));
++	for (const char *alg : {"none", "HS256", "RS512", "rs256", "ES256", ""})
++		CHECK(alg, !bearer_claims_valid(J((std::string(R"({"alg":")") + alg + R"("})").c_str()), J(good), none, now));
++	CHECK("reject: no alg", !bearer_claims_valid(J("{}"), J(good), none, now));
++	CHECK("reject: alg not a string", !bearer_claims_valid(J(R"({"alg":["RS256"]})"), J(good), none, now));
++	CHECK("reject: expired", !bearer_claims_valid(H, J(R"({"exp":999999,"email":"b@x"})"), none, now));
++	CHECK("reject: exp == now", !bearer_claims_valid(H, J(R"({"exp":1000000,"email":"b@x"})"), none, now));
++	CHECK("reject: exp missing", !bearer_claims_valid(H, J(R"({"email":"b@x"})"), none, now));
++	CHECK("reject: exp is a string", !bearer_claims_valid(H, J(R"({"exp":"9999999999","email":"b@x"})"), none, now));
++	CHECK("reject: nbf in the future", !bearer_claims_valid(H, J(R"({"exp":1000100,"nbf":1000050,"email":"b@x"})"), none, now));
++	CHECK("accept: nbf in the past", bearer_claims_valid(H, J(R"({"exp":1000100,"nbf":999000,"email":"b@x"})"), none, now));
++	CHECK("reject: email missing", !bearer_claims_valid(H, J(R"({"exp":1000100})"), none, now));
++	CHECK("reject: email empty", !bearer_claims_valid(H, J(R"({"exp":1000100,"email":""})"), none, now));
++	CHECK("reject: email not a string", !bearer_claims_valid(H, J(R"({"exp":1000100,"email":["a@x"]})"), none, now));
++	CHECK("reject: payload not an object", !bearer_claims_valid(H, J("[1]"), none, now));
++	return fails ? EXIT_FAILURE : EXIT_SUCCESS;
++}
