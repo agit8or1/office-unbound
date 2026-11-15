@@ -9,6 +9,7 @@ import EmptyState from '../ui/EmptyState.vue'
 import Skeleton from '../ui/Skeleton.vue'
 import Segmented from '../ui/Segmented.vue'
 import Button from '../ui/Button.vue'
+import TechText from '../ui/TechText.vue'
 import { nextAction } from '../incidents'
 
 const filter = ref<'active' | 'recovered' | ''>('active')
@@ -39,7 +40,7 @@ const secs = (a: string, b: string | null) => (b ? Math.round((+new Date(b) - +n
     <ErrorBox :error="list.error.value" />
     <div class="split">
       <section class="card flush">
-        <div class="scroll">
+        <div class="scroll" tabindex="0" role="region" aria-label="Scrollable table">
           <table v-if="list.data.value?.length">
             <thead><tr><th>Check</th><th>Severity</th><th>Status</th><th>Opened</th><th>Recovered</th></tr></thead>
             <tbody><tr v-for="i in list.data.value" :key="i.id" :class="{ sel: i.id === selId }">
@@ -61,7 +62,7 @@ const secs = (a: string, b: string | null) => (b ? Math.round((+new Date(b) - +n
             <dt v-if="sel.data.value.acked_at">Acknowledged</dt><dd v-if="sel.data.value.acked_at">{{ fmtTime(sel.data.value.acked_at) }}</dd>
             <dt v-if="sel.data.value.recovered_at">Recovered</dt><dd v-if="sel.data.value.recovered_at">{{ fmtTime(sel.data.value.recovered_at) }} (after {{ secs(sel.data.value.opened_at, sel.data.value.recovered_at) }})</dd>
             <dt v-if="sel.data.value.escalated_at">Escalated</dt><dd v-if="sel.data.value.escalated_at">{{ fmtTime(sel.data.value.escalated_at) }}: automatic remediation exhausted</dd>
-            <dt>First message</dt><dd class="wrap">{{ sel.data.value.message }}</dd>
+            <dt>First message</dt><dd class="wrap"><TechText :text="sel.data.value.message" /></dd>
           </dl>
           <div class="alert info"><span><b>Next step:</b> {{ nextAction(sel.data.value) }}</span></div>
           <template v-if="sel.data.value.status === 'open' && hasRole('operator')">
@@ -76,7 +77,7 @@ const secs = (a: string, b: string | null) => (b ? Math.round((+new Date(b) - +n
             <thead><tr><th>Event</th><th>Channel</th><th>Status</th><th>Sent</th></tr></thead>
             <tbody><tr v-for="n in sel.data.value.notifications" :key="n.id">
               <td>{{ n.event }}</td><td>{{ n.channel }} <span class="muted small">({{ n.channel_kind }})</span></td>
-              <td><Status :s="n.status === 'sent' ? 'ok' : n.status === 'failed' ? 'failed' : 'queued'" /> <span v-if="n.detail || n.last_error" class="muted small">{{ n.detail ?? n.last_error }}</span></td>
+              <td><Status :s="n.status === 'sent' ? 'ok' : n.status === 'failed' ? 'failed' : 'queued'" /> <span v-if="n.detail || n.last_error" class="muted small"><TechText :text="n.detail ?? n.last_error" /></span></td>
               <td>{{ fmtTime(n.sent_at) }}</td>
             </tr></tbody>
           </table>

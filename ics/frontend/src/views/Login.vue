@@ -21,12 +21,12 @@ async function submit() {
 </script>
 <template>
   <div class="authpage">
-    <div class="authside">
+    <aside class="authside" aria-label="About Office Unbound">
       <div class="row"><span class="mark"><Icon name="cluster" /></span><strong>Office Unbound</strong></div>
       <div><h2>Run your infrastructure with confidence.</h2><p>Plan, approve and observe every change across your Proxmox clusters and customer deployments, with a complete audit trail.</p></div>
       <p class="small">Self-hosted. Your data stays yours.</p>
-    </div>
-    <div class="authform">
+    </aside>
+    <main id="main" tabindex="-1" class="authform">
       <div class="authbox">
         <div><h1>Sign in</h1><p class="muted">Use your console account and authenticator code.</p></div>
         <div v-if="session.expired" class="alert warn" role="status">Your session ended. Sign in again.</div>
@@ -39,6 +39,6 @@ async function submit() {
         </form>
         <p class="muted small">Have an invite? <a href="#/enroll">Set up your account</a>.</p>
       </div>
-    </div>
+    </main>
   </div>
 </template>

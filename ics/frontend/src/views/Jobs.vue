@@ -24,7 +24,7 @@ const sel = useLoad(async () => (selId.value ? get<Job>(`jobs/${selId.value}`) :
     <ErrorBox :error="jobs.error.value" />
     <div class="split">
       <section class="card flush">
-        <div class="scroll">
+        <div class="scroll" tabindex="0" role="region" aria-label="Scrollable table">
           <table v-if="jobs.data.value?.length">
             <thead><tr><th>Job</th><th>Action</th><th>Status</th><th>Created</th><th>Finished</th></tr></thead>
             <tbody>

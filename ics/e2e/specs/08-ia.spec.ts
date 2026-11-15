@@ -67,3 +67,11 @@ test('first-run setup wizard route (when merged) renders', async ({ page }) => {
   test.skip(/not found/i.test(t), 'setup wizard not merged yet')
   expect(t.length).toBeGreaterThan(50)
 })
+
+// Owner decision: login lands on the dashboard; the setup wizard is only offered there, never opened automatically.
+test('no endpoint: dashboard stays open and offers the guided setup as one primary button', async ({ page }) => {
+  await page.goto('/ui/#/overview')
+  await expect(page.getByRole('heading', { name: 'Connect your first Proxmox cluster' })).toBeVisible()
+  await expect(page).toHaveURL(/#\/overview/)
+  await expect(page.getByRole('link', { name: 'Start guided setup' })).toHaveCount(1)
+})
