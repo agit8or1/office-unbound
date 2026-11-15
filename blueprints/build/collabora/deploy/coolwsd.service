@@ -1,0 +1,24 @@
+[Unit]
+Description=Office Unbound Docs (coolwsd; overrides the vendor unit of the same name)
+After=network.target
+
+[Service]
+User=cool
+Group=cool
+ExecStart=/usr/bin/coolwsd --o:sys_template_path=/opt/ou-docs/systemplate --o:child_root_path=/opt/ou-docs/child-roots --o:file_server_root_path=/usr/share/coolwsd --o:cache_files.path=/opt/ou-docs/cache --o:lo_template_path=/opt/officeunbound-office --o:logging.file[@enable]=false --o:logging.color=false --o:logging.level=warning --o:logging.level_startup=warning
+KillSignal=SIGINT
+KillMode=mixed
+TimeoutStopSec=120
+Restart=always
+LimitNOFILE=1048576
+ProtectSystem=strict
+ReadWritePaths=/opt/ou-docs /opt/cool/.cache /var/log
+ProtectHome=yes
+PrivateTmp=yes
+ProtectControlGroups=yes
+NoNewPrivileges=no
+# coolforkit-caps needs file capabilities (setcap), so the bounding set must keep them
+CapabilityBoundingSet=CAP_FOWNER CAP_CHOWN CAP_SYS_CHROOT CAP_SYS_ADMIN
+
+[Install]
+WantedBy=multi-user.target
