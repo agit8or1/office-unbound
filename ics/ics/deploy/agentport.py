@@ -137,7 +137,7 @@ class GuestAgentPort:
             raise StepFailed("the golden-image bootstrap is not configured (ICS_GUEST_CALLBACK_URL and ICS_GUEST_CALLBACK_PIN_SHA256)",
                              "Set the HTTPS URL the guests call back (reachable from the VM network) and the SHA-256 of the certificate they must pin.",
                              retryable=False)
-        rec = bootsecrets.issue(self.rt, self.dep["id"], vm, ref.vmid, "callback")
+        rec = bootsecrets.issue(self.rt, self.dep["id"], vm, ref.vmid, "callback", config=self._callback_config(vm))
         return {"smbios_serial": rec.smbios_serial, "smbios_sku": url, "smbios_family": "sha256:" + pin}
 
     def await_callback(self, vm: str, timeout_s: int) -> dict:
@@ -352,13 +352,12 @@ class GuestAgentPort:
                              "See /var/log/ou-bootstrap-run.log on the VM.", retryable=False)
         raise sshboot.NotReady("bootstrap still running " + st.get("log", "")[-120:])
 
-    def _render(self, vm: str, ident: sshboot.BootIdentity, addr: str) -> str:
+    def _spec(self, vm: str, token_sha256: str, addr: str | None, mgmt: list[str], *, lab: bool, bundle: bytes | None) -> cloudinit.GuestSpec:
         s = self.rt.settings
         v = self._vm(vm)
         os_id = (v.get("os_image") or {}).get("id", "debian-12")
         if os_id not in cloudinit.SUITES:
             raise StepFailed(f"OS image {os_id!r} has no guest bootstrap profile", "", retryable=False)
-        mgmt = list(s.guest_mgmt_sources) or [self._source_towards(addr) + "/32"]
         ports = []
         for f in self.plan.get("firewall", []):
             if f["vm"] != vm or f["port"] == AGENT_PORT:   # the agent port is always opened (to the management sources) by the ruleset itself
@@ -371,20 +370,42 @@ class GuestAgentPort:
         if s.guest_image_signing_pubkey_file:
             pub = Path(s.guest_image_signing_pubkey_file).read_text()
             key_sha = s.guest_image_signing_key_sha256
-        bundle = cloudinit.build_agent_bundle(_agent_dir(self.rt))
         import base64
         import hashlib
+        raw = bundle if bundle is not None else b"golden-image"   # the golden image carries the agent; only the rendering rules are needed here
         try:
-            spec = cloudinit.GuestSpec(
+            return cloudinit.GuestSpec(
                 hostname=vm, os=os_id, agent_address=addr, agent_port=AGENT_PORT, mgmt_sources=mgmt, declared_ports=ports,
                 image_registries=list(s.guest_image_registries) if pub else [], insecure_registries=list(s.guest_insecure_registries) if pub else [],
-                image_signing_pubkey_pem=pub, image_signing_key_sha256=key_sha, bootstrap_user=sshboot.BOOT_USER,
-                enroll_token_sha256=ident.enroll_token_sha256, enroll_ttl_seconds=3600,
-                agent_bundle_b64=base64.b64encode(bundle).decode(), agent_bundle_sha256=hashlib.sha256(bundle).hexdigest(),
+                image_signing_pubkey_pem=pub, image_signing_key_sha256=key_sha, bootstrap_user=sshboot.BOOT_USER if lab else None,
+                enroll_token_sha256=token_sha256, enroll_ttl_seconds=3600,
+                agent_bundle_b64=base64.b64encode(raw).decode(), agent_bundle_sha256=hashlib.sha256(raw).hexdigest(),
                 subid_start=100000, subid_count=65536)
         except ValueError as e:
             raise StepFailed("the guest specification is invalid: " + str(e)[:200], "Check the ICS_GUEST_* settings.", retryable=False) from None
-        return cloudinit.render(spec)
+
+    def _render(self, vm: str, ident: sshboot.BootIdentity, addr: str) -> str:
+        mgmt = list(self.rt.settings.guest_mgmt_sources) or [self._source_towards(addr) + "/32"]
+        bundle = cloudinit.build_agent_bundle(_agent_dir(self.rt))
+        return cloudinit.render(self._spec(vm, ident.enroll_token_sha256, addr, mgmt, lab=True, bundle=bundle))
+
+    def _callback_config(self, vm: str) -> dict:
+        """What the golden image's first-boot unit applies after the ICS authenticated itself (closed schema, validated again on the guest).
+        `mgmt_sources` null = the ICS address towards the guest (known only at callback time)."""
+        s = self.rt.settings
+        spec = self._spec(vm, "0" * 64, None, list(s.guest_mgmt_sources) or ["192.0.2.1/32"], lab=False, bundle=None)
+        ports = []
+        for f in self.plan.get("firewall", []):
+            if f["vm"] != vm or f["port"] == AGENT_PORT:
+                continue
+            if f["from"] == "any":
+                ports.append({"port": f["port"], "proto": f["proto"], "sources": []})
+            elif f["from"] == "ics-control":
+                ports.append({"port": f["port"], "proto": f["proto"], "sources": list(s.guest_mgmt_sources) or None})
+        return {"v": 1, "hostname": vm, "agent_port": AGENT_PORT, "mgmt_sources": list(s.guest_mgmt_sources) or None, "ports": ports,
+                "agent_config": cloudinit.agent_config(spec), "image_registries": spec.image_registries, "insecure_registries": spec.insecure_registries,
+                "signing_pubkey_pem": spec.image_signing_pubkey_pem, "signing_key_sha256": spec.image_signing_key_sha256,
+                "enroll_ttl_seconds": spec.enroll_ttl_seconds}
 
     @staticmethod
     def _source_towards(addr: str) -> str:

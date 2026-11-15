@@ -22,7 +22,8 @@ CREATE TABLE guest_bootstrap (
   secret_deleted_at timestamptz,
   sealed_at timestamptz,
   attempts integer NOT NULL DEFAULT 0,
-  report jsonb
+  report jsonb,
+  config jsonb
 );
 CREATE INDEX guest_bootstrap_dep ON guest_bootstrap (deployment_id, vm, vmid);
 GRANT SELECT, INSERT, UPDATE ON guest_bootstrap TO {APP}

@@ -336,8 +336,8 @@ def _port(rt, tmp_path, monkeypatch, lab=False, prov=None, **settings):
     sk.write_bytes(b"\x07" * 32)
     sk.chmod(0o600)
     extra = dict(environment="lab", lab_ssh_bootstrap=True) if lab else {}
-    rt.settings = dataclasses.replace(rt.settings, signing_key_file=str(sk), guest_callback_url="https://192.168.22.167:8443",
-                                      guest_callback_pin_sha256="ab" * 32, **extra, **settings)
+    rt.settings = dataclasses.replace(rt.settings, **{"signing_key_file": str(sk), "guest_callback_url": "https://192.168.22.167:8443",
+                                                      "guest_callback_pin_sha256": "ab" * 32, **extra, **settings})
     with rt.session() as db:
         uid = db.execute(text("INSERT INTO users (username, role, enrolled) VALUES ('agentport-u', 'operator', true) RETURNING id")).scalar()
         eid = db.execute(text("INSERT INTO endpoints (name, type, base_url, token_id, token_secret_enc, fingerprint_sha256) VALUES "

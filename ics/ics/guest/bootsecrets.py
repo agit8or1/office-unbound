@@ -6,6 +6,7 @@ material with its predecessor. Values are vault-encrypted (AAD binds the row and
 is over; a replaced instance's record is revoked and wiped. Only `bid` (a public, random lookup id, carried in the SMBIOS serial) is not secret."""
 import base64
 import hashlib
+import json
 import secrets
 from dataclasses import dataclass
 from datetime import datetime, timedelta, timezone
@@ -61,7 +62,7 @@ def _row_to_record(rt, r) -> BootRecord:
                       tok.decode() if tok else None, r.state, r.expires_at)
 
 
-def issue(rt, deployment_id: str, vm: str, vmid: int, mode: str, ttl_seconds: int | None = None) -> BootRecord:
+def issue(rt, deployment_id: str, vm: str, vmid: int, mode: str, ttl_seconds: int | None = None, config: dict | None = None) -> BootRecord:
     """The live record of this exact instance (idempotent for resumes), or a fresh one. Records of OTHER instances of the same VM are revoked and wiped."""
     ttl = ttl_seconds or rt.settings.guest_bootstrap_ttl_seconds
     with rt.session() as db:
@@ -69,6 +70,9 @@ def issue(rt, deployment_id: str, vm: str, vmid: int, mode: str, ttl_seconds: in
                                "ORDER BY created_at DESC FOR UPDATE"), {"d": deployment_id, "v": vm, "s": list(LIVE)}).all()
         for r in rows:
             if r.vmid == vmid and r.mode == mode and r.expires_at > _now() and r.state == "pending":
+                if config is not None:   # the guest-side configuration follows the current plan; the secrets stay
+                    db.execute(text("UPDATE guest_bootstrap SET config = CAST(:c AS jsonb) WHERE id = :i"), {"c": json.dumps(config, sort_keys=True), "i": str(r.id)})
+                    db.commit()
                 return _row_to_record(rt, r)
         for r in rows:   # a different instance, a different mode or an expired attempt: its material is dead
             db.execute(text("UPDATE guest_bootstrap SET state = 'revoked', secret_enc = NULL, ssh_key_enc = NULL, token_enc = NULL, "
@@ -82,10 +86,11 @@ def issue(rt, deployment_id: str, vm: str, vmid: int, mode: str, ttl_seconds: in
             key = Ed25519PrivateKey.generate().private_bytes(serialization.Encoding.PEM, serialization.PrivateFormat.OpenSSH, serialization.NoEncryption())
             tok = base64.urlsafe_b64encode(secrets.token_bytes(32)).decode().rstrip("=").encode()
         enc = lambda v, col: rt.vault.encrypt(v, _ctx(rid, col)) if v is not None else None  # noqa: E731
-        db.execute(text("INSERT INTO guest_bootstrap (id, bid, deployment_id, vm, vmid, mode, secret_enc, ssh_key_enc, token_enc, expires_at) "
-                        "VALUES (:i, :b, :d, :v, :m, :mode, :s, :k, :t, :e)"),
+        db.execute(text("INSERT INTO guest_bootstrap (id, bid, deployment_id, vm, vmid, mode, secret_enc, ssh_key_enc, token_enc, expires_at, config) "
+                        "VALUES (:i, :b, :d, :v, :m, :mode, :s, :k, :t, :e, CAST(:c AS jsonb))"),
                    {"i": rid, "b": bid, "d": deployment_id, "v": vm, "m": vmid, "mode": mode, "s": enc(secret, "secret"), "k": enc(key, "ssh"),
-                    "t": enc(tok, "token"), "e": _now() + timedelta(seconds=ttl)})
+                    "t": enc(tok, "token"), "e": _now() + timedelta(seconds=ttl),
+                    "c": json.dumps(config, sort_keys=True) if config is not None else None})
         db.commit()
         r = db.execute(text("SELECT * FROM guest_bootstrap WHERE id = :i"), {"i": rid}).first()
     return _row_to_record(rt, r)

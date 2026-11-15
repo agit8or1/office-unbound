@@ -17,7 +17,9 @@ know. Properties:
 import hashlib
 import hmac
 import ipaddress
+import json
 import re
+import socket
 import threading
 import time
 from collections import defaultdict, deque
@@ -161,7 +163,35 @@ def handle_report(rt, body: ReportIn, src: str) -> dict:
                      details={"deployment_id": str(row.deployment_id), "vm": row.vm, "vmid": row.vmid, "address": a.address, "port": a.port,
                               "tls_fingerprint": a.tls_fingerprint_sha256, "agent_key_fingerprint": a.agent_key_fingerprint_sha256})
         db.commit()
-    return {"ok": True, "ack": ack(secret, body.nonce)}
+    conf = _resolve_config(rt, row.config, src)
+    return {"ok": True, "ack": ack(secret, body.nonce), "config": conf, "config_mac": config_mac(secret, body.nonce, conf)}
+
+
+def config_mac(secret_hex: str, nonce: str, conf: dict) -> str:
+    return hmac.new(bytes.fromhex(secret_hex), ("ou-bootstrap-config-v1\n" + nonce + "\n" + canon_json(conf)).encode(), hashlib.sha256).hexdigest()
+
+
+def canon_json(v) -> str:
+    return json.dumps(v, sort_keys=True, separators=(",", ":"), ensure_ascii=True)
+
+
+def _resolve_config(rt, conf: dict | None, guest_ip: str) -> dict:
+    """The stored per-VM configuration with the ICS's own address towards the guest filled in where the plan said 'the ICS'."""
+    conf = json.loads(json.dumps(conf or {}))
+    if conf.get("mgmt_sources") is None or any(p.get("sources") is None for p in conf.get("ports", [])):
+        mgmt = [_ics_address_towards(guest_ip) + "/32"]
+        if conf.get("mgmt_sources") is None:
+            conf["mgmt_sources"] = mgmt
+        for p in conf.get("ports", []):
+            if p.get("sources") is None:
+                p["sources"] = list(conf["mgmt_sources"])
+    return conf
+
+
+def _ics_address_towards(addr: str) -> str:
+    with socket.socket(socket.AF_INET, socket.SOCK_DGRAM) as sk:
+        sk.connect((addr, 9))   # no packet is sent: only asks the kernel which local address routes there
+        return sk.getsockname()[0]
 
 
 def register(app, rt) -> None:
