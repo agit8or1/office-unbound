@@ -5,18 +5,18 @@ Runs as the dedicated system user `ou-release` (no login shell), invoked as `sud
 see install-signer.sh). The key lives in the user's own GnuPG home, protected by a passphrase kept in a root/ou-release-only file. Everything the caller
 (the build host user, who also handles untrusted build output) supplies arrives on stdin as a tar stream and is validated here:
 
-  sign <suite>                 stdin: tar of dists/<suite> (Release + Packages/Sources). Verifies the index hashes, REFUSES unless every pool file named
-                               in Packages/Sources is in the suite's ledger (= was admitted/promoted through this program), sets Date and Valid-Until
-                               (default 14 days) itself and prints a tar with Release, InRelease, Release.gpg.
+  sign <suite>                 stdin: tar of dists/<suite> (Release + Packages/Sources + compressed variants). EVERY index listed in Release must be supplied and
+                               match size+hash (all hash sections); unlisted extra files, non-allowlisted paths, compressed/uncompressed disagreement and
+                               stanzas naming a file outside pool/<suite>/ or not in the suite ledger are REFUSED. The signed Release is REBUILT here
+                               (Suite/Codename = <suite>, Date, Valid-Until, hashes computed from the verified files); no caller header is kept.
   admit dev                    stdin: tar of one component's pool files (.deb/.dsc/tarballs, regular files only, parsed here): adds them to the dev ledger.
-  record-test <sha256> <name> <pass|fail> <log-sha256>
-                               writes the test record of one .deb (records/<sha256>.json).
-  promote <from> <to> <approver>
-                               stdin: tar of the component's pool files in <from>. dev>staging or staging>stable only; every .deb needs a passing
-                               `install-smoke` record, every file must be in the <from> ledger, stable needs a named approver; adds the files to the <to>
-                               ledger and writes a clearsigned promotion record (promotions/*.asc).
+  record-test                  stdin: ONE attestation signed by the pipeline's test runner (ou-test-attest, key registered in trust/test-runner.pub).
+  promote <from> <to>          stdin: tar of the component's pool files in <from> PLUS promotion-manifest.json: a manifest signed by the ICS (key in
+                               trust/ics-promotion.pub) after a `release.promote` plan was approved by real ICS approvers (requester excluded; stable needs 2).
+                               The tar must contain exactly the approved package set (names, versions, sha256); every .deb needs a passing runner record whose
+                               attestation hash equals the one in the manifest; manifests are single use. dev>staging or staging>stable only.
   status                       prints counts.
-State directory (default /var/lib/ou-release, env OU_RELEASE_STATE for tests): gnupg/, passphrase, ledger/<suite>.sha256, records/, promotions/.
+State directory (default /var/lib/ou-release, env OU_RELEASE_STATE for tests): gnupg/, passphrase, ledger/<suite>.sha256, records/, promotions/, trust/ (root-owned public keys).
 """
 import datetime
 import hashlib
@@ -160,14 +160,23 @@ def gpg(args, inp):
 
 
 def parse_release_hashes(txt):
-    m = re.search(r"^SHA256:\n((?: .*\n?)+)", txt, re.M)
-    if not m:
-        die("Release has no SHA256 section")
+    """EVERY hash section of a caller Release (MD5Sum/SHA1/SHA256/SHA512) -> {algo: {path: (hash, size)}}"""
     out = {}
-    for ln in m.group(1).splitlines():
-        p = ln.split()
-        if len(p) == 3:
-            out[p[2]] = (p[0], int(p[1]))
+    for algo in ("MD5Sum", "SHA1", "SHA256", "SHA512"):
+        m = re.search(r"^%s:\n((?: .*\n?)+)" % algo, txt, re.M)
+        if not m:
+            continue
+        d = {}
+        for ln in m.group(1).splitlines():
+            p = ln.split()
+            if len(p) != 3 or not p[1].isdigit():
+                die("malformed %s line in Release" % algo)
+            if p[2] in d:
+                die("%s lists %s twice" % (algo, p[2]))
+            d[p[2]] = (p[0], int(p[1]))
+        out[algo] = d
+    if "SHA256" not in out:
+        die("Release has no SHA256 section")
     return out
 
 
@@ -186,46 +195,94 @@ def stanzas(text):
             yield d
 
 
+ALGOS = {"MD5Sum": "md5", "SHA1": "sha1", "SHA256": "sha256", "SHA512": "sha512"}
+# the ONLY index files that may exist in a suite (review 5 H1); everything else in the tar or in the Release listing is refused
+INDEXES = {"main/binary-amd64/Packages": "Packages", "main/binary-amd64/Packages.gz": "Packages", "main/binary-amd64/Packages.xz": "Packages",
+           "main/source/Sources": "Sources", "main/source/Sources.gz": "Sources", "main/source/Sources.xz": "Sources"}
+HDR_PREV = ("Release", "InRelease", "Release.gpg")
+
+
+def decompress(path, blob):
+    import gzip
+    import lzma
+    try:
+        if path.endswith(".gz"):
+            return gzip.decompress(blob)
+        if path.endswith(".xz"):
+            return lzma.decompress(blob)
+    except (OSError, EOFError, lzma.LZMAError, ValueError):
+        die("%s: cannot be decompressed" % path)
+    return blob
+
+
+def index_requirements(suite, kind, text, need):
+    """every stanza of one index must name a pool file of THIS suite (pool/<suite>/<component>/<file>) whose sha256 is in the suite ledger"""
+    for st in stanzas(text):
+        if kind == "Packages":
+            fn = st.get("Filename", "")
+            m = re.match(r"^pool/%s/[a-z0-9][a-z0-9._+-]{0,60}/([^/]+)$" % re.escape(suite), fn)
+            if not m or not POOL_RE.match(m.group(1)) or not st.get("SHA256"):
+                die("Packages stanza with Filename %r outside pool/%s/<component>/ or without SHA256" % (fn, suite))
+            need[m.group(1)] = st["SHA256"]
+        else:
+            if not re.match(r"^pool/%s/[a-z0-9][a-z0-9._+-]{0,60}$" % re.escape(suite), st.get("Directory", "")):
+                die("Sources stanza with Directory %r outside pool/%s/<component>" % (st.get("Directory"), suite))
+            for ln in st.get("Checksums-Sha256", "").splitlines():
+                q = ln.split()
+                if len(q) == 3:
+                    if not POOL_RE.match(q[2]):
+                        die("Sources lists a file name that is not allowed: %r" % q[2])
+                    need[q[2]] = q[0]
+
+
 def cmd_sign(suite):
+    """The signer computes everything it signs itself (review 5 H1): the caller's Release is only CHECKED against the supplied indexes; the signed
+    Release is rebuilt from fixed values (Suite/Codename = the <suite> argument) and the hashes of the verified index files."""
     if suite not in SUITES:
         die("unknown suite")
     t = read_tar(sys.stdin.buffer, flat=False)
     if "Release" not in t:
         die("no Release in tar")
-    # apt-ftparchive lists the PREVIOUS Release/InRelease/Release.gpg of the directory in the hash sections: those never belong there, drop them
-    rel = "\n".join(l for l in t["Release"].decode().split("\n") if l.split()[-1:] not in (["Release"], ["InRelease"], ["Release.gpg"]) or not l.startswith(" "))
-    hashes = parse_release_hashes(rel)
-    for path, (h, size) in hashes.items():
-        if path in t and (sha256(t[path]) != h or len(t[path]) != size):
-            die("Release hash of %s does not match the supplied file" % path)
-    pk = [p for p in t if p.endswith("/Packages")]
-    sr = [p for p in t if p.endswith("/Sources")]
-    if not pk or not sr:
-        die("Packages and Sources are required")
-    for p in pk + sr:
-        if p not in hashes:
-            die("%s not listed in Release" % p)
+    rel = "\n".join(l for l in t["Release"].decode("utf8", "replace").split("\n") if not (l.startswith(" ") and l.split()[-1:] in [[p] for p in HDR_PREV]))
+    listed = parse_release_hashes(rel)
+    names = set(p for d in listed.values() for p in d)
+    for p in names:
+        if p not in INDEXES:
+            die("Release lists %r, which is not an allowed index file" % p)
+    extra = sorted(p for p in t if p != "Release" and p not in names)
+    if extra:
+        die("tar contains files that Release does not list: %s" % ", ".join(extra[:5]))
+    for algo, d in listed.items():
+        if set(d) != names:
+            die("%s section does not list the same files as the others" % algo)
+        for path, (h, size) in d.items():
+            if path not in t:
+                die("Release lists %s but it was not supplied" % path)
+            if len(t[path]) != size or getattr(hashlib, ALGOS[algo])(t[path]).hexdigest() != h:
+                die("%s of %s does not match the supplied file" % (algo, path))
+    plain = {k: p for p, k in INDEXES.items() if not p.endswith((".gz", ".xz"))}
+    for kind in ("Packages", "Sources"):
+        if plain[kind] not in t:
+            die("%s is required" % plain[kind])
     need = {}
-    for p in pk:
-        for st in stanzas(t[p].decode()):
-            need[st["Filename"].split("/")[-1]] = st["SHA256"]
-    for p in sr:
-        for st in stanzas(t[p].decode()):
-            for ln in st.get("Checksums-Sha256", "").splitlines():
-                q = ln.split()
-                if len(q) == 3:
-                    need[q[2]] = q[0]
+    for path, kind in INDEXES.items():
+        if path not in t:
+            continue
+        txt = decompress(path, t[path])
+        if path.endswith((".gz", ".xz")) and txt != t[plain[kind]]:
+            die("%s decompresses to something different from the uncompressed index" % path)
+        index_requirements(suite, kind, txt.decode("utf8", "replace"), need)
     allowed = ledger(suite)
     bad = sorted(n for n, h in need.items() if h not in allowed)
     if bad:
         die("suite %s lists files that were never admitted/promoted into it: %s" % (suite, ", ".join(bad[:5])))
     now = datetime.datetime.now(datetime.timezone.utc).replace(tzinfo=None)
-    hdr, rest = rel.split("\nMD5Sum:", 1) if "\nMD5Sum:" in rel else rel.split("\nSHA256:", 1)
-    marker = "\nMD5Sum:" if "\nMD5Sum:" in rel else "\nSHA256:"
-    hdr = "\n".join(l for l in hdr.split("\n") if not l.startswith(("Date:", "Valid-Until:")))
     fmt = "%a, %d %b %Y %H:%M:%S UTC"
-    hdr += "\nDate: %s\nValid-Until: %s" % (now.strftime(fmt), (now + datetime.timedelta(days=VALID_DAYS)).strftime(fmt))
-    rel2 = (hdr + marker + rest).encode()
+    hdr = ["Origin: Office Unbound", "Label: Office Unbound (%s)" % suite, "Suite: %s" % suite, "Codename: %s" % suite,
+           "Date: %s" % now.strftime(fmt), "Valid-Until: %s" % (now + datetime.timedelta(days=VALID_DAYS)).strftime(fmt),
+           "Architectures: amd64", "Components: main", "Description: Office Unbound channel %s" % suite]
+    lines = ["SHA256:"] + [" %s %16d %s" % (hashlib.sha256(t[p]).hexdigest(), len(t[p]), p) for p in sorted(names)]
+    rel2 = ("\n".join(hdr + lines) + "\n").encode()
     out = {"Release": rel2,
            "InRelease": gpg(["--clearsign"], rel2),
            "Release.gpg": gpg(["--armor", "--detach-sign"], rel2)}
@@ -241,24 +298,138 @@ def cmd_admit(suite):
     print("admitted %d files to dev" % len(files), file=sys.stderr)
 
 
-def cmd_record(sha, name, res, logsha):
-    if not re.match(r"^[0-9a-f]{64}$", sha) or res not in ("pass", "fail") or not re.match(r"^[a-z0-9-]{1,40}$", name) or not re.match(r"^[0-9a-f]{64}$", logsha):
-        die("bad arguments")
+TRUST = os.path.join(STATE, "trust")                        # root-owned (install-signer.sh): public keys of the ICS and of the test runner
+PROMO_PREFIX = b"ou-release-promotion-v1\n"
+ATTEST_PREFIX = b"ou-test-attestation-v1\n"
+MANIFEST_NAME = "promotion-manifest.json"
+MAX_MANIFEST_AGE = 24 * 3600
+
+
+def canon(obj):
+    return json.dumps(obj, sort_keys=True, separators=(",", ":"), ensure_ascii=True, allow_nan=False).encode()
+
+
+def trusted_pub(name):
+    """raw ed25519 public key (base64) from the root-owned trust directory; the directory and file must not be writable by group/other"""
+    p = os.path.join(TRUST, name)
+    try:
+        st = os.stat(p)
+        dst = os.stat(TRUST)
+        if st.st_mode & 0o022 or dst.st_mode & 0o022:
+            die("%s or its directory is group/world writable" % name)
+        if os.environ.get("OU_RELEASE_SANDBOX") != "1" and (st.st_uid != 0 or dst.st_uid != 0):
+            die("%s must be owned by root" % name)
+        return open(p).read().strip()
+    except OSError:
+        die("no trusted key %s installed (see install-signer.sh)" % name)
+
+
+def ed_verify(pub_b64, prefix, obj, sig_b64):
+    import base64
+    from cryptography.exceptions import InvalidSignature
+    from cryptography.hazmat.primitives.asymmetric.ed25519 import Ed25519PublicKey
+    try:
+        Ed25519PublicKey.from_public_bytes(base64.b64decode(pub_b64, validate=True)).verify(base64.b64decode(sig_b64, validate=True), prefix + canon(obj))
+        return True
+    except (InvalidSignature, ValueError, TypeError):
+        return False
+
+
+def now_ts():
+    return int(datetime.datetime.now(datetime.timezone.utc).timestamp())
+
+
+def cmd_record():
+    """record-test: stdin = one signed attestation produced by the pipeline's test runner (ou-test-attest). A caller can no longer write a record."""
+    try:
+        doc = json.loads(sys.stdin.buffer.read(65536))
+        att, sig = doc["attestation"], doc["sig"]
+        sha, name, res, logsha = att["sha256"], att["name"], att["result"], att["log_sha256"]
+    except (ValueError, KeyError, TypeError):
+        die("bad attestation")
+    if not re.match(r"^[0-9a-f]{64}$", str(sha)) or res not in ("pass", "fail") or not re.match(r"^[a-z0-9-]{1,40}$", str(name)) or not re.match(r"^[0-9a-f]{64}$", str(logsha)):
+        die("bad attestation fields")
+    if att.get("v") != 1 or not ed_verify(trusted_pub("test-runner.pub"), ATTEST_PREFIX, att, sig):
+        die("attestation is not signed by the registered test runner")
+    if sha not in ledger("dev") | ledger("staging") | ledger("stable"):
+        die("attestation names a package that was never admitted")
     d = os.path.join(STATE, "records")
     os.makedirs(d, exist_ok=True)
     fn = os.path.join(d, sha + ".json")
     rec = json.load(open(fn)) if os.path.exists(fn) else {"sha256": sha, "results": {}}
-    rec["results"][name] = {"result": res, "log_sha256": logsha, "at": datetime.datetime.now(datetime.timezone.utc).replace(tzinfo=None).strftime("%Y-%m-%dT%H:%M:%SZ"), "recorded_by_uid": os.environ.get("SUDO_UID", "")}
+    rec["results"][name] = {"result": res, "log_sha256": logsha, "at": datetime.datetime.fromtimestamp(att["at"], datetime.timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ") if isinstance(att.get("at"), int) else "",
+                            "attestation_sha256": sha256(canon(att)), "runner": "ou-test-attest"}
     json.dump(rec, open(fn, "w"), indent=1)
-    print("recorded %s=%s" % (name, res), file=sys.stderr)
+    print("recorded %s=%s attestation %s" % (name, res, rec["results"][name]["attestation_sha256"][:16]), file=sys.stderr)
 
 
-def cmd_promote(frm, to, approver):
+def verify_manifest(frm, to, files, mraw):
+    """The promotion manifest is signed by the ICS (ICS signing key) after the approvers named in it approved the plan. Everything it states is
+    re-checked against the bytes the caller supplied; the caller can not add, drop or swap a package."""
+    try:
+        doc = json.loads(mraw)
+        m, sig = doc["manifest"], doc["sig"]
+    except (ValueError, KeyError, TypeError):
+        die("promotion manifest is not valid JSON")
+    if not isinstance(m, dict) or m.get("v") != 1 or not ed_verify(trusted_pub("ics-promotion.pub"), PROMO_PREFIX, m, sig):
+        die("promotion manifest is not signed by the ICS")
+    if m.get("from") != frm or m.get("to") != to:
+        die("manifest is for %s>%s, not %s>%s" % (m.get("from"), m.get("to"), frm, to))
+    if not (isinstance(m.get("expires_at"), int) and isinstance(m.get("issued_at"), int)) or m["expires_at"] < now_ts() or m["expires_at"] - m["issued_at"] > MAX_MANIFEST_AGE:
+        die("manifest expired (or has an unacceptable lifetime)")
+    nonce = str(m.get("nonce", ""))
+    if not re.match(r"^[A-Za-z0-9_-]{16,80}$", nonce):
+        die("manifest has no nonce")
+    appr = m.get("approvers")
+    if not isinstance(appr, list) or any(not isinstance(a, dict) or not a.get("id") or not a.get("username") for a in appr):
+        die("manifest has no approver list")
+    ids = {a["id"] for a in appr}
+    need = 2 if to == "stable" else 1
+    if len(ids) != len(appr) or len(ids) < need or int(m.get("approvals_required", 0)) < need:
+        die("promotion to %s needs %d distinct ICS approvers" % (to, need))
+    if not m.get("requested_by_id") or m["requested_by_id"] in ids:
+        die("the requester is among the approvers (or unknown)")
+    pk = m.get("packages")
+    if not isinstance(pk, list) or not pk:
+        die("manifest lists no packages")
+    want = {}
+    for e in pk:
+        if not isinstance(e, dict) or not re.match(r"^[0-9a-f]{64}$", str(e.get("sha256", ""))) or e.get("file") in want:
+            die("manifest package entry is malformed")
+        want[e["file"]] = e
+    have = {n: sha256(b) for n, b in files.items()}
+    if set(want) != set(have):
+        die("the supplied file set differs from the approved package set (extra: %s; missing: %s)" % (sorted(set(have) - set(want))[:3], sorted(set(want) - set(have))[:3]))
+    for n, e in want.items():
+        if e["sha256"] != have[n]:
+            die("%s does not have the approved sha256" % n)
+        if n.endswith(".deb"):
+            f = deb_fields(files[n])
+            if e.get("name") != f.get("Package") or e.get("version") != f.get("Version"):
+                die("%s: approved name/version differ from the package's control file" % n)
+    ev = {e.get("sha256"): e.get("attestation_sha256") for e in (m.get("evidence") or []) if isinstance(e, dict)}
+    for n, b in files.items():
+        if not n.endswith(".deb"):
+            continue
+        h = have[n]
+        try:
+            r = json.load(open(os.path.join(STATE, "records", h + ".json")))["results"].get("install-smoke", {})
+        except (OSError, ValueError, KeyError):
+            r = {}
+        if r.get("result") != "pass":
+            die("%s has no passing install-smoke record from the test runner" % n)
+        if not ev.get(h) or ev[h] != r.get("attestation_sha256"):
+            die("%s: the approved test evidence does not match the recorded attestation" % n)
+    return m, nonce
+
+
+def cmd_promote(frm, to):
     if (frm, to) not in (("dev", "staging"), ("staging", "stable")):
         die("only dev>staging or staging>stable")
-    if to == "stable" and not re.match(r"^[A-Za-z0-9 ._()@:/-]{3,100}$", approver or ""):
-        die("promotion to stable needs a named approver")
     files = read_tar(sys.stdin.buffer)
+    mraw = files.pop(MANIFEST_NAME, None)
+    if mraw is None:
+        die("promotion needs an ICS-signed manifest (%s in the tar): approve a release.promote plan in the ICS" % MANIFEST_NAME)
     if not files:
         die("empty set")
     check_pool_files(files)
@@ -266,21 +437,20 @@ def cmd_promote(frm, to, approver):
     for n, b in files.items():
         if sha256(b) not in src:
             die("%s is not in the %s ledger (was never admitted/promoted there)" % (n, frm))
-        if n.endswith(".deb"):
-            rf = os.path.join(STATE, "records", sha256(b) + ".json")
-            try:
-                r = json.load(open(rf))["results"].get("install-smoke", {}).get("result")
-            except (OSError, ValueError):
-                r = None
-            if r != "pass":
-                die("%s has no passing install-smoke test record (got %r)" % (n, r))
+    m, nonce = verify_manifest(frm, to, files, mraw)
+    used = os.path.join(STATE, "promotions", "used-nonces")
+    os.makedirs(os.path.dirname(used), exist_ok=True)
+    if os.path.exists(used) and nonce in open(used).read().split():
+        die("manifest was already used (replay)")
     ledger_add(to, files)
+    with open(used, "a") as f:
+        f.write(nonce + "\n")
     now = datetime.datetime.now(datetime.timezone.utc).replace(tzinfo=None).strftime("%Y%m%dT%H%M%SZ")
-    rec = json.dumps({"from": frm, "to": to, "approved_by": approver or "", "at": now, "files": {n: sha256(b) for n, b in sorted(files.items())}}, indent=1, sort_keys=True).encode()
+    rec = json.dumps({"from": frm, "to": to, "manifest": m, "at": now, "files": {n: sha256(b) for n, b in sorted(files.items())}}, indent=1, sort_keys=True).encode()
     os.makedirs(os.path.join(STATE, "promotions"), exist_ok=True)
     comp = sorted(n for n in files if n.endswith(".dsc"))[0].split("_")[0] if any(n.endswith(".dsc") for n in files) else "x"
     open(os.path.join(STATE, "promotions", "%s-%s-%s.json.asc" % (now, to, comp)), "wb").write(gpg(["--clearsign"], rec))
-    print("promoted %d files %s>%s" % (len(files), frm, to), file=sys.stderr)
+    print("promoted %d files %s>%s (plan %s, approvers %s)" % (len(files), frm, to, m.get("plan_id"), ",".join(a["username"] for a in m["approvers"])), file=sys.stderr)
 
 
 def main():
@@ -294,10 +464,10 @@ def main():
         cmd_sign(a[1])
     elif c == "admit" and len(a) == 2:
         cmd_admit(a[1])
-    elif c == "record-test" and len(a) == 5:
-        cmd_record(*a[1:])
-    elif c == "promote" and len(a) in (3, 4):
-        cmd_promote(a[1], a[2], a[3] if len(a) == 4 else "")
+    elif c == "record-test" and len(a) == 1:
+        cmd_record()
+    elif c == "promote" and len(a) == 3:
+        cmd_promote(a[1], a[2])
     elif c == "status":
         for s in SUITES:
             print(s, len(ledger(s)))
