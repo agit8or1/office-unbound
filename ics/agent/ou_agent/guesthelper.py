@@ -7,6 +7,7 @@ import os
 import re
 import subprocess
 import sys
+import tempfile
 import time
 
 from . import guestspec as g
@@ -226,9 +227,12 @@ def _keyring_fingerprints():
     pinned = {l.strip().upper() for l in open(os.path.join(APT_DIR, "pinned-fingerprints")) if l.strip() and not l.startswith("#")}
     found = set()
     kd = os.path.join(APT_DIR, "keyrings")
-    for fn in sorted(os.listdir(kd)):
-        r = run([GPG, "--batch", "--no-default-keyring", "--show-keys", "--with-colons", os.path.join(kd, fn)], env={"PATH": "/usr/bin:/bin", "LANG": "C", "HOME": "/nonexistent"})
-        found |= {l.split(":")[9].upper() for l in r.stdout.splitlines() if l.startswith("fpr:")}
+    with tempfile.TemporaryDirectory() as gh_:   # throw-away GNUPGHOME: nothing persists, no agent/keyboxd state is shared
+        os.chmod(gh_, 0o700)
+        for fn in sorted(os.listdir(kd)):
+            r = run([GPG, "--batch", "--no-default-keyring", "--homedir", gh_, "--show-keys", "--with-colons", os.path.join(kd, fn)],
+                    env={"PATH": "/usr/bin:/bin", "LANG": "C"})
+            found |= {l.split(":")[9].upper() for l in r.stdout.splitlines() if l.startswith("fpr:")}
     return pinned, found
 
 
@@ -280,6 +284,13 @@ def main(argv):
         result["error"] = type(e).__name__
     out = os.path.join(RESULT_ROOT, f"ou-rb-{fam}", rid + ".json")
     atomic_write(out, json.dumps(result), 0o644)
+    for fn in os.listdir(os.path.dirname(out)):   # prune results older than 10 minutes (the agent cannot delete files it does not own)
+        p = os.path.join(os.path.dirname(out), fn)
+        try:
+            if fn.endswith(".json") and fn != rid + ".json" and time.time() - os.stat(p).st_mtime > 600:
+                os.unlink(p)
+        except OSError:
+            pass
     return 0
 
 

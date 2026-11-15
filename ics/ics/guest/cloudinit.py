@@ -29,7 +29,7 @@ TZ_RE = re.compile(r"^[A-Za-z]+(/[A-Za-z0-9_+-]+){0,2}$")
 SSH_KEY_RE = re.compile(r"^(ssh-ed25519|sk-ssh-ed25519@openssh\.com|ecdsa-sha2-nistp(256|384|521)|ssh-rsa) [A-Za-z0-9+/=]{40,800}( [A-Za-z0-9@._-]{0,64})?$")
 HEX40, HEX64 = re.compile(r"^[0-9A-F]{40}$"), re.compile(r"^[0-9a-f]{64}$")
 SUITES = {"ubuntu-24.04": ("ubuntu", "noble"), "debian-12": ("debian", "bookworm")}
-BASE_PACKAGES = ["podman", "uidmap", "slirp4netns", "passt", "crun", "netavark", "aardvark-dns", "systemd-container", "dbus-user-session",
+BASE_PACKAGES = ["podman", "uidmap", "slirp4netns", "passt", "crun", "netavark", "aardvark-dns", "systemd-container", "systemd-timesyncd", "dbus-user-session",
                  "nftables", "polkitd", "python3-cryptography", "gnupg", "ca-certificates", "unattended-upgrades", "apt-utils"]
 KEYRING = {"ubuntu": "/usr/share/keyrings/ubuntu-archive-keyring.gpg", "debian": "/usr/share/keyrings/debian-archive-keyring.gpg"}
 
@@ -298,8 +298,10 @@ B=/var/lib/ou-bootstrap
 export DEBIAN_FRONTEND=noninteractive
 hostnamectl set-hostname {q(fqdn)} 2>/dev/null || hostname {q(s.hostname)}
 # --- rootless workload user: subuid/subgid + linger (user manager runs without a login)
-grep -q '^{SERVICE_USER}:' /etc/subuid || usermod --add-subuids {s.subid_start}-{s.subid_start + s.subid_count - 1} {SERVICE_USER}
-grep -q '^{SERVICE_USER}:' /etc/subgid || usermod --add-subgids {s.subid_start}-{s.subid_start + s.subid_count - 1} {SERVICE_USER}
+# useradd may already have allocated a default range (outside what a nested/nspawn user namespace owns): the declared one replaces it
+# (edited directly: usermod refuses while the user's manager runs, which makes this idempotent on re-runs)
+sed -i '/^{SERVICE_USER}:/d' /etc/subuid /etc/subgid
+echo '{SERVICE_USER}:{s.subid_start}:{s.subid_count}' | tee -a /etc/subuid >> /etc/subgid
 loginctl enable-linger {SERVICE_USER}
 # --- firewall: default deny inbound, declared ports only (syntax checked before it is applied)
 nft -c -f /etc/nftables.conf

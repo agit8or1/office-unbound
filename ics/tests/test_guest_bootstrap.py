@@ -69,7 +69,7 @@ def test_render_structure_ssh_disabled_by_default():
     assert doc["ssh_pwauth"] is False and doc["disable_root"] is True
     assert [u["name"] for u in doc["users"]] == ["ou-svc"] and doc["users"][0]["lock_passwd"] is True
     boot = next(f for f in doc["write_files"] if f["path"] == "/usr/local/sbin/ou-guest-bootstrap")["content"]
-    assert "mask ssh.socket ssh.service" in boot and "enable-linger ou-svc" in boot and "--add-subuids 100000-165535" in boot
+    assert "mask ssh.socket ssh.service" in boot and "enable-linger ou-svc" in boot and "ou-svc:100000:65536" in boot
     assert "OU_ENROLL_TOKEN_SHA256=" + TOKEN_HASH in boot
     assert {"podman", "uidmap", "passt", "slirp4netns", "systemd-container"} <= set(doc["packages"]) and "openssh-server" not in doc["packages"]
 

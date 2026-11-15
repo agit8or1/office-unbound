@@ -133,6 +133,7 @@ def _guest_runbook(action: str, params: dict) -> dict:
     rid = "r" + secrets.token_hex(8)
     spool = os.path.join(SPOOL_DIR, rid + ".json")
     fd = os.open(spool, os.O_WRONLY | os.O_CREAT | os.O_EXCL, 0o644)
+    os.fchmod(fd, 0o644)  # the agent's UMask is 0077; the helper units run as other users and must be able to read the (non-secret) request
     with os.fdopen(fd, "w") as f:
         json.dump({"action": action, "params": params}, f)
     try:
@@ -146,12 +147,9 @@ def _guest_runbook(action: str, params: dict) -> dict:
                 data = json.load(f)
             if data.get("rid") != rid:
                 raise ValueError("foreign result")
-            out.update({k: data[k] for k in ("result", "rejected", "error") if k in data})
-            os.unlink(path)
+            out.update({k: data[k] for k in ("result", "rejected", "error") if k in data})  # the helper's own run prunes old result files
         except (OSError, ValueError):
-            out["result"] = None
-            if r.returncode != 0:
-                out["stderr"] = r.stderr.strip()[:300]
+            raise RuntimeError("helper produced no result") from None  # -> signed status=error/exec_failed; never "ok" with an empty result
         return out
     finally:
         try:
