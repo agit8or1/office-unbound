@@ -1,0 +1,17 @@
+{
+  "name": "ics-e2e",
+  "private": true,
+  "version": "0.1.0",
+  "type": "module",
+  "description": "Playwright verification harness for the ICS operator console (run via ics/e2e/run.sh <checkout>)",
+  "scripts": {
+    "test": "playwright test",
+    "summary": "node scripts/findings-summary.mjs"
+  },
+  "devDependencies": {
+    "@axe-core/playwright": "4.14.0",
+    "@playwright/test": "1.65.1",
+    "@types/node": "22.20.5",
+    "typescript": "5.9.3"
+  }
+}
