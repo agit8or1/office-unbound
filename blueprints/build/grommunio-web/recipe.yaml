@@ -1,0 +1,51 @@
+# ADR-0008 recipe: grommunio-web, rebranded "Office Unbound Web". Node/npm build (locked tree) + PHP.
+component: grommunio-web
+src_name: ou-grommunio-web
+description: Web client (mail, calendar, contacts, tasks) for Gromox
+source:
+  repo: https://github.com/grommunio/grommunio-web
+  tag: grommunio-web-5.2
+  tag_object: 9d5d158d1f53a0709f630503f936ef7d5f39b88d
+  commit: dd9029d93cecec1ba868ed0d8d976bb3f185a328
+  upstream_version: "5.2"
+ou_revision: ou2     # ou1 = branding only; ou2 = + 0002-context-deep-link (needed by the SSO portal tiles / ou-gw1 migration)
+verification:
+  kind: sha-pin
+  note: tag is annotated but unsigned; commit SHA pin is the only control. package-lock.json pins every npm dependency with integrity hashes (npm ci verifies them).
+# builder step with network, before the network-less compile: install exactly the locked npm tree
+prefetch: |
+  # runs as the unprivileged builder user (no root, M9); lifecycle scripts are NOT executed (--ignore-scripts)
+  npm ci --no-audit --no-fund --ignore-scripts
+packages: [ou-grommunio-web]
+bundles_lock_packages: true
+licenses:    # bundled third-party code reviewed in docs/status/groupware-source-eval.md section 1.1
+  - AGPL-3.0-only
+  - AGPL-3.0-or-later
+  - GPL-3.0-only
+  - GPL-3.0-or-later
+  - GPL-2.0-only
+  - GPL-2.0-or-later
+  - LGPL-3.0-only
+  - LGPL-3.0-or-later
+  - LGPL-2.1-or-later
+  - Apache-2.0
+  - MPL-2.0
+  - MIT
+  - MIT-0
+  - BSD-2-Clause
+  - BSD-3-Clause
+  - ISC
+  - CC0-1.0
+  - OFL-1.1
+  - Font-exception-2.0
+license_exceptions: {}
+inventory_match: "grommunio-web"
+patches:
+  - 0001-branding-product-name.patch: default title, PWA manifest, templates, version banner
+  - 0002-context-deep-link.patch: ?action=context&view=calendar|contacts|... opens that context after the OIDC redirect (webmail SSO portal tiles, agent AA)
+  - 0003-branding-translatable-strings.patch: msgid/msgstr + gettext calls "grommunio Web" -> "Office Unbound Web" (mechanical, regenerate via patches/regen-patches.py)
+branding: >
+  Done: product name in UI strings (all locales), page title, manifest, logos/icons (original placeholder artwork in debian/branding).
+  Remaining (recorded in docs/status/package-pipeline-results.md): "grommunio" in other strings (grommunio-sync/-files/-chat product names,
+  "Grommunio blue" theme name), upstream documentation links (help URL in defaults.php), welcome/whatsnew content, README/docs;
+  JS namespace Grommunio.*, cookie name GROMMUNIO_WEB, paths and unit names are internal identifiers and kept.

@@ -1,0 +1,5155 @@
+{
+ "SPDXID": "SPDXRef-DOCUMENT",
+ "creationInfo": {
+  "created": "2026-10-10T10:33:30Z",
+  "creators": [
+   "Organization: Office Unbound",
+   "Tool: ou-sbom-1 (blueprints/build/lib/sbom.py)"
+  ]
+ },
+ "dataLicense": "CC0-1.0",
+ "documentNamespace": "https://officeunbound.com/spdx/c00685eb-1f41-5af4-97d1-129e8ffb1b7e",
+ "name": "ou-grommunio-web-5.2-ou2",
+ "packages": [
+  {
+   "SPDXID": "SPDXRef-Package",
+   "checksums": [
+    {
+     "algorithm": "SHA256",
+     "checksumValue": "91fed5c6f8fd4582176e8c7b84e4d10370628b23d80155700016df3c5cbd197a"
+    }
+   ],
+   "copyrightText": "NOASSERTION",
+   "downloadLocation": "NOASSERTION",
+   "externalRefs": [
+    {
+     "referenceCategory": "PACKAGE-MANAGER",
+     "referenceLocator": "pkg:deb/officeunbound/ou-grommunio-web@5.2-ou2?arch=amd64&distro=debian-12",
+     "referenceType": "purl"
+    }
+   ],
+   "filesAnalyzed": false,
+   "licenseComments": "declared source licences (SPDX ids / exception texts): AGPL-3.0-only, AGPL-3.0-or-later, GPL-3.0-only, GPL-3.0-or-later, GPL-2.0-only, GPL-2.0-or-later, LGPL-3.0-only, LGPL-3.0-or-later, LGPL-2.1-or-later, Apache-2.0, MPL-2.0, MIT, MIT-0, BSD-2-Clause, BSD-3-Clause, ISC, CC0-1.0, OFL-1.1, Font-exception-2.0",
+   "licenseDeclared": "NOASSERTION",
+   "name": "ou-grommunio-web",
+   "supplier": "Organization: Office Unbound",
+   "versionInfo": "5.2-ou2"
+  },
+  {
+   "SPDXID": "SPDXRef-Source",
+   "checksums": [
+    {
+     "algorithm": "SHA256",
+     "checksumValue": "7d8b7be036e9d143b954ff4b5e14390aece6a34aa500bb7eec3b2a225f4f6850"
+    }
+   ],
+   "comment": "checksum is of the deterministic git-archive orig tarball; commit pinned in recipe",
+   "copyrightText": "NOASSERTION",
+   "downloadLocation": "git+https://github.com/grommunio/grommunio-web@dd9029d93cecec1ba868ed0d8d976bb3f185a328",
+   "externalRefs": [
+    {
+     "referenceCategory": "PACKAGE-MANAGER",
+     "referenceLocator": "pkg:github/grommunio/grommunio-web@dd9029d93cecec1ba868ed0d8d976bb3f185a328",
+     "referenceType": "purl"
+    }
+   ],
+   "filesAnalyzed": false,
+   "licenseDeclared": "NOASSERTION",
+   "name": "ou-grommunio-web-upstream",
+   "versionInfo": "grommunio-web-5.2"
+  },
+  {
+   "SPDXID": "SPDXRef-Patch-0001-branding-product-name.patch",
+   "checksums": [
+    {
+     "algorithm": "SHA256",
+     "checksumValue": "eaa2c405355c2303aba6216fc4166277d0cdaf3352f30b252d8b6bdf5ea39fd4"
+    }
+   ],
+   "copyrightText": "NOASSERTION",
+   "downloadLocation": "NOASSERTION",
+   "filesAnalyzed": false,
+   "licenseDeclared": "NOASSERTION",
+   "name": "0001-branding-product-name.patch"
+  },
+  {
+   "SPDXID": "SPDXRef-Patch-0002-context-deep-link.patch",
+   "checksums": [
+    {
+     "algorithm": "SHA256",
+     "checksumValue": "967004e1668f841662bfec62d0effc47e31e1c1010eea3b1fe035a19ee477451"
+    }
+   ],
+   "copyrightText": "NOASSERTION",
+   "downloadLocation": "NOASSERTION",
+   "filesAnalyzed": false,
+   "licenseDeclared": "NOASSERTION",
+   "name": "0002-context-deep-link.patch"
+  },
+  {
+   "SPDXID": "SPDXRef-Patch-0003-branding-translatable-strings.patch",
+   "checksums": [
+    {
+     "algorithm": "SHA256",
+     "checksumValue": "f07c33879637d391c85c3e57d18235862764c51f31e623b000a9a113dbdceac3"
+    }
+   ],
+   "copyrightText": "NOASSERTION",
+   "downloadLocation": "NOASSERTION",
+   "filesAnalyzed": false,
+   "licenseDeclared": "NOASSERTION",
+   "name": "0003-branding-translatable-strings.patch"
+  },
+  {
+   "SPDXID": "SPDXRef-Dep-1",
+   "comment": "runtime Depends (virtual/our package or not in builder)",
+   "copyrightText": "NOASSERTION",
+   "downloadLocation": "NOASSERTION",
+   "filesAnalyzed": false,
+   "licenseDeclared": "NOASSERTION",
+   "name": "ou-gromox-php-mapi"
+  },
+  {
+   "SPDXID": "SPDXRef-Dep-2",
+   "comment": "runtime Depends; version = what the builder had installed",
+   "copyrightText": "NOASSERTION",
+   "downloadLocation": "NOASSERTION",
+   "filesAnalyzed": false,
+   "licenseDeclared": "NOASSERTION",
+   "name": "ou-mapi-header-php",
+   "versionInfo": "2.4-ou1"
+  },
+  {
+   "SPDXID": "SPDXRef-Dep-3",
+   "comment": "runtime Depends; version = what the builder had installed",
+   "copyrightText": "NOASSERTION",
+   "downloadLocation": "NOASSERTION",
+   "externalRefs": [
+    {
+     "referenceCategory": "PACKAGE-MANAGER",
+     "referenceLocator": "pkg:deb/debian/php-cli@2:8.2+93?arch=amd64&distro=debian-12",
+     "referenceType": "purl"
+    }
+   ],
+   "filesAnalyzed": false,
+   "licenseDeclared": "NOASSERTION",
+   "name": "php-cli",
+   "versionInfo": "2:8.2+93"
+  },
+  {
+   "SPDXID": "SPDXRef-Dep-4",
+   "comment": "runtime Depends (virtual/our package or not in builder)",
+   "copyrightText": "NOASSERTION",
+   "downloadLocation": "NOASSERTION",
+   "filesAnalyzed": false,
+   "licenseDeclared": "NOASSERTION",
+   "name": "php-curl"
+  },
+  {
+   "SPDXID": "SPDXRef-Dep-5",
+   "comment": "runtime Depends (virtual/our package or not in builder)",
+   "copyrightText": "NOASSERTION",
+   "downloadLocation": "NOASSERTION",
+   "filesAnalyzed": false,
+   "licenseDeclared": "NOASSERTION",
+   "name": "php-fpm"
+  },
+  {
+   "SPDXID": "SPDXRef-Dep-6",
+   "comment": "runtime Depends (virtual/our package or not in builder)",
+   "copyrightText": "NOASSERTION",
+   "downloadLocation": "NOASSERTION",
+   "filesAnalyzed": false,
+   "licenseDeclared": "NOASSERTION",
+   "name": "php-gd"
+  },
+  {
+   "SPDXID": "SPDXRef-Dep-7",
+   "comment": "runtime Depends; version = what the builder had installed",
+   "copyrightText": "NOASSERTION",
+   "downloadLocation": "NOASSERTION",
+   "externalRefs": [
+    {
+     "referenceCategory": "PACKAGE-MANAGER",
+     "referenceLocator": "pkg:deb/debian/php-intl@2:8.2+93?arch=amd64&distro=debian-12",
+     "referenceType": "purl"
+    }
+   ],
+   "filesAnalyzed": false,
+   "licenseDeclared": "NOASSERTION",
+   "name": "php-intl",
+   "versionInfo": "2:8.2+93"
+  },
+  {
+   "SPDXID": "SPDXRef-Dep-8",
+   "comment": "runtime Depends; version = what the builder had installed",
+   "copyrightText": "NOASSERTION",
+   "downloadLocation": "NOASSERTION",
+   "externalRefs": [
+    {
+     "referenceCategory": "PACKAGE-MANAGER",
+     "referenceLocator": "pkg:deb/debian/php-mbstring@2:8.2+93?arch=amd64&distro=debian-12",
+     "referenceType": "purl"
+    }
+   ],
+   "filesAnalyzed": false,
+   "licenseDeclared": "NOASSERTION",
+   "name": "php-mbstring",
+   "versionInfo": "2:8.2+93"
+  },
+  {
+   "SPDXID": "SPDXRef-Dep-9",
+   "comment": "runtime Depends (virtual/our package or not in builder)",
+   "copyrightText": "NOASSERTION",
+   "downloadLocation": "NOASSERTION",
+   "filesAnalyzed": false,
+   "licenseDeclared": "NOASSERTION",
+   "name": "php-redis"
+  },
+  {
+   "SPDXID": "SPDXRef-Dep-10",
+   "comment": "runtime Depends (virtual/our package or not in builder)",
+   "copyrightText": "NOASSERTION",
+   "downloadLocation": "NOASSERTION",
+   "filesAnalyzed": false,
+   "licenseDeclared": "NOASSERTION",
+   "name": "php-sqlite3"
+  },
+  {
+   "SPDXID": "SPDXRef-Dep-11",
+   "comment": "runtime Depends (virtual/our package or not in builder)",
+   "copyrightText": "NOASSERTION",
+   "downloadLocation": "NOASSERTION",
+   "filesAnalyzed": false,
+   "licenseDeclared": "NOASSERTION",
+   "name": "php-xml"
+  },
+  {
+   "SPDXID": "SPDXRef-Dep-12",
+   "comment": "runtime Depends (virtual/our package or not in builder)",
+   "copyrightText": "NOASSERTION",
+   "downloadLocation": "NOASSERTION",
+   "filesAnalyzed": false,
+   "licenseDeclared": "NOASSERTION",
+   "name": "php-zip"
+  },
+  {
+   "SPDXID": "SPDXRef-Bundled-0",
+   "copyrightText": "NOASSERTION",
+   "downloadLocation": "NOASSERTION",
+   "externalRefs": [
+    {
+     "referenceCategory": "PACKAGE-MANAGER",
+     "referenceLocator": "pkg:npm/@colordx/core@7.3.0",
+     "referenceType": "purl"
+    }
+   ],
+   "filesAnalyzed": false,
+   "licenseDeclared": "MIT",
+   "name": "@colordx/core",
+   "versionInfo": "7.3.0"
+  },
+  {
+   "SPDXID": "SPDXRef-Bundled-1",
+   "copyrightText": "NOASSERTION",
+   "downloadLocation": "NOASSERTION",
+   "externalRefs": [
+    {
+     "referenceCategory": "PACKAGE-MANAGER",
+     "referenceLocator": "pkg:npm/@csstools/cascade-layer-name-parser@3.0.2",
+     "referenceType": "purl"
+    }
+   ],
+   "filesAnalyzed": false,
+   "licenseDeclared": "MIT",
+   "name": "@csstools/cascade-layer-name-parser",
+   "versionInfo": "3.0.2"
+  },
+  {
+   "SPDXID": "SPDXRef-Bundled-2",
+   "copyrightText": "NOASSERTION",
+   "downloadLocation": "NOASSERTION",
+   "externalRefs": [
+    {
+     "referenceCategory": "PACKAGE-MANAGER",
+     "referenceLocator": "pkg:npm/@csstools/color-helpers@6.1.2",
+     "referenceType": "purl"
+    }
+   ],
+   "filesAnalyzed": false,
+   "licenseDeclared": "MIT-0",
+   "name": "@csstools/color-helpers",
+   "versionInfo": "6.1.2"
+  },
+  {
+   "SPDXID": "SPDXRef-Bundled-3",
+   "copyrightText": "NOASSERTION",
+   "downloadLocation": "NOASSERTION",
+   "externalRefs": [
+    {
+     "referenceCategory": "PACKAGE-MANAGER",
+     "referenceLocator": "pkg:npm/@csstools/css-calc@3.4.3",
+     "referenceType": "purl"
+    }
+   ],
+   "filesAnalyzed": false,
+   "licenseDeclared": "MIT",
+   "name": "@csstools/css-calc",
+   "versionInfo": "3.4.3"
+  },
+  {
+   "SPDXID": "SPDXRef-Bundled-4",
+   "copyrightText": "NOASSERTION",
+   "downloadLocation": "NOASSERTION",
+   "externalRefs": [
+    {
+     "referenceCategory": "PACKAGE-MANAGER",
+     "referenceLocator": "pkg:npm/@csstools/css-color-parser@4.2.6",
+     "referenceType": "purl"
+    }
+   ],
+   "filesAnalyzed": false,
+   "licenseDeclared": "MIT",
+   "name": "@csstools/css-color-parser",
+   "versionInfo": "4.2.6"
+  },
+  {
+   "SPDXID": "SPDXRef-Bundled-5",
+   "copyrightText": "NOASSERTION",
+   "downloadLocation": "NOASSERTION",
+   "externalRefs": [
+    {
+     "referenceCategory": "PACKAGE-MANAGER",
+     "referenceLocator": "pkg:npm/@csstools/css-parser-algorithms@4.0.2",
+     "referenceType": "purl"
+    }
+   ],
+   "filesAnalyzed": false,
+   "licenseDeclared": "MIT",
+   "name": "@csstools/css-parser-algorithms",
+   "versionInfo": "4.0.2"
+  },
+  {
+   "SPDXID": "SPDXRef-Bundled-6",
+   "copyrightText": "NOASSERTION",
+   "downloadLocation": "NOASSERTION",
+   "externalRefs": [
+    {
+     "referenceCategory": "PACKAGE-MANAGER",
+     "referenceLocator": "pkg:npm/@csstools/css-tokenizer@4.0.2",
+     "referenceType": "purl"
+    }
+   ],
+   "filesAnalyzed": false,
+   "licenseDeclared": "MIT",
+   "name": "@csstools/css-tokenizer",
+   "versionInfo": "4.0.2"
+  },
+  {
+   "SPDXID": "SPDXRef-Bundled-7",
+   "copyrightText": "NOASSERTION",
+   "downloadLocation": "NOASSERTION",
+   "externalRefs": [
+    {
+     "referenceCategory": "PACKAGE-MANAGER",
+     "referenceLocator": "pkg:npm/@csstools/custom-function-parser@1.0.0",
+     "referenceType": "purl"
+    }
+   ],
+   "filesAnalyzed": false,
+   "licenseDeclared": "MIT",
+   "name": "@csstools/custom-function-parser",
+   "versionInfo": "1.0.0"
+  },
+  {
+   "SPDXID": "SPDXRef-Bundled-8",
+   "copyrightText": "NOASSERTION",
+   "downloadLocation": "NOASSERTION",
+   "externalRefs": [
+    {
+     "referenceCategory": "PACKAGE-MANAGER",
+     "referenceLocator": "pkg:npm/@csstools/media-query-list-parser@5.0.2",
+     "referenceType": "purl"
+    }
+   ],
+   "filesAnalyzed": false,
+   "licenseDeclared": "MIT",
+   "name": "@csstools/media-query-list-parser",
+   "versionInfo": "5.0.2"
+  },
+  {
+   "SPDXID": "SPDXRef-Bundled-9",
+   "copyrightText": "NOASSERTION",
+   "downloadLocation": "NOASSERTION",
+   "externalRefs": [
+    {
+     "referenceCategory": "PACKAGE-MANAGER",
+     "referenceLocator": "pkg:npm/@csstools/postcss-alpha-function@2.0.16",
+     "referenceType": "purl"
+    }
+   ],
+   "filesAnalyzed": false,
+   "licenseDeclared": "MIT-0",
+   "name": "@csstools/postcss-alpha-function",
+   "versionInfo": "2.0.16"
+  },
+  {
+   "SPDXID": "SPDXRef-Bundled-10",
+   "copyrightText": "NOASSERTION",
+   "downloadLocation": "NOASSERTION",
+   "externalRefs": [
+    {
+     "referenceCategory": "PACKAGE-MANAGER",
+     "referenceLocator": "pkg:npm/@csstools/postcss-cascade-layers@6.0.2",
+     "referenceType": "purl"
+    }
+   ],
+   "filesAnalyzed": false,
+   "licenseDeclared": "MIT-0",
+   "name": "@csstools/postcss-cascade-layers",
+   "versionInfo": "6.0.2"
+  },
+  {
+   "SPDXID": "SPDXRef-Bundled-11",
+   "copyrightText": "NOASSERTION",
+   "downloadLocation": "NOASSERTION",
+   "externalRefs": [
+    {
+     "referenceCategory": "PACKAGE-MANAGER",
+     "referenceLocator": "pkg:npm/@csstools/postcss-color-function@5.0.15",
+     "referenceType": "purl"
+    }
+   ],
+   "filesAnalyzed": false,
+   "licenseDeclared": "MIT-0",
+   "name": "@csstools/postcss-color-function",
+   "versionInfo": "5.0.15"
+  },
+  {
+   "SPDXID": "SPDXRef-Bundled-12",
+   "copyrightText": "NOASSERTION",
+   "downloadLocation": "NOASSERTION",
+   "externalRefs": [
+    {
+     "referenceCategory": "PACKAGE-MANAGER",
+     "referenceLocator": "pkg:npm/@csstools/postcss-color-function-display-p3-linear@2.0.15",
+     "referenceType": "purl"
+    }
+   ],
+   "filesAnalyzed": false,
+   "licenseDeclared": "MIT-0",
+   "name": "@csstools/postcss-color-function-display-p3-linear",
+   "versionInfo": "2.0.15"
+  },
+  {
+   "SPDXID": "SPDXRef-Bundled-13",
+   "copyrightText": "NOASSERTION",
+   "downloadLocation": "NOASSERTION",
+   "externalRefs": [
+    {
+     "referenceCategory": "PACKAGE-MANAGER",
+     "referenceLocator": "pkg:npm/@csstools/postcss-color-mix-function@4.0.15",
+     "referenceType": "purl"
+    }
+   ],
+   "filesAnalyzed": false,
+   "licenseDeclared": "MIT-0",
+   "name": "@csstools/postcss-color-mix-function",
+   "versionInfo": "4.0.15"
+  },
+  {
+   "SPDXID": "SPDXRef-Bundled-14",
+   "copyrightText": "NOASSERTION",
+   "downloadLocation": "NOASSERTION",
+   "externalRefs": [
+    {
+     "referenceCategory": "PACKAGE-MANAGER",
+     "referenceLocator": "pkg:npm/@csstools/postcss-color-mix-variadic-function-arguments@2.0.15",
+     "referenceType": "purl"
+    }
+   ],
+   "filesAnalyzed": false,
+   "licenseDeclared": "MIT-0",
+   "name": "@csstools/postcss-color-mix-variadic-function-arguments",
+   "versionInfo": "2.0.15"
+  },
+  {
+   "SPDXID": "SPDXRef-Bundled-15",
+   "copyrightText": "NOASSERTION",
+   "downloadLocation": "NOASSERTION",
+   "externalRefs": [
+    {
+     "referenceCategory": "PACKAGE-MANAGER",
+     "referenceLocator": "pkg:npm/@csstools/postcss-container-rule-prelude-list@1.0.4",
+     "referenceType": "purl"
+    }
+   ],
+   "filesAnalyzed": false,
+   "licenseDeclared": "MIT-0",
+   "name": "@csstools/postcss-container-rule-prelude-list",
+   "versionInfo": "1.0.4"
+  },
+  {
+   "SPDXID": "SPDXRef-Bundled-16",
+   "copyrightText": "NOASSERTION",
+   "downloadLocation": "NOASSERTION",
+   "externalRefs": [
+    {
+     "referenceCategory": "PACKAGE-MANAGER",
+     "referenceLocator": "pkg:npm/@csstools/postcss-content-alt-text@3.0.7",
+     "referenceType": "purl"
+    }
+   ],
+   "filesAnalyzed": false,
+   "licenseDeclared": "MIT-0",
+   "name": "@csstools/postcss-content-alt-text",
+   "versionInfo": "3.0.7"
+  },
+  {
+   "SPDXID": "SPDXRef-Bundled-17",
+   "copyrightText": "NOASSERTION",
+   "downloadLocation": "NOASSERTION",
+   "externalRefs": [
+    {
+     "referenceCategory": "PACKAGE-MANAGER",
+     "referenceLocator": "pkg:npm/@csstools/postcss-contrast-color-function@3.0.15",
+     "referenceType": "purl"
+    }
+   ],
+   "filesAnalyzed": false,
+   "licenseDeclared": "MIT-0",
+   "name": "@csstools/postcss-contrast-color-function",
+   "versionInfo": "3.0.15"
+  },
+  {
+   "SPDXID": "SPDXRef-Bundled-18",
+   "copyrightText": "NOASSERTION",
+   "downloadLocation": "NOASSERTION",
+   "externalRefs": [
+    {
+     "referenceCategory": "PACKAGE-MANAGER",
+     "referenceLocator": "pkg:npm/@csstools/postcss-custom-functions@1.0.1",
+     "referenceType": "purl"
+    }
+   ],
+   "filesAnalyzed": false,
+   "licenseDeclared": "MIT-0",
+   "name": "@csstools/postcss-custom-functions",
+   "versionInfo": "1.0.1"
+  },
+  {
+   "SPDXID": "SPDXRef-Bundled-19",
+   "copyrightText": "NOASSERTION",
+   "downloadLocation": "NOASSERTION",
+   "externalRefs": [
+    {
+     "referenceCategory": "PACKAGE-MANAGER",
+     "referenceLocator": "pkg:npm/@csstools/postcss-exponential-functions@3.0.9",
+     "referenceType": "purl"
+    }
+   ],
+   "filesAnalyzed": false,
+   "licenseDeclared": "MIT-0",
+   "name": "@csstools/postcss-exponential-functions",
+   "versionInfo": "3.0.9"
+  },
+  {
+   "SPDXID": "SPDXRef-Bundled-20",
+   "copyrightText": "NOASSERTION",
+   "downloadLocation": "NOASSERTION",
+   "externalRefs": [
+    {
+     "referenceCategory": "PACKAGE-MANAGER",
+     "referenceLocator": "pkg:npm/@csstools/postcss-fit-tolerance-property@1.0.1",
+     "referenceType": "purl"
+    }
+   ],
+   "filesAnalyzed": false,
+   "licenseDeclared": "MIT-0",
+   "name": "@csstools/postcss-fit-tolerance-property",
+   "versionInfo": "1.0.1"
+  },
+  {
+   "SPDXID": "SPDXRef-Bundled-21",
+   "copyrightText": "NOASSERTION",
+   "downloadLocation": "NOASSERTION",
+   "externalRefs": [
+    {
+     "referenceCategory": "PACKAGE-MANAGER",
+     "referenceLocator": "pkg:npm/@csstools/postcss-font-format-keywords@5.0.0",
+     "referenceType": "purl"
+    }
+   ],
+   "filesAnalyzed": false,
+   "licenseDeclared": "MIT-0",
+   "name": "@csstools/postcss-font-format-keywords",
+   "versionInfo": "5.0.0"
+  },
+  {
+   "SPDXID": "SPDXRef-Bundled-22",
+   "copyrightText": "NOASSERTION",
+   "downloadLocation": "NOASSERTION",
+   "externalRefs": [
+    {
+     "referenceCategory": "PACKAGE-MANAGER",
+     "referenceLocator": "pkg:npm/@csstools/postcss-font-width-property@1.0.0",
+     "referenceType": "purl"
+    }
+   ],
+   "filesAnalyzed": false,
+   "licenseDeclared": "MIT-0",
+   "name": "@csstools/postcss-font-width-property",
+   "versionInfo": "1.0.0"
+  },
+  {
+   "SPDXID": "SPDXRef-Bundled-23",
+   "copyrightText": "NOASSERTION",
+   "downloadLocation": "NOASSERTION",
+   "externalRefs": [
+    {
+     "referenceCategory": "PACKAGE-MANAGER",
+     "referenceLocator": "pkg:npm/@csstools/postcss-gamut-mapping@3.0.15",
+     "referenceType": "purl"
+    }
+   ],
+   "filesAnalyzed": false,
+   "licenseDeclared": "MIT-0",
+   "name": "@csstools/postcss-gamut-mapping",
+   "versionInfo": "3.0.15"
+  },
+  {
+   "SPDXID": "SPDXRef-Bundled-24",
+   "copyrightText": "NOASSERTION",
+   "downloadLocation": "NOASSERTION",
+   "externalRefs": [
+    {
+     "referenceCategory": "PACKAGE-MANAGER",
+     "referenceLocator": "pkg:npm/@csstools/postcss-gradients-interpolation-method@6.0.15",
+     "referenceType": "purl"
+    }
+   ],
+   "filesAnalyzed": false,
+   "licenseDeclared": "MIT-0",
+   "name": "@csstools/postcss-gradients-interpolation-method",
+   "versionInfo": "6.0.15"
+  },
+  {
+   "SPDXID": "SPDXRef-Bundled-25",
+   "copyrightText": "NOASSERTION",
+   "downloadLocation": "NOASSERTION",
+   "externalRefs": [
+    {
+     "referenceCategory": "PACKAGE-MANAGER",
+     "referenceLocator": "pkg:npm/@csstools/postcss-hwb-function@5.0.15",
+     "referenceType": "purl"
+    }
+   ],
+   "filesAnalyzed": false,
+   "licenseDeclared": "MIT-0",
+   "name": "@csstools/postcss-hwb-function",
+   "versionInfo": "5.0.15"
+  },
+  {
+   "SPDXID": "SPDXRef-Bundled-26",
+   "copyrightText": "NOASSERTION",
+   "downloadLocation": "NOASSERTION",
+   "externalRefs": [
+    {
+     "referenceCategory": "PACKAGE-MANAGER",
+     "referenceLocator": "pkg:npm/@csstools/postcss-ic-unit@5.0.5",
+     "referenceType": "purl"
+    }
+   ],
+   "filesAnalyzed": false,
+   "licenseDeclared": "MIT-0",
+   "name": "@csstools/postcss-ic-unit",
+   "versionInfo": "5.0.5"
+  },
+  {
+   "SPDXID": "SPDXRef-Bundled-27",
+   "copyrightText": "NOASSERTION",
+   "downloadLocation": "NOASSERTION",
+   "externalRefs": [
+    {
+     "referenceCategory": "PACKAGE-MANAGER",
+     "referenceLocator": "pkg:npm/@csstools/postcss-image-function@1.0.6",
+     "referenceType": "purl"
+    }
+   ],
+   "filesAnalyzed": false,
+   "licenseDeclared": "MIT-0",
+   "name": "@csstools/postcss-image-function",
+   "versionInfo": "1.0.6"
+  },
+  {
+   "SPDXID": "SPDXRef-Bundled-28",
+   "copyrightText": "NOASSERTION",
+   "downloadLocation": "NOASSERTION",
+   "externalRefs": [
+    {
+     "referenceCategory": "PACKAGE-MANAGER",
+     "referenceLocator": "pkg:npm/@csstools/postcss-initial@3.0.0",
+     "referenceType": "purl"
+    }
+   ],
+   "filesAnalyzed": false,
+   "licenseDeclared": "MIT-0",
+   "name": "@csstools/postcss-initial",
+   "versionInfo": "3.0.0"
+  },
+  {
+   "SPDXID": "SPDXRef-Bundled-29",
+   "copyrightText": "NOASSERTION",
+   "downloadLocation": "NOASSERTION",
+   "externalRefs": [
+    {
+     "referenceCategory": "PACKAGE-MANAGER",
+     "referenceLocator": "pkg:npm/@csstools/postcss-is-pseudo-class@6.0.3",
+     "referenceType": "purl"
+    }
+   ],
+   "filesAnalyzed": false,
+   "licenseDeclared": "MIT-0",
+   "name": "@csstools/postcss-is-pseudo-class",
+   "versionInfo": "6.0.3"
+  },
+  {
+   "SPDXID": "SPDXRef-Bundled-30",
+   "copyrightText": "NOASSERTION",
+   "downloadLocation": "NOASSERTION",
+   "externalRefs": [
+    {
+     "referenceCategory": "PACKAGE-MANAGER",
+     "referenceLocator": "pkg:npm/@csstools/postcss-light-dark-function@3.0.7",
+     "referenceType": "purl"
+    }
+   ],
+   "filesAnalyzed": false,
+   "licenseDeclared": "MIT-0",
+   "name": "@csstools/postcss-light-dark-function",
+   "versionInfo": "3.0.7"
+  },
+  {
+   "SPDXID": "SPDXRef-Bundled-31",
+   "copyrightText": "NOASSERTION",
+   "downloadLocation": "NOASSERTION",
+   "externalRefs": [
+    {
+     "referenceCategory": "PACKAGE-MANAGER",
+     "referenceLocator": "pkg:npm/@csstools/postcss-logical-float-and-clear@4.0.0",
+     "referenceType": "purl"
+    }
+   ],
+   "filesAnalyzed": false,
+   "licenseDeclared": "MIT-0",
+   "name": "@csstools/postcss-logical-float-and-clear",
+   "versionInfo": "4.0.0"
+  },
+  {
+   "SPDXID": "SPDXRef-Bundled-32",
+   "copyrightText": "NOASSERTION",
+   "downloadLocation": "NOASSERTION",
+   "externalRefs": [
+    {
+     "referenceCategory": "PACKAGE-MANAGER",
+     "referenceLocator": "pkg:npm/@csstools/postcss-logical-overflow@3.0.0",
+     "referenceType": "purl"
+    }
+   ],
+   "filesAnalyzed": false,
+   "licenseDeclared": "MIT-0",
+   "name": "@csstools/postcss-logical-overflow",
+   "versionInfo": "3.0.0"
+  },
+  {
+   "SPDXID": "SPDXRef-Bundled-33",
+   "copyrightText": "NOASSERTION",
+   "downloadLocation": "NOASSERTION",
+   "externalRefs": [
+    {
+     "referenceCategory": "PACKAGE-MANAGER",
+     "referenceLocator": "pkg:npm/@csstools/postcss-logical-overscroll-behavior@3.0.0",
+     "referenceType": "purl"
+    }
+   ],
+   "filesAnalyzed": false,
+   "licenseDeclared": "MIT-0",
+   "name": "@csstools/postcss-logical-overscroll-behavior",
+   "versionInfo": "3.0.0"
+  },
+  {
+   "SPDXID": "SPDXRef-Bundled-34",
+   "copyrightText": "NOASSERTION",
+   "downloadLocation": "NOASSERTION",
+   "externalRefs": [
+    {
+     "referenceCategory": "PACKAGE-MANAGER",
+     "referenceLocator": "pkg:npm/@csstools/postcss-logical-resize@4.0.0",
+     "referenceType": "purl"
+    }
+   ],
+   "filesAnalyzed": false,
+   "licenseDeclared": "MIT-0",
+   "name": "@csstools/postcss-logical-resize",
+   "versionInfo": "4.0.0"
+  },
+  {
+   "SPDXID": "SPDXRef-Bundled-35",
+   "copyrightText": "NOASSERTION",
+   "downloadLocation": "NOASSERTION",
+   "externalRefs": [
+    {
+     "referenceCategory": "PACKAGE-MANAGER",
+     "referenceLocator": "pkg:npm/@csstools/postcss-logical-viewport-units@4.0.3",
+     "referenceType": "purl"
+    }
+   ],
+   "filesAnalyzed": false,
+   "licenseDeclared": "MIT-0",
+   "name": "@csstools/postcss-logical-viewport-units",
+   "versionInfo": "4.0.3"
+  },
+  {
+   "SPDXID": "SPDXRef-Bundled-36",
+   "copyrightText": "NOASSERTION",
+   "downloadLocation": "NOASSERTION",
+   "externalRefs": [
+    {
+     "referenceCategory": "PACKAGE-MANAGER",
+     "referenceLocator": "pkg:npm/@csstools/postcss-media-minmax@3.0.8",
+     "referenceType": "purl"
+    }
+   ],
+   "filesAnalyzed": false,
+   "licenseDeclared": "MIT",
+   "name": "@csstools/postcss-media-minmax",
+   "versionInfo": "3.0.8"
+  },
+  {
+   "SPDXID": "SPDXRef-Bundled-37",
+   "copyrightText": "NOASSERTION",
+   "downloadLocation": "NOASSERTION",
+   "externalRefs": [
+    {
+     "referenceCategory": "PACKAGE-MANAGER",
+     "referenceLocator": "pkg:npm/@csstools/postcss-media-queries-aspect-ratio-number-values@4.0.2",
+     "referenceType": "purl"
+    }
+   ],
+   "filesAnalyzed": false,
+   "licenseDeclared": "MIT-0",
+   "name": "@csstools/postcss-media-queries-aspect-ratio-number-values",
+   "versionInfo": "4.0.2"
+  },
+  {
+   "SPDXID": "SPDXRef-Bundled-38",
+   "copyrightText": "NOASSERTION",
+   "downloadLocation": "NOASSERTION",
+   "externalRefs": [
+    {
+     "referenceCategory": "PACKAGE-MANAGER",
+     "referenceLocator": "pkg:npm/@csstools/postcss-mixins@1.1.0",
+     "referenceType": "purl"
+    }
+   ],
+   "filesAnalyzed": false,
+   "licenseDeclared": "MIT-0",
+   "name": "@csstools/postcss-mixins",
+   "versionInfo": "1.1.0"
+  },
+  {
+   "SPDXID": "SPDXRef-Bundled-39",
+   "copyrightText": "NOASSERTION",
+   "downloadLocation": "NOASSERTION",
+   "externalRefs": [
+    {
+     "referenceCategory": "PACKAGE-MANAGER",
+     "referenceLocator": "pkg:npm/@csstools/postcss-nested-calc@5.0.2",
+     "referenceType": "purl"
+    }
+   ],
+   "filesAnalyzed": false,
+   "licenseDeclared": "MIT-0",
+   "name": "@csstools/postcss-nested-calc",
+   "versionInfo": "5.0.2"
+  },
+  {
+   "SPDXID": "SPDXRef-Bundled-40",
+   "copyrightText": "NOASSERTION",
+   "downloadLocation": "NOASSERTION",
+   "externalRefs": [
+    {
+     "referenceCategory": "PACKAGE-MANAGER",
+     "referenceLocator": "pkg:npm/@csstools/postcss-normalize-display-values@5.0.1",
+     "referenceType": "purl"
+    }
+   ],
+   "filesAnalyzed": false,
+   "licenseDeclared": "MIT-0",
+   "name": "@csstools/postcss-normalize-display-values",
+   "versionInfo": "5.0.1"
+  },
+  {
+   "SPDXID": "SPDXRef-Bundled-41",
+   "copyrightText": "NOASSERTION",
+   "downloadLocation": "NOASSERTION",
+   "externalRefs": [
+    {
+     "referenceCategory": "PACKAGE-MANAGER",
+     "referenceLocator": "pkg:npm/@csstools/postcss-oklab-function@5.0.15",
+     "referenceType": "purl"
+    }
+   ],
+   "filesAnalyzed": false,
+   "licenseDeclared": "MIT-0",
+   "name": "@csstools/postcss-oklab-function",
+   "versionInfo": "5.0.15"
+  },
+  {
+   "SPDXID": "SPDXRef-Bundled-42",
+   "copyrightText": "NOASSERTION",
+   "downloadLocation": "NOASSERTION",
+   "externalRefs": [
+    {
+     "referenceCategory": "PACKAGE-MANAGER",
+     "referenceLocator": "pkg:npm/@csstools/postcss-position-area-property@2.0.0",
+     "referenceType": "purl"
+    }
+   ],
+   "filesAnalyzed": false,
+   "licenseDeclared": "MIT-0",
+   "name": "@csstools/postcss-position-area-property",
+   "versionInfo": "2.0.0"
+  },
+  {
+   "SPDXID": "SPDXRef-Bundled-43",
+   "copyrightText": "NOASSERTION",
+   "downloadLocation": "NOASSERTION",
+   "externalRefs": [
+    {
+     "referenceCategory": "PACKAGE-MANAGER",
+     "referenceLocator": "pkg:npm/@csstools/postcss-private-rule@1.1.1",
+     "referenceType": "purl"
+    }
+   ],
+   "filesAnalyzed": false,
+   "licenseDeclared": "MIT-0",
+   "name": "@csstools/postcss-private-rule",
+   "versionInfo": "1.1.1"
+  },
+  {
+   "SPDXID": "SPDXRef-Bundled-44",
+   "copyrightText": "NOASSERTION",
+   "downloadLocation": "NOASSERTION",
+   "externalRefs": [
+    {
+     "referenceCategory": "PACKAGE-MANAGER",
+     "referenceLocator": "pkg:npm/@csstools/postcss-progressive-custom-properties@5.1.4",
+     "referenceType": "purl"
+    }
+   ],
+   "filesAnalyzed": false,
+   "licenseDeclared": "MIT-0",
+   "name": "@csstools/postcss-progressive-custom-properties",
+   "versionInfo": "5.1.4"
+  },
+  {
+   "SPDXID": "SPDXRef-Bundled-45",
+   "copyrightText": "NOASSERTION",
+   "downloadLocation": "NOASSERTION",
+   "externalRefs": [
+    {
+     "referenceCategory": "PACKAGE-MANAGER",
+     "referenceLocator": "pkg:npm/@csstools/postcss-property-rule-optional-descriptors@1.0.0",
+     "referenceType": "purl"
+    }
+   ],
+   "filesAnalyzed": false,
+   "licenseDeclared": "MIT-0",
+   "name": "@csstools/postcss-property-rule-optional-descriptors",
+   "versionInfo": "1.0.0"
+  },
+  {
+   "SPDXID": "SPDXRef-Bundled-46",
+   "copyrightText": "NOASSERTION",
+   "downloadLocation": "NOASSERTION",
+   "externalRefs": [
+    {
+     "referenceCategory": "PACKAGE-MANAGER",
+     "referenceLocator": "pkg:npm/@csstools/postcss-property-rule-prelude-list@2.0.3",
+     "referenceType": "purl"
+    }
+   ],
+   "filesAnalyzed": false,
+   "licenseDeclared": "MIT-0",
+   "name": "@csstools/postcss-property-rule-prelude-list",
+   "versionInfo": "2.0.3"
+  },
+  {
+   "SPDXID": "SPDXRef-Bundled-47",
+   "copyrightText": "NOASSERTION",
+   "downloadLocation": "NOASSERTION",
+   "externalRefs": [
+    {
+     "referenceCategory": "PACKAGE-MANAGER",
+     "referenceLocator": "pkg:npm/@csstools/postcss-random-function@4.0.5",
+     "referenceType": "purl"
+    }
+   ],
+   "filesAnalyzed": false,
+   "licenseDeclared": "MIT-0",
+   "name": "@csstools/postcss-random-function",
+   "versionInfo": "4.0.5"
+  },
+  {
+   "SPDXID": "SPDXRef-Bundled-48",
+   "copyrightText": "NOASSERTION",
+   "downloadLocation": "NOASSERTION",
+   "externalRefs": [
+    {
+     "referenceCategory": "PACKAGE-MANAGER",
+     "referenceLocator": "pkg:npm/@csstools/postcss-relative-color-syntax@4.0.15",
+     "referenceType": "purl"
+    }
+   ],
+   "filesAnalyzed": false,
+   "licenseDeclared": "MIT-0",
+   "name": "@csstools/postcss-relative-color-syntax",
+   "versionInfo": "4.0.15"
+  },
+  {
+   "SPDXID": "SPDXRef-Bundled-49",
+   "copyrightText": "NOASSERTION",
+   "downloadLocation": "NOASSERTION",
+   "externalRefs": [
+    {
+     "referenceCategory": "PACKAGE-MANAGER",
+     "referenceLocator": "pkg:npm/@csstools/postcss-scope-pseudo-class@5.0.0",
+     "referenceType": "purl"
+    }
+   ],
+   "filesAnalyzed": false,
+   "licenseDeclared": "MIT-0",
+   "name": "@csstools/postcss-scope-pseudo-class",
+   "versionInfo": "5.0.0"
+  },
+  {
+   "SPDXID": "SPDXRef-Bundled-50",
+   "copyrightText": "NOASSERTION",
+   "downloadLocation": "NOASSERTION",
+   "externalRefs": [
+    {
+     "referenceCategory": "PACKAGE-MANAGER",
+     "referenceLocator": "pkg:npm/@csstools/postcss-sign-functions@2.0.9",
+     "referenceType": "purl"
+    }
+   ],
+   "filesAnalyzed": false,
+   "licenseDeclared": "MIT-0",
+   "name": "@csstools/postcss-sign-functions",
+   "versionInfo": "2.0.9"
+  },
+  {
+   "SPDXID": "SPDXRef-Bundled-51",
+   "copyrightText": "NOASSERTION",
+   "downloadLocation": "NOASSERTION",
+   "externalRefs": [
+    {
+     "referenceCategory": "PACKAGE-MANAGER",
+     "referenceLocator": "pkg:npm/@csstools/postcss-stepped-value-functions@5.0.9",
+     "referenceType": "purl"
+    }
+   ],
+   "filesAnalyzed": false,
+   "licenseDeclared": "MIT-0",
+   "name": "@csstools/postcss-stepped-value-functions",
+   "versionInfo": "5.0.9"
+  },
+  {
+   "SPDXID": "SPDXRef-Bundled-52",
+   "copyrightText": "NOASSERTION",
+   "downloadLocation": "NOASSERTION",
+   "externalRefs": [
+    {
+     "referenceCategory": "PACKAGE-MANAGER",
+     "referenceLocator": "pkg:npm/@csstools/postcss-syntax-descriptor-syntax-production@2.0.1",
+     "referenceType": "purl"
+    }
+   ],
+   "filesAnalyzed": false,
+   "licenseDeclared": "MIT-0",
+   "name": "@csstools/postcss-syntax-descriptor-syntax-production",
+   "versionInfo": "2.0.1"
+  },
+  {
+   "SPDXID": "SPDXRef-Bundled-53",
+   "copyrightText": "NOASSERTION",
+   "downloadLocation": "NOASSERTION",
+   "externalRefs": [
+    {
+     "referenceCategory": "PACKAGE-MANAGER",
+     "referenceLocator": "pkg:npm/@csstools/postcss-system-ui-font-family@2.0.3",
+     "referenceType": "purl"
+    }
+   ],
+   "filesAnalyzed": false,
+   "licenseDeclared": "MIT-0",
+   "name": "@csstools/postcss-system-ui-font-family",
+   "versionInfo": "2.0.3"
+  },
+  {
+   "SPDXID": "SPDXRef-Bundled-54",
+   "copyrightText": "NOASSERTION",
+   "downloadLocation": "NOASSERTION",
+   "externalRefs": [
+    {
+     "referenceCategory": "PACKAGE-MANAGER",
+     "referenceLocator": "pkg:npm/@csstools/postcss-text-decoration-shorthand@5.0.7",
+     "referenceType": "purl"
+    }
+   ],
+   "filesAnalyzed": false,
+   "licenseDeclared": "MIT-0",
+   "name": "@csstools/postcss-text-decoration-shorthand",
+   "versionInfo": "5.0.7"
+  },
+  {
+   "SPDXID": "SPDXRef-Bundled-55",
+   "copyrightText": "NOASSERTION",
+   "downloadLocation": "NOASSERTION",
+   "externalRefs": [
+    {
+     "referenceCategory": "PACKAGE-MANAGER",
+     "referenceLocator": "pkg:npm/@csstools/postcss-trigonometric-functions@5.0.9",
+     "referenceType": "purl"
+    }
+   ],
+   "filesAnalyzed": false,
+   "licenseDeclared": "MIT-0",
+   "name": "@csstools/postcss-trigonometric-functions",
+   "versionInfo": "5.0.9"
+  },
+  {
+   "SPDXID": "SPDXRef-Bundled-56",
+   "copyrightText": "NOASSERTION",
+   "downloadLocation": "NOASSERTION",
+   "externalRefs": [
+    {
+     "referenceCategory": "PACKAGE-MANAGER",
+     "referenceLocator": "pkg:npm/@csstools/postcss-unset-value@5.0.0",
+     "referenceType": "purl"
+    }
+   ],
+   "filesAnalyzed": false,
+   "licenseDeclared": "MIT-0",
+   "name": "@csstools/postcss-unset-value",
+   "versionInfo": "5.0.0"
+  },
+  {
+   "SPDXID": "SPDXRef-Bundled-57",
+   "copyrightText": "NOASSERTION",
+   "downloadLocation": "NOASSERTION",
+   "externalRefs": [
+    {
+     "referenceCategory": "PACKAGE-MANAGER",
+     "referenceLocator": "pkg:npm/@csstools/selector-resolve-nested@4.0.2",
+     "referenceType": "purl"
+    }
+   ],
+   "filesAnalyzed": false,
+   "licenseDeclared": "MIT-0",
+   "name": "@csstools/selector-resolve-nested",
+   "versionInfo": "4.0.2"
+  },
+  {
+   "SPDXID": "SPDXRef-Bundled-58",
+   "copyrightText": "NOASSERTION",
+   "downloadLocation": "NOASSERTION",
+   "externalRefs": [
+    {
+     "referenceCategory": "PACKAGE-MANAGER",
+     "referenceLocator": "pkg:npm/@csstools/selector-specificity@6.0.1",
+     "referenceType": "purl"
+    }
+   ],
+   "filesAnalyzed": false,
+   "licenseDeclared": "MIT-0",
+   "name": "@csstools/selector-specificity",
+   "versionInfo": "6.0.1"
+  },
+  {
+   "SPDXID": "SPDXRef-Bundled-59",
+   "copyrightText": "NOASSERTION",
+   "downloadLocation": "NOASSERTION",
+   "externalRefs": [
+    {
+     "referenceCategory": "PACKAGE-MANAGER",
+     "referenceLocator": "pkg:npm/@csstools/utilities@3.0.0",
+     "referenceType": "purl"
+    }
+   ],
+   "filesAnalyzed": false,
+   "licenseDeclared": "MIT-0",
+   "name": "@csstools/utilities",
+   "versionInfo": "3.0.0"
+  },
+  {
+   "SPDXID": "SPDXRef-Bundled-60",
+   "copyrightText": "NOASSERTION",
+   "downloadLocation": "NOASSERTION",
+   "externalRefs": [
+    {
+     "referenceCategory": "PACKAGE-MANAGER",
+     "referenceLocator": "pkg:npm/@jridgewell/gen-mapping@0.3.13",
+     "referenceType": "purl"
+    }
+   ],
+   "filesAnalyzed": false,
+   "licenseDeclared": "MIT",
+   "name": "@jridgewell/gen-mapping",
+   "versionInfo": "0.3.13"
+  },
+  {
+   "SPDXID": "SPDXRef-Bundled-61",
+   "copyrightText": "NOASSERTION",
+   "downloadLocation": "NOASSERTION",
+   "externalRefs": [
+    {
+     "referenceCategory": "PACKAGE-MANAGER",
+     "referenceLocator": "pkg:npm/@jridgewell/resolve-uri@3.1.2",
+     "referenceType": "purl"
+    }
+   ],
+   "filesAnalyzed": false,
+   "licenseDeclared": "MIT",
+   "name": "@jridgewell/resolve-uri",
+   "versionInfo": "3.1.2"
+  },
+  {
+   "SPDXID": "SPDXRef-Bundled-62",
+   "copyrightText": "NOASSERTION",
+   "downloadLocation": "NOASSERTION",
+   "externalRefs": [
+    {
+     "referenceCategory": "PACKAGE-MANAGER",
+     "referenceLocator": "pkg:npm/@jridgewell/source-map@0.3.11",
+     "referenceType": "purl"
+    }
+   ],
+   "filesAnalyzed": false,
+   "licenseDeclared": "MIT",
+   "name": "@jridgewell/source-map",
+   "versionInfo": "0.3.11"
+  },
+  {
+   "SPDXID": "SPDXRef-Bundled-63",
+   "copyrightText": "NOASSERTION",
+   "downloadLocation": "NOASSERTION",
+   "externalRefs": [
+    {
+     "referenceCategory": "PACKAGE-MANAGER",
+     "referenceLocator": "pkg:npm/@jridgewell/sourcemap-codec@1.6.0",
+     "referenceType": "purl"
+    }
+   ],
+   "filesAnalyzed": false,
+   "licenseDeclared": "MIT",
+   "name": "@jridgewell/sourcemap-codec",
+   "versionInfo": "1.6.0"
+  },
+  {
+   "SPDXID": "SPDXRef-Bundled-64",
+   "copyrightText": "NOASSERTION",
+   "downloadLocation": "NOASSERTION",
+   "externalRefs": [
+    {
+     "referenceCategory": "PACKAGE-MANAGER",
+     "referenceLocator": "pkg:npm/@jridgewell/trace-mapping@0.3.31",
+     "referenceType": "purl"
+    }
+   ],
+   "filesAnalyzed": false,
+   "licenseDeclared": "MIT",
+   "name": "@jridgewell/trace-mapping",
+   "versionInfo": "0.3.31"
+  },
+  {
+   "SPDXID": "SPDXRef-Bundled-65",
+   "copyrightText": "NOASSERTION",
+   "downloadLocation": "NOASSERTION",
+   "externalRefs": [
+    {
+     "referenceCategory": "PACKAGE-MANAGER",
+     "referenceLocator": "pkg:npm/acorn@8.18.0",
+     "referenceType": "purl"
+    }
+   ],
+   "filesAnalyzed": false,
+   "licenseDeclared": "MIT",
+   "name": "acorn",
+   "versionInfo": "8.18.0"
+  },
+  {
+   "SPDXID": "SPDXRef-Bundled-66",
+   "copyrightText": "NOASSERTION",
+   "downloadLocation": "NOASSERTION",
+   "externalRefs": [
+    {
+     "referenceCategory": "PACKAGE-MANAGER",
+     "referenceLocator": "pkg:npm/ansi-regex@6.4.0",
+     "referenceType": "purl"
+    }
+   ],
+   "filesAnalyzed": false,
+   "licenseDeclared": "MIT",
+   "name": "ansi-regex",
+   "versionInfo": "6.4.0"
+  },
+  {
+   "SPDXID": "SPDXRef-Bundled-67",
+   "copyrightText": "NOASSERTION",
+   "downloadLocation": "NOASSERTION",
+   "externalRefs": [
+    {
+     "referenceCategory": "PACKAGE-MANAGER",
+     "referenceLocator": "pkg:npm/autoprefixer@10.6.1",
+     "referenceType": "purl"
+    }
+   ],
+   "filesAnalyzed": false,
+   "licenseDeclared": "MIT",
+   "name": "autoprefixer",
+   "versionInfo": "10.6.1"
+  },
+  {
+   "SPDXID": "SPDXRef-Bundled-68",
+   "copyrightText": "NOASSERTION",
+   "downloadLocation": "NOASSERTION",
+   "externalRefs": [
+    {
+     "referenceCategory": "PACKAGE-MANAGER",
+     "referenceLocator": "pkg:npm/balanced-match@4.0.4",
+     "referenceType": "purl"
+    }
+   ],
+   "filesAnalyzed": false,
+   "licenseDeclared": "MIT",
+   "name": "balanced-match",
+   "versionInfo": "4.0.4"
+  },
+  {
+   "SPDXID": "SPDXRef-Bundled-69",
+   "copyrightText": "NOASSERTION",
+   "downloadLocation": "NOASSERTION",
+   "externalRefs": [
+    {
+     "referenceCategory": "PACKAGE-MANAGER",
+     "referenceLocator": "pkg:npm/baseline-browser-mapping@2.11.28",
+     "referenceType": "purl"
+    }
+   ],
+   "filesAnalyzed": false,
+   "licenseDeclared": "Apache-2.0",
+   "name": "baseline-browser-mapping",
+   "versionInfo": "2.11.28"
+  },
+  {
+   "SPDXID": "SPDXRef-Bundled-70",
+   "copyrightText": "NOASSERTION",
+   "downloadLocation": "NOASSERTION",
+   "externalRefs": [
+    {
+     "referenceCategory": "PACKAGE-MANAGER",
+     "referenceLocator": "pkg:npm/boolbase@1.0.0",
+     "referenceType": "purl"
+    }
+   ],
+   "filesAnalyzed": false,
+   "licenseDeclared": "ISC",
+   "name": "boolbase",
+   "versionInfo": "1.0.0"
+  },
+  {
+   "SPDXID": "SPDXRef-Bundled-71",
+   "copyrightText": "NOASSERTION",
+   "downloadLocation": "NOASSERTION",
+   "externalRefs": [
+    {
+     "referenceCategory": "PACKAGE-MANAGER",
+     "referenceLocator": "pkg:npm/brace-expansion@5.0.12",
+     "referenceType": "purl"
+    }
+   ],
+   "filesAnalyzed": false,
+   "licenseDeclared": "MIT",
+   "name": "brace-expansion",
+   "versionInfo": "5.0.12"
+  },
+  {
+   "SPDXID": "SPDXRef-Bundled-72",
+   "copyrightText": "NOASSERTION",
+   "downloadLocation": "NOASSERTION",
+   "externalRefs": [
+    {
+     "referenceCategory": "PACKAGE-MANAGER",
+     "referenceLocator": "pkg:npm/browserslist@4.29.3",
+     "referenceType": "purl"
+    }
+   ],
+   "filesAnalyzed": false,
+   "licenseDeclared": "MIT",
+   "name": "browserslist",
+   "versionInfo": "4.29.3"
+  },
+  {
+   "SPDXID": "SPDXRef-Bundled-73",
+   "copyrightText": "NOASSERTION",
+   "downloadLocation": "NOASSERTION",
+   "externalRefs": [
+    {
+     "referenceCategory": "PACKAGE-MANAGER",
+     "referenceLocator": "pkg:npm/buffer-from@1.1.2",
+     "referenceType": "purl"
+    }
+   ],
+   "filesAnalyzed": false,
+   "licenseDeclared": "MIT",
+   "name": "buffer-from",
+   "versionInfo": "1.1.2"
+  },
+  {
+   "SPDXID": "SPDXRef-Bundled-74",
+   "copyrightText": "NOASSERTION",
+   "downloadLocation": "NOASSERTION",
+   "externalRefs": [
+    {
+     "referenceCategory": "PACKAGE-MANAGER",
+     "referenceLocator": "pkg:npm/camel-case@4.1.2",
+     "referenceType": "purl"
+    }
+   ],
+   "filesAnalyzed": false,
+   "licenseDeclared": "MIT",
+   "name": "camel-case",
+   "versionInfo": "4.1.2"
+  },
+  {
+   "SPDXID": "SPDXRef-Bundled-75",
+   "copyrightText": "NOASSERTION",
+   "downloadLocation": "NOASSERTION",
+   "externalRefs": [
+    {
+     "referenceCategory": "PACKAGE-MANAGER",
+     "referenceLocator": "pkg:npm/caniuse-api@4.0.0",
+     "referenceType": "purl"
+    }
+   ],
+   "filesAnalyzed": false,
+   "licenseDeclared": "MIT",
+   "name": "caniuse-api",
+   "versionInfo": "4.0.0"
+  },
+  {
+   "SPDXID": "SPDXRef-Bundled-76",
+   "copyrightText": "NOASSERTION",
+   "downloadLocation": "NOASSERTION",
+   "externalRefs": [
+    {
+     "referenceCategory": "PACKAGE-MANAGER",
+     "referenceLocator": "pkg:npm/caniuse-lite@1.0.30001815",
+     "referenceType": "purl"
+    }
+   ],
+   "filesAnalyzed": false,
+   "licenseDeclared": "CC-BY-4.0",
+   "name": "caniuse-lite",
+   "versionInfo": "1.0.30001815"
+  },
+  {
+   "SPDXID": "SPDXRef-Bundled-77",
+   "copyrightText": "NOASSERTION",
+   "downloadLocation": "NOASSERTION",
+   "externalRefs": [
+    {
+     "referenceCategory": "PACKAGE-MANAGER",
+     "referenceLocator": "pkg:npm/chokidar@5.0.0",
+     "referenceType": "purl"
+    }
+   ],
+   "filesAnalyzed": false,
+   "licenseDeclared": "MIT",
+   "name": "chokidar",
+   "versionInfo": "5.0.0"
+  },
+  {
+   "SPDXID": "SPDXRef-Bundled-78",
+   "copyrightText": "NOASSERTION",
+   "downloadLocation": "NOASSERTION",
+   "externalRefs": [
+    {
+     "referenceCategory": "PACKAGE-MANAGER",
+     "referenceLocator": "pkg:npm/clean-css@5.3.3",
+     "referenceType": "purl"
+    }
+   ],
+   "filesAnalyzed": false,
+   "licenseDeclared": "MIT",
+   "name": "clean-css",
+   "versionInfo": "5.3.3"
+  },
+  {
+   "SPDXID": "SPDXRef-Bundled-79",
+   "copyrightText": "NOASSERTION",
+   "downloadLocation": "NOASSERTION",
+   "externalRefs": [
+    {
+     "referenceCategory": "PACKAGE-MANAGER",
+     "referenceLocator": "pkg:npm/cliui@9.0.1",
+     "referenceType": "purl"
+    }
+   ],
+   "filesAnalyzed": false,
+   "licenseDeclared": "ISC",
+   "name": "cliui",
+   "versionInfo": "9.0.1"
+  },
+  {
+   "SPDXID": "SPDXRef-Bundled-80",
+   "copyrightText": "NOASSERTION",
+   "downloadLocation": "NOASSERTION",
+   "externalRefs": [
+    {
+     "referenceCategory": "PACKAGE-MANAGER",
+     "referenceLocator": "pkg:npm/string-width@7.2.0",
+     "referenceType": "purl"
+    }
+   ],
+   "filesAnalyzed": false,
+   "licenseDeclared": "MIT",
+   "name": "string-width",
+   "versionInfo": "7.2.0"
+  },
+  {
+   "SPDXID": "SPDXRef-Bundled-81",
+   "copyrightText": "NOASSERTION",
+   "downloadLocation": "NOASSERTION",
+   "externalRefs": [
+    {
+     "referenceCategory": "PACKAGE-MANAGER",
+     "referenceLocator": "pkg:npm/commander@10.0.1",
+     "referenceType": "purl"
+    }
+   ],
+   "filesAnalyzed": false,
+   "licenseDeclared": "MIT",
+   "name": "commander",
+   "versionInfo": "10.0.1"
+  },
+  {
+   "SPDXID": "SPDXRef-Bundled-82",
+   "copyrightText": "NOASSERTION",
+   "downloadLocation": "NOASSERTION",
+   "externalRefs": [
+    {
+     "referenceCategory": "PACKAGE-MANAGER",
+     "referenceLocator": "pkg:npm/css-blank-pseudo@8.0.2",
+     "referenceType": "purl"
+    }
+   ],
+   "filesAnalyzed": false,
+   "licenseDeclared": "MIT-0",
+   "name": "css-blank-pseudo",
+   "versionInfo": "8.0.2"
+  },
+  {
+   "SPDXID": "SPDXRef-Bundled-83",
+   "copyrightText": "NOASSERTION",
+   "downloadLocation": "NOASSERTION",
+   "externalRefs": [
+    {
+     "referenceCategory": "PACKAGE-MANAGER",
+     "referenceLocator": "pkg:npm/css-has-pseudo@8.0.2",
+     "referenceType": "purl"
+    }
+   ],
+   "filesAnalyzed": false,
+   "licenseDeclared": "MIT-0",
+   "name": "css-has-pseudo",
+   "versionInfo": "8.0.2"
+  },
+  {
+   "SPDXID": "SPDXRef-Bundled-84",
+   "copyrightText": "NOASSERTION",
+   "downloadLocation": "NOASSERTION",
+   "externalRefs": [
+    {
+     "referenceCategory": "PACKAGE-MANAGER",
+     "referenceLocator": "pkg:npm/css-prefers-color-scheme@11.0.1",
+     "referenceType": "purl"
+    }
+   ],
+   "filesAnalyzed": false,
+   "licenseDeclared": "MIT-0",
+   "name": "css-prefers-color-scheme",
+   "versionInfo": "11.0.1"
+  },
+  {
+   "SPDXID": "SPDXRef-Bundled-85",
+   "copyrightText": "NOASSERTION",
+   "downloadLocation": "NOASSERTION",
+   "externalRefs": [
+    {
+     "referenceCategory": "PACKAGE-MANAGER",
+     "referenceLocator": "pkg:npm/css-select@6.0.0",
+     "referenceType": "purl"
+    }
+   ],
+   "filesAnalyzed": false,
+   "licenseDeclared": "BSD-2-Clause",
+   "name": "css-select",
+   "versionInfo": "6.0.0"
+  },
+  {
+   "SPDXID": "SPDXRef-Bundled-86",
+   "copyrightText": "NOASSERTION",
+   "downloadLocation": "NOASSERTION",
+   "externalRefs": [
+    {
+     "referenceCategory": "PACKAGE-MANAGER",
+     "referenceLocator": "pkg:npm/css-tree@3.2.1",
+     "referenceType": "purl"
+    }
+   ],
+   "filesAnalyzed": false,
+   "licenseDeclared": "MIT",
+   "name": "css-tree",
+   "versionInfo": "3.2.1"
+  },
+  {
+   "SPDXID": "SPDXRef-Bundled-87",
+   "copyrightText": "NOASSERTION",
+   "downloadLocation": "NOASSERTION",
+   "externalRefs": [
+    {
+     "referenceCategory": "PACKAGE-MANAGER",
+     "referenceLocator": "pkg:npm/css-what@7.0.0",
+     "referenceType": "purl"
+    }
+   ],
+   "filesAnalyzed": false,
+   "licenseDeclared": "BSD-2-Clause",
+   "name": "css-what",
+   "versionInfo": "7.0.0"
+  },
+  {
+   "SPDXID": "SPDXRef-Bundled-88",
+   "copyrightText": "NOASSERTION",
+   "downloadLocation": "NOASSERTION",
+   "externalRefs": [
+    {
+     "referenceCategory": "PACKAGE-MANAGER",
+     "referenceLocator": "pkg:npm/cssdb@8.11.0",
+     "referenceType": "purl"
+    }
+   ],
+   "filesAnalyzed": false,
+   "licenseDeclared": "MIT-0",
+   "name": "cssdb",
+   "versionInfo": "8.11.0"
+  },
+  {
+   "SPDXID": "SPDXRef-Bundled-89",
+   "copyrightText": "NOASSERTION",
+   "downloadLocation": "NOASSERTION",
+   "externalRefs": [
+    {
+     "referenceCategory": "PACKAGE-MANAGER",
+     "referenceLocator": "pkg:npm/cssesc@3.0.0",
+     "referenceType": "purl"
+    }
+   ],
+   "filesAnalyzed": false,
+   "licenseDeclared": "MIT",
+   "name": "cssesc",
+   "versionInfo": "3.0.0"
+  },
+  {
+   "SPDXID": "SPDXRef-Bundled-90",
+   "copyrightText": "NOASSERTION",
+   "downloadLocation": "NOASSERTION",
+   "externalRefs": [
+    {
+     "referenceCategory": "PACKAGE-MANAGER",
+     "referenceLocator": "pkg:npm/cssnano@9.5.0",
+     "referenceType": "purl"
+    }
+   ],
+   "filesAnalyzed": false,
+   "licenseDeclared": "MIT",
+   "name": "cssnano",
+   "versionInfo": "9.5.0"
+  },
+  {
+   "SPDXID": "SPDXRef-Bundled-91",
+   "copyrightText": "NOASSERTION",
+   "downloadLocation": "NOASSERTION",
+   "externalRefs": [
+    {
+     "referenceCategory": "PACKAGE-MANAGER",
+     "referenceLocator": "pkg:npm/cssnano-preset-default@9.5.0",
+     "referenceType": "purl"
+    }
+   ],
+   "filesAnalyzed": false,
+   "licenseDeclared": "MIT",
+   "name": "cssnano-preset-default",
+   "versionInfo": "9.5.0"
+  },
+  {
+   "SPDXID": "SPDXRef-Bundled-92",
+   "copyrightText": "NOASSERTION",
+   "downloadLocation": "NOASSERTION",
+   "externalRefs": [
+    {
+     "referenceCategory": "PACKAGE-MANAGER",
+     "referenceLocator": "pkg:npm/cssnano-utils@8.2.1",
+     "referenceType": "purl"
+    }
+   ],
+   "filesAnalyzed": false,
+   "licenseDeclared": "MIT",
+   "name": "cssnano-utils",
+   "versionInfo": "8.2.1"
+  },
+  {
+   "SPDXID": "SPDXRef-Bundled-93",
+   "copyrightText": "NOASSERTION",
+   "downloadLocation": "NOASSERTION",
+   "externalRefs": [
+    {
+     "referenceCategory": "PACKAGE-MANAGER",
+     "referenceLocator": "pkg:npm/csso@5.0.5",
+     "referenceType": "purl"
+    }
+   ],
+   "filesAnalyzed": false,
+   "licenseDeclared": "MIT",
+   "name": "csso",
+   "versionInfo": "5.0.5"
+  },
+  {
+   "SPDXID": "SPDXRef-Bundled-94",
+   "copyrightText": "NOASSERTION",
+   "downloadLocation": "NOASSERTION",
+   "externalRefs": [
+    {
+     "referenceCategory": "PACKAGE-MANAGER",
+     "referenceLocator": "pkg:npm/css-tree@2.2.1",
+     "referenceType": "purl"
+    }
+   ],
+   "filesAnalyzed": false,
+   "licenseDeclared": "MIT",
+   "name": "css-tree",
+   "versionInfo": "2.2.1"
+  },
+  {
+   "SPDXID": "SPDXRef-Bundled-95",
+   "copyrightText": "NOASSERTION",
+   "downloadLocation": "NOASSERTION",
+   "externalRefs": [
+    {
+     "referenceCategory": "PACKAGE-MANAGER",
+     "referenceLocator": "pkg:npm/mdn-data@2.0.28",
+     "referenceType": "purl"
+    }
+   ],
+   "filesAnalyzed": false,
+   "licenseDeclared": "CC0-1.0",
+   "name": "mdn-data",
+   "versionInfo": "2.0.28"
+  },
+  {
+   "SPDXID": "SPDXRef-Bundled-96",
+   "copyrightText": "NOASSERTION",
+   "downloadLocation": "NOASSERTION",
+   "externalRefs": [
+    {
+     "referenceCategory": "PACKAGE-MANAGER",
+     "referenceLocator": "pkg:npm/dependency-graph@1.0.0",
+     "referenceType": "purl"
+    }
+   ],
+   "filesAnalyzed": false,
+   "licenseDeclared": "MIT",
+   "name": "dependency-graph",
+   "versionInfo": "1.0.0"
+  },
+  {
+   "SPDXID": "SPDXRef-Bundled-97",
+   "copyrightText": "NOASSERTION",
+   "downloadLocation": "NOASSERTION",
+   "externalRefs": [
+    {
+     "referenceCategory": "PACKAGE-MANAGER",
+     "referenceLocator": "pkg:npm/dom-serializer@2.0.0",
+     "referenceType": "purl"
+    }
+   ],
+   "filesAnalyzed": false,
+   "licenseDeclared": "MIT",
+   "name": "dom-serializer",
+   "versionInfo": "2.0.0"
+  },
+  {
+   "SPDXID": "SPDXRef-Bundled-98",
+   "copyrightText": "NOASSERTION",
+   "downloadLocation": "NOASSERTION",
+   "externalRefs": [
+    {
+     "referenceCategory": "PACKAGE-MANAGER",
+     "referenceLocator": "pkg:npm/domelementtype@2.3.0",
+     "referenceType": "purl"
+    }
+   ],
+   "filesAnalyzed": false,
+   "licenseDeclared": "BSD-2-Clause",
+   "name": "domelementtype",
+   "versionInfo": "2.3.0"
+  },
+  {
+   "SPDXID": "SPDXRef-Bundled-99",
+   "copyrightText": "NOASSERTION",
+   "downloadLocation": "NOASSERTION",
+   "externalRefs": [
+    {
+     "referenceCategory": "PACKAGE-MANAGER",
+     "referenceLocator": "pkg:npm/domhandler@5.0.3",
+     "referenceType": "purl"
+    }
+   ],
+   "filesAnalyzed": false,
+   "licenseDeclared": "BSD-2-Clause",
+   "name": "domhandler",
+   "versionInfo": "5.0.3"
+  },
+  {
+   "SPDXID": "SPDXRef-Bundled-100",
+   "copyrightText": "NOASSERTION",
+   "downloadLocation": "NOASSERTION",
+   "externalRefs": [
+    {
+     "referenceCategory": "PACKAGE-MANAGER",
+     "referenceLocator": "pkg:npm/domutils@3.2.2",
+     "referenceType": "purl"
+    }
+   ],
+   "filesAnalyzed": false,
+   "licenseDeclared": "BSD-2-Clause",
+   "name": "domutils",
+   "versionInfo": "3.2.2"
+  },
+  {
+   "SPDXID": "SPDXRef-Bundled-101",
+   "copyrightText": "NOASSERTION",
+   "downloadLocation": "NOASSERTION",
+   "externalRefs": [
+    {
+     "referenceCategory": "PACKAGE-MANAGER",
+     "referenceLocator": "pkg:npm/dot-case@3.0.4",
+     "referenceType": "purl"
+    }
+   ],
+   "filesAnalyzed": false,
+   "licenseDeclared": "MIT",
+   "name": "dot-case",
+   "versionInfo": "3.0.4"
+  },
+  {
+   "SPDXID": "SPDXRef-Bundled-102",
+   "copyrightText": "NOASSERTION",
+   "downloadLocation": "NOASSERTION",
+   "externalRefs": [
+    {
+     "referenceCategory": "PACKAGE-MANAGER",
+     "referenceLocator": "pkg:npm/electron-to-chromium@1.5.452",
+     "referenceType": "purl"
+    }
+   ],
+   "filesAnalyzed": false,
+   "licenseDeclared": "ISC",
+   "name": "electron-to-chromium",
+   "versionInfo": "1.5.452"
+  },
+  {
+   "SPDXID": "SPDXRef-Bundled-103",
+   "copyrightText": "NOASSERTION",
+   "downloadLocation": "NOASSERTION",
+   "externalRefs": [
+    {
+     "referenceCategory": "PACKAGE-MANAGER",
+     "referenceLocator": "pkg:npm/emoji-regex@10.6.0",
+     "referenceType": "purl"
+    }
+   ],
+   "filesAnalyzed": false,
+   "licenseDeclared": "MIT",
+   "name": "emoji-regex",
+   "versionInfo": "10.6.0"
+  },
+  {
+   "SPDXID": "SPDXRef-Bundled-104",
+   "copyrightText": "NOASSERTION",
+   "downloadLocation": "NOASSERTION",
+   "externalRefs": [
+    {
+     "referenceCategory": "PACKAGE-MANAGER",
+     "referenceLocator": "pkg:npm/entities@4.5.0",
+     "referenceType": "purl"
+    }
+   ],
+   "filesAnalyzed": false,
+   "licenseDeclared": "BSD-2-Clause",
+   "name": "entities",
+   "versionInfo": "4.5.0"
+  },
+  {
+   "SPDXID": "SPDXRef-Bundled-105",
+   "copyrightText": "NOASSERTION",
+   "downloadLocation": "NOASSERTION",
+   "externalRefs": [
+    {
+     "referenceCategory": "PACKAGE-MANAGER",
+     "referenceLocator": "pkg:npm/escalade@3.2.0",
+     "referenceType": "purl"
+    }
+   ],
+   "filesAnalyzed": false,
+   "licenseDeclared": "MIT",
+   "name": "escalade",
+   "versionInfo": "3.2.0"
+  },
+  {
+   "SPDXID": "SPDXRef-Bundled-106",
+   "copyrightText": "NOASSERTION",
+   "downloadLocation": "NOASSERTION",
+   "externalRefs": [
+    {
+     "referenceCategory": "PACKAGE-MANAGER",
+     "referenceLocator": "pkg:npm/fdir@6.5.0",
+     "referenceType": "purl"
+    }
+   ],
+   "filesAnalyzed": false,
+   "licenseDeclared": "MIT",
+   "name": "fdir",
+   "versionInfo": "6.5.0"
+  },
+  {
+   "SPDXID": "SPDXRef-Bundled-107",
+   "copyrightText": "NOASSERTION",
+   "downloadLocation": "NOASSERTION",
+   "externalRefs": [
+    {
+     "referenceCategory": "PACKAGE-MANAGER",
+     "referenceLocator": "pkg:npm/fflate@0.8.3",
+     "referenceType": "purl"
+    }
+   ],
+   "filesAnalyzed": false,
+   "licenseDeclared": "MIT",
+   "name": "fflate",
+   "versionInfo": "0.8.3"
+  },
+  {
+   "SPDXID": "SPDXRef-Bundled-108",
+   "copyrightText": "NOASSERTION",
+   "downloadLocation": "NOASSERTION",
+   "externalRefs": [
+    {
+     "referenceCategory": "PACKAGE-MANAGER",
+     "referenceLocator": "pkg:npm/fraction.js@5.3.4",
+     "referenceType": "purl"
+    }
+   ],
+   "filesAnalyzed": false,
+   "licenseDeclared": "MIT",
+   "name": "fraction.js",
+   "versionInfo": "5.3.4"
+  },
+  {
+   "SPDXID": "SPDXRef-Bundled-109",
+   "copyrightText": "NOASSERTION",
+   "downloadLocation": "NOASSERTION",
+   "externalRefs": [
+    {
+     "referenceCategory": "PACKAGE-MANAGER",
+     "referenceLocator": "pkg:npm/get-caller-file@2.0.5",
+     "referenceType": "purl"
+    }
+   ],
+   "filesAnalyzed": false,
+   "licenseDeclared": "ISC",
+   "name": "get-caller-file",
+   "versionInfo": "2.0.5"
+  },
+  {
+   "SPDXID": "SPDXRef-Bundled-110",
+   "copyrightText": "NOASSERTION",
+   "downloadLocation": "NOASSERTION",
+   "externalRefs": [
+    {
+     "referenceCategory": "PACKAGE-MANAGER",
+     "referenceLocator": "pkg:npm/get-east-asian-width@1.7.0",
+     "referenceType": "purl"
+    }
+   ],
+   "filesAnalyzed": false,
+   "licenseDeclared": "MIT",
+   "name": "get-east-asian-width",
+   "versionInfo": "1.7.0"
+  },
+  {
+   "SPDXID": "SPDXRef-Bundled-111",
+   "copyrightText": "NOASSERTION",
+   "downloadLocation": "NOASSERTION",
+   "externalRefs": [
+    {
+     "referenceCategory": "PACKAGE-MANAGER",
+     "referenceLocator": "pkg:npm/glob@13.0.6",
+     "referenceType": "purl"
+    }
+   ],
+   "filesAnalyzed": false,
+   "licenseDeclared": "BlueOak-1.0.0",
+   "name": "glob",
+   "versionInfo": "13.0.6"
+  },
+  {
+   "SPDXID": "SPDXRef-Bundled-112",
+   "copyrightText": "NOASSERTION",
+   "downloadLocation": "NOASSERTION",
+   "externalRefs": [
+    {
+     "referenceCategory": "PACKAGE-MANAGER",
+     "referenceLocator": "pkg:npm/html-minifier-terser@7.2.0",
+     "referenceType": "purl"
+    }
+   ],
+   "filesAnalyzed": false,
+   "licenseDeclared": "MIT",
+   "name": "html-minifier-terser",
+   "versionInfo": "7.2.0"
+  },
+  {
+   "SPDXID": "SPDXRef-Bundled-113",
+   "copyrightText": "NOASSERTION",
+   "downloadLocation": "NOASSERTION",
+   "externalRefs": [
+    {
+     "referenceCategory": "PACKAGE-MANAGER",
+     "referenceLocator": "pkg:npm/lilconfig@3.1.3",
+     "referenceType": "purl"
+    }
+   ],
+   "filesAnalyzed": false,
+   "licenseDeclared": "MIT",
+   "name": "lilconfig",
+   "versionInfo": "3.1.3"
+  },
+  {
+   "SPDXID": "SPDXRef-Bundled-114",
+   "copyrightText": "NOASSERTION",
+   "downloadLocation": "NOASSERTION",
+   "externalRefs": [
+    {
+     "referenceCategory": "PACKAGE-MANAGER",
+     "referenceLocator": "pkg:npm/lower-case@2.0.2",
+     "referenceType": "purl"
+    }
+   ],
+   "filesAnalyzed": false,
+   "licenseDeclared": "MIT",
+   "name": "lower-case",
+   "versionInfo": "2.0.2"
+  },
+  {
+   "SPDXID": "SPDXRef-Bundled-115",
+   "copyrightText": "NOASSERTION",
+   "downloadLocation": "NOASSERTION",
+   "externalRefs": [
+    {
+     "referenceCategory": "PACKAGE-MANAGER",
+     "referenceLocator": "pkg:npm/lru-cache@11.5.2",
+     "referenceType": "purl"
+    }
+   ],
+   "filesAnalyzed": false,
+   "licenseDeclared": "BlueOak-1.0.0",
+   "name": "lru-cache",
+   "versionInfo": "11.5.2"
+  },
+  {
+   "SPDXID": "SPDXRef-Bundled-116",
+   "copyrightText": "NOASSERTION",
+   "downloadLocation": "NOASSERTION",
+   "externalRefs": [
+    {
+     "referenceCategory": "PACKAGE-MANAGER",
+     "referenceLocator": "pkg:npm/mdn-data@2.27.1",
+     "referenceType": "purl"
+    }
+   ],
+   "filesAnalyzed": false,
+   "licenseDeclared": "CC0-1.0",
+   "name": "mdn-data",
+   "versionInfo": "2.27.1"
+  },
+  {
+   "SPDXID": "SPDXRef-Bundled-117",
+   "copyrightText": "NOASSERTION",
+   "downloadLocation": "NOASSERTION",
+   "externalRefs": [
+    {
+     "referenceCategory": "PACKAGE-MANAGER",
+     "referenceLocator": "pkg:npm/minimatch@10.2.6",
+     "referenceType": "purl"
+    }
+   ],
+   "filesAnalyzed": false,
+   "licenseDeclared": "BlueOak-1.0.0",
+   "name": "minimatch",
+   "versionInfo": "10.2.6"
+  },
+  {
+   "SPDXID": "SPDXRef-Bundled-118",
+   "copyrightText": "NOASSERTION",
+   "downloadLocation": "NOASSERTION",
+   "externalRefs": [
+    {
+     "referenceCategory": "PACKAGE-MANAGER",
+     "referenceLocator": "pkg:npm/minipass@7.1.3",
+     "referenceType": "purl"
+    }
+   ],
+   "filesAnalyzed": false,
+   "licenseDeclared": "BlueOak-1.0.0",
+   "name": "minipass",
+   "versionInfo": "7.1.3"
+  },
+  {
+   "SPDXID": "SPDXRef-Bundled-119",
+   "copyrightText": "NOASSERTION",
+   "downloadLocation": "NOASSERTION",
+   "externalRefs": [
+    {
+     "referenceCategory": "PACKAGE-MANAGER",
+     "referenceLocator": "pkg:npm/nanoid@3.3.20",
+     "referenceType": "purl"
+    }
+   ],
+   "filesAnalyzed": false,
+   "licenseDeclared": "MIT",
+   "name": "nanoid",
+   "versionInfo": "3.3.20"
+  },
+  {
+   "SPDXID": "SPDXRef-Bundled-120",
+   "copyrightText": "NOASSERTION",
+   "downloadLocation": "NOASSERTION",
+   "externalRefs": [
+    {
+     "referenceCategory": "PACKAGE-MANAGER",
+     "referenceLocator": "pkg:npm/no-case@3.0.4",
+     "referenceType": "purl"
+    }
+   ],
+   "filesAnalyzed": false,
+   "licenseDeclared": "MIT",
+   "name": "no-case",
+   "versionInfo": "3.0.4"
+  },
+  {
+   "SPDXID": "SPDXRef-Bundled-121",
+   "copyrightText": "NOASSERTION",
+   "downloadLocation": "NOASSERTION",
+   "externalRefs": [
+    {
+     "referenceCategory": "PACKAGE-MANAGER",
+     "referenceLocator": "pkg:npm/node-releases@2.0.58",
+     "referenceType": "purl"
+    }
+   ],
+   "filesAnalyzed": false,
+   "licenseDeclared": "MIT",
+   "name": "node-releases",
+   "versionInfo": "2.0.58"
+  },
+  {
+   "SPDXID": "SPDXRef-Bundled-122",
+   "copyrightText": "NOASSERTION",
+   "downloadLocation": "NOASSERTION",
+   "externalRefs": [
+    {
+     "referenceCategory": "PACKAGE-MANAGER",
+     "referenceLocator": "pkg:npm/nth-check@2.1.1",
+     "referenceType": "purl"
+    }
+   ],
+   "filesAnalyzed": false,
+   "licenseDeclared": "BSD-2-Clause",
+   "name": "nth-check",
+   "versionInfo": "2.1.1"
+  },
+  {
+   "SPDXID": "SPDXRef-Bundled-123",
+   "copyrightText": "NOASSERTION",
+   "downloadLocation": "NOASSERTION",
+   "externalRefs": [
+    {
+     "referenceCategory": "PACKAGE-MANAGER",
+     "referenceLocator": "pkg:npm/openpgp@6.3.2",
+     "referenceType": "purl"
+    }
+   ],
+   "filesAnalyzed": false,
+   "licenseDeclared": "LGPL-3.0+",
+   "name": "openpgp",
+   "versionInfo": "6.3.2"
+  },
+  {
+   "SPDXID": "SPDXRef-Bundled-124",
+   "copyrightText": "NOASSERTION",
+   "downloadLocation": "NOASSERTION",
+   "externalRefs": [
+    {
+     "referenceCategory": "PACKAGE-MANAGER",
+     "referenceLocator": "pkg:npm/param-case@3.0.4",
+     "referenceType": "purl"
+    }
+   ],
+   "filesAnalyzed": false,
+   "licenseDeclared": "MIT",
+   "name": "param-case",
+   "versionInfo": "3.0.4"
+  },
+  {
+   "SPDXID": "SPDXRef-Bundled-125",
+   "copyrightText": "NOASSERTION",
+   "downloadLocation": "NOASSERTION",
+   "externalRefs": [
+    {
+     "referenceCategory": "PACKAGE-MANAGER",
+     "referenceLocator": "pkg:npm/pascal-case@3.1.2",
+     "referenceType": "purl"
+    }
+   ],
+   "filesAnalyzed": false,
+   "licenseDeclared": "MIT",
+   "name": "pascal-case",
+   "versionInfo": "3.1.2"
+  },
+  {
+   "SPDXID": "SPDXRef-Bundled-126",
+   "copyrightText": "NOASSERTION",
+   "downloadLocation": "NOASSERTION",
+   "externalRefs": [
+    {
+     "referenceCategory": "PACKAGE-MANAGER",
+     "referenceLocator": "pkg:npm/path-scurry@2.0.2",
+     "referenceType": "purl"
+    }
+   ],
+   "filesAnalyzed": false,
+   "licenseDeclared": "BlueOak-1.0.0",
+   "name": "path-scurry",
+   "versionInfo": "2.0.2"
+  },
+  {
+   "SPDXID": "SPDXRef-Bundled-127",
+   "copyrightText": "NOASSERTION",
+   "downloadLocation": "NOASSERTION",
+   "externalRefs": [
+    {
+     "referenceCategory": "PACKAGE-MANAGER",
+     "referenceLocator": "pkg:npm/picocolors@1.1.1",
+     "referenceType": "purl"
+    }
+   ],
+   "filesAnalyzed": false,
+   "licenseDeclared": "ISC",
+   "name": "picocolors",
+   "versionInfo": "1.1.1"
+  },
+  {
+   "SPDXID": "SPDXRef-Bundled-128",
+   "copyrightText": "NOASSERTION",
+   "downloadLocation": "NOASSERTION",
+   "externalRefs": [
+    {
+     "referenceCategory": "PACKAGE-MANAGER",
+     "referenceLocator": "pkg:npm/picomatch@4.0.7",
+     "referenceType": "purl"
+    }
+   ],
+   "filesAnalyzed": false,
+   "licenseDeclared": "MIT",
+   "name": "picomatch",
+   "versionInfo": "4.0.7"
+  },
+  {
+   "SPDXID": "SPDXRef-Bundled-129",
+   "copyrightText": "NOASSERTION",
+   "downloadLocation": "NOASSERTION",
+   "externalRefs": [
+    {
+     "referenceCategory": "PACKAGE-MANAGER",
+     "referenceLocator": "pkg:npm/postal-mime@4.0.5",
+     "referenceType": "purl"
+    }
+   ],
+   "filesAnalyzed": false,
+   "licenseDeclared": "MIT-0",
+   "name": "postal-mime",
+   "versionInfo": "4.0.5"
+  },
+  {
+   "SPDXID": "SPDXRef-Bundled-130",
+   "copyrightText": "NOASSERTION",
+   "downloadLocation": "NOASSERTION",
+   "externalRefs": [
+    {
+     "referenceCategory": "PACKAGE-MANAGER",
+     "referenceLocator": "pkg:npm/postcss@8.5.29",
+     "referenceType": "purl"
+    }
+   ],
+   "filesAnalyzed": false,
+   "licenseDeclared": "MIT",
+   "name": "postcss",
+   "versionInfo": "8.5.29"
+  },
+  {
+   "SPDXID": "SPDXRef-Bundled-131",
+   "copyrightText": "NOASSERTION",
+   "downloadLocation": "NOASSERTION",
+   "externalRefs": [
+    {
+     "referenceCategory": "PACKAGE-MANAGER",
+     "referenceLocator": "pkg:npm/postcss-attribute-case-insensitive@8.0.2",
+     "referenceType": "purl"
+    }
+   ],
+   "filesAnalyzed": false,
+   "licenseDeclared": "MIT",
+   "name": "postcss-attribute-case-insensitive",
+   "versionInfo": "8.0.2"
+  },
+  {
+   "SPDXID": "SPDXRef-Bundled-132",
+   "copyrightText": "NOASSERTION",
+   "downloadLocation": "NOASSERTION",
+   "externalRefs": [
+    {
+     "referenceCategory": "PACKAGE-MANAGER",
+     "referenceLocator": "pkg:npm/postcss-calc@11.2.2",
+     "referenceType": "purl"
+    }
+   ],
+   "filesAnalyzed": false,
+   "licenseDeclared": "MIT",
+   "name": "postcss-calc",
+   "versionInfo": "11.2.2"
+  },
+  {
+   "SPDXID": "SPDXRef-Bundled-133",
+   "copyrightText": "NOASSERTION",
+   "downloadLocation": "NOASSERTION",
+   "externalRefs": [
+    {
+     "referenceCategory": "PACKAGE-MANAGER",
+     "referenceLocator": "pkg:npm/postcss-clamp@4.1.0",
+     "referenceType": "purl"
+    }
+   ],
+   "filesAnalyzed": false,
+   "licenseDeclared": "MIT",
+   "name": "postcss-clamp",
+   "versionInfo": "4.1.0"
+  },
+  {
+   "SPDXID": "SPDXRef-Bundled-134",
+   "copyrightText": "NOASSERTION",
+   "downloadLocation": "NOASSERTION",
+   "externalRefs": [
+    {
+     "referenceCategory": "PACKAGE-MANAGER",
+     "referenceLocator": "pkg:npm/postcss-cli@12.0.0",
+     "referenceType": "purl"
+    }
+   ],
+   "filesAnalyzed": false,
+   "licenseDeclared": "MIT",
+   "name": "postcss-cli",
+   "versionInfo": "12.0.0"
+  },
+  {
+   "SPDXID": "SPDXRef-Bundled-135",
+   "copyrightText": "NOASSERTION",
+   "downloadLocation": "NOASSERTION",
+   "externalRefs": [
+    {
+     "referenceCategory": "PACKAGE-MANAGER",
+     "referenceLocator": "pkg:npm/postcss-color-functional-notation@8.0.15",
+     "referenceType": "purl"
+    }
+   ],
+   "filesAnalyzed": false,
+   "licenseDeclared": "MIT-0",
+   "name": "postcss-color-functional-notation",
+   "versionInfo": "8.0.15"
+  },
+  {
+   "SPDXID": "SPDXRef-Bundled-136",
+   "copyrightText": "NOASSERTION",
+   "downloadLocation": "NOASSERTION",
+   "externalRefs": [
+    {
+     "referenceCategory": "PACKAGE-MANAGER",
+     "referenceLocator": "pkg:npm/postcss-color-hex-alpha@11.0.1",
+     "referenceType": "purl"
+    }
+   ],
+   "filesAnalyzed": false,
+   "licenseDeclared": "MIT",
+   "name": "postcss-color-hex-alpha",
+   "versionInfo": "11.0.1"
+  },
+  {
+   "SPDXID": "SPDXRef-Bundled-137",
+   "copyrightText": "NOASSERTION",
+   "downloadLocation": "NOASSERTION",
+   "externalRefs": [
+    {
+     "referenceCategory": "PACKAGE-MANAGER",
+     "referenceLocator": "pkg:npm/postcss-color-rebeccapurple@11.0.1",
+     "referenceType": "purl"
+    }
+   ],
+   "filesAnalyzed": false,
+   "licenseDeclared": "MIT-0",
+   "name": "postcss-color-rebeccapurple",
+   "versionInfo": "11.0.1"
+  },
+  {
+   "SPDXID": "SPDXRef-Bundled-138",
+   "copyrightText": "NOASSERTION",
+   "downloadLocation": "NOASSERTION",
+   "externalRefs": [
+    {
+     "referenceCategory": "PACKAGE-MANAGER",
+     "referenceLocator": "pkg:npm/postcss-colormin@9.0.7",
+     "referenceType": "purl"
+    }
+   ],
+   "filesAnalyzed": false,
+   "licenseDeclared": "MIT",
+   "name": "postcss-colormin",
+   "versionInfo": "9.0.7"
+  },
+  {
+   "SPDXID": "SPDXRef-Bundled-139",
+   "copyrightText": "NOASSERTION",
+   "downloadLocation": "NOASSERTION",
+   "externalRefs": [
+    {
+     "referenceCategory": "PACKAGE-MANAGER",
+     "referenceLocator": "pkg:npm/postcss-convert-values@9.0.8",
+     "referenceType": "purl"
+    }
+   ],
+   "filesAnalyzed": false,
+   "licenseDeclared": "MIT",
+   "name": "postcss-convert-values",
+   "versionInfo": "9.0.8"
+  },
+  {
+   "SPDXID": "SPDXRef-Bundled-140",
+   "copyrightText": "NOASSERTION",
+   "downloadLocation": "NOASSERTION",
+   "externalRefs": [
+    {
+     "referenceCategory": "PACKAGE-MANAGER",
+     "referenceLocator": "pkg:npm/postcss-custom-media@12.0.3",
+     "referenceType": "purl"
+    }
+   ],
+   "filesAnalyzed": false,
+   "licenseDeclared": "MIT",
+   "name": "postcss-custom-media",
+   "versionInfo": "12.0.3"
+  },
+  {
+   "SPDXID": "SPDXRef-Bundled-141",
+   "copyrightText": "NOASSERTION",
+   "downloadLocation": "NOASSERTION",
+   "externalRefs": [
+    {
+     "referenceCategory": "PACKAGE-MANAGER",
+     "referenceLocator": "pkg:npm/postcss-custom-properties@15.0.4",
+     "referenceType": "purl"
+    }
+   ],
+   "filesAnalyzed": false,
+   "licenseDeclared": "MIT",
+   "name": "postcss-custom-properties",
+   "versionInfo": "15.0.4"
+  },
+  {
+   "SPDXID": "SPDXRef-Bundled-142",
+   "copyrightText": "NOASSERTION",
+   "downloadLocation": "NOASSERTION",
+   "externalRefs": [
+    {
+     "referenceCategory": "PACKAGE-MANAGER",
+     "referenceLocator": "pkg:npm/postcss-custom-selectors@9.0.4",
+     "referenceType": "purl"
+    }
+   ],
+   "filesAnalyzed": false,
+   "licenseDeclared": "MIT",
+   "name": "postcss-custom-selectors",
+   "versionInfo": "9.0.4"
+  },
+  {
+   "SPDXID": "SPDXRef-Bundled-143",
+   "copyrightText": "NOASSERTION",
+   "downloadLocation": "NOASSERTION",
+   "externalRefs": [
+    {
+     "referenceCategory": "PACKAGE-MANAGER",
+     "referenceLocator": "pkg:npm/postcss-dir-pseudo-class@10.0.0",
+     "referenceType": "purl"
+    }
+   ],
+   "filesAnalyzed": false,
+   "licenseDeclared": "MIT-0",
+   "name": "postcss-dir-pseudo-class",
+   "versionInfo": "10.0.0"
+  },
+  {
+   "SPDXID": "SPDXRef-Bundled-144",
+   "copyrightText": "NOASSERTION",
+   "downloadLocation": "NOASSERTION",
+   "externalRefs": [
+    {
+     "referenceCategory": "PACKAGE-MANAGER",
+     "referenceLocator": "pkg:npm/postcss-discard-comments@9.0.7",
+     "referenceType": "purl"
+    }
+   ],
+   "filesAnalyzed": false,
+   "licenseDeclared": "MIT",
+   "name": "postcss-discard-comments",
+   "versionInfo": "9.0.7"
+  },
+  {
+   "SPDXID": "SPDXRef-Bundled-145",
+   "copyrightText": "NOASSERTION",
+   "downloadLocation": "NOASSERTION",
+   "externalRefs": [
+    {
+     "referenceCategory": "PACKAGE-MANAGER",
+     "referenceLocator": "pkg:npm/postcss-discard-duplicates@9.0.6",
+     "referenceType": "purl"
+    }
+   ],
+   "filesAnalyzed": false,
+   "licenseDeclared": "MIT",
+   "name": "postcss-discard-duplicates",
+   "versionInfo": "9.0.6"
+  },
+  {
+   "SPDXID": "SPDXRef-Bundled-146",
+   "copyrightText": "NOASSERTION",
+   "downloadLocation": "NOASSERTION",
+   "externalRefs": [
+    {
+     "referenceCategory": "PACKAGE-MANAGER",
+     "referenceLocator": "pkg:npm/postcss-discard-empty@9.0.7",
+     "referenceType": "purl"
+    }
+   ],
+   "filesAnalyzed": false,
+   "licenseDeclared": "MIT",
+   "name": "postcss-discard-empty",
+   "versionInfo": "9.0.7"
+  },
+  {
+   "SPDXID": "SPDXRef-Bundled-147",
+   "copyrightText": "NOASSERTION",
+   "downloadLocation": "NOASSERTION",
+   "externalRefs": [
+    {
+     "referenceCategory": "PACKAGE-MANAGER",
+     "referenceLocator": "pkg:npm/postcss-discard-overridden@9.0.6",
+     "referenceType": "purl"
+    }
+   ],
+   "filesAnalyzed": false,
+   "licenseDeclared": "MIT",
+   "name": "postcss-discard-overridden",
+   "versionInfo": "9.0.6"
+  },
+  {
+   "SPDXID": "SPDXRef-Bundled-148",
+   "copyrightText": "NOASSERTION",
+   "downloadLocation": "NOASSERTION",
+   "externalRefs": [
+    {
+     "referenceCategory": "PACKAGE-MANAGER",
+     "referenceLocator": "pkg:npm/postcss-double-position-gradients@7.0.5",
+     "referenceType": "purl"
+    }
+   ],
+   "filesAnalyzed": false,
+   "licenseDeclared": "MIT-0",
+   "name": "postcss-double-position-gradients",
+   "versionInfo": "7.0.5"
+  },
+  {
+   "SPDXID": "SPDXRef-Bundled-149",
+   "copyrightText": "NOASSERTION",
+   "downloadLocation": "NOASSERTION",
+   "externalRefs": [
+    {
+     "referenceCategory": "PACKAGE-MANAGER",
+     "referenceLocator": "pkg:npm/postcss-focus-visible@11.0.0",
+     "referenceType": "purl"
+    }
+   ],
+   "filesAnalyzed": false,
+   "licenseDeclared": "MIT-0",
+   "name": "postcss-focus-visible",
+   "versionInfo": "11.0.0"
+  },
+  {
+   "SPDXID": "SPDXRef-Bundled-150",
+   "copyrightText": "NOASSERTION",
+   "downloadLocation": "NOASSERTION",
+   "externalRefs": [
+    {
+     "referenceCategory": "PACKAGE-MANAGER",
+     "referenceLocator": "pkg:npm/postcss-focus-within@10.0.1",
+     "referenceType": "purl"
+    }
+   ],
+   "filesAnalyzed": false,
+   "licenseDeclared": "MIT-0",
+   "name": "postcss-focus-within",
+   "versionInfo": "10.0.1"
+  },
+  {
+   "SPDXID": "SPDXRef-Bundled-151",
+   "copyrightText": "NOASSERTION",
+   "downloadLocation": "NOASSERTION",
+   "externalRefs": [
+    {
+     "referenceCategory": "PACKAGE-MANAGER",
+     "referenceLocator": "pkg:npm/postcss-font-variant@5.0.0",
+     "referenceType": "purl"
+    }
+   ],
+   "filesAnalyzed": false,
+   "licenseDeclared": "MIT",
+   "name": "postcss-font-variant",
+   "versionInfo": "5.0.0"
+  },
+  {
+   "SPDXID": "SPDXRef-Bundled-152",
+   "copyrightText": "NOASSERTION",
+   "downloadLocation": "NOASSERTION",
+   "externalRefs": [
+    {
+     "referenceCategory": "PACKAGE-MANAGER",
+     "referenceLocator": "pkg:npm/postcss-gap-properties@7.0.0",
+     "referenceType": "purl"
+    }
+   ],
+   "filesAnalyzed": false,
+   "licenseDeclared": "MIT-0",
+   "name": "postcss-gap-properties",
+   "versionInfo": "7.0.0"
+  },
+  {
+   "SPDXID": "SPDXRef-Bundled-153",
+   "copyrightText": "NOASSERTION",
+   "downloadLocation": "NOASSERTION",
+   "externalRefs": [
+    {
+     "referenceCategory": "PACKAGE-MANAGER",
+     "referenceLocator": "pkg:npm/postcss-image-set-function@8.0.2",
+     "referenceType": "purl"
+    }
+   ],
+   "filesAnalyzed": false,
+   "licenseDeclared": "MIT-0",
+   "name": "postcss-image-set-function",
+   "versionInfo": "8.0.2"
+  },
+  {
+   "SPDXID": "SPDXRef-Bundled-154",
+   "copyrightText": "NOASSERTION",
+   "downloadLocation": "NOASSERTION",
+   "externalRefs": [
+    {
+     "referenceCategory": "PACKAGE-MANAGER",
+     "referenceLocator": "pkg:npm/postcss-lab-function@8.0.15",
+     "referenceType": "purl"
+    }
+   ],
+   "filesAnalyzed": false,
+   "licenseDeclared": "MIT-0",
+   "name": "postcss-lab-function",
+   "versionInfo": "8.0.15"
+  },
+  {
+   "SPDXID": "SPDXRef-Bundled-155",
+   "copyrightText": "NOASSERTION",
+   "downloadLocation": "NOASSERTION",
+   "externalRefs": [
+    {
+     "referenceCategory": "PACKAGE-MANAGER",
+     "referenceLocator": "pkg:npm/postcss-load-config@6.0.1",
+     "referenceType": "purl"
+    }
+   ],
+   "filesAnalyzed": false,
+   "licenseDeclared": "MIT",
+   "name": "postcss-load-config",
+   "versionInfo": "6.0.1"
+  },
+  {
+   "SPDXID": "SPDXRef-Bundled-156",
+   "copyrightText": "NOASSERTION",
+   "downloadLocation": "NOASSERTION",
+   "externalRefs": [
+    {
+     "referenceCategory": "PACKAGE-MANAGER",
+     "referenceLocator": "pkg:npm/postcss-logical@9.0.2",
+     "referenceType": "purl"
+    }
+   ],
+   "filesAnalyzed": false,
+   "licenseDeclared": "MIT-0",
+   "name": "postcss-logical",
+   "versionInfo": "9.0.2"
+  },
+  {
+   "SPDXID": "SPDXRef-Bundled-157",
+   "copyrightText": "NOASSERTION",
+   "downloadLocation": "NOASSERTION",
+   "externalRefs": [
+    {
+     "referenceCategory": "PACKAGE-MANAGER",
+     "referenceLocator": "pkg:npm/postcss-merge-longhand@9.3.0",
+     "referenceType": "purl"
+    }
+   ],
+   "filesAnalyzed": false,
+   "licenseDeclared": "MIT",
+   "name": "postcss-merge-longhand",
+   "versionInfo": "9.3.0"
+  },
+  {
+   "SPDXID": "SPDXRef-Bundled-158",
+   "copyrightText": "NOASSERTION",
+   "downloadLocation": "NOASSERTION",
+   "externalRefs": [
+    {
+     "referenceCategory": "PACKAGE-MANAGER",
+     "referenceLocator": "pkg:npm/postcss-merge-rules@9.1.3",
+     "referenceType": "purl"
+    }
+   ],
+   "filesAnalyzed": false,
+   "licenseDeclared": "MIT",
+   "name": "postcss-merge-rules",
+   "versionInfo": "9.1.3"
+  },
+  {
+   "SPDXID": "SPDXRef-Bundled-159",
+   "copyrightText": "NOASSERTION",
+   "downloadLocation": "NOASSERTION",
+   "externalRefs": [
+    {
+     "referenceCategory": "PACKAGE-MANAGER",
+     "referenceLocator": "pkg:npm/postcss-minify-font-values@9.0.8",
+     "referenceType": "purl"
+    }
+   ],
+   "filesAnalyzed": false,
+   "licenseDeclared": "MIT",
+   "name": "postcss-minify-font-values",
+   "versionInfo": "9.0.8"
+  },
+  {
+   "SPDXID": "SPDXRef-Bundled-160",
+   "copyrightText": "NOASSERTION",
+   "downloadLocation": "NOASSERTION",
+   "externalRefs": [
+    {
+     "referenceCategory": "PACKAGE-MANAGER",
+     "referenceLocator": "pkg:npm/postcss-minify-gradients@9.0.7",
+     "referenceType": "purl"
+    }
+   ],
+   "filesAnalyzed": false,
+   "licenseDeclared": "MIT",
+   "name": "postcss-minify-gradients",
+   "versionInfo": "9.0.7"
+  },
+  {
+   "SPDXID": "SPDXRef-Bundled-161",
+   "copyrightText": "NOASSERTION",
+   "downloadLocation": "NOASSERTION",
+   "externalRefs": [
+    {
+     "referenceCategory": "PACKAGE-MANAGER",
+     "referenceLocator": "pkg:npm/postcss-minify-params@9.0.7",
+     "referenceType": "purl"
+    }
+   ],
+   "filesAnalyzed": false,
+   "licenseDeclared": "MIT",
+   "name": "postcss-minify-params",
+   "versionInfo": "9.0.7"
+  },
+  {
+   "SPDXID": "SPDXRef-Bundled-162",
+   "copyrightText": "NOASSERTION",
+   "downloadLocation": "NOASSERTION",
+   "externalRefs": [
+    {
+     "referenceCategory": "PACKAGE-MANAGER",
+     "referenceLocator": "pkg:npm/postcss-minify-selectors@9.0.7",
+     "referenceType": "purl"
+    }
+   ],
+   "filesAnalyzed": false,
+   "licenseDeclared": "MIT",
+   "name": "postcss-minify-selectors",
+   "versionInfo": "9.0.7"
+  },
+  {
+   "SPDXID": "SPDXRef-Bundled-163",
+   "copyrightText": "NOASSERTION",
+   "downloadLocation": "NOASSERTION",
+   "externalRefs": [
+    {
+     "referenceCategory": "PACKAGE-MANAGER",
+     "referenceLocator": "pkg:npm/postcss-nesting@14.0.3",
+     "referenceType": "purl"
+    }
+   ],
+   "filesAnalyzed": false,
+   "licenseDeclared": "MIT-0",
+   "name": "postcss-nesting",
+   "versionInfo": "14.0.3"
+  },
+  {
+   "SPDXID": "SPDXRef-Bundled-164",
+   "copyrightText": "NOASSERTION",
+   "downloadLocation": "NOASSERTION",
+   "externalRefs": [
+    {
+     "referenceCategory": "PACKAGE-MANAGER",
+     "referenceLocator": "pkg:npm/postcss-normalize-charset@9.0.6",
+     "referenceType": "purl"
+    }
+   ],
+   "filesAnalyzed": false,
+   "licenseDeclared": "MIT",
+   "name": "postcss-normalize-charset",
+   "versionInfo": "9.0.6"
+  },
+  {
+   "SPDXID": "SPDXRef-Bundled-165",
+   "copyrightText": "NOASSERTION",
+   "downloadLocation": "NOASSERTION",
+   "externalRefs": [
+    {
+     "referenceCategory": "PACKAGE-MANAGER",
+     "referenceLocator": "pkg:npm/postcss-normalize-display-values@9.0.6",
+     "referenceType": "purl"
+    }
+   ],
+   "filesAnalyzed": false,
+   "licenseDeclared": "MIT",
+   "name": "postcss-normalize-display-values",
+   "versionInfo": "9.0.6"
+  },
+  {
+   "SPDXID": "SPDXRef-Bundled-166",
+   "copyrightText": "NOASSERTION",
+   "downloadLocation": "NOASSERTION",
+   "externalRefs": [
+    {
+     "referenceCategory": "PACKAGE-MANAGER",
+     "referenceLocator": "pkg:npm/postcss-normalize-positions@9.0.7",
+     "referenceType": "purl"
+    }
+   ],
+   "filesAnalyzed": false,
+   "licenseDeclared": "MIT",
+   "name": "postcss-normalize-positions",
+   "versionInfo": "9.0.7"
+  },
+  {
+   "SPDXID": "SPDXRef-Bundled-167",
+   "copyrightText": "NOASSERTION",
+   "downloadLocation": "NOASSERTION",
+   "externalRefs": [
+    {
+     "referenceCategory": "PACKAGE-MANAGER",
+     "referenceLocator": "pkg:npm/postcss-normalize-repeat-style@9.0.6",
+     "referenceType": "purl"
+    }
+   ],
+   "filesAnalyzed": false,
+   "licenseDeclared": "MIT",
+   "name": "postcss-normalize-repeat-style",
+   "versionInfo": "9.0.6"
+  },
+  {
+   "SPDXID": "SPDXRef-Bundled-168",
+   "copyrightText": "NOASSERTION",
+   "downloadLocation": "NOASSERTION",
+   "externalRefs": [
+    {
+     "referenceCategory": "PACKAGE-MANAGER",
+     "referenceLocator": "pkg:npm/postcss-normalize-string@9.0.6",
+     "referenceType": "purl"
+    }
+   ],
+   "filesAnalyzed": false,
+   "licenseDeclared": "MIT",
+   "name": "postcss-normalize-string",
+   "versionInfo": "9.0.6"
+  },
+  {
+   "SPDXID": "SPDXRef-Bundled-169",
+   "copyrightText": "NOASSERTION",
+   "downloadLocation": "NOASSERTION",
+   "externalRefs": [
+    {
+     "referenceCategory": "PACKAGE-MANAGER",
+     "referenceLocator": "pkg:npm/postcss-normalize-timing-functions@9.0.6",
+     "referenceType": "purl"
+    }
+   ],
+   "filesAnalyzed": false,
+   "licenseDeclared": "MIT",
+   "name": "postcss-normalize-timing-functions",
+   "versionInfo": "9.0.6"
+  },
+  {
+   "SPDXID": "SPDXRef-Bundled-170",
+   "copyrightText": "NOASSERTION",
+   "downloadLocation": "NOASSERTION",
+   "externalRefs": [
+    {
+     "referenceCategory": "PACKAGE-MANAGER",
+     "referenceLocator": "pkg:npm/postcss-normalize-unicode@9.1.0",
+     "referenceType": "purl"
+    }
+   ],
+   "filesAnalyzed": false,
+   "licenseDeclared": "MIT",
+   "name": "postcss-normalize-unicode",
+   "versionInfo": "9.1.0"
+  },
+  {
+   "SPDXID": "SPDXRef-Bundled-171",
+   "copyrightText": "NOASSERTION",
+   "downloadLocation": "NOASSERTION",
+   "externalRefs": [
+    {
+     "referenceCategory": "PACKAGE-MANAGER",
+     "referenceLocator": "pkg:npm/postcss-normalize-url@9.0.6",
+     "referenceType": "purl"
+    }
+   ],
+   "filesAnalyzed": false,
+   "licenseDeclared": "MIT",
+   "name": "postcss-normalize-url",
+   "versionInfo": "9.0.6"
+  },
+  {
+   "SPDXID": "SPDXRef-Bundled-172",
+   "copyrightText": "NOASSERTION",
+   "downloadLocation": "NOASSERTION",
+   "externalRefs": [
+    {
+     "referenceCategory": "PACKAGE-MANAGER",
+     "referenceLocator": "pkg:npm/postcss-normalize-whitespace@9.0.7",
+     "referenceType": "purl"
+    }
+   ],
+   "filesAnalyzed": false,
+   "licenseDeclared": "MIT",
+   "name": "postcss-normalize-whitespace",
+   "versionInfo": "9.0.7"
+  },
+  {
+   "SPDXID": "SPDXRef-Bundled-173",
+   "copyrightText": "NOASSERTION",
+   "downloadLocation": "NOASSERTION",
+   "externalRefs": [
+    {
+     "referenceCategory": "PACKAGE-MANAGER",
+     "referenceLocator": "pkg:npm/postcss-opacity-percentage@3.0.0",
+     "referenceType": "purl"
+    }
+   ],
+   "filesAnalyzed": false,
+   "licenseDeclared": "MIT",
+   "name": "postcss-opacity-percentage",
+   "versionInfo": "3.0.0"
+  },
+  {
+   "SPDXID": "SPDXRef-Bundled-174",
+   "copyrightText": "NOASSERTION",
+   "downloadLocation": "NOASSERTION",
+   "externalRefs": [
+    {
+     "referenceCategory": "PACKAGE-MANAGER",
+     "referenceLocator": "pkg:npm/postcss-ordered-values@9.0.8",
+     "referenceType": "purl"
+    }
+   ],
+   "filesAnalyzed": false,
+   "licenseDeclared": "MIT",
+   "name": "postcss-ordered-values",
+   "versionInfo": "9.0.8"
+  },
+  {
+   "SPDXID": "SPDXRef-Bundled-175",
+   "copyrightText": "NOASSERTION",
+   "downloadLocation": "NOASSERTION",
+   "externalRefs": [
+    {
+     "referenceCategory": "PACKAGE-MANAGER",
+     "referenceLocator": "pkg:npm/postcss-overflow-shorthand@7.0.1",
+     "referenceType": "purl"
+    }
+   ],
+   "filesAnalyzed": false,
+   "licenseDeclared": "MIT-0",
+   "name": "postcss-overflow-shorthand",
+   "versionInfo": "7.0.1"
+  },
+  {
+   "SPDXID": "SPDXRef-Bundled-176",
+   "copyrightText": "NOASSERTION",
+   "downloadLocation": "NOASSERTION",
+   "externalRefs": [
+    {
+     "referenceCategory": "PACKAGE-MANAGER",
+     "referenceLocator": "pkg:npm/postcss-page-break@3.0.4",
+     "referenceType": "purl"
+    }
+   ],
+   "filesAnalyzed": false,
+   "licenseDeclared": "MIT",
+   "name": "postcss-page-break",
+   "versionInfo": "3.0.4"
+  },
+  {
+   "SPDXID": "SPDXRef-Bundled-177",
+   "copyrightText": "NOASSERTION",
+   "downloadLocation": "NOASSERTION",
+   "externalRefs": [
+    {
+     "referenceCategory": "PACKAGE-MANAGER",
+     "referenceLocator": "pkg:npm/postcss-place@11.0.1",
+     "referenceType": "purl"
+    }
+   ],
+   "filesAnalyzed": false,
+   "licenseDeclared": "MIT-0",
+   "name": "postcss-place",
+   "versionInfo": "11.0.1"
+  },
+  {
+   "SPDXID": "SPDXRef-Bundled-178",
+   "copyrightText": "NOASSERTION",
+   "downloadLocation": "NOASSERTION",
+   "externalRefs": [
+    {
+     "referenceCategory": "PACKAGE-MANAGER",
+     "referenceLocator": "pkg:npm/postcss-preset-env@11.6.1",
+     "referenceType": "purl"
+    }
+   ],
+   "filesAnalyzed": false,
+   "licenseDeclared": "MIT-0",
+   "name": "postcss-preset-env",
+   "versionInfo": "11.6.1"
+  },
+  {
+   "SPDXID": "SPDXRef-Bundled-179",
+   "copyrightText": "NOASSERTION",
+   "downloadLocation": "NOASSERTION",
+   "externalRefs": [
+    {
+     "referenceCategory": "PACKAGE-MANAGER",
+     "referenceLocator": "pkg:npm/postcss-pseudo-class-any-link@11.0.1",
+     "referenceType": "purl"
+    }
+   ],
+   "filesAnalyzed": false,
+   "licenseDeclared": "MIT-0",
+   "name": "postcss-pseudo-class-any-link",
+   "versionInfo": "11.0.1"
+  },
+  {
+   "SPDXID": "SPDXRef-Bundled-180",
+   "copyrightText": "NOASSERTION",
+   "downloadLocation": "NOASSERTION",
+   "externalRefs": [
+    {
+     "referenceCategory": "PACKAGE-MANAGER",
+     "referenceLocator": "pkg:npm/postcss-reduce-initial@9.0.7",
+     "referenceType": "purl"
+    }
+   ],
+   "filesAnalyzed": false,
+   "licenseDeclared": "MIT",
+   "name": "postcss-reduce-initial",
+   "versionInfo": "9.0.7"
+  },
+  {
+   "SPDXID": "SPDXRef-Bundled-181",
+   "copyrightText": "NOASSERTION",
+   "downloadLocation": "NOASSERTION",
+   "externalRefs": [
+    {
+     "referenceCategory": "PACKAGE-MANAGER",
+     "referenceLocator": "pkg:npm/postcss-reduce-transforms@9.0.5",
+     "referenceType": "purl"
+    }
+   ],
+   "filesAnalyzed": false,
+   "licenseDeclared": "MIT",
+   "name": "postcss-reduce-transforms",
+   "versionInfo": "9.0.5"
+  },
+  {
+   "SPDXID": "SPDXRef-Bundled-182",
+   "copyrightText": "NOASSERTION",
+   "downloadLocation": "NOASSERTION",
+   "externalRefs": [
+    {
+     "referenceCategory": "PACKAGE-MANAGER",
+     "referenceLocator": "pkg:npm/postcss-replace-overflow-wrap@4.0.0",
+     "referenceType": "purl"
+    }
+   ],
+   "filesAnalyzed": false,
+   "licenseDeclared": "MIT",
+   "name": "postcss-replace-overflow-wrap",
+   "versionInfo": "4.0.0"
+  },
+  {
+   "SPDXID": "SPDXRef-Bundled-183",
+   "copyrightText": "NOASSERTION",
+   "downloadLocation": "NOASSERTION",
+   "externalRefs": [
+    {
+     "referenceCategory": "PACKAGE-MANAGER",
+     "referenceLocator": "pkg:npm/postcss-reporter@7.1.0",
+     "referenceType": "purl"
+    }
+   ],
+   "filesAnalyzed": false,
+   "licenseDeclared": "MIT",
+   "name": "postcss-reporter",
+   "versionInfo": "7.1.0"
+  },
+  {
+   "SPDXID": "SPDXRef-Bundled-184",
+   "copyrightText": "NOASSERTION",
+   "downloadLocation": "NOASSERTION",
+   "externalRefs": [
+    {
+     "referenceCategory": "PACKAGE-MANAGER",
+     "referenceLocator": "pkg:npm/postcss-selector-not@9.0.0",
+     "referenceType": "purl"
+    }
+   ],
+   "filesAnalyzed": false,
+   "licenseDeclared": "MIT",
+   "name": "postcss-selector-not",
+   "versionInfo": "9.0.0"
+  },
+  {
+   "SPDXID": "SPDXRef-Bundled-185",
+   "copyrightText": "NOASSERTION",
+   "downloadLocation": "NOASSERTION",
+   "externalRefs": [
+    {
+     "referenceCategory": "PACKAGE-MANAGER",
+     "referenceLocator": "pkg:npm/postcss-selector-parser@7.1.6",
+     "referenceType": "purl"
+    }
+   ],
+   "filesAnalyzed": false,
+   "licenseDeclared": "MIT",
+   "name": "postcss-selector-parser",
+   "versionInfo": "7.1.6"
+  },
+  {
+   "SPDXID": "SPDXRef-Bundled-186",
+   "copyrightText": "NOASSERTION",
+   "downloadLocation": "NOASSERTION",
+   "externalRefs": [
+    {
+     "referenceCategory": "PACKAGE-MANAGER",
+     "referenceLocator": "pkg:npm/postcss-svgo@9.0.5",
+     "referenceType": "purl"
+    }
+   ],
+   "filesAnalyzed": false,
+   "licenseDeclared": "MIT",
+   "name": "postcss-svgo",
+   "versionInfo": "9.0.5"
+  },
+  {
+   "SPDXID": "SPDXRef-Bundled-187",
+   "copyrightText": "NOASSERTION",
+   "downloadLocation": "NOASSERTION",
+   "externalRefs": [
+    {
+     "referenceCategory": "PACKAGE-MANAGER",
+     "referenceLocator": "pkg:npm/postcss-unique-selectors@9.0.6",
+     "referenceType": "purl"
+    }
+   ],
+   "filesAnalyzed": false,
+   "licenseDeclared": "MIT",
+   "name": "postcss-unique-selectors",
+   "versionInfo": "9.0.6"
+  },
+  {
+   "SPDXID": "SPDXRef-Bundled-188",
+   "copyrightText": "NOASSERTION",
+   "downloadLocation": "NOASSERTION",
+   "externalRefs": [
+    {
+     "referenceCategory": "PACKAGE-MANAGER",
+     "referenceLocator": "pkg:npm/postcss-value-parser@4.2.0",
+     "referenceType": "purl"
+    }
+   ],
+   "filesAnalyzed": false,
+   "licenseDeclared": "MIT",
+   "name": "postcss-value-parser",
+   "versionInfo": "4.2.0"
+  },
+  {
+   "SPDXID": "SPDXRef-Bundled-189",
+   "copyrightText": "NOASSERTION",
+   "downloadLocation": "NOASSERTION",
+   "externalRefs": [
+    {
+     "referenceCategory": "PACKAGE-MANAGER",
+     "referenceLocator": "pkg:npm/pretty-hrtime@1.0.3",
+     "referenceType": "purl"
+    }
+   ],
+   "filesAnalyzed": false,
+   "licenseDeclared": "MIT",
+   "name": "pretty-hrtime",
+   "versionInfo": "1.0.3"
+  },
+  {
+   "SPDXID": "SPDXRef-Bundled-190",
+   "copyrightText": "NOASSERTION",
+   "downloadLocation": "NOASSERTION",
+   "externalRefs": [
+    {
+     "referenceCategory": "PACKAGE-MANAGER",
+     "referenceLocator": "pkg:npm/read-cache@1.0.2",
+     "referenceType": "purl"
+    }
+   ],
+   "filesAnalyzed": false,
+   "licenseDeclared": "MIT",
+   "name": "read-cache",
+   "versionInfo": "1.0.2"
+  },
+  {
+   "SPDXID": "SPDXRef-Bundled-191",
+   "copyrightText": "NOASSERTION",
+   "downloadLocation": "NOASSERTION",
+   "externalRefs": [
+    {
+     "referenceCategory": "PACKAGE-MANAGER",
+     "referenceLocator": "pkg:npm/readdirp@5.1.1",
+     "referenceType": "purl"
+    }
+   ],
+   "filesAnalyzed": false,
+   "licenseDeclared": "MIT",
+   "name": "readdirp",
+   "versionInfo": "5.1.1"
+  },
+  {
+   "SPDXID": "SPDXRef-Bundled-192",
+   "copyrightText": "NOASSERTION",
+   "downloadLocation": "NOASSERTION",
+   "externalRefs": [
+    {
+     "referenceCategory": "PACKAGE-MANAGER",
+     "referenceLocator": "pkg:npm/relateurl@0.2.7",
+     "referenceType": "purl"
+    }
+   ],
+   "filesAnalyzed": false,
+   "licenseDeclared": "MIT",
+   "name": "relateurl",
+   "versionInfo": "0.2.7"
+  },
+  {
+   "SPDXID": "SPDXRef-Bundled-193",
+   "copyrightText": "NOASSERTION",
+   "downloadLocation": "NOASSERTION",
+   "externalRefs": [
+    {
+     "referenceCategory": "PACKAGE-MANAGER",
+     "referenceLocator": "pkg:npm/sax@1.6.1",
+     "referenceType": "purl"
+    }
+   ],
+   "filesAnalyzed": false,
+   "licenseDeclared": "BlueOak-1.0.0",
+   "name": "sax",
+   "versionInfo": "1.6.1"
+  },
+  {
+   "SPDXID": "SPDXRef-Bundled-194",
+   "copyrightText": "NOASSERTION",
+   "downloadLocation": "NOASSERTION",
+   "externalRefs": [
+    {
+     "referenceCategory": "PACKAGE-MANAGER",
+     "referenceLocator": "pkg:npm/slash@5.1.0",
+     "referenceType": "purl"
+    }
+   ],
+   "filesAnalyzed": false,
+   "licenseDeclared": "MIT",
+   "name": "slash",
+   "versionInfo": "5.1.0"
+  },
+  {
+   "SPDXID": "SPDXRef-Bundled-195",
+   "copyrightText": "NOASSERTION",
+   "downloadLocation": "NOASSERTION",
+   "externalRefs": [
+    {
+     "referenceCategory": "PACKAGE-MANAGER",
+     "referenceLocator": "pkg:npm/source-map@0.6.1",
+     "referenceType": "purl"
+    }
+   ],
+   "filesAnalyzed": false,
+   "licenseDeclared": "BSD-3-Clause",
+   "name": "source-map",
+   "versionInfo": "0.6.1"
+  },
+  {
+   "SPDXID": "SPDXRef-Bundled-196",
+   "copyrightText": "NOASSERTION",
+   "downloadLocation": "NOASSERTION",
+   "externalRefs": [
+    {
+     "referenceCategory": "PACKAGE-MANAGER",
+     "referenceLocator": "pkg:npm/source-map-js@1.2.2",
+     "referenceType": "purl"
+    }
+   ],
+   "filesAnalyzed": false,
+   "licenseDeclared": "BSD-3-Clause",
+   "name": "source-map-js",
+   "versionInfo": "1.2.2"
+  },
+  {
+   "SPDXID": "SPDXRef-Bundled-197",
+   "copyrightText": "NOASSERTION",
+   "downloadLocation": "NOASSERTION",
+   "externalRefs": [
+    {
+     "referenceCategory": "PACKAGE-MANAGER",
+     "referenceLocator": "pkg:npm/source-map-support@0.5.21",
+     "referenceType": "purl"
+    }
+   ],
+   "filesAnalyzed": false,
+   "licenseDeclared": "MIT",
+   "name": "source-map-support",
+   "versionInfo": "0.5.21"
+  },
+  {
+   "SPDXID": "SPDXRef-Bundled-198",
+   "copyrightText": "NOASSERTION",
+   "downloadLocation": "NOASSERTION",
+   "externalRefs": [
+    {
+     "referenceCategory": "PACKAGE-MANAGER",
+     "referenceLocator": "pkg:npm/string-width@8.3.0",
+     "referenceType": "purl"
+    }
+   ],
+   "filesAnalyzed": false,
+   "licenseDeclared": "MIT",
+   "name": "string-width",
+   "versionInfo": "8.3.0"
+  },
+  {
+   "SPDXID": "SPDXRef-Bundled-199",
+   "copyrightText": "NOASSERTION",
+   "downloadLocation": "NOASSERTION",
+   "externalRefs": [
+    {
+     "referenceCategory": "PACKAGE-MANAGER",
+     "referenceLocator": "pkg:npm/strip-ansi@7.2.0",
+     "referenceType": "purl"
+    }
+   ],
+   "filesAnalyzed": false,
+   "licenseDeclared": "MIT",
+   "name": "strip-ansi",
+   "versionInfo": "7.2.0"
+  },
+  {
+   "SPDXID": "SPDXRef-Bundled-200",
+   "copyrightText": "NOASSERTION",
+   "downloadLocation": "NOASSERTION",
+   "externalRefs": [
+    {
+     "referenceCategory": "PACKAGE-MANAGER",
+     "referenceLocator": "pkg:npm/stylehacks@9.0.8",
+     "referenceType": "purl"
+    }
+   ],
+   "filesAnalyzed": false,
+   "licenseDeclared": "MIT",
+   "name": "stylehacks",
+   "versionInfo": "9.0.8"
+  },
+  {
+   "SPDXID": "SPDXRef-Bundled-201",
+   "copyrightText": "NOASSERTION",
+   "downloadLocation": "NOASSERTION",
+   "externalRefs": [
+    {
+     "referenceCategory": "PACKAGE-MANAGER",
+     "referenceLocator": "pkg:npm/svgo@4.1.0",
+     "referenceType": "purl"
+    }
+   ],
+   "filesAnalyzed": false,
+   "licenseDeclared": "MIT",
+   "name": "svgo",
+   "versionInfo": "4.1.0"
+  },
+  {
+   "SPDXID": "SPDXRef-Bundled-202",
+   "copyrightText": "NOASSERTION",
+   "downloadLocation": "NOASSERTION",
+   "externalRefs": [
+    {
+     "referenceCategory": "PACKAGE-MANAGER",
+     "referenceLocator": "pkg:npm/commander@11.1.0",
+     "referenceType": "purl"
+    }
+   ],
+   "filesAnalyzed": false,
+   "licenseDeclared": "MIT",
+   "name": "commander",
+   "versionInfo": "11.1.0"
+  },
+  {
+   "SPDXID": "SPDXRef-Bundled-203",
+   "copyrightText": "NOASSERTION",
+   "downloadLocation": "NOASSERTION",
+   "externalRefs": [
+    {
+     "referenceCategory": "PACKAGE-MANAGER",
+     "referenceLocator": "pkg:npm/terser@5.51.2",
+     "referenceType": "purl"
+    }
+   ],
+   "filesAnalyzed": false,
+   "licenseDeclared": "BSD-2-Clause",
+   "name": "terser",
+   "versionInfo": "5.51.2"
+  },
+  {
+   "SPDXID": "SPDXRef-Bundled-204",
+   "copyrightText": "NOASSERTION",
+   "downloadLocation": "NOASSERTION",
+   "externalRefs": [
+    {
+     "referenceCategory": "PACKAGE-MANAGER",
+     "referenceLocator": "pkg:npm/commander@2.20.3",
+     "referenceType": "purl"
+    }
+   ],
+   "filesAnalyzed": false,
+   "licenseDeclared": "MIT",
+   "name": "commander",
+   "versionInfo": "2.20.3"
+  },
+  {
+   "SPDXID": "SPDXRef-Bundled-205",
+   "copyrightText": "NOASSERTION",
+   "downloadLocation": "NOASSERTION",
+   "externalRefs": [
+    {
+     "referenceCategory": "PACKAGE-MANAGER",
+     "referenceLocator": "pkg:npm/thenby@1.4.1",
+     "referenceType": "purl"
+    }
+   ],
+   "filesAnalyzed": false,
+   "licenseDeclared": "Apache-2.0",
+   "name": "thenby",
+   "versionInfo": "1.4.1"
+  },
+  {
+   "SPDXID": "SPDXRef-Bundled-206",
+   "copyrightText": "NOASSERTION",
+   "downloadLocation": "NOASSERTION",
+   "externalRefs": [
+    {
+     "referenceCategory": "PACKAGE-MANAGER",
+     "referenceLocator": "pkg:npm/tinyglobby@0.2.17",
+     "referenceType": "purl"
+    }
+   ],
+   "filesAnalyzed": false,
+   "licenseDeclared": "MIT",
+   "name": "tinyglobby",
+   "versionInfo": "0.2.17"
+  },
+  {
+   "SPDXID": "SPDXRef-Bundled-207",
+   "copyrightText": "NOASSERTION",
+   "downloadLocation": "NOASSERTION",
+   "externalRefs": [
+    {
+     "referenceCategory": "PACKAGE-MANAGER",
+     "referenceLocator": "pkg:npm/tslib@2.8.1",
+     "referenceType": "purl"
+    }
+   ],
+   "filesAnalyzed": false,
+   "licenseDeclared": "0BSD",
+   "name": "tslib",
+   "versionInfo": "2.8.1"
+  },
+  {
+   "SPDXID": "SPDXRef-Bundled-208",
+   "copyrightText": "NOASSERTION",
+   "downloadLocation": "NOASSERTION",
+   "externalRefs": [
+    {
+     "referenceCategory": "PACKAGE-MANAGER",
+     "referenceLocator": "pkg:npm/update-browserslist-db@1.3.4",
+     "referenceType": "purl"
+    }
+   ],
+   "filesAnalyzed": false,
+   "licenseDeclared": "MIT",
+   "name": "update-browserslist-db",
+   "versionInfo": "1.3.4"
+  },
+  {
+   "SPDXID": "SPDXRef-Bundled-209",
+   "copyrightText": "NOASSERTION",
+   "downloadLocation": "NOASSERTION",
+   "externalRefs": [
+    {
+     "referenceCategory": "PACKAGE-MANAGER",
+     "referenceLocator": "pkg:npm/util-deprecate@1.0.2",
+     "referenceType": "purl"
+    }
+   ],
+   "filesAnalyzed": false,
+   "licenseDeclared": "MIT",
+   "name": "util-deprecate",
+   "versionInfo": "1.0.2"
+  },
+  {
+   "SPDXID": "SPDXRef-Bundled-210",
+   "copyrightText": "NOASSERTION",
+   "downloadLocation": "NOASSERTION",
+   "externalRefs": [
+    {
+     "referenceCategory": "PACKAGE-MANAGER",
+     "referenceLocator": "pkg:npm/wrap-ansi@9.0.2",
+     "referenceType": "purl"
+    }
+   ],
+   "filesAnalyzed": false,
+   "licenseDeclared": "MIT",
+   "name": "wrap-ansi",
+   "versionInfo": "9.0.2"
+  },
+  {
+   "SPDXID": "SPDXRef-Bundled-211",
+   "copyrightText": "NOASSERTION",
+   "downloadLocation": "NOASSERTION",
+   "externalRefs": [
+    {
+     "referenceCategory": "PACKAGE-MANAGER",
+     "referenceLocator": "pkg:npm/ansi-styles@6.2.3",
+     "referenceType": "purl"
+    }
+   ],
+   "filesAnalyzed": false,
+   "licenseDeclared": "MIT",
+   "name": "ansi-styles",
+   "versionInfo": "6.2.3"
+  },
+  {
+   "SPDXID": "SPDXRef-Bundled-212",
+   "copyrightText": "NOASSERTION",
+   "downloadLocation": "NOASSERTION",
+   "externalRefs": [
+    {
+     "referenceCategory": "PACKAGE-MANAGER",
+     "referenceLocator": "pkg:npm/string-width@7.2.0",
+     "referenceType": "purl"
+    }
+   ],
+   "filesAnalyzed": false,
+   "licenseDeclared": "MIT",
+   "name": "string-width",
+   "versionInfo": "7.2.0"
+  },
+  {
+   "SPDXID": "SPDXRef-Bundled-213",
+   "copyrightText": "NOASSERTION",
+   "downloadLocation": "NOASSERTION",
+   "externalRefs": [
+    {
+     "referenceCategory": "PACKAGE-MANAGER",
+     "referenceLocator": "pkg:npm/y18n@5.0.8",
+     "referenceType": "purl"
+    }
+   ],
+   "filesAnalyzed": false,
+   "licenseDeclared": "ISC",
+   "name": "y18n",
+   "versionInfo": "5.0.8"
+  },
+  {
+   "SPDXID": "SPDXRef-Bundled-214",
+   "copyrightText": "NOASSERTION",
+   "downloadLocation": "NOASSERTION",
+   "externalRefs": [
+    {
+     "referenceCategory": "PACKAGE-MANAGER",
+     "referenceLocator": "pkg:npm/yargs@18.2.0",
+     "referenceType": "purl"
+    }
+   ],
+   "filesAnalyzed": false,
+   "licenseDeclared": "MIT",
+   "name": "yargs",
+   "versionInfo": "18.2.0"
+  },
+  {
+   "SPDXID": "SPDXRef-Bundled-215",
+   "copyrightText": "NOASSERTION",
+   "downloadLocation": "NOASSERTION",
+   "externalRefs": [
+    {
+     "referenceCategory": "PACKAGE-MANAGER",
+     "referenceLocator": "pkg:npm/yargs-parser@22.0.0",
+     "referenceType": "purl"
+    }
+   ],
+   "filesAnalyzed": false,
+   "licenseDeclared": "ISC",
+   "name": "yargs-parser",
+   "versionInfo": "22.0.0"
+  },
+  {
+   "SPDXID": "SPDXRef-Bundled-216",
+   "copyrightText": "NOASSERTION",
+   "downloadLocation": "NOASSERTION",
+   "externalRefs": [
+    {
+     "referenceCategory": "PACKAGE-MANAGER",
+     "referenceLocator": "pkg:composer/phpfastcache/phpfastcache@9.2.4",
+     "referenceType": "purl"
+    }
+   ],
+   "filesAnalyzed": false,
+   "licenseDeclared": "MIT",
+   "name": "phpfastcache/phpfastcache",
+   "versionInfo": "9.2.4"
+  },
+  {
+   "SPDXID": "SPDXRef-Bundled-217",
+   "copyrightText": "NOASSERTION",
+   "downloadLocation": "NOASSERTION",
+   "externalRefs": [
+    {
+     "referenceCategory": "PACKAGE-MANAGER",
+     "referenceLocator": "pkg:composer/psr/cache@3.0.0",
+     "referenceType": "purl"
+    }
+   ],
+   "filesAnalyzed": false,
+   "licenseDeclared": "MIT",
+   "name": "psr/cache",
+   "versionInfo": "3.0.0"
+  },
+  {
+   "SPDXID": "SPDXRef-Bundled-218",
+   "copyrightText": "NOASSERTION",
+   "downloadLocation": "NOASSERTION",
+   "externalRefs": [
+    {
+     "referenceCategory": "PACKAGE-MANAGER",
+     "referenceLocator": "pkg:composer/psr/simple-cache@3.0.0",
+     "referenceType": "purl"
+    }
+   ],
+   "filesAnalyzed": false,
+   "licenseDeclared": "MIT",
+   "name": "psr/simple-cache",
+   "versionInfo": "3.0.0"
+  },
+  {
+   "SPDXID": "SPDXRef-Bundled-219",
+   "copyrightText": "NOASSERTION",
+   "downloadLocation": "NOASSERTION",
+   "externalRefs": [
+    {
+     "referenceCategory": "PACKAGE-MANAGER",
+     "referenceLocator": "pkg:composer/psr/log@1.1.4",
+     "referenceType": "purl"
+    }
+   ],
+   "filesAnalyzed": false,
+   "licenseDeclared": "MIT",
+   "name": "psr/log",
+   "versionInfo": "1.1.4"
+  },
+  {
+   "SPDXID": "SPDXRef-Bundled-220",
+   "copyrightText": "NOASSERTION",
+   "downloadLocation": "NOASSERTION",
+   "externalRefs": [
+    {
+     "referenceCategory": "PACKAGE-MANAGER",
+     "referenceLocator": "pkg:composer/sabre/dav@4.7.1",
+     "referenceType": "purl"
+    }
+   ],
+   "filesAnalyzed": false,
+   "licenseDeclared": "BSD-3-Clause",
+   "name": "sabre/dav",
+   "versionInfo": "4.7.1"
+  },
+  {
+   "SPDXID": "SPDXRef-Bundled-221",
+   "copyrightText": "NOASSERTION",
+   "downloadLocation": "NOASSERTION",
+   "externalRefs": [
+    {
+     "referenceCategory": "PACKAGE-MANAGER",
+     "referenceLocator": "pkg:composer/sabre/event@5.1.9",
+     "referenceType": "purl"
+    }
+   ],
+   "filesAnalyzed": false,
+   "licenseDeclared": "BSD-3-Clause",
+   "name": "sabre/event",
+   "versionInfo": "5.1.9"
+  },
+  {
+   "SPDXID": "SPDXRef-Bundled-222",
+   "copyrightText": "NOASSERTION",
+   "downloadLocation": "NOASSERTION",
+   "externalRefs": [
+    {
+     "referenceCategory": "PACKAGE-MANAGER",
+     "referenceLocator": "pkg:composer/sabre/http@5.1.13",
+     "referenceType": "purl"
+    }
+   ],
+   "filesAnalyzed": false,
+   "licenseDeclared": "BSD-3-Clause",
+   "name": "sabre/http",
+   "versionInfo": "5.1.13"
+  },
+  {
+   "SPDXID": "SPDXRef-Bundled-223",
+   "copyrightText": "NOASSERTION",
+   "downloadLocation": "NOASSERTION",
+   "externalRefs": [
+    {
+     "referenceCategory": "PACKAGE-MANAGER",
+     "referenceLocator": "pkg:composer/sabre/uri@2.3.4",
+     "referenceType": "purl"
+    }
+   ],
+   "filesAnalyzed": false,
+   "licenseDeclared": "BSD-3-Clause",
+   "name": "sabre/uri",
+   "versionInfo": "2.3.4"
+  },
+  {
+   "SPDXID": "SPDXRef-Bundled-224",
+   "copyrightText": "NOASSERTION",
+   "downloadLocation": "NOASSERTION",
+   "externalRefs": [
+    {
+     "referenceCategory": "PACKAGE-MANAGER",
+     "referenceLocator": "pkg:composer/sabre/vobject@4.6.1",
+     "referenceType": "purl"
+    }
+   ],
+   "filesAnalyzed": false,
+   "licenseDeclared": "BSD-3-Clause",
+   "name": "sabre/vobject",
+   "versionInfo": "4.6.1"
+  },
+  {
+   "SPDXID": "SPDXRef-Bundled-225",
+   "copyrightText": "NOASSERTION",
+   "downloadLocation": "NOASSERTION",
+   "externalRefs": [
+    {
+     "referenceCategory": "PACKAGE-MANAGER",
+     "referenceLocator": "pkg:composer/sabre/xml@2.2.11",
+     "referenceType": "purl"
+    }
+   ],
+   "filesAnalyzed": false,
+   "licenseDeclared": "BSD-3-Clause",
+   "name": "sabre/xml",
+   "versionInfo": "2.2.11"
+  },
+  {
+   "SPDXID": "SPDXRef-Bundled-226",
+   "copyrightText": "NOASSERTION",
+   "downloadLocation": "NOASSERTION",
+   "externalRefs": [
+    {
+     "referenceCategory": "PACKAGE-MANAGER",
+     "referenceLocator": "pkg:composer/paragonie/constant_time_encoding@3.1.3",
+     "referenceType": "purl"
+    }
+   ],
+   "filesAnalyzed": false,
+   "licenseDeclared": "MIT",
+   "name": "paragonie/constant_time_encoding",
+   "versionInfo": "3.1.3"
+  },
+  {
+   "SPDXID": "SPDXRef-Bundled-227",
+   "copyrightText": "NOASSERTION",
+   "downloadLocation": "NOASSERTION",
+   "externalRefs": [
+    {
+     "referenceCategory": "PACKAGE-MANAGER",
+     "referenceLocator": "pkg:composer/paragonie/random_compat@9.99.100",
+     "referenceType": "purl"
+    }
+   ],
+   "filesAnalyzed": false,
+   "licenseDeclared": "MIT",
+   "name": "paragonie/random_compat",
+   "versionInfo": "9.99.100"
+  },
+  {
+   "SPDXID": "SPDXRef-Bundled-228",
+   "copyrightText": "NOASSERTION",
+   "downloadLocation": "NOASSERTION",
+   "externalRefs": [
+    {
+     "referenceCategory": "PACKAGE-MANAGER",
+     "referenceLocator": "pkg:composer/phpseclib/phpseclib@3.0.57",
+     "referenceType": "purl"
+    }
+   ],
+   "filesAnalyzed": false,
+   "licenseDeclared": "MIT",
+   "name": "phpseclib/phpseclib",
+   "versionInfo": "3.0.57"
+  },
+  {
+   "SPDXID": "SPDXRef-Bundled-229",
+   "copyrightText": "NOASSERTION",
+   "downloadLocation": "NOASSERTION",
+   "externalRefs": [
+    {
+     "referenceCategory": "PACKAGE-MANAGER",
+     "referenceLocator": "pkg:composer/symfony/polyfill-iconv@1.37.0",
+     "referenceType": "purl"
+    }
+   ],
+   "filesAnalyzed": false,
+   "licenseDeclared": "MIT",
+   "name": "symfony/polyfill-iconv",
+   "versionInfo": "1.37.0"
+  }
+ ],
+ "relationships": [
+  {
+   "relatedSpdxElement": "SPDXRef-Package",
+   "relationshipType": "DESCRIBES",
+   "spdxElementId": "SPDXRef-DOCUMENT"
+  },
+  {
+   "relatedSpdxElement": "SPDXRef-Source",
+   "relationshipType": "GENERATED_FROM",
+   "spdxElementId": "SPDXRef-Package"
+  },
+  {
+   "relatedSpdxElement": "SPDXRef-Source",
+   "relationshipType": "PATCH_APPLIED",
+   "spdxElementId": "SPDXRef-Patch-0001-branding-product-name.patch"
+  },
+  {
+   "relatedSpdxElement": "SPDXRef-Source",
+   "relationshipType": "PATCH_APPLIED",
+   "spdxElementId": "SPDXRef-Patch-0002-context-deep-link.patch"
+  },
+  {
+   "relatedSpdxElement": "SPDXRef-Source",
+   "relationshipType": "PATCH_APPLIED",
+   "spdxElementId": "SPDXRef-Patch-0003-branding-translatable-strings.patch"
+  },
+  {
+   "relatedSpdxElement": "SPDXRef-Dep-1",
+   "relationshipType": "DEPENDS_ON",
+   "spdxElementId": "SPDXRef-Package"
+  },
+  {
+   "relatedSpdxElement": "SPDXRef-Dep-2",
+   "relationshipType": "DEPENDS_ON",
+   "spdxElementId": "SPDXRef-Package"
+  },
+  {
+   "relatedSpdxElement": "SPDXRef-Dep-3",
+   "relationshipType": "DEPENDS_ON",
+   "spdxElementId": "SPDXRef-Package"
+  },
+  {
+   "relatedSpdxElement": "SPDXRef-Dep-4",
+   "relationshipType": "DEPENDS_ON",
+   "spdxElementId": "SPDXRef-Package"
+  },
+  {
+   "relatedSpdxElement": "SPDXRef-Dep-5",
+   "relationshipType": "DEPENDS_ON",
+   "spdxElementId": "SPDXRef-Package"
+  },
+  {
+   "relatedSpdxElement": "SPDXRef-Dep-6",
+   "relationshipType": "DEPENDS_ON",
+   "spdxElementId": "SPDXRef-Package"
+  },
+  {
+   "relatedSpdxElement": "SPDXRef-Dep-7",
+   "relationshipType": "DEPENDS_ON",
+   "spdxElementId": "SPDXRef-Package"
+  },
+  {
+   "relatedSpdxElement": "SPDXRef-Dep-8",
+   "relationshipType": "DEPENDS_ON",
+   "spdxElementId": "SPDXRef-Package"
+  },
+  {
+   "relatedSpdxElement": "SPDXRef-Dep-9",
+   "relationshipType": "DEPENDS_ON",
+   "spdxElementId": "SPDXRef-Package"
+  },
+  {
+   "relatedSpdxElement": "SPDXRef-Dep-10",
+   "relationshipType": "DEPENDS_ON",
+   "spdxElementId": "SPDXRef-Package"
+  },
+  {
+   "relatedSpdxElement": "SPDXRef-Dep-11",
+   "relationshipType": "DEPENDS_ON",
+   "spdxElementId": "SPDXRef-Package"
+  },
+  {
+   "relatedSpdxElement": "SPDXRef-Dep-12",
+   "relationshipType": "DEPENDS_ON",
+   "spdxElementId": "SPDXRef-Package"
+  },
+  {
+   "relatedSpdxElement": "SPDXRef-Bundled-0",
+   "relationshipType": "CONTAINS",
+   "spdxElementId": "SPDXRef-Package"
+  },
+  {
+   "relatedSpdxElement": "SPDXRef-Bundled-1",
+   "relationshipType": "CONTAINS",
+   "spdxElementId": "SPDXRef-Package"
+  },
+  {
+   "relatedSpdxElement": "SPDXRef-Bundled-2",
+   "relationshipType": "CONTAINS",
+   "spdxElementId": "SPDXRef-Package"
+  },
+  {
+   "relatedSpdxElement": "SPDXRef-Bundled-3",
+   "relationshipType": "CONTAINS",
+   "spdxElementId": "SPDXRef-Package"
+  },
+  {
+   "relatedSpdxElement": "SPDXRef-Bundled-4",
+   "relationshipType": "CONTAINS",
+   "spdxElementId": "SPDXRef-Package"
+  },
+  {
+   "relatedSpdxElement": "SPDXRef-Bundled-5",
+   "relationshipType": "CONTAINS",
+   "spdxElementId": "SPDXRef-Package"
+  },
+  {
+   "relatedSpdxElement": "SPDXRef-Bundled-6",
+   "relationshipType": "CONTAINS",
+   "spdxElementId": "SPDXRef-Package"
+  },
+  {
+   "relatedSpdxElement": "SPDXRef-Bundled-7",
+   "relationshipType": "CONTAINS",
+   "spdxElementId": "SPDXRef-Package"
+  },
+  {
+   "relatedSpdxElement": "SPDXRef-Bundled-8",
+   "relationshipType": "CONTAINS",
+   "spdxElementId": "SPDXRef-Package"
+  },
+  {
+   "relatedSpdxElement": "SPDXRef-Bundled-9",
+   "relationshipType": "CONTAINS",
+   "spdxElementId": "SPDXRef-Package"
+  },
+  {
+   "relatedSpdxElement": "SPDXRef-Bundled-10",
+   "relationshipType": "CONTAINS",
+   "spdxElementId": "SPDXRef-Package"
+  },
+  {
+   "relatedSpdxElement": "SPDXRef-Bundled-11",
+   "relationshipType": "CONTAINS",
+   "spdxElementId": "SPDXRef-Package"
+  },
+  {
+   "relatedSpdxElement": "SPDXRef-Bundled-12",
+   "relationshipType": "CONTAINS",
+   "spdxElementId": "SPDXRef-Package"
+  },
+  {
+   "relatedSpdxElement": "SPDXRef-Bundled-13",
+   "relationshipType": "CONTAINS",
+   "spdxElementId": "SPDXRef-Package"
+  },
+  {
+   "relatedSpdxElement": "SPDXRef-Bundled-14",
+   "relationshipType": "CONTAINS",
+   "spdxElementId": "SPDXRef-Package"
+  },
+  {
+   "relatedSpdxElement": "SPDXRef-Bundled-15",
+   "relationshipType": "CONTAINS",
+   "spdxElementId": "SPDXRef-Package"
+  },
+  {
+   "relatedSpdxElement": "SPDXRef-Bundled-16",
+   "relationshipType": "CONTAINS",
+   "spdxElementId": "SPDXRef-Package"
+  },
+  {
+   "relatedSpdxElement": "SPDXRef-Bundled-17",
+   "relationshipType": "CONTAINS",
+   "spdxElementId": "SPDXRef-Package"
+  },
+  {
+   "relatedSpdxElement": "SPDXRef-Bundled-18",
+   "relationshipType": "CONTAINS",
+   "spdxElementId": "SPDXRef-Package"
+  },
+  {
+   "relatedSpdxElement": "SPDXRef-Bundled-19",
+   "relationshipType": "CONTAINS",
+   "spdxElementId": "SPDXRef-Package"
+  },
+  {
+   "relatedSpdxElement": "SPDXRef-Bundled-20",
+   "relationshipType": "CONTAINS",
+   "spdxElementId": "SPDXRef-Package"
+  },
+  {
+   "relatedSpdxElement": "SPDXRef-Bundled-21",
+   "relationshipType": "CONTAINS",
+   "spdxElementId": "SPDXRef-Package"
+  },
+  {
+   "relatedSpdxElement": "SPDXRef-Bundled-22",
+   "relationshipType": "CONTAINS",
+   "spdxElementId": "SPDXRef-Package"
+  },
+  {
+   "relatedSpdxElement": "SPDXRef-Bundled-23",
+   "relationshipType": "CONTAINS",
+   "spdxElementId": "SPDXRef-Package"
+  },
+  {
+   "relatedSpdxElement": "SPDXRef-Bundled-24",
+   "relationshipType": "CONTAINS",
+   "spdxElementId": "SPDXRef-Package"
+  },
+  {
+   "relatedSpdxElement": "SPDXRef-Bundled-25",
+   "relationshipType": "CONTAINS",
+   "spdxElementId": "SPDXRef-Package"
+  },
+  {
+   "relatedSpdxElement": "SPDXRef-Bundled-26",
+   "relationshipType": "CONTAINS",
+   "spdxElementId": "SPDXRef-Package"
+  },
+  {
+   "relatedSpdxElement": "SPDXRef-Bundled-27",
+   "relationshipType": "CONTAINS",
+   "spdxElementId": "SPDXRef-Package"
+  },
+  {
+   "relatedSpdxElement": "SPDXRef-Bundled-28",
+   "relationshipType": "CONTAINS",
+   "spdxElementId": "SPDXRef-Package"
+  },
+  {
+   "relatedSpdxElement": "SPDXRef-Bundled-29",
+   "relationshipType": "CONTAINS",
+   "spdxElementId": "SPDXRef-Package"
+  },
+  {
+   "relatedSpdxElement": "SPDXRef-Bundled-30",
+   "relationshipType": "CONTAINS",
+   "spdxElementId": "SPDXRef-Package"
+  },
+  {
+   "relatedSpdxElement": "SPDXRef-Bundled-31",
+   "relationshipType": "CONTAINS",
+   "spdxElementId": "SPDXRef-Package"
+  },
+  {
+   "relatedSpdxElement": "SPDXRef-Bundled-32",
+   "relationshipType": "CONTAINS",
+   "spdxElementId": "SPDXRef-Package"
+  },
+  {
+   "relatedSpdxElement": "SPDXRef-Bundled-33",
+   "relationshipType": "CONTAINS",
+   "spdxElementId": "SPDXRef-Package"
+  },
+  {
+   "relatedSpdxElement": "SPDXRef-Bundled-34",
+   "relationshipType": "CONTAINS",
+   "spdxElementId": "SPDXRef-Package"
+  },
+  {
+   "relatedSpdxElement": "SPDXRef-Bundled-35",
+   "relationshipType": "CONTAINS",
+   "spdxElementId": "SPDXRef-Package"
+  },
+  {
+   "relatedSpdxElement": "SPDXRef-Bundled-36",
+   "relationshipType": "CONTAINS",
+   "spdxElementId": "SPDXRef-Package"
+  },
+  {
+   "relatedSpdxElement": "SPDXRef-Bundled-37",
+   "relationshipType": "CONTAINS",
+   "spdxElementId": "SPDXRef-Package"
+  },
+  {
+   "relatedSpdxElement": "SPDXRef-Bundled-38",
+   "relationshipType": "CONTAINS",
+   "spdxElementId": "SPDXRef-Package"
+  },
+  {
+   "relatedSpdxElement": "SPDXRef-Bundled-39",
+   "relationshipType": "CONTAINS",
+   "spdxElementId": "SPDXRef-Package"
+  },
+  {
+   "relatedSpdxElement": "SPDXRef-Bundled-40",
+   "relationshipType": "CONTAINS",
+   "spdxElementId": "SPDXRef-Package"
+  },
+  {
+   "relatedSpdxElement": "SPDXRef-Bundled-41",
+   "relationshipType": "CONTAINS",
+   "spdxElementId": "SPDXRef-Package"
+  },
+  {
+   "relatedSpdxElement": "SPDXRef-Bundled-42",
+   "relationshipType": "CONTAINS",
+   "spdxElementId": "SPDXRef-Package"
+  },
+  {
+   "relatedSpdxElement": "SPDXRef-Bundled-43",
+   "relationshipType": "CONTAINS",
+   "spdxElementId": "SPDXRef-Package"
+  },
+  {
+   "relatedSpdxElement": "SPDXRef-Bundled-44",
+   "relationshipType": "CONTAINS",
+   "spdxElementId": "SPDXRef-Package"
+  },
+  {
+   "relatedSpdxElement": "SPDXRef-Bundled-45",
+   "relationshipType": "CONTAINS",
+   "spdxElementId": "SPDXRef-Package"
+  },
+  {
+   "relatedSpdxElement": "SPDXRef-Bundled-46",
+   "relationshipType": "CONTAINS",
+   "spdxElementId": "SPDXRef-Package"
+  },
+  {
+   "relatedSpdxElement": "SPDXRef-Bundled-47",
+   "relationshipType": "CONTAINS",
+   "spdxElementId": "SPDXRef-Package"
+  },
+  {
+   "relatedSpdxElement": "SPDXRef-Bundled-48",
+   "relationshipType": "CONTAINS",
+   "spdxElementId": "SPDXRef-Package"
+  },
+  {
+   "relatedSpdxElement": "SPDXRef-Bundled-49",
+   "relationshipType": "CONTAINS",
+   "spdxElementId": "SPDXRef-Package"
+  },
+  {
+   "relatedSpdxElement": "SPDXRef-Bundled-50",
+   "relationshipType": "CONTAINS",
+   "spdxElementId": "SPDXRef-Package"
+  },
+  {
+   "relatedSpdxElement": "SPDXRef-Bundled-51",
+   "relationshipType": "CONTAINS",
+   "spdxElementId": "SPDXRef-Package"
+  },
+  {
+   "relatedSpdxElement": "SPDXRef-Bundled-52",
+   "relationshipType": "CONTAINS",
+   "spdxElementId": "SPDXRef-Package"
+  },
+  {
+   "relatedSpdxElement": "SPDXRef-Bundled-53",
+   "relationshipType": "CONTAINS",
+   "spdxElementId": "SPDXRef-Package"
+  },
+  {
+   "relatedSpdxElement": "SPDXRef-Bundled-54",
+   "relationshipType": "CONTAINS",
+   "spdxElementId": "SPDXRef-Package"
+  },
+  {
+   "relatedSpdxElement": "SPDXRef-Bundled-55",
+   "relationshipType": "CONTAINS",
+   "spdxElementId": "SPDXRef-Package"
+  },
+  {
+   "relatedSpdxElement": "SPDXRef-Bundled-56",
+   "relationshipType": "CONTAINS",
+   "spdxElementId": "SPDXRef-Package"
+  },
+  {
+   "relatedSpdxElement": "SPDXRef-Bundled-57",
+   "relationshipType": "CONTAINS",
+   "spdxElementId": "SPDXRef-Package"
+  },
+  {
+   "relatedSpdxElement": "SPDXRef-Bundled-58",
+   "relationshipType": "CONTAINS",
+   "spdxElementId": "SPDXRef-Package"
+  },
+  {
+   "relatedSpdxElement": "SPDXRef-Bundled-59",
+   "relationshipType": "CONTAINS",
+   "spdxElementId": "SPDXRef-Package"
+  },
+  {
+   "relatedSpdxElement": "SPDXRef-Bundled-60",
+   "relationshipType": "CONTAINS",
+   "spdxElementId": "SPDXRef-Package"
+  },
+  {
+   "relatedSpdxElement": "SPDXRef-Bundled-61",
+   "relationshipType": "CONTAINS",
+   "spdxElementId": "SPDXRef-Package"
+  },
+  {
+   "relatedSpdxElement": "SPDXRef-Bundled-62",
+   "relationshipType": "CONTAINS",
+   "spdxElementId": "SPDXRef-Package"
+  },
+  {
+   "relatedSpdxElement": "SPDXRef-Bundled-63",
+   "relationshipType": "CONTAINS",
+   "spdxElementId": "SPDXRef-Package"
+  },
+  {
+   "relatedSpdxElement": "SPDXRef-Bundled-64",
+   "relationshipType": "CONTAINS",
+   "spdxElementId": "SPDXRef-Package"
+  },
+  {
+   "relatedSpdxElement": "SPDXRef-Bundled-65",
+   "relationshipType": "CONTAINS",
+   "spdxElementId": "SPDXRef-Package"
+  },
+  {
+   "relatedSpdxElement": "SPDXRef-Bundled-66",
+   "relationshipType": "CONTAINS",
+   "spdxElementId": "SPDXRef-Package"
+  },
+  {
+   "relatedSpdxElement": "SPDXRef-Bundled-67",
+   "relationshipType": "CONTAINS",
+   "spdxElementId": "SPDXRef-Package"
+  },
+  {
+   "relatedSpdxElement": "SPDXRef-Bundled-68",
+   "relationshipType": "CONTAINS",
+   "spdxElementId": "SPDXRef-Package"
+  },
+  {
+   "relatedSpdxElement": "SPDXRef-Bundled-69",
+   "relationshipType": "CONTAINS",
+   "spdxElementId": "SPDXRef-Package"
+  },
+  {
+   "relatedSpdxElement": "SPDXRef-Bundled-70",
+   "relationshipType": "CONTAINS",
+   "spdxElementId": "SPDXRef-Package"
+  },
+  {
+   "relatedSpdxElement": "SPDXRef-Bundled-71",
+   "relationshipType": "CONTAINS",
+   "spdxElementId": "SPDXRef-Package"
+  },
+  {
+   "relatedSpdxElement": "SPDXRef-Bundled-72",
+   "relationshipType": "CONTAINS",
+   "spdxElementId": "SPDXRef-Package"
+  },
+  {
+   "relatedSpdxElement": "SPDXRef-Bundled-73",
+   "relationshipType": "CONTAINS",
+   "spdxElementId": "SPDXRef-Package"
+  },
+  {
+   "relatedSpdxElement": "SPDXRef-Bundled-74",
+   "relationshipType": "CONTAINS",
+   "spdxElementId": "SPDXRef-Package"
+  },
+  {
+   "relatedSpdxElement": "SPDXRef-Bundled-75",
+   "relationshipType": "CONTAINS",
+   "spdxElementId": "SPDXRef-Package"
+  },
+  {
+   "relatedSpdxElement": "SPDXRef-Bundled-76",
+   "relationshipType": "CONTAINS",
+   "spdxElementId": "SPDXRef-Package"
+  },
+  {
+   "relatedSpdxElement": "SPDXRef-Bundled-77",
+   "relationshipType": "CONTAINS",
+   "spdxElementId": "SPDXRef-Package"
+  },
+  {
+   "relatedSpdxElement": "SPDXRef-Bundled-78",
+   "relationshipType": "CONTAINS",
+   "spdxElementId": "SPDXRef-Package"
+  },
+  {
+   "relatedSpdxElement": "SPDXRef-Bundled-79",
+   "relationshipType": "CONTAINS",
+   "spdxElementId": "SPDXRef-Package"
+  },
+  {
+   "relatedSpdxElement": "SPDXRef-Bundled-80",
+   "relationshipType": "CONTAINS",
+   "spdxElementId": "SPDXRef-Package"
+  },
+  {
+   "relatedSpdxElement": "SPDXRef-Bundled-81",
+   "relationshipType": "CONTAINS",
+   "spdxElementId": "SPDXRef-Package"
+  },
+  {
+   "relatedSpdxElement": "SPDXRef-Bundled-82",
+   "relationshipType": "CONTAINS",
+   "spdxElementId": "SPDXRef-Package"
+  },
+  {
+   "relatedSpdxElement": "SPDXRef-Bundled-83",
+   "relationshipType": "CONTAINS",
+   "spdxElementId": "SPDXRef-Package"
+  },
+  {
+   "relatedSpdxElement": "SPDXRef-Bundled-84",
+   "relationshipType": "CONTAINS",
+   "spdxElementId": "SPDXRef-Package"
+  },
+  {
+   "relatedSpdxElement": "SPDXRef-Bundled-85",
+   "relationshipType": "CONTAINS",
+   "spdxElementId": "SPDXRef-Package"
+  },
+  {
+   "relatedSpdxElement": "SPDXRef-Bundled-86",
+   "relationshipType": "CONTAINS",
+   "spdxElementId": "SPDXRef-Package"
+  },
+  {
+   "relatedSpdxElement": "SPDXRef-Bundled-87",
+   "relationshipType": "CONTAINS",
+   "spdxElementId": "SPDXRef-Package"
+  },
+  {
+   "relatedSpdxElement": "SPDXRef-Bundled-88",
+   "relationshipType": "CONTAINS",
+   "spdxElementId": "SPDXRef-Package"
+  },
+  {
+   "relatedSpdxElement": "SPDXRef-Bundled-89",
+   "relationshipType": "CONTAINS",
+   "spdxElementId": "SPDXRef-Package"
+  },
+  {
+   "relatedSpdxElement": "SPDXRef-Bundled-90",
+   "relationshipType": "CONTAINS",
+   "spdxElementId": "SPDXRef-Package"
+  },
+  {
+   "relatedSpdxElement": "SPDXRef-Bundled-91",
+   "relationshipType": "CONTAINS",
+   "spdxElementId": "SPDXRef-Package"
+  },
+  {
+   "relatedSpdxElement": "SPDXRef-Bundled-92",
+   "relationshipType": "CONTAINS",
+   "spdxElementId": "SPDXRef-Package"
+  },
+  {
+   "relatedSpdxElement": "SPDXRef-Bundled-93",
+   "relationshipType": "CONTAINS",
+   "spdxElementId": "SPDXRef-Package"
+  },
+  {
+   "relatedSpdxElement": "SPDXRef-Bundled-94",
+   "relationshipType": "CONTAINS",
+   "spdxElementId": "SPDXRef-Package"
+  },
+  {
+   "relatedSpdxElement": "SPDXRef-Bundled-95",
+   "relationshipType": "CONTAINS",
+   "spdxElementId": "SPDXRef-Package"
+  },
+  {
+   "relatedSpdxElement": "SPDXRef-Bundled-96",
+   "relationshipType": "CONTAINS",
+   "spdxElementId": "SPDXRef-Package"
+  },
+  {
+   "relatedSpdxElement": "SPDXRef-Bundled-97",
+   "relationshipType": "CONTAINS",
+   "spdxElementId": "SPDXRef-Package"
+  },
+  {
+   "relatedSpdxElement": "SPDXRef-Bundled-98",
+   "relationshipType": "CONTAINS",
+   "spdxElementId": "SPDXRef-Package"
+  },
+  {
+   "relatedSpdxElement": "SPDXRef-Bundled-99",
+   "relationshipType": "CONTAINS",
+   "spdxElementId": "SPDXRef-Package"
+  },
+  {
+   "relatedSpdxElement": "SPDXRef-Bundled-100",
+   "relationshipType": "CONTAINS",
+   "spdxElementId": "SPDXRef-Package"
+  },
+  {
+   "relatedSpdxElement": "SPDXRef-Bundled-101",
+   "relationshipType": "CONTAINS",
+   "spdxElementId": "SPDXRef-Package"
+  },
+  {
+   "relatedSpdxElement": "SPDXRef-Bundled-102",
+   "relationshipType": "CONTAINS",
+   "spdxElementId": "SPDXRef-Package"
+  },
+  {
+   "relatedSpdxElement": "SPDXRef-Bundled-103",
+   "relationshipType": "CONTAINS",
+   "spdxElementId": "SPDXRef-Package"
+  },
+  {
+   "relatedSpdxElement": "SPDXRef-Bundled-104",
+   "relationshipType": "CONTAINS",
+   "spdxElementId": "SPDXRef-Package"
+  },
+  {
+   "relatedSpdxElement": "SPDXRef-Bundled-105",
+   "relationshipType": "CONTAINS",
+   "spdxElementId": "SPDXRef-Package"
+  },
+  {
+   "relatedSpdxElement": "SPDXRef-Bundled-106",
+   "relationshipType": "CONTAINS",
+   "spdxElementId": "SPDXRef-Package"
+  },
+  {
+   "relatedSpdxElement": "SPDXRef-Bundled-107",
+   "relationshipType": "CONTAINS",
+   "spdxElementId": "SPDXRef-Package"
+  },
+  {
+   "relatedSpdxElement": "SPDXRef-Bundled-108",
+   "relationshipType": "CONTAINS",
+   "spdxElementId": "SPDXRef-Package"
+  },
+  {
+   "relatedSpdxElement": "SPDXRef-Bundled-109",
+   "relationshipType": "CONTAINS",
+   "spdxElementId": "SPDXRef-Package"
+  },
+  {
+   "relatedSpdxElement": "SPDXRef-Bundled-110",
+   "relationshipType": "CONTAINS",
+   "spdxElementId": "SPDXRef-Package"
+  },
+  {
+   "relatedSpdxElement": "SPDXRef-Bundled-111",
+   "relationshipType": "CONTAINS",
+   "spdxElementId": "SPDXRef-Package"
+  },
+  {
+   "relatedSpdxElement": "SPDXRef-Bundled-112",
+   "relationshipType": "CONTAINS",
+   "spdxElementId": "SPDXRef-Package"
+  },
+  {
+   "relatedSpdxElement": "SPDXRef-Bundled-113",
+   "relationshipType": "CONTAINS",
+   "spdxElementId": "SPDXRef-Package"
+  },
+  {
+   "relatedSpdxElement": "SPDXRef-Bundled-114",
+   "relationshipType": "CONTAINS",
+   "spdxElementId": "SPDXRef-Package"
+  },
+  {
+   "relatedSpdxElement": "SPDXRef-Bundled-115",
+   "relationshipType": "CONTAINS",
+   "spdxElementId": "SPDXRef-Package"
+  },
+  {
+   "relatedSpdxElement": "SPDXRef-Bundled-116",
+   "relationshipType": "CONTAINS",
+   "spdxElementId": "SPDXRef-Package"
+  },
+  {
+   "relatedSpdxElement": "SPDXRef-Bundled-117",
+   "relationshipType": "CONTAINS",
+   "spdxElementId": "SPDXRef-Package"
+  },
+  {
+   "relatedSpdxElement": "SPDXRef-Bundled-118",
+   "relationshipType": "CONTAINS",
+   "spdxElementId": "SPDXRef-Package"
+  },
+  {
+   "relatedSpdxElement": "SPDXRef-Bundled-119",
+   "relationshipType": "CONTAINS",
+   "spdxElementId": "SPDXRef-Package"
+  },
+  {
+   "relatedSpdxElement": "SPDXRef-Bundled-120",
+   "relationshipType": "CONTAINS",
+   "spdxElementId": "SPDXRef-Package"
+  },
+  {
+   "relatedSpdxElement": "SPDXRef-Bundled-121",
+   "relationshipType": "CONTAINS",
+   "spdxElementId": "SPDXRef-Package"
+  },
+  {
+   "relatedSpdxElement": "SPDXRef-Bundled-122",
+   "relationshipType": "CONTAINS",
+   "spdxElementId": "SPDXRef-Package"
+  },
+  {
+   "relatedSpdxElement": "SPDXRef-Bundled-123",
+   "relationshipType": "CONTAINS",
+   "spdxElementId": "SPDXRef-Package"
+  },
+  {
+   "relatedSpdxElement": "SPDXRef-Bundled-124",
+   "relationshipType": "CONTAINS",
+   "spdxElementId": "SPDXRef-Package"
+  },
+  {
+   "relatedSpdxElement": "SPDXRef-Bundled-125",
+   "relationshipType": "CONTAINS",
+   "spdxElementId": "SPDXRef-Package"
+  },
+  {
+   "relatedSpdxElement": "SPDXRef-Bundled-126",
+   "relationshipType": "CONTAINS",
+   "spdxElementId": "SPDXRef-Package"
+  },
+  {
+   "relatedSpdxElement": "SPDXRef-Bundled-127",
+   "relationshipType": "CONTAINS",
+   "spdxElementId": "SPDXRef-Package"
+  },
+  {
+   "relatedSpdxElement": "SPDXRef-Bundled-128",
+   "relationshipType": "CONTAINS",
+   "spdxElementId": "SPDXRef-Package"
+  },
+  {
+   "relatedSpdxElement": "SPDXRef-Bundled-129",
+   "relationshipType": "CONTAINS",
+   "spdxElementId": "SPDXRef-Package"
+  },
+  {
+   "relatedSpdxElement": "SPDXRef-Bundled-130",
+   "relationshipType": "CONTAINS",
+   "spdxElementId": "SPDXRef-Package"
+  },
+  {
+   "relatedSpdxElement": "SPDXRef-Bundled-131",
+   "relationshipType": "CONTAINS",
+   "spdxElementId": "SPDXRef-Package"
+  },
+  {
+   "relatedSpdxElement": "SPDXRef-Bundled-132",
+   "relationshipType": "CONTAINS",
+   "spdxElementId": "SPDXRef-Package"
+  },
+  {
+   "relatedSpdxElement": "SPDXRef-Bundled-133",
+   "relationshipType": "CONTAINS",
+   "spdxElementId": "SPDXRef-Package"
+  },
+  {
+   "relatedSpdxElement": "SPDXRef-Bundled-134",
+   "relationshipType": "CONTAINS",
+   "spdxElementId": "SPDXRef-Package"
+  },
+  {
+   "relatedSpdxElement": "SPDXRef-Bundled-135",
+   "relationshipType": "CONTAINS",
+   "spdxElementId": "SPDXRef-Package"
+  },
+  {
+   "relatedSpdxElement": "SPDXRef-Bundled-136",
+   "relationshipType": "CONTAINS",
+   "spdxElementId": "SPDXRef-Package"
+  },
+  {
+   "relatedSpdxElement": "SPDXRef-Bundled-137",
+   "relationshipType": "CONTAINS",
+   "spdxElementId": "SPDXRef-Package"
+  },
+  {
+   "relatedSpdxElement": "SPDXRef-Bundled-138",
+   "relationshipType": "CONTAINS",
+   "spdxElementId": "SPDXRef-Package"
+  },
+  {
+   "relatedSpdxElement": "SPDXRef-Bundled-139",
+   "relationshipType": "CONTAINS",
+   "spdxElementId": "SPDXRef-Package"
+  },
+  {
+   "relatedSpdxElement": "SPDXRef-Bundled-140",
+   "relationshipType": "CONTAINS",
+   "spdxElementId": "SPDXRef-Package"
+  },
+  {
+   "relatedSpdxElement": "SPDXRef-Bundled-141",
+   "relationshipType": "CONTAINS",
+   "spdxElementId": "SPDXRef-Package"
+  },
+  {
+   "relatedSpdxElement": "SPDXRef-Bundled-142",
+   "relationshipType": "CONTAINS",
+   "spdxElementId": "SPDXRef-Package"
+  },
+  {
+   "relatedSpdxElement": "SPDXRef-Bundled-143",
+   "relationshipType": "CONTAINS",
+   "spdxElementId": "SPDXRef-Package"
+  },
+  {
+   "relatedSpdxElement": "SPDXRef-Bundled-144",
+   "relationshipType": "CONTAINS",
+   "spdxElementId": "SPDXRef-Package"
+  },
+  {
+   "relatedSpdxElement": "SPDXRef-Bundled-145",
+   "relationshipType": "CONTAINS",
+   "spdxElementId": "SPDXRef-Package"
+  },
+  {
+   "relatedSpdxElement": "SPDXRef-Bundled-146",
+   "relationshipType": "CONTAINS",
+   "spdxElementId": "SPDXRef-Package"
+  },
+  {
+   "relatedSpdxElement": "SPDXRef-Bundled-147",
+   "relationshipType": "CONTAINS",
+   "spdxElementId": "SPDXRef-Package"
+  },
+  {
+   "relatedSpdxElement": "SPDXRef-Bundled-148",
+   "relationshipType": "CONTAINS",
+   "spdxElementId": "SPDXRef-Package"
+  },
+  {
+   "relatedSpdxElement": "SPDXRef-Bundled-149",
+   "relationshipType": "CONTAINS",
+   "spdxElementId": "SPDXRef-Package"
+  },
+  {
+   "relatedSpdxElement": "SPDXRef-Bundled-150",
+   "relationshipType": "CONTAINS",
+   "spdxElementId": "SPDXRef-Package"
+  },
+  {
+   "relatedSpdxElement": "SPDXRef-Bundled-151",
+   "relationshipType": "CONTAINS",
+   "spdxElementId": "SPDXRef-Package"
+  },
+  {
+   "relatedSpdxElement": "SPDXRef-Bundled-152",
+   "relationshipType": "CONTAINS",
+   "spdxElementId": "SPDXRef-Package"
+  },
+  {
+   "relatedSpdxElement": "SPDXRef-Bundled-153",
+   "relationshipType": "CONTAINS",
+   "spdxElementId": "SPDXRef-Package"
+  },
+  {
+   "relatedSpdxElement": "SPDXRef-Bundled-154",
+   "relationshipType": "CONTAINS",
+   "spdxElementId": "SPDXRef-Package"
+  },
+  {
+   "relatedSpdxElement": "SPDXRef-Bundled-155",
+   "relationshipType": "CONTAINS",
+   "spdxElementId": "SPDXRef-Package"
+  },
+  {
+   "relatedSpdxElement": "SPDXRef-Bundled-156",
+   "relationshipType": "CONTAINS",
+   "spdxElementId": "SPDXRef-Package"
+  },
+  {
+   "relatedSpdxElement": "SPDXRef-Bundled-157",
+   "relationshipType": "CONTAINS",
+   "spdxElementId": "SPDXRef-Package"
+  },
+  {
+   "relatedSpdxElement": "SPDXRef-Bundled-158",
+   "relationshipType": "CONTAINS",
+   "spdxElementId": "SPDXRef-Package"
+  },
+  {
+   "relatedSpdxElement": "SPDXRef-Bundled-159",
+   "relationshipType": "CONTAINS",
+   "spdxElementId": "SPDXRef-Package"
+  },
+  {
+   "relatedSpdxElement": "SPDXRef-Bundled-160",
+   "relationshipType": "CONTAINS",
+   "spdxElementId": "SPDXRef-Package"
+  },
+  {
+   "relatedSpdxElement": "SPDXRef-Bundled-161",
+   "relationshipType": "CONTAINS",
+   "spdxElementId": "SPDXRef-Package"
+  },
+  {
+   "relatedSpdxElement": "SPDXRef-Bundled-162",
+   "relationshipType": "CONTAINS",
+   "spdxElementId": "SPDXRef-Package"
+  },
+  {
+   "relatedSpdxElement": "SPDXRef-Bundled-163",
+   "relationshipType": "CONTAINS",
+   "spdxElementId": "SPDXRef-Package"
+  },
+  {
+   "relatedSpdxElement": "SPDXRef-Bundled-164",
+   "relationshipType": "CONTAINS",
+   "spdxElementId": "SPDXRef-Package"
+  },
+  {
+   "relatedSpdxElement": "SPDXRef-Bundled-165",
+   "relationshipType": "CONTAINS",
+   "spdxElementId": "SPDXRef-Package"
+  },
+  {
+   "relatedSpdxElement": "SPDXRef-Bundled-166",
+   "relationshipType": "CONTAINS",
+   "spdxElementId": "SPDXRef-Package"
+  },
+  {
+   "relatedSpdxElement": "SPDXRef-Bundled-167",
+   "relationshipType": "CONTAINS",
+   "spdxElementId": "SPDXRef-Package"
+  },
+  {
+   "relatedSpdxElement": "SPDXRef-Bundled-168",
+   "relationshipType": "CONTAINS",
+   "spdxElementId": "SPDXRef-Package"
+  },
+  {
+   "relatedSpdxElement": "SPDXRef-Bundled-169",
+   "relationshipType": "CONTAINS",
+   "spdxElementId": "SPDXRef-Package"
+  },
+  {
+   "relatedSpdxElement": "SPDXRef-Bundled-170",
+   "relationshipType": "CONTAINS",
+   "spdxElementId": "SPDXRef-Package"
+  },
+  {
+   "relatedSpdxElement": "SPDXRef-Bundled-171",
+   "relationshipType": "CONTAINS",
+   "spdxElementId": "SPDXRef-Package"
+  },
+  {
+   "relatedSpdxElement": "SPDXRef-Bundled-172",
+   "relationshipType": "CONTAINS",
+   "spdxElementId": "SPDXRef-Package"
+  },
+  {
+   "relatedSpdxElement": "SPDXRef-Bundled-173",
+   "relationshipType": "CONTAINS",
+   "spdxElementId": "SPDXRef-Package"
+  },
+  {
+   "relatedSpdxElement": "SPDXRef-Bundled-174",
+   "relationshipType": "CONTAINS",
+   "spdxElementId": "SPDXRef-Package"
+  },
+  {
+   "relatedSpdxElement": "SPDXRef-Bundled-175",
+   "relationshipType": "CONTAINS",
+   "spdxElementId": "SPDXRef-Package"
+  },
+  {
+   "relatedSpdxElement": "SPDXRef-Bundled-176",
+   "relationshipType": "CONTAINS",
+   "spdxElementId": "SPDXRef-Package"
+  },
+  {
+   "relatedSpdxElement": "SPDXRef-Bundled-177",
+   "relationshipType": "CONTAINS",
+   "spdxElementId": "SPDXRef-Package"
+  },
+  {
+   "relatedSpdxElement": "SPDXRef-Bundled-178",
+   "relationshipType": "CONTAINS",
+   "spdxElementId": "SPDXRef-Package"
+  },
+  {
+   "relatedSpdxElement": "SPDXRef-Bundled-179",
+   "relationshipType": "CONTAINS",
+   "spdxElementId": "SPDXRef-Package"
+  },
+  {
+   "relatedSpdxElement": "SPDXRef-Bundled-180",
+   "relationshipType": "CONTAINS",
+   "spdxElementId": "SPDXRef-Package"
+  },
+  {
+   "relatedSpdxElement": "SPDXRef-Bundled-181",
+   "relationshipType": "CONTAINS",
+   "spdxElementId": "SPDXRef-Package"
+  },
+  {
+   "relatedSpdxElement": "SPDXRef-Bundled-182",
+   "relationshipType": "CONTAINS",
+   "spdxElementId": "SPDXRef-Package"
+  },
+  {
+   "relatedSpdxElement": "SPDXRef-Bundled-183",
+   "relationshipType": "CONTAINS",
+   "spdxElementId": "SPDXRef-Package"
+  },
+  {
+   "relatedSpdxElement": "SPDXRef-Bundled-184",
+   "relationshipType": "CONTAINS",
+   "spdxElementId": "SPDXRef-Package"
+  },
+  {
+   "relatedSpdxElement": "SPDXRef-Bundled-185",
+   "relationshipType": "CONTAINS",
+   "spdxElementId": "SPDXRef-Package"
+  },
+  {
+   "relatedSpdxElement": "SPDXRef-Bundled-186",
+   "relationshipType": "CONTAINS",
+   "spdxElementId": "SPDXRef-Package"
+  },
+  {
+   "relatedSpdxElement": "SPDXRef-Bundled-187",
+   "relationshipType": "CONTAINS",
+   "spdxElementId": "SPDXRef-Package"
+  },
+  {
+   "relatedSpdxElement": "SPDXRef-Bundled-188",
+   "relationshipType": "CONTAINS",
+   "spdxElementId": "SPDXRef-Package"
+  },
+  {
+   "relatedSpdxElement": "SPDXRef-Bundled-189",
+   "relationshipType": "CONTAINS",
+   "spdxElementId": "SPDXRef-Package"
+  },
+  {
+   "relatedSpdxElement": "SPDXRef-Bundled-190",
+   "relationshipType": "CONTAINS",
+   "spdxElementId": "SPDXRef-Package"
+  },
+  {
+   "relatedSpdxElement": "SPDXRef-Bundled-191",
+   "relationshipType": "CONTAINS",
+   "spdxElementId": "SPDXRef-Package"
+  },
+  {
+   "relatedSpdxElement": "SPDXRef-Bundled-192",
+   "relationshipType": "CONTAINS",
+   "spdxElementId": "SPDXRef-Package"
+  },
+  {
+   "relatedSpdxElement": "SPDXRef-Bundled-193",
+   "relationshipType": "CONTAINS",
+   "spdxElementId": "SPDXRef-Package"
+  },
+  {
+   "relatedSpdxElement": "SPDXRef-Bundled-194",
+   "relationshipType": "CONTAINS",
+   "spdxElementId": "SPDXRef-Package"
+  },
+  {
+   "relatedSpdxElement": "SPDXRef-Bundled-195",
+   "relationshipType": "CONTAINS",
+   "spdxElementId": "SPDXRef-Package"
+  },
+  {
+   "relatedSpdxElement": "SPDXRef-Bundled-196",
+   "relationshipType": "CONTAINS",
+   "spdxElementId": "SPDXRef-Package"
+  },
+  {
+   "relatedSpdxElement": "SPDXRef-Bundled-197",
+   "relationshipType": "CONTAINS",
+   "spdxElementId": "SPDXRef-Package"
+  },
+  {
+   "relatedSpdxElement": "SPDXRef-Bundled-198",
+   "relationshipType": "CONTAINS",
+   "spdxElementId": "SPDXRef-Package"
+  },
+  {
+   "relatedSpdxElement": "SPDXRef-Bundled-199",
+   "relationshipType": "CONTAINS",
+   "spdxElementId": "SPDXRef-Package"
+  },
+  {
+   "relatedSpdxElement": "SPDXRef-Bundled-200",
+   "relationshipType": "CONTAINS",
+   "spdxElementId": "SPDXRef-Package"
+  },
+  {
+   "relatedSpdxElement": "SPDXRef-Bundled-201",
+   "relationshipType": "CONTAINS",
+   "spdxElementId": "SPDXRef-Package"
+  },
+  {
+   "relatedSpdxElement": "SPDXRef-Bundled-202",
+   "relationshipType": "CONTAINS",
+   "spdxElementId": "SPDXRef-Package"
+  },
+  {
+   "relatedSpdxElement": "SPDXRef-Bundled-203",
+   "relationshipType": "CONTAINS",
+   "spdxElementId": "SPDXRef-Package"
+  },
+  {
+   "relatedSpdxElement": "SPDXRef-Bundled-204",
+   "relationshipType": "CONTAINS",
+   "spdxElementId": "SPDXRef-Package"
+  },
+  {
+   "relatedSpdxElement": "SPDXRef-Bundled-205",
+   "relationshipType": "CONTAINS",
+   "spdxElementId": "SPDXRef-Package"
+  },
+  {
+   "relatedSpdxElement": "SPDXRef-Bundled-206",
+   "relationshipType": "CONTAINS",
+   "spdxElementId": "SPDXRef-Package"
+  },
+  {
+   "relatedSpdxElement": "SPDXRef-Bundled-207",
+   "relationshipType": "CONTAINS",
+   "spdxElementId": "SPDXRef-Package"
+  },
+  {
+   "relatedSpdxElement": "SPDXRef-Bundled-208",
+   "relationshipType": "CONTAINS",
+   "spdxElementId": "SPDXRef-Package"
+  },
+  {
+   "relatedSpdxElement": "SPDXRef-Bundled-209",
+   "relationshipType": "CONTAINS",
+   "spdxElementId": "SPDXRef-Package"
+  },
+  {
+   "relatedSpdxElement": "SPDXRef-Bundled-210",
+   "relationshipType": "CONTAINS",
+   "spdxElementId": "SPDXRef-Package"
+  },
+  {
+   "relatedSpdxElement": "SPDXRef-Bundled-211",
+   "relationshipType": "CONTAINS",
+   "spdxElementId": "SPDXRef-Package"
+  },
+  {
+   "relatedSpdxElement": "SPDXRef-Bundled-212",
+   "relationshipType": "CONTAINS",
+   "spdxElementId": "SPDXRef-Package"
+  },
+  {
+   "relatedSpdxElement": "SPDXRef-Bundled-213",
+   "relationshipType": "CONTAINS",
+   "spdxElementId": "SPDXRef-Package"
+  },
+  {
+   "relatedSpdxElement": "SPDXRef-Bundled-214",
+   "relationshipType": "CONTAINS",
+   "spdxElementId": "SPDXRef-Package"
+  },
+  {
+   "relatedSpdxElement": "SPDXRef-Bundled-215",
+   "relationshipType": "CONTAINS",
+   "spdxElementId": "SPDXRef-Package"
+  },
+  {
+   "relatedSpdxElement": "SPDXRef-Bundled-216",
+   "relationshipType": "CONTAINS",
+   "spdxElementId": "SPDXRef-Package"
+  },
+  {
+   "relatedSpdxElement": "SPDXRef-Bundled-217",
+   "relationshipType": "CONTAINS",
+   "spdxElementId": "SPDXRef-Package"
+  },
+  {
+   "relatedSpdxElement": "SPDXRef-Bundled-218",
+   "relationshipType": "CONTAINS",
+   "spdxElementId": "SPDXRef-Package"
+  },
+  {
+   "relatedSpdxElement": "SPDXRef-Bundled-219",
+   "relationshipType": "CONTAINS",
+   "spdxElementId": "SPDXRef-Package"
+  },
+  {
+   "relatedSpdxElement": "SPDXRef-Bundled-220",
+   "relationshipType": "CONTAINS",
+   "spdxElementId": "SPDXRef-Package"
+  },
+  {
+   "relatedSpdxElement": "SPDXRef-Bundled-221",
+   "relationshipType": "CONTAINS",
+   "spdxElementId": "SPDXRef-Package"
+  },
+  {
+   "relatedSpdxElement": "SPDXRef-Bundled-222",
+   "relationshipType": "CONTAINS",
+   "spdxElementId": "SPDXRef-Package"
+  },
+  {
+   "relatedSpdxElement": "SPDXRef-Bundled-223",
+   "relationshipType": "CONTAINS",
+   "spdxElementId": "SPDXRef-Package"
+  },
+  {
+   "relatedSpdxElement": "SPDXRef-Bundled-224",
+   "relationshipType": "CONTAINS",
+   "spdxElementId": "SPDXRef-Package"
+  },
+  {
+   "relatedSpdxElement": "SPDXRef-Bundled-225",
+   "relationshipType": "CONTAINS",
+   "spdxElementId": "SPDXRef-Package"
+  },
+  {
+   "relatedSpdxElement": "SPDXRef-Bundled-226",
+   "relationshipType": "CONTAINS",
+   "spdxElementId": "SPDXRef-Package"
+  },
+  {
+   "relatedSpdxElement": "SPDXRef-Bundled-227",
+   "relationshipType": "CONTAINS",
+   "spdxElementId": "SPDXRef-Package"
+  },
+  {
+   "relatedSpdxElement": "SPDXRef-Bundled-228",
+   "relationshipType": "CONTAINS",
+   "spdxElementId": "SPDXRef-Package"
+  },
+  {
+   "relatedSpdxElement": "SPDXRef-Bundled-229",
+   "relationshipType": "CONTAINS",
+   "spdxElementId": "SPDXRef-Package"
+  }
+ ],
+ "spdxVersion": "SPDX-2.3"
+}

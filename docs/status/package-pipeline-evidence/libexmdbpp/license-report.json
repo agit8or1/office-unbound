@@ -1,0 +1,14 @@
+{
+ "bundled_licences": {},
+ "bundled_packages": 0,
+ "component": "libexmdbpp",
+ "files_scanned": 21,
+ "in_inventory": true,
+ "problems": [],
+ "result": "PASS",
+ "spdx_found": {
+  "AGPL-3.0-or-later": 5,
+  "file:AGPL-3.0-only": 1
+ },
+ "warnings": []
+}

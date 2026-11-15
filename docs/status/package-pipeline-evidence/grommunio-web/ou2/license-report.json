@@ -1,0 +1,28 @@
+{
+ "bundled_licences": {
+  "0BSD": 1,
+  "Apache-2.0": 14,
+  "BSD-2-Clause": 14,
+  "BSD-3-Clause": 9,
+  "BlueOak-1.0.0": 6,
+  "CC-BY-4.0": 1,
+  "CC0-1.0": 2,
+  "ISC": 11,
+  "LGPL-3.0-or-later": 1,
+  "MIT": 202,
+  "MIT-0": 71
+ },
+ "bundled_packages": 332,
+ "component": "grommunio-web",
+ "files_scanned": 3561,
+ "in_inventory": true,
+ "problems": [],
+ "result": "PASS",
+ "spdx_found": {
+  "AGPL-3.0-or-later": 1648,
+  "LGPL-2.1-or-later": 1,
+  "MIT": 7,
+  "file:GPL-3.0-only": 1
+ },
+ "warnings": []
+}

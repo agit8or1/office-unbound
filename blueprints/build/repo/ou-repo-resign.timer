@@ -1,0 +1,10 @@
+[Unit]
+Description=Office Unbound apt repository re-signing (every 2 days; Valid-Until is 14 days)
+
+[Timer]
+OnCalendar=*-*-1/2 03:15:00
+Persistent=true
+RandomizedDelaySec=600
+
+[Install]
+WantedBy=timers.target

@@ -1,0 +1,39 @@
+== GW07 backup/restore (run 90e80a5543) ==
+PASS seed 4 messages - 4 tokens in grace INBOX
+rc=0
+-rw-r--r-- 1 root root 105290387 Nov 15 22:24 /root/backup/grace.mt
+816c016845c739016b316ac309e2303d0d80a6143e37b0e84fa12269259138aa  /root/backup/grace.mt
+Running as unit: run-u1649.service; invocation ID: 8d939ecdcdb84d81be916008974d6f08
+Finished with result: success
+Main processes terminated with: code=exited/status=0
+Service runtime: 40.696s
+CPU time consumed: 3.811s
+PASS export mailbox (gromox-exm2mt -ars IPM_SUBTREE) - dump written
+PASS dump contains tokens - tokens present in dump (147462 24 Running as unit: run-u1650.service; invocation ID: 2b6962476e054079bc1531371df48a85 Finished with result: success Main processes terminated with: code=exited/status=0 Service runtime: 3.037s CPU time consumed: 3.268s)
+PASS message deleted - OU-BK2-90e80a5543 gone
+Folder inbox: deleted 63 message(s), deleted 0 subfolder(s) plus messages
+rc=0
+Running as unit: run-u1651.service
+Finished with result: success
+Main processes terminated with: code=exited/status=0
+Service runtime: 171ms
+CPU time consumed: 28ms
+PASS INBOX wiped - all 4 gone
+Traceback (most recent call last):
+  File "/home/administrator/office-unbound/.claude/worktrees/agent-a654d311122800f08/blueprints/lab/tests/gw_07_backup_restore.py", line 40, in <module>
+    rc, out = mx("gromox-import -u %s -x -c < /root/backup/grace.mt > /root/backup/import.log 2>&1; echo rc=$?; tail -5 /root/backup/import.log" % U); print(out.strip()[-500:])
+              ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "/home/administrator/office-unbound/.claude/worktrees/agent-a654d311122800f08/blueprints/lab/tests/gw_07_backup_restore.py", line 15, in mx
+    p = subprocess.run(["sudo", "systemd-run", "-M", M, "--wait", "-P", "--pipe", "/bin/bash", "-c", cmd], capture_output=True, text=True, timeout=300)
+        ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "/usr/lib/python3.12/subprocess.py", line 550, in run
+    stdout, stderr = process.communicate(input, timeout=timeout)
+                     ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "/usr/lib/python3.12/subprocess.py", line 1209, in communicate
+    stdout, stderr = self._communicate(input, endtime, timeout)
+                     ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "/usr/lib/python3.12/subprocess.py", line 2116, in _communicate
+    self._check_timeout(endtime, orig_timeout, stdout, stderr)
+  File "/usr/lib/python3.12/subprocess.py", line 1253, in _check_timeout
+    raise TimeoutExpired(
+subprocess.TimeoutExpired: Command '['sudo', 'systemd-run', '-M', 'ou-gw1', '--wait', '-P', '--pipe', '/bin/bash', '-c', 'gromox-import -u grace@gw1.ou-lab.internal -x -c < /root/backup/grace.mt > /root/backup/import.log 2>&1; echo rc=$?; tail -5 /root/backup/import.log']' timed out after 300 seconds

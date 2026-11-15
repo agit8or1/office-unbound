@@ -1,0 +1,13 @@
+Format: https://www.debian.org/doc/packaging-manuals/copyright-format/1.0/
+Upstream-Name: libexmdbpp
+Source: https://github.com/grommunio/libexmdbpp
+
+Files: *
+Copyright: grommunio GmbH and contributors
+License: AGPL-3+
+ The full text is in /usr/share/common-licenses/AGPL-3 and in the upstream
+ source (LICENSE.txt).
+
+Files: debian/*
+Copyright: Office Unbound
+License: AGPL-3+

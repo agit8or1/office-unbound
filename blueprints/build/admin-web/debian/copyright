@@ -1,0 +1,15 @@
+Format: https://www.debian.org/doc/packaging-manuals/copyright-format/1.0/
+Upstream-Name: grommunio-admin-web
+Source: https://github.com/grommunio/admin-web
+
+Files: *
+Copyright: grommunio GmbH and contributors
+License: AGPL-3+
+ The full text is in /usr/share/common-licenses/AGPL-3 and in the upstream
+ LICENSE.txt. The compiled bundle also contains third-party JavaScript
+ (MIT/Apache-2.0/ISC/BSD, MPL-2.0, LGPL, ...): see the package SBOM
+ (one entry per yarn.lock package).
+
+Files: debian/*
+Copyright: Office Unbound
+License: AGPL-3+

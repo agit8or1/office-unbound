@@ -1,0 +1,36 @@
+Source: ou-libexmdbpp
+Section: libs
+Priority: optional
+Maintainer: Office Unbound Build <build@officeunbound.com>
+Build-Depends: debhelper-compat (= 13), cmake, g++, pkg-config, python3-dev, pybind11-dev
+Standards-Version: 4.6.2
+Homepage: https://github.com/grommunio/libexmdbpp
+Rules-Requires-Root: no
+
+Package: ou-libexmdbpp
+Section: libs
+Architecture: any
+Depends: ${shlibs:Depends}, ${misc:Depends}
+Conflicts: libexmdbpp
+Replaces: libexmdbpp
+Provides: libexmdbpp
+Description: C++ client library for the Gromox EXMDB protocol (Office Unbound build)
+ libexmdbpp speaks the EXMDB protocol of gromox-http/zcore to read and
+ change mailbox stores (folders, permissions, store properties).
+
+Package: ou-libexmdbpp-dev
+Section: libdevel
+Architecture: any
+Depends: ou-libexmdbpp (= ${binary:Version}), ${misc:Depends}
+Description: libexmdbpp development files (Office Unbound build)
+ Headers and CMake package files for ou-libexmdbpp.
+
+Package: ou-python3-pyexmdb
+Section: python
+Architecture: any
+Depends: ou-libexmdbpp (= ${binary:Version}), ${shlibs:Depends}, ${misc:Depends}, python3
+Conflicts: python3-pyexmdb
+Replaces: python3-pyexmdb
+Provides: python3-pyexmdb
+Description: Python binding (pyexmdb) of libexmdbpp (Office Unbound build)
+ The pyexmdb module imported by ou-admin-api for EXMDB-backed operations.

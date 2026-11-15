@@ -1,0 +1,18 @@
+Source: ou-mapi-header-php
+Section: web
+Priority: optional
+Maintainer: Office Unbound Build <build@officeunbound.com>
+Build-Depends: debhelper-compat (= 13)
+Standards-Version: 4.6.2
+Rules-Requires-Root: no
+
+Package: ou-mapi-header-php
+Architecture: all
+Depends: ${misc:Depends}, php-cli | php
+Conflicts: php-mapi, mapi-header-php
+Replaces: php-mapi, mapi-header-php
+Provides: php-mapi
+Description: PHP MAPI header/helper classes for Gromox (Office Unbound build)
+ PHP classes and constant definitions (MAPI tags, recurrence, meeting request
+ helpers) used by grommunio-web, grommunio-sync and grommunio-dav together
+ with the php_mapi extension from ou-gromox-php-mapi.

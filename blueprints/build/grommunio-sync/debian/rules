@@ -1,0 +1,20 @@
+#!/usr/bin/make -f
+include /usr/share/dpkg/pkg-info.mk
+PKG=debian/ou-grommunio-sync
+APP=$(PKG)/usr/share/grommunio-sync
+%:
+	dh $@
+
+override_dh_auto_build:
+override_dh_auto_test:
+override_dh_auto_install:
+	mkdir -p $(APP)
+	tar --exclude=./debian --exclude=./build --exclude=./doc --exclude=./config.php --exclude='./.[a-z]*' -cf - . | tar -C $(APP) -xf -
+	sed "s/__VERSION__/$(DEB_VERSION_UPSTREAM)/" build/version.php.in > $(APP)/version.php
+	install -D -m0644 config.php $(PKG)/etc/grommunio-sync/config.php
+	ln -s /etc/grommunio-sync/config.php $(APP)/config.php
+	install -D -m0644 debian/ou-grommunio-sync.sysusers $(PKG)/usr/lib/sysusers.d/ou-grommunio-sync.conf
+	install -d $(PKG)/usr/share/doc/ou-grommunio-sync/examples
+	install -m0644 build/grommunio-sync.conf build/grommunio-sync-upstream.conf build/pool-grommunio-sync.conf \
+	  $(PKG)/usr/share/doc/ou-grommunio-sync/examples/
+	install -D -m0644 build/grommunio-sync.lr $(PKG)/etc/logrotate.d/grommunio-sync

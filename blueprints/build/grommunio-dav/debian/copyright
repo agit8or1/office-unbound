@@ -1,0 +1,18 @@
+Format: https://www.debian.org/doc/packaging-manuals/copyright-format/1.0/
+Upstream-Name: grommunio-dav
+
+Files: *
+Copyright: grommunio GmbH, Kopano b.v. and contributors (see per-file headers)
+License: AGPL-3+
+
+Files: vendor/sabre/*
+Copyright: fruux GmbH and Sabre contributors
+License: BSD-3-Clause
+
+Files: vendor/monolog/* vendor/psr/*
+Copyright: Jordi Boggiano, PHP-FIG and contributors
+License: MIT
+
+Files: debian/*
+Copyright: Office Unbound
+License: AGPL-3+

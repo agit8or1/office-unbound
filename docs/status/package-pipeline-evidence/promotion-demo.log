@@ -1,0 +1,182 @@
+--- 1. promote with no test record (must be refused)
+REFUSED: ou-gromox-php-mapi_3.13-ou1_amd64.deb has no passing 'install-smoke' test record (got 'none')
+--- 2. promote after a recorded FAILURE (must be refused)
+recorded install-smoke=fail for gromox
+REFUSED: ou-gromox-php-mapi_3.13-ou1_amd64.deb has no passing 'install-smoke' test record (got 'fail')
+--- 3. record the passing pkgtest run for all components
+recorded install-smoke=pass for libhx
+recorded install-smoke=pass for wmime
+recorded install-smoke=pass for gromox
+recorded install-smoke=pass for mapi-header-php
+recorded install-smoke=pass for grommunio-sync
+recorded install-smoke=pass for grommunio-dav
+recorded install-smoke=pass for grommunio-web
+recorded install-smoke=pass for admin-api
+--- 4. dev -> staging
+  ou-libhx has no source override entry
+  ou-libhx has no binary override entry either
+indexed+signed suite staging with 5D2750D022E0218361518491CE58A8B691F84C1B: 2 binary packages
+  ou-libhx has no source override entry
+  ou-libhx has no binary override entry either
+  ou-wmime has no source override entry
+  ou-wmime has no binary override entry either
+indexed+signed suite staging with 5D2750D022E0218361518491CE58A8B691F84C1B: 4 binary packages
+  ou-gromox has no source override entry
+  ou-gromox has no binary override entry either
+  ou-libhx has no source override entry
+  ou-libhx has no binary override entry either
+  ou-wmime has no source override entry
+  ou-wmime has no binary override entry either
+indexed+signed suite staging with 5D2750D022E0218361518491CE58A8B691F84C1B: 6 binary packages
+  ou-gromox has no source override entry
+  ou-gromox has no binary override entry either
+  ou-libhx has no source override entry
+  ou-libhx has no binary override entry either
+  ou-mapi-header-php has no source override entry
+  ou-mapi-header-php has no binary override entry either
+  ou-wmime has no source override entry
+  ou-wmime has no binary override entry either
+indexed+signed suite staging with 5D2750D022E0218361518491CE58A8B691F84C1B: 7 binary packages
+  ou-grommunio-sync has no source override entry
+  ou-grommunio-sync has no binary override entry either
+  ou-gromox has no source override entry
+  ou-gromox has no binary override entry either
+  ou-libhx has no source override entry
+  ou-libhx has no binary override entry either
+  ou-mapi-header-php has no source override entry
+  ou-mapi-header-php has no binary override entry either
+  ou-wmime has no source override entry
+  ou-wmime has no binary override entry either
+indexed+signed suite staging with 5D2750D022E0218361518491CE58A8B691F84C1B: 8 binary packages
+  ou-grommunio-dav has no source override entry
+  ou-grommunio-dav has no binary override entry either
+  ou-grommunio-sync has no source override entry
+  ou-grommunio-sync has no binary override entry either
+  ou-gromox has no source override entry
+  ou-gromox has no binary override entry either
+  ou-libhx has no source override entry
+  ou-libhx has no binary override entry either
+  ou-mapi-header-php has no source override entry
+  ou-mapi-header-php has no binary override entry either
+  ou-wmime has no source override entry
+  ou-wmime has no binary override entry either
+indexed+signed suite staging with 5D2750D022E0218361518491CE58A8B691F84C1B: 9 binary packages
+  ou-grommunio-dav has no source override entry
+  ou-grommunio-dav has no binary override entry either
+  ou-grommunio-sync has no source override entry
+  ou-grommunio-sync has no binary override entry either
+  ou-grommunio-web has no source override entry
+  ou-grommunio-web has no binary override entry either
+  ou-gromox has no source override entry
+  ou-gromox has no binary override entry either
+  ou-libhx has no source override entry
+  ou-libhx has no binary override entry either
+  ou-mapi-header-php has no source override entry
+  ou-mapi-header-php has no binary override entry either
+  ou-wmime has no source override entry
+  ou-wmime has no binary override entry either
+indexed+signed suite staging with 5D2750D022E0218361518491CE58A8B691F84C1B: 10 binary packages
+  ou-admin-api has no source override entry
+  ou-admin-api has no binary override entry either
+  ou-grommunio-dav has no source override entry
+  ou-grommunio-dav has no binary override entry either
+  ou-grommunio-sync has no source override entry
+  ou-grommunio-sync has no binary override entry either
+  ou-grommunio-web has no source override entry
+  ou-grommunio-web has no binary override entry either
+  ou-gromox has no source override entry
+  ou-gromox has no binary override entry either
+  ou-libhx has no source override entry
+  ou-libhx has no binary override entry either
+  ou-mapi-header-php has no source override entry
+  ou-mapi-header-php has no binary override entry either
+  ou-wmime has no source override entry
+  ou-wmime has no binary override entry either
+indexed+signed suite staging with 5D2750D022E0218361518491CE58A8B691F84C1B: 11 binary packages
+--- 5. staging -> stable without approval (must be refused)
+REFUSED: promotion to stable needs --approved-by (stands in for the ICS approval record)
+--- 6. staging -> stable with approval record
+  ou-libhx has no source override entry
+  ou-libhx has no binary override entry either
+indexed+signed suite stable with 5D2750D022E0218361518491CE58A8B691F84C1B: 2 binary packages
+  ou-libhx has no source override entry
+  ou-libhx has no binary override entry either
+  ou-wmime has no source override entry
+  ou-wmime has no binary override entry either
+indexed+signed suite stable with 5D2750D022E0218361518491CE58A8B691F84C1B: 4 binary packages
+  ou-gromox has no source override entry
+  ou-gromox has no binary override entry either
+  ou-libhx has no source override entry
+  ou-libhx has no binary override entry either
+  ou-wmime has no source override entry
+  ou-wmime has no binary override entry either
+indexed+signed suite stable with 5D2750D022E0218361518491CE58A8B691F84C1B: 6 binary packages
+  ou-gromox has no source override entry
+  ou-gromox has no binary override entry either
+  ou-libhx has no source override entry
+  ou-libhx has no binary override entry either
+  ou-mapi-header-php has no source override entry
+  ou-mapi-header-php has no binary override entry either
+  ou-wmime has no source override entry
+  ou-wmime has no binary override entry either
+indexed+signed suite stable with 5D2750D022E0218361518491CE58A8B691F84C1B: 7 binary packages
+  ou-grommunio-sync has no source override entry
+  ou-grommunio-sync has no binary override entry either
+  ou-gromox has no source override entry
+  ou-gromox has no binary override entry either
+  ou-libhx has no source override entry
+  ou-libhx has no binary override entry either
+  ou-mapi-header-php has no source override entry
+  ou-mapi-header-php has no binary override entry either
+  ou-wmime has no source override entry
+  ou-wmime has no binary override entry either
+indexed+signed suite stable with 5D2750D022E0218361518491CE58A8B691F84C1B: 8 binary packages
+  ou-grommunio-dav has no source override entry
+  ou-grommunio-dav has no binary override entry either
+  ou-grommunio-sync has no source override entry
+  ou-grommunio-sync has no binary override entry either
+  ou-gromox has no source override entry
+  ou-gromox has no binary override entry either
+  ou-libhx has no source override entry
+  ou-libhx has no binary override entry either
+  ou-mapi-header-php has no source override entry
+  ou-mapi-header-php has no binary override entry either
+  ou-wmime has no source override entry
+  ou-wmime has no binary override entry either
+indexed+signed suite stable with 5D2750D022E0218361518491CE58A8B691F84C1B: 9 binary packages
+  ou-grommunio-dav has no source override entry
+  ou-grommunio-dav has no binary override entry either
+  ou-grommunio-sync has no source override entry
+  ou-grommunio-sync has no binary override entry either
+  ou-grommunio-web has no source override entry
+  ou-grommunio-web has no binary override entry either
+  ou-gromox has no source override entry
+  ou-gromox has no binary override entry either
+  ou-libhx has no source override entry
+  ou-libhx has no binary override entry either
+  ou-mapi-header-php has no source override entry
+  ou-mapi-header-php has no binary override entry either
+  ou-wmime has no source override entry
+  ou-wmime has no binary override entry either
+indexed+signed suite stable with 5D2750D022E0218361518491CE58A8B691F84C1B: 10 binary packages
+  ou-admin-api has no source override entry
+  ou-admin-api has no binary override entry either
+  ou-grommunio-dav has no source override entry
+  ou-grommunio-dav has no binary override entry either
+  ou-grommunio-sync has no source override entry
+  ou-grommunio-sync has no binary override entry either
+  ou-grommunio-web has no source override entry
+  ou-grommunio-web has no binary override entry either
+  ou-gromox has no source override entry
+  ou-gromox has no binary override entry either
+  ou-libhx has no source override entry
+  ou-libhx has no binary override entry either
+  ou-mapi-header-php has no source override entry
+  ou-mapi-header-php has no binary override entry either
+  ou-wmime has no source override entry
+  ou-wmime has no binary override entry either
+indexed+signed suite stable with 5D2750D022E0218361518491CE58A8B691F84C1B: 11 binary packages
+--- re-promotion of the rebuilt (reproducible) admin-api
+recorded install-smoke=pass for admin-api
+indexed+signed suite staging with 5D2750D022E0218361518491CE58A8B691F84C1B: 11 binary packages
+indexed+signed suite stable with 5D2750D022E0218361518491CE58A8B691F84C1B: 11 binary packages

@@ -1,0 +1,18 @@
+# ADR-0008 recipe: mapi-header-php (PHP MAPI helper classes used by web/sync/dav)
+component: mapi-header-php
+src_name: ou-mapi-header-php
+description: PHP MAPI header and helper classes
+source:
+  repo: https://github.com/grommunio/mapi-header-php
+  tag: "2.4"
+  tag_object: 8929628e1827f0997bb8fed893ed5c40d6c9fbfd
+  commit: 99cf86a3a05dd52f5fffa74db347fac0a1969986
+  upstream_version: "2.4"
+verification:
+  kind: sha-pin
+  note: tag is annotated but carries no signature; commit SHA pin is the only control.
+packages: [ou-mapi-header-php]
+licenses: [AGPL-3.0-only, AGPL-3.0-or-later]
+inventory_match: "mapi-header-php"
+patches: []
+branding: none

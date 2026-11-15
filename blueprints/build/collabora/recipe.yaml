@@ -1,0 +1,33 @@
+# ADR-0008 recipe: Office Unbound Docs (Collabora Online + LibreOffice engine "OfficeUnbound-LOKit"), Ubuntu 24.04 (noble) target.
+# DIFFERENT KIND from the Debian components: `kind: prebuilt-stage`. The engine (hours of compile, ~30 GB) is NOT rebuilt by the pipeline;
+# recipe.sh (engine|online|install) produced a staged DESTDIR tree + tar on the build machine, and `build.sh package-prebuilt collabora` turns that
+# staged tree into a .deb (shlibs dependencies computed, SBOM, scans, test record, promotion like any other component).
+# The pins below MUST equal the ones in recipe.sh (checked by build.sh: `pins_match`).
+component: collabora
+src_name: ou-docs
+description: Office Unbound Docs - Collabora Online (coolwsd) with the LibreOffice-derived engine, branded; online document editing for Files/Chat via WOPI
+kind: prebuilt-stage
+source:
+  repo: https://github.com/CollaboraOnline/online.mirror.git
+  tag: cp-26.04.6-1
+  tag_object: 494e0e0b4d73b473aabe880e96900f9ecf9119bb
+  commit: febe91b27107ff458ddb8dcdf8c0c6d521483033
+  upstream_version: "26.04.6"
+verification:
+  kind: sha-pin
+  note: annotated tag; commit SHA pin checked by recipe.sh (do_fetch) on the build machine. Engine external tarballs are fetched by the engine build with the checksums of its own download list (engine/download.lst), see sbom/engine-external-tarballs.txt.
+ou_revision: ou1
+stage:
+  machine: ou-build1                       # nspawn machine (Ubuntu 24.04) that holds the staged tree; the .deb is assembled THERE (1.3 GB tree is not copied around)
+  tree: /root/build/out/instdir            # DESTDIR of recipe.sh install
+  tar: /root/build/out/ou-docs-cp-26.04.6-1.tar
+  recipe: blueprints/build/collabora/recipe.sh
+  patches:
+    - patches/0001-office-unbound-branding-and-engine-distro.patch
+    - patches/0002-office-unbound-config-defaults.patch
+target: {distro: ubuntu-24.04, arch: amd64}   # NOT installable on Debian 12 (libs are noble); the repo channel is shared, install only on noble nodes
+packages: [ou-docs]
+licenses: []                                # mixed (MPL-2.0 core, hundreds of engine/external tarballs): see sbom/engine-external-tarballs.txt and the SBOM
+inventory_match: "collabora"
+reproducibility: "NOT PROVEN (engine not rebuilt; the .deb itself is deterministic given the staged tree: fixed mtimes via SOURCE_DATE_EPOCH, root:root, sorted file list)"
+branding: "Office Unbound Docs (patch 0001: theme dir, name, engine distro); see docs/status/collabora-build-results.md for the remaining upstream strings"

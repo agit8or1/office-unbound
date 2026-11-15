@@ -1,0 +1,4 @@
+d /var/lib/grommunio-web 0750 groweb groweb -
+d /var/lib/grommunio-web/session 0750 groweb groweb -
+d /var/lib/grommunio-web/tmp 0750 groweb groweb -
+d /var/lib/grommunio-web/sqlite-index 0750 groweb groweb -

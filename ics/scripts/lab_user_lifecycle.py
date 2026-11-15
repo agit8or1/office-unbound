@@ -9,12 +9,10 @@
                -> enable (new enrollment) -> disable again with a canary credential (the ICS's own VERIFY measures) -> reconcile incl. an injected drift
                -> delete -> audit/secret hygiene checks
 Prints a per-path table: PASS (refused within 60 s) / FAIL (measured seconds, or "NOT REVOKED"). Passwords/tokens are never printed.
-usage: lab_user_lifecycle.py {setup|lifecycle|all|matrix|cleanup}
+usage: lab_user_lifecycle.py {setup|lifecycle|gaps|all|matrix|cleanup}   (gaps: docs/status/lifecycle-gaps-results.md)
   matrix: Matrix (MAS) downstream. Needs OU_MATRIX_PYTHON (collab test venv) and a lab ICS instance of this code (ics/scripts/lab_ics_instance.py):
           OU_ICS_BASE=http://127.0.0.1:8099/api/v1 OU_DEMO_CREDS=<creds.json>. Measures when Synapse/MAS refuse the user's OWN Matrix access and refresh
           token after the lock, a new SSO login, unlock on enable, reconcile drift, and deactivation on delete.
-
-usage: lab_user_lifecycle.py {setup|lifecycle|gaps|all}   (gaps: app-token revocation, session kill, ActiveSync wipe; docs/status/lifecycle-gaps-results.md)
 """
 import json
 import os

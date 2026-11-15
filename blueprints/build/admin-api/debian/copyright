@@ -1,0 +1,14 @@
+Format: https://www.debian.org/doc/packaging-manuals/copyright-format/1.0/
+Upstream-Name: grommunio-admin-api
+
+Files: *
+Copyright: grommunio GmbH and contributors (see per-file SPDX headers)
+License: AGPL-3+
+
+Files: usr/lib/ou-admin-api/site-packages/*
+Copyright: authors of the hash-locked Python packages listed in debian/requirements.lock
+License: various (BSD, MIT, Apache-2.0, MPL-2.0, LGPL; see each package's dist-info/ directory and the SBOM)
+
+Files: debian/*
+Copyright: Office Unbound
+License: AGPL-3+

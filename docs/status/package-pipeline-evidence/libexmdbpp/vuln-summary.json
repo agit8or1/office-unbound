@@ -1,0 +1,23 @@
+[
+ {
+  "sbom": "ou-libexmdbpp-dev_1.9-ou1.spdx.json",
+  "packages_scanned": 2,
+  "vulnerable_packages": 0,
+  "osv_scanner": "2.7.1",
+  "advisories": []
+ },
+ {
+  "sbom": "ou-libexmdbpp_1.9-ou1.spdx.json",
+  "packages_scanned": 5,
+  "vulnerable_packages": 0,
+  "osv_scanner": "2.7.1",
+  "advisories": []
+ },
+ {
+  "sbom": "ou-python3-pyexmdb_1.9-ou1.spdx.json",
+  "packages_scanned": 6,
+  "vulnerable_packages": 0,
+  "osv_scanner": "2.7.1",
+  "advisories": []
+ }
+]

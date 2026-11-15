@@ -1,0 +1,102 @@
+== GW01 smtp+imap (run a78702dd4e) ==
+PASS SMTP alice->bob - accepted on :25
+PASS IMAPS fetch bob - token in bob INBOX
+PASS SMTP carol->dave - accepted on :25
+PASS IMAPS fetch dave - token in dave INBOX
+PASS IMAP login alice - ok
+PASS IMAP login bob - ok
+PASS IMAP login carol - ok
+PASS IMAP login dave - ok
+PASS IMAP login erin - ok
+PASS IMAP login frank - ok
+PASS IMAP login grace - ok
+PASS user count >5 - 7 users logged in via IMAP
+PASS external recipient - refused: {'x@external-test.invalid': (550, b'5.1.1 <x@external-test.invalid>: Recipient address rejected: lab
+-- GW01 smtp+imap: 13 PASS, 0 FAIL, 0 SKIP
+
+== GW02 ews/mapi/autodiscover (run 346f24521a) ==
+PASS EWS unauthenticated -> 401 - 401 WWW-Authenticate=Basic realm="msrpc realm", charset="utf-8"
+PASS EWS GetFolder inbox - Success; ['Inbox', '19']
+PASS EWS FindItem inbox has token - subject with OU-EWS-346f24521a returned
+PASS EWS CreateItem calendar - created OU-EVT-346f24521a
+PASS EWS FindItem calendar has event - event read back
+PASS EWS isolation: bob calendar != alice event - bob sees no alice event
+PASS Autodiscover POX - MAPI/HTTP + EWS URLs present
+INFO autodiscover URLs: ['https://gw1.ou-lab.internal/EWS/Exchange.asmx', 'https://gw1.ou-lab.internal/OAB/', 'https://gw1.ou-lab.internal/mapi/emsmdb/?MailboxId=616c6963-6540-6777-312e-6f7501000000@gw1.ou-lab.internal', 'https://gw1.ou-lab.internal/mapi/nspi/?MailboxId=616c6963-6540-6777-312e-6f7501000000@gw1.ou-lab.internal', ('', 'EXHTTP'), ('mapiHttp', ''), ('', 'EXCH'), ('', 'EXPR')]
+PASS MAPI/HTTP emsmdb unauth - HTTP 401 WWW-Authenticate=Basic realm="msrpc realm", charset="utf-8" X-ServerApplication=None
+PASS MAPI/HTTP Connect headers - HTTP 200 X-RequestType=Connect X-ResponseCode=0 X-ServerApplication=Exchange/15.00.0847.4040 Content-Type=application/mapi-http X-PendingPeriod=30000
+INFO connect response meta/payload head: b'PROCESSING\r\nDONE\r\nX-ElapsedTime: 0\r\nX-StartTime: Sun, 15 Nov'
+PASS MAPI/HTTP Connect Status/ErrorCode=0 - StatusCode=0 ErrorCode=0 (session cookie: set)
+PASS MAPI/HTTP Disconnect - X-ResponseCode=0
+PASS MAPI/HTTP nspi endpoint exists - HTTP 401
+-- GW02 ews/mapi/autodiscover: 12 PASS, 0 FAIL, 0 SKIP
+
+== GW03 activesync (run 02aa0a00cd) ==
+PASS OPTIONS unauthenticated - HTTP 401 MS-Server-ActiveSync=None
+PASS OPTIONS auth: versions+commands - versions=12.0,12.1,14.0,14.1,16.0,16.1
+PASS FolderSync unauth -> 401 - 401
+PASS FolderSync - HTTP 200, 574 bytes WBXML
+PASS FolderSync SyncKey - SyncKey={86e50ce9-02cd-4c7b-8cfc-815ce086512b}1
+PASS FolderSync parsed folders - folders=['Sent Items', 'Deleted Items', 'Outbox', 'Inbox', 'Drafts', 'Calendar', 'Notes', 'Tasks', 'Contacts', 'Junk Email', 'Sync Issues', 'Conflicts', 'Local Failures', 'Server Failures']
+PASS EAS Sync inbox contains token - subject with OU-EAS-02aa0a00cd found in Sync response (tried 1 folders)
+-- GW03 activesync: 7 PASS, 0 FAIL, 0 SKIP
+
+== GW04 caldav+carddav (run 8b47ad4eb6) ==
+PASS DAV unauth -> 401 - 401
+PASS DAV wrong password -> 401 - 401
+PASS DAV OPTIONS - DAV: 1, 3, extended-mkcol, access-control, calendarserver-principal-property-search, calendar-auto-schedule, calendar-availability, addressbook, calendar-access, calendar-proxy
+PASS CalDAV PUT event - HTTP 201
+PASS CalDAV GET event - round-trip ok (363 bytes)
+PASS CalDAV REPORT calendar-query - event listed
+PASS EWS sees DAV-created event - same event visible via EWS FindItem
+PASS isolation: erin cannot read dave's event - HTTP 404
+PASS CardDAV PUT vcard - HTTP 201
+PASS CardDAV GET vcard - round-trip ok
+-- GW04 caldav+carddav: 10 PASS, 0 FAIL, 0 SKIP
+
+== GW05 shared mailbox (run b3436c463a) ==
+PASS SMTP to shared mailbox - accepted
+PASS alice reads shared inbox via EWS - token visible in support@ inbox
+PASS carol (no ACL) denied - not visible (HTTP 200, ErrorAccessDenied)
+PASS direct login support@ refused - b'Wrong username or password, or administratively blocked'
+-- GW05 shared mailbox: 4 PASS, 0 FAIL, 0 SKIP
+
+== GW08 grommunio-web (run 608b49d70c) ==
+PASS GET /web/ - HTTP 200 5414 bytes
+PASS wrong password rejected - HTTP 200 (no session redirect)
+PASS login redirect - HTTP 303 -> /web/
+PASS post-login page has user - fullname 'Alice (lab)' embedded
+-- GW08 grommunio-web: 4 PASS, 0 FAIL, 0 SKIP
+
+== GW07 backup/restore (run e97b49acb2) ==
+PASS seed 4 messages - 4 tokens in grace INBOX
+rc=0
+-rw-r--r-- 1 root root 35334585 Nov 15 22:09 /root/backup/grace.mt
+041104fdefa89daf6d213ca58d1b39a3b253df29836b821c46521d78cdb06e3b  /root/backup/grace.mt
+Running as unit: run-u1544.service
+Finished with result: success
+Main processes terminated with: code=exited/status=0
+Service runtime: 13.891s
+CPU time consumed: 1.282s
+PASS export mailbox (gromox-exm2mt -ars IPM_SUBTREE) - dump written
+PASS dump contains tokens - tokens present in dump (49416 24 Running as unit: run-u1545.service; invocation ID: 2ba3193679e54335a2993f1495fbd684 Finished with result: success Main processes terminated with: code=exited/status=0 Service runtime: 1.009s CPU time consumed: 1.088s)
+PASS message deleted - OU-BK2-e97b49acb2 gone
+Folder inbox: deleted 51 message(s), deleted 0 subfolder(s) plus messages
+rc=0
+Running as unit: run-u1546.service; invocation ID: e2f8c6d68a824f08b670c1eeecf6d760
+Finished with result: success
+Main processes terminated with: code=exited/status=0
+Service runtime: 101ms
+CPU time consumed: 35ms
+PASS INBOX wiped - all 4 gone
+rc=0
+Continuous mode has been selcted: On errors, the import will NOT abort
+Running as unit: run-u1547.service
+Finished with result: success
+Main processes terminated with: code=exited/status=0
+Service runtime: 1min 31.094s
+CPU time consumed: 1.832s
+PASS import exit code - gromox-import rc=0
+PASS restored: each token exactly once - counts=[1, 1, 1, 1] (incl. the message deleted before wipe)
+-- GW07 backup/restore: 7 PASS, 0 FAIL, 0 SKIP
+

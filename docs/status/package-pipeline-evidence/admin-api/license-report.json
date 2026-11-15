@@ -1,0 +1,17 @@
+{
+ "bundled_licences": {},
+ "bundled_packages": 0,
+ "component": "admin-api",
+ "files_scanned": 143,
+ "in_inventory": true,
+ "problems": [],
+ "result": "PASS",
+ "spdx_found": {
+  "AGPL-3.0-or-later": 71,
+  "CC-BY-SA-4.0": 20,
+  "file:AGPL-3.0-only": 1
+ },
+ "warnings": [
+  "found but not declared in recipe: CC-BY-SA-4.0 (20 files)"
+ ]
+}

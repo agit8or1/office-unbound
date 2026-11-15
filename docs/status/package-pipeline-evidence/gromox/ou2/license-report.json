@@ -1,0 +1,24 @@
+{
+ "bundled_licences": {},
+ "bundled_packages": 0,
+ "component": "gromox",
+ "files_scanned": 1156,
+ "in_inventory": true,
+ "problems": [],
+ "result": "PASS",
+ "spdx_found": {
+  "AGPL-3.0-or-later": 135,
+  "BSD-2-Clause": 1,
+  "BSD-3-Clause": 1,
+  "CC-BY-SA-4.0": 75,
+  "GPL-2.0-only": 148,
+  "GPL-2.0-or-later": 8,
+  "GPL-3.0-or-later": 2,
+  "ICU": 1,
+  "MIT": 5,
+  "file:AGPL-3.0-only": 1,
+  "licensing exception": 2,
+  "linking exception": 155
+ },
+ "warnings": []
+}

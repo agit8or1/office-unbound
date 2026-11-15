@@ -1,0 +1,7 @@
+component=admin-api
+repo=https://github.com/grommunio/admin-api
+tag=1.21
+commit=49b16fc13f04b1bb1486c3e7d29f581bd2a7de15
+source_date_epoch=1788180254
+signature=none
+orig_sha256=bb714bf510f471cf1838781244ad21ab8e02eff972c21e49c26ba759cfe034f8

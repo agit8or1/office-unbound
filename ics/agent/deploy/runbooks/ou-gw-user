@@ -66,21 +66,39 @@ DEV_RE = re.compile(r"^[A-Za-z0-9]{1,64}$")
 EVENT_SOCK = "/run/gromox/event.sock"
 
 
+def kick_acknowledged(mail, since, timeout=4.0, runner=None):
+    """The event bus broadcasts USER-KICK to every listener without a reply, and an UNPATCHED gromox-imap silently ignores the verb.
+    Only the patched gromox-imap (patch 0002-imap-event-user-kick) logs "imap: USER-KICK received for <user>": wait for that journal line
+    of gromox-imap since the event was sent. No line => nobody acted on the kick => the caller must NOT report kick_sent."""
+    run = runner or (lambda: subprocess.run(["/usr/bin/journalctl", "-u", "gromox-imap.service", "--since", since, "--no-pager", "-q", "-o", "cat"],
+                                           capture_output=True, text=True, timeout=10, stdin=subprocess.DEVNULL).stdout)
+    want = "USER-KICK received for %s" % mail
+    t0 = time.time()
+    while True:
+        if any(want.lower() in ln.lower() for ln in run().splitlines()):
+            return True
+        if time.time() - t0 >= timeout:
+            return False
+        time.sleep(0.25)
+
+
 def event_kick(mail):
-    """gromox-event line protocol: server greets "OK"; `ID <name>` -> TRUE; `USER-KICK <user> *` -> TRUE (delivered to every listener)."""
+    """gromox-event line protocol: server greets "OK"; `ID <name>` -> TRUE; `USER-KICK <user> *` -> TRUE (delivered to every listener, no
+    reply from them). Returns (event_sent, acknowledged): acknowledged only when a listener (patched gromox-imap) logged the kick."""
     s = socket.socket(socket.AF_UNIX, socket.SOCK_STREAM)
     s.settimeout(10)
     s.connect(EVENT_SOCK)
     f = s.makefile("rw", newline="")
     if f.readline().strip() != "OK":
         raise RuntimeError("event greeting")
+    since = time.strftime("%Y-%m-%d %H:%M:%S", time.localtime(time.time() - 1))
     for line in ("ID ou-kick", "USER-KICK %s *" % mail):
         f.write(line + "\r\n"); f.flush()
         if f.readline().strip() != "TRUE":
             raise RuntimeError("event refused %s" % line.split()[0])
     f.write("QUIT\r\n"); f.flush()
     s.close()
-    return True
+    return True, kick_acknowledged(mail, since)
 
 
 def redis_cli(*args):
@@ -189,7 +207,9 @@ def main():
             res["maildir_mode"] = mode(d)
     elif cmd == "kill":
         try:
-            res["kick_sent"] = event_kick(mail)
+            res["kick_event_sent"], res["kick_sent"] = event_kick(mail)      # kick_sent = a listener acknowledged (M3)
+            if not res["kick_sent"]:
+                res["error"] = "no listener acknowledged USER-KICK (gromox-imap not running or not the patched build)"
         except (OSError, RuntimeError) as e:
             res["kick_sent"] = False
             res["error"] = str(e)[:120]

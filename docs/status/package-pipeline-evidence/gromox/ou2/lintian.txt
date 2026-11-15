@@ -1,0 +1,120 @@
+A future release will drop --no-tag-display-limit; please use '--tag-display-limit 0' instead.
+running with root privileges is not recommended!
+W: ou-gromox: copyright-without-copyright-notice
+W: ou-gromox-php-mapi: copyright-without-copyright-notice
+W: ou-gromox: debian-changelog-line-too-long [usr/share/doc/ou-gromox/changelog.Debian.gz:3]
+W: ou-gromox-php-mapi: debian-changelog-line-too-long [usr/share/doc/ou-gromox-php-mapi/changelog.Debian.gz:3]
+W: ou-gromox: executable-not-elf-or-script [usr/libexec/gromox/kdb-uidextract]
+W: ou-gromox: groff-message automatically ending diversion 'an-div' on exit [usr/share/man/man4/oab.4gx.gz:1]
+W: ou-gromox: link-to-shared-library-in-wrong-package usr/lib/x86_64-linux-gnu/libgromox_abtree.so.0.0.0 [usr/lib/x86_64-linux-gnu/libgromox_abtree.so]
+W: ou-gromox: link-to-shared-library-in-wrong-package usr/lib/x86_64-linux-gnu/libgromox_auth.so.0.0.0 [usr/lib/x86_64-linux-gnu/libgromox_auth.so]
+W: ou-gromox: link-to-shared-library-in-wrong-package usr/lib/x86_64-linux-gnu/libgromox_authz.so.0.0.0 [usr/lib/x86_64-linux-gnu/libgromox_authz.so]
+W: ou-gromox: link-to-shared-library-in-wrong-package usr/lib/x86_64-linux-gnu/libgromox_common.so.0.0.0 [usr/lib/x86_64-linux-gnu/libgromox_common.so]
+W: ou-gromox: link-to-shared-library-in-wrong-package usr/lib/x86_64-linux-gnu/libgromox_dbop.so.0.0.0 [usr/lib/x86_64-linux-gnu/libgromox_dbop.so]
+W: ou-gromox: link-to-shared-library-in-wrong-package usr/lib/x86_64-linux-gnu/libgromox_emsmdb.so.0.0.0 [usr/lib/x86_64-linux-gnu/libgromox_emsmdb.so]
+W: ou-gromox: link-to-shared-library-in-wrong-package usr/lib/x86_64-linux-gnu/libgromox_ews.so.0.0.0 [usr/lib/x86_64-linux-gnu/libgromox_ews.so]
+W: ou-gromox: link-to-shared-library-in-wrong-package usr/lib/x86_64-linux-gnu/libgromox_exrpc.so.0.0.0 [usr/lib/x86_64-linux-gnu/libgromox_exrpc.so]
+W: ou-gromox: link-to-shared-library-in-wrong-package usr/lib/x86_64-linux-gnu/libgromox_mapi.so.0.0.0 [usr/lib/x86_64-linux-gnu/libgromox_mapi.so]
+W: ou-gromox: link-to-shared-library-in-wrong-package usr/lib/x86_64-linux-gnu/libgromox_mh_emsmdb.so.0.0.0 [usr/lib/x86_64-linux-gnu/libgromox_mh_emsmdb.so]
+W: ou-gromox: link-to-shared-library-in-wrong-package usr/lib/x86_64-linux-gnu/libgromox_mh_nsp.so.0.0.0 [usr/lib/x86_64-linux-gnu/libgromox_mh_nsp.so]
+W: ou-gromox: link-to-shared-library-in-wrong-package usr/lib/x86_64-linux-gnu/libgromox_ndr.so.0.0.0 [usr/lib/x86_64-linux-gnu/libgromox_ndr.so]
+W: ou-gromox: link-to-shared-library-in-wrong-package usr/lib/x86_64-linux-gnu/libgromox_nsp.so.0.0.0 [usr/lib/x86_64-linux-gnu/libgromox_nsp.so]
+W: ou-gromox: link-to-shared-library-in-wrong-package usr/lib/x86_64-linux-gnu/libgromox_oab.so.0.0.0 [usr/lib/x86_64-linux-gnu/libgromox_oab.so]
+W: ou-gromox: link-to-shared-library-in-wrong-package usr/lib/x86_64-linux-gnu/libgromox_oxdisco.so.0.0.0 [usr/lib/x86_64-linux-gnu/libgromox_oxdisco.so]
+W: ou-gromox: link-to-shared-library-in-wrong-package usr/lib/x86_64-linux-gnu/libgromox_rfr.so.0.0.0 [usr/lib/x86_64-linux-gnu/libgromox_rfr.so]
+W: ou-gromox: link-to-shared-library-in-wrong-package usr/lib/x86_64-linux-gnu/libgxm_alias_resolve.so.0.0.0 [usr/lib/x86_64-linux-gnu/libgxm_alias_resolve.so]
+W: ou-gromox: link-to-shared-library-in-wrong-package usr/lib/x86_64-linux-gnu/libgxm_exmdb_local.so.0.0.0 [usr/lib/x86_64-linux-gnu/libgxm_exmdb_local.so]
+W: ou-gromox: link-to-shared-library-in-wrong-package usr/lib/x86_64-linux-gnu/libgxs_event_proxy.so.0.0.0 [usr/lib/x86_64-linux-gnu/libgxs_event_proxy.so]
+W: ou-gromox: link-to-shared-library-in-wrong-package usr/lib/x86_64-linux-gnu/libgxs_event_stub.so.0.0.0 [usr/lib/x86_64-linux-gnu/libgxs_event_stub.so]
+W: ou-gromox: link-to-shared-library-in-wrong-package usr/lib/x86_64-linux-gnu/libgxs_exmdb_provider.so.0.0.0 [usr/lib/x86_64-linux-gnu/libgxs_exmdb_provider.so]
+W: ou-gromox: link-to-shared-library-in-wrong-package usr/lib/x86_64-linux-gnu/libgxs_midb_agent.so.0.0.0 [usr/lib/x86_64-linux-gnu/libgxs_midb_agent.so]
+W: ou-gromox: link-to-shared-library-in-wrong-package usr/lib/x86_64-linux-gnu/libgxs_mysql_adaptor.so.0.0.0 [usr/lib/x86_64-linux-gnu/libgxs_mysql_adaptor.so]
+W: ou-gromox: link-to-shared-library-in-wrong-package usr/lib/x86_64-linux-gnu/libgxs_ruleproc.so.0.0.0 [usr/lib/x86_64-linux-gnu/libgxs_ruleproc.so]
+W: ou-gromox: link-to-shared-library-in-wrong-package usr/lib/x86_64-linux-gnu/libgxs_timer_agent.so.0.0.0 [usr/lib/x86_64-linux-gnu/libgxs_timer_agent.so]
+W: ou-gromox: no-manual-page [usr/sbin/gromox-rtftohtml]
+W: ou-gromox: package-name-doesnt-match-sonames libgromox-abtree0 libgromox-auth0 libgromox-authz0 libgromox-common0 libgromox-dbop0 libgromox-emsmdb0 libgromox-ews0 libgromox-exrpc0 libgromox-mapi0 libgromox-mh-emsmdb0 libgromox-mh-nsp0 libgromox-ndr0 libgromox-nsp0 libgromox-oab0 libgromox-oxdisco0 libgromox-rfr0 libgxm-alias-resolve0 libgxm-exmdb-local0 libgxs-event-proxy0 libgxs-event-stub0 libgxs-exmdb-provider0 libgxs-midb-agent0 libgxs-mysql-adaptor0 libgxs-ruleproc0 libgxs-timer-agent0
+W: ou-gromox: wrong-manual-section 1gx != 1 [usr/share/man/man1/ddbg.1gx.gz:3]
+W: ou-gromox: wrong-manual-section 7gx != 7 [usr/share/man/man7/mapi.7gx.gz:3]
+W: ou-gromox: wrong-manual-section 8gx != 4gx [usr/share/man/man8/authtry.8gx.gz:3]
+I: ou-gromox: hardening-no-fortify-functions [usr/lib/x86_64-linux-gnu/libgromox_ews.so.0.0.0]
+I: ou-gromox: hardening-no-fortify-functions [usr/lib/x86_64-linux-gnu/libgxs_timer_agent.so.0.0.0]
+I: ou-gromox: no-symbols-control-file usr/lib/x86_64-linux-gnu/libgromox_abtree.so.0.0.0
+I: ou-gromox: no-symbols-control-file usr/lib/x86_64-linux-gnu/libgromox_auth.so.0.0.0
+I: ou-gromox: no-symbols-control-file usr/lib/x86_64-linux-gnu/libgromox_authz.so.0.0.0
+I: ou-gromox: no-symbols-control-file usr/lib/x86_64-linux-gnu/libgromox_common.so.0.0.0
+I: ou-gromox: no-symbols-control-file usr/lib/x86_64-linux-gnu/libgromox_dbop.so.0.0.0
+I: ou-gromox: no-symbols-control-file usr/lib/x86_64-linux-gnu/libgromox_emsmdb.so.0.0.0
+I: ou-gromox: no-symbols-control-file usr/lib/x86_64-linux-gnu/libgromox_ews.so.0.0.0
+I: ou-gromox: no-symbols-control-file usr/lib/x86_64-linux-gnu/libgromox_exrpc.so.0.0.0
+I: ou-gromox: no-symbols-control-file usr/lib/x86_64-linux-gnu/libgromox_mapi.so.0.0.0
+I: ou-gromox: no-symbols-control-file usr/lib/x86_64-linux-gnu/libgromox_mh_emsmdb.so.0.0.0
+I: ou-gromox: no-symbols-control-file usr/lib/x86_64-linux-gnu/libgromox_mh_nsp.so.0.0.0
+I: ou-gromox: no-symbols-control-file usr/lib/x86_64-linux-gnu/libgromox_ndr.so.0.0.0
+I: ou-gromox: no-symbols-control-file usr/lib/x86_64-linux-gnu/libgromox_nsp.so.0.0.0
+I: ou-gromox: no-symbols-control-file usr/lib/x86_64-linux-gnu/libgromox_oab.so.0.0.0
+I: ou-gromox: no-symbols-control-file usr/lib/x86_64-linux-gnu/libgromox_oxdisco.so.0.0.0
+I: ou-gromox: no-symbols-control-file usr/lib/x86_64-linux-gnu/libgromox_rfr.so.0.0.0
+I: ou-gromox: no-symbols-control-file usr/lib/x86_64-linux-gnu/libgxm_alias_resolve.so.0.0.0
+I: ou-gromox: no-symbols-control-file usr/lib/x86_64-linux-gnu/libgxm_exmdb_local.so.0.0.0
+I: ou-gromox: no-symbols-control-file usr/lib/x86_64-linux-gnu/libgxs_event_proxy.so.0.0.0
+I: ou-gromox: no-symbols-control-file usr/lib/x86_64-linux-gnu/libgxs_event_stub.so.0.0.0
+I: ou-gromox: no-symbols-control-file usr/lib/x86_64-linux-gnu/libgxs_exmdb_provider.so.0.0.0
+I: ou-gromox: no-symbols-control-file usr/lib/x86_64-linux-gnu/libgxs_midb_agent.so.0.0.0
+I: ou-gromox: no-symbols-control-file usr/lib/x86_64-linux-gnu/libgxs_mysql_adaptor.so.0.0.0
+I: ou-gromox: no-symbols-control-file usr/lib/x86_64-linux-gnu/libgxs_ruleproc.so.0.0.0
+I: ou-gromox: no-symbols-control-file usr/lib/x86_64-linux-gnu/libgxs_timer_agent.so.0.0.0
+I: ou-gromox: package-contains-documentation-outside-usr-share-doc [usr/share/gromox/cpid.txt]
+I: ou-gromox: package-contains-documentation-outside-usr-share-doc [usr/share/gromox/folder_names.txt]
+I: ou-gromox: package-contains-documentation-outside-usr-share-doc [usr/share/gromox/lang_charset.txt]
+I: ou-gromox: package-contains-documentation-outside-usr-share-doc [usr/share/gromox/lcid.txt]
+I: ou-gromox: package-contains-documentation-outside-usr-share-doc [usr/share/gromox/mime_extension.txt]
+I: ou-gromox: package-contains-documentation-outside-usr-share-doc [usr/share/gromox/propnames.txt]
+I: ou-gromox: package-contains-empty-directory [usr/share/gromox/http/php/]
+I: ou-gromox: package-supports-alternative-init-but-no-init.d-script [lib/systemd/system/gromox-delivery-queue.service]
+I: ou-gromox: package-supports-alternative-init-but-no-init.d-script [lib/systemd/system/gromox-delivery.service]
+I: ou-gromox: package-supports-alternative-init-but-no-init.d-script [lib/systemd/system/gromox-event.service]
+I: ou-gromox: package-supports-alternative-init-but-no-init.d-script [lib/systemd/system/gromox-http.service]
+I: ou-gromox: package-supports-alternative-init-but-no-init.d-script [lib/systemd/system/gromox-imap.service]
+I: ou-gromox: package-supports-alternative-init-but-no-init.d-script [lib/systemd/system/gromox-istore.service]
+I: ou-gromox: package-supports-alternative-init-but-no-init.d-script [lib/systemd/system/gromox-midb.service]
+I: ou-gromox: package-supports-alternative-init-but-no-init.d-script [lib/systemd/system/gromox-pop3.service]
+I: ou-gromox: package-supports-alternative-init-but-no-init.d-script [lib/systemd/system/gromox-timer.service]
+I: ou-gromox: package-supports-alternative-init-but-no-init.d-script [lib/systemd/system/gromox-zcore.service]
+I: ou-gromox: spare-manual-page [usr/share/man/man1/ddbg.1gx.gz]
+I: ou-gromox: spare-manual-page [usr/share/man/man8/authtry.8gx.gz]
+I: ou-gromox: spare-manual-page [usr/share/man/man8/delivery-queue.8gx.gz]
+I: ou-gromox: spare-manual-page [usr/share/man/man8/delivery.8gx.gz]
+I: ou-gromox: spare-manual-page [usr/share/man/man8/event.8gx.gz]
+I: ou-gromox: spare-manual-page [usr/share/man/man8/gromox-cleaner.service.8.gz]
+I: ou-gromox: spare-manual-page [usr/share/man/man8/gromox-edb2mt.8.gz]
+I: ou-gromox: spare-manual-page [usr/share/man/man8/gromox-oxm2mt.8.gz]
+I: ou-gromox: spare-manual-page [usr/share/man/man8/gromox-pff2mt.8.gz]
+I: ou-gromox: spare-manual-page [usr/share/man/man8/gromox-snapshot.8.gz]
+I: ou-gromox: spare-manual-page [usr/share/man/man8/http.8gx.gz]
+I: ou-gromox: spare-manual-page [usr/share/man/man8/imap.8gx.gz]
+I: ou-gromox: spare-manual-page [usr/share/man/man8/istore.8gx.gz]
+I: ou-gromox: spare-manual-page [usr/share/man/man8/kdb-uidextract-limited.8.gz]
+I: ou-gromox: spare-manual-page [usr/share/man/man8/kdb-uidextract.8.gz]
+I: ou-gromox: spare-manual-page [usr/share/man/man8/midb.8gx.gz]
+I: ou-gromox: spare-manual-page [usr/share/man/man8/pop3.8gx.gz]
+I: ou-gromox: spare-manual-page [usr/share/man/man8/timer.8gx.gz]
+I: ou-gromox: spare-manual-page [usr/share/man/man8/zcore.8gx.gz]
+I: ou-gromox: spelling-error-in-binary Continus Continuous [usr/sbin/gromox-mbop]
+I: ou-gromox: spelling-error-in-binary FliE File [usr/lib/x86_64-linux-gnu/libgromox_emsmdb.so.0.0.0]
+I: ou-gromox: spelling-error-in-binary FliE File [usr/lib/x86_64-linux-gnu/libgxs_timer_agent.so.0.0.0]
+I: ou-gromox: spelling-error-in-binary attachement attachment [usr/lib/x86_64-linux-gnu/libgromox_ews.so.0.0.0]
+I: ou-gromox: spelling-error-in-binary opertaion operation [usr/lib/x86_64-linux-gnu/libgromox_ews.so.0.0.0]
+I: ou-gromox: spelling-error-in-binary withour without [usr/sbin/gromox-mbop]
+I: ou-gromox: systemd-service-file-missing-documentation-key [lib/systemd/system/gromox-cleaner.service]
+I: ou-gromox: typo-in-manual-page addresss address [usr/share/man/man8/gromox-mbop.8.gz:52]
+I: ou-gromox: typo-in-manual-page attemps attempts [usr/share/man/man4/exmdb_provider.4gx.gz:297]
+I: ou-gromox: typo-in-manual-page evalutes evaluates [usr/share/man/man4/exmdb_provider.4gx.gz:281]
+I: ou-gromox: typo-in-manual-page identifer identifier [usr/share/man/man1/ddbg.1gx.gz:39]
+I: ou-gromox: typo-in-manual-page identifer identifier [usr/share/man/man8/gromox-mbop.8.gz:613]
+I: ou-gromox: typo-in-manual-page invididual individual [usr/share/man/man7/gromox.7.gz:318]
+I: ou-gromox: typo-in-manual-page langauge language [usr/share/man/man1/ddbg.1gx.gz:85]
+I: ou-gromox: typo-in-manual-page occassionally occasionally [usr/share/man/man8/gromox-mbsize.8.gz:38]
+I: ou-gromox: typo-in-manual-page occuring occurring [usr/share/man/man5/gromox.cfg.5.gz:121]
+I: ou-gromox: typo-in-manual-page occuring occurring [usr/share/man/man8/gromox-mbop.8.gz:325]
+I: ou-gromox: typo-in-manual-page utilites utilities [usr/share/man/man8/gromox-import.8.gz:22]
+I: ou-gromox: typo-in-manual-page whereever wherever [usr/share/man/man7/gromox.7.gz:509]
