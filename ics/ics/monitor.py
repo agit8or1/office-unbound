@@ -98,6 +98,8 @@ def build_message(db: Session, n) -> alerts.Message:
         "c.last_message FROM incidents i JOIN checks c ON c.id = i.check_id WHERE i.id = :i"), {"i": str(n.incident_id)}).first() \
         if n.incident_id else None
     ev = n.event
+    if r is None and ev.startswith("credential."):  # credential expiry alerts carry their text in `detail` (no secrets)
+        return alerts.Message(ev, f"[OU-ICS] {ev}", (n.detail or ev) + "\n", {"event": ev, "at": int(time.time()), "message": n.detail})
     if r is None:
         return alerts.Message(ev, "[OU-ICS] test notification", "This is a test notification from Office Unbound ICS.",
                               {"event": ev, "test": True, "at": int(time.time())})

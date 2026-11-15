@@ -20,6 +20,7 @@ from sqlalchemy.orm import Session
 
 from . import audit
 from .providers.proxmox import EndpointScope, probe_connection, provision_aad
+from .credentials import service as cred_service
 from .proxmox import ProxmoxError, normalize_fingerprint
 from .runtime import Runtime
 
@@ -296,18 +297,22 @@ def exec_register(rt: Runtime, db: Session, m, plan, known: list[str]) -> dict:
     _require_ok(res, bool(m.provision_token_id))  # connectivity + TLS trust + credential check before we persist anything
     version = audit.sanitize(res.version)
     b = endpoint_binding(m.base_url, m.token_id, m.fingerprint_sha256, m.ca_pem)
-    paad = f"endpoint-provision:{eid}:{b}:{m.provision_token_id}"
     db.execute(text(
-        "INSERT INTO endpoints (id, name, type, base_url, token_id, token_secret_enc, ca_pem, fingerprint_sha256, created_by, display_name, "
+        "INSERT INTO endpoints (id, name, type, base_url, token_id, token_secret_enc, ca_pem, fingerprint_sha256, created_by, display_name, customer_id, "
         "provision_token_id, provision_secret_enc, allowed_pools, allowed_storage, allowed_networks, allowed_templates, allow_cicustom, protected_vmids, defaults, "
-        "last_probe, last_probe_at) VALUES (:id, :n, :t, :u, :ti, :ts, :ca, :fp, :cb, :dn, :pti, :pse, :ap, :ast, :an, :at, :cic, :pv, CAST(:df AS jsonb), "
+        "last_probe, last_probe_at) VALUES (:id, :n, :t, :u, :ti, :ts, :ca, :fp, :cb, :dn, :cu, :pti, :pse, :ap, :ast, :an, :at, :cic, :pv, CAST(:df AS jsonb), "
         "CAST(:lp AS jsonb), now())"),
         {"id": str(eid), "n": m.name, "t": m.type, "u": m.base_url, "ti": m.token_id,
-         "ts": rt.vault.encrypt(secret.encode(), f"endpoint-token:{eid}:{b}"), "ca": m.ca_pem, "fp": m.fingerprint_sha256,
-         "cb": str(plan.requested_by), "dn": m.display_name, "pti": m.provision_token_id,
-         "pse": rt.vault.encrypt(psecret.encode(), paad) if psecret else None,
+         "ts": None, "ca": m.ca_pem, "fp": m.fingerprint_sha256,  # secrets live only in the credential vault
+         "cb": str(plan.requested_by), "dn": m.display_name, "cu": str(m.customer_id or "00000000-0000-0000-0000-00000000a001"), "pti": m.provision_token_id,
+         "pse": b"" if psecret else None,
          "ap": m.allowed_pools or [], "ast": m.allowed_storage or [], "an": m.allowed_networks or [], "at": m.allowed_templates or [],
          "cic": bool(m.allow_cicustom), "pv": m.protected_vmids or [], "df": audit.canon(m.defaults.model_dump(exclude_none=True)) if m.defaults else "{}", "lp": audit.canon(probe_dict(res))})
+    db.execute(text("UPDATE endpoints SET trust_binding = :b WHERE id = :e"), {"b": b, "e": str(eid)})
+    epr = _ep(db, eid)
+    cred_service.attach_endpoint_credential(db, rt, epr, "inventory", m.token_id, secret, actor=f"plan:{plan.id}", actor_id=plan.requested_by, reason="endpoint.register")
+    if psecret:
+        cred_service.attach_endpoint_credential(db, rt, epr, "provision", m.provision_token_id, psecret, actor=f"plan:{plan.id}", actor_id=plan.requested_by, reason="endpoint.register")
     audit.append(db, "endpoint.registered", actor_name="worker", resource="endpoint", resource_id=str(eid),
                  details={"name": m.name, "base_url": m.base_url, "token_id": m.token_id,
                           "trust": "fingerprint" if m.fingerprint_sha256 else "ca_bundle", "pve_version": version,
@@ -321,6 +326,8 @@ def exec_update(rt: Runtime, db: Session, m: EndpointUpdate, plan, known: list[s
     ep = _ep(db, m.endpoint_id)
     if ep is None or ep.detached_at is not None:
         raise ProxmoxError("endpoint not found or removed")
+    cred_service.adopt_endpoint(db, rt, ep.id, actor="endpoint.update")  # legacy secret columns -> credential records first
+    ep = _ep(db, m.endpoint_id)
     old_b = endpoint_binding(ep.base_url, ep.token_id, ep.fingerprint_sha256, ep.ca_pem)
     base_url = m.base_url or ep.base_url
     ca, fp = ep.ca_pem, ep.fingerprint_sha256
@@ -329,14 +336,14 @@ def exec_update(rt: Runtime, db: Session, m: EndpointUpdate, plan, known: list[s
     if m.fingerprint_sha256 is not None:
         ca, fp = None, m.fingerprint_sha256
     token_id = m.token_id or ep.token_id
-    inv_secret = m.token_secret.get_secret_value() if m.token_secret else rt.vault.decrypt(ep.token_secret_enc, f"endpoint-token:{ep.id}:{old_b}").decode()
+    inv_secret = m.token_secret.get_secret_value() if m.token_secret else cred_service.endpoint_secret(rt, ep, "inventory", actor="endpoint.update")
     prov_id, prov_secret = ep.provision_token_id, None
     if m.remove_provision:
         prov_id = None
     elif m.provision_token_id:
         prov_id, prov_secret = m.provision_token_id, m.provision_token_secret.get_secret_value()
     elif prov_id:
-        prov_secret = rt.vault.decrypt(ep.provision_secret_enc, provision_aad(ep, old_b)).decode()
+        prov_secret = cred_service.endpoint_secret(rt, ep, "provision", actor="endpoint.update")
     known += [inv_secret] + ([prov_secret] if prov_secret else [])
     pick = lambda new, old: new if new is not None else (old or [])  # noqa: E731
     pools, storage = pick(m.allowed_pools, ep.allowed_pools), pick(m.allowed_storage, ep.allowed_storage)
@@ -360,10 +367,17 @@ def exec_update(rt: Runtime, db: Session, m: EndpointUpdate, plan, known: list[s
         "allowed_templates = :at, allow_cicustom = :cic, protected_vmids = :pv, defaults = CAST(:df AS jsonb), enabled = :en, last_probe = COALESCE(CAST(:lp AS jsonb), last_probe), "
         "last_probe_at = CASE WHEN :lp IS NULL THEN last_probe_at ELSE now() END WHERE id = :id"),
         {"id": str(ep.id), "dn": m.display_name if m.display_name is not None else ep.display_name, "u": base_url, "ca": ca, "fp": fp,
-         "ti": token_id, "ts": rt.vault.encrypt(inv_secret.encode(), f"endpoint-token:{ep.id}:{new_b}"), "pti": prov_id,
-         "pse": rt.vault.encrypt(prov_secret.encode(), f"endpoint-provision:{ep.id}:{new_b}:{prov_id}") if prov_id else None,
+         "ti": token_id, "ts": None, "pti": prov_id,
+         "pse": b"" if prov_id else None,
          "ap": pools, "ast": storage, "an": nets, "at": tpls, "cic": cic, "pv": prot, "df": audit.canon(m.defaults.model_dump(exclude_none=True)) if m.defaults is not None else audit.canon(ep.defaults or {}), "en": enabled,
          "lp": audit.canon(probe_dict(probe)) if probe else None})
+    if m.token_secret is not None or m.token_id:
+        cred_service.attach_endpoint_credential(db, rt, ep, "inventory", token_id, inv_secret, actor=f"plan:{plan.id}", actor_id=plan.requested_by, reason="endpoint.update")
+    if m.remove_provision:
+        cred_service.release_endpoint_role(db, ep, "provision", actor=f"plan:{plan.id}", reason="provision credential removed")
+    elif m.provision_token_id:
+        cred_service.attach_endpoint_credential(db, rt, ep, "provision", prov_id, prov_secret, actor=f"plan:{plan.id}", actor_id=plan.requested_by, reason="endpoint.update")
+    db.execute(text("UPDATE endpoints SET trust_binding = :b WHERE id = :e"), {"b": new_b, "e": str(ep.id)})
     audit.append(db, "endpoint.updated", actor_name="worker", resource="endpoint", resource_id=str(ep.id),
                  details={"name": ep.name, "changed": sorted(m.changed()), "base_url": base_url,
                           "trust": "fingerprint" if fp else "ca_bundle", "token_id": token_id, "provision_token_id": prov_id,
@@ -379,6 +393,8 @@ def exec_remove(rt: Runtime, db: Session, m: EndpointRemove, plan, known: list[s
     refs = endpoint_refs(db, ep.id)
     if refs and not m.force_detach:
         raise ProxmoxError(f"{refs} deployment(s) reference this endpoint")
+    for role in ("inventory", "provision"):
+        cred_service.release_endpoint_role(db, ep, role, actor="endpoint.remove", reason="endpoint removed")
     db.execute(text(
         "UPDATE endpoints SET enabled = false, detached_at = now(), token_secret_enc = '\\x'::bytea, provision_token_id = NULL, "
         "provision_secret_enc = NULL, allowed_pools = '{}', allowed_storage = '{}', allowed_networks = '{}', allowed_templates = '{}', "

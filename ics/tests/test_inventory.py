@@ -89,7 +89,8 @@ def test_register_two_credential_roles_scope_defaults_and_no_secret_leak(w, sim,
         assert s not in blob
     with rt.session() as db:
         row = db.execute(text("SELECT token_secret_enc, provision_secret_enc FROM endpoints")).first()
-    assert INV[1].encode() not in bytes(row[0]) and LAB[1].encode() not in bytes(row[1])
+        encs = [bytes(r[0]) for r in db.execute(text("SELECT secret_enc FROM credentials")).all()]
+    assert row[0] is None and len(encs) == 2 and all(INV[1].encode() not in e and LAB[1].encode() not in e for e in encs)
     assert w.a1.get(f"{H}/audit/verify").json()["ok"] is True
 
 
@@ -389,8 +390,8 @@ def test_update_secret_rotation_reprobes_and_rejects_bad_credentials(w, sim, rt)
     blob = dump_everything(rt, w)
     assert "rotated-secret-0123456789" not in blob and "not-the-new-secret-01234" not in blob and INV[1] not in blob
     with rt.session() as db:
-        enc = db.execute(text("SELECT token_secret_enc FROM endpoints")).scalar()
-    assert b"rotated-secret" not in bytes(enc)
+        enc = b"".join(bytes(r[0]) for r in db.execute(text("SELECT secret_enc FROM credentials")).all())
+    assert b"rotated-secret" not in enc
 
 
 def test_update_trust_change_reprobes_and_failure_persists_nothing(w, sim, rt):

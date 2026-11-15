@@ -1,9 +1,12 @@
 import logging
 import threading
+import time
 
 from sqlalchemy import text
 
 from . import identity, monitor
+from .credentials import expiry as cred_expiry
+from .tenancy import approvals as tapprovals
 from .inventory import collector
 from .provisioning import service as prov_service
 from .actions import claim_job, reap_expired, run_job
@@ -34,6 +37,7 @@ class Worker(threading.Thread):
     def __init__(self, rt: Runtime, interval: float = 1.0):
         super().__init__(daemon=True, name="ics-worker")
         self.rt, self.interval, self._stop_evt = rt, interval, threading.Event()
+        self._next_vault = 0.0
 
     def _beat(self) -> None:
         """Own timer thread: the heartbeat keeps ticking while a long job runs (M8)."""
@@ -55,6 +59,10 @@ class Worker(threading.Thread):
                     identity.reconcile_due(self.rt)
                     collector.tick(self.rt)
                     prov_service.tick(self.rt)
+                    if time.monotonic() >= self._next_vault:
+                        self._next_vault = time.monotonic() + 60
+                        cred_expiry.tick(self.rt)
+                        tapprovals.expire_due(self.rt)
             except Exception:  # noqa: BLE001
                 log.exception("worker loop error")
             self._stop_evt.wait(self.interval)

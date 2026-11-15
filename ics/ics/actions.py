@@ -6,7 +6,7 @@ import re
 import threading
 import time
 import uuid
-from datetime import datetime, timezone
+from datetime import datetime, timedelta, timezone
 from enum import StrEnum
 from typing import Literal, Self
 from urllib.parse import urlparse
@@ -23,7 +23,9 @@ from .identity import IdentityError
 from .agentclient import AgentError
 from .proxmox import ProxmoxError, ProxmoxReadClient, check_destination, normalize_fingerprint
 from .providers.base import ProviderError, job_execution
+from .credentials import actions as cred_actions, service as cred_service
 from .runtime import Runtime
+from .tenancy import actions as ten_actions, approvals as tapprovals, policy as tpolicy, scope as tscope
 from .vault import VaultError
 
 log = logging.getLogger("ics.actions")
@@ -61,10 +63,19 @@ class ActionType(StrEnum):
     provider_permissions_reconcile = "provider.permissions.reconcile"
     provider_token_rotate = "provider.token.rotate"
     provider_token_revoke = "provider.token.revoke"
+    credential_create = "credential.create"
+    credential_replace = "credential.replace"
+    credential_rotate = "credential.rotate"
+    credential_revoke = "credential.revoke"
+    credential_test = "credential.test"
+    customer_create = "customer.create"
+    customer_update = "customer.update"
+    operator_set_scope = "operator.set_scope"
 
 
 class EndpointRegister(endpoint_actions.ScopeLists):
     model_config = ConfigDict(extra="forbid")
+    customer_id: UUID | None = Field(default=None, description="owning customer (default: the MSP-internal customer)")
     name: str = Field(pattern=r"^[a-z0-9][a-z0-9_-]{0,62}$")
     type: Literal["proxmox"]
     base_url: str
@@ -307,6 +318,7 @@ CATALOG: dict[ActionType, dict] = {
 }
 CATALOG.update({ActionType(k): v for k, v in prov_actions.CATALOG.items()})   # provider provisioning (ics/provisioning/actions.py)
 _PROV = {ActionType(k) for k in prov_actions.CATALOG}
+CATALOG.update({ActionType(k): v for k, v in {**cred_actions.SPECS, **ten_actions.SPECS}.items()})
 _IDM = {a for a in ActionType if a.value.startswith("idm.")}
 
 
@@ -321,6 +333,11 @@ class JobTimeout(Exception):
 def endpoint_binding(base_url: str, token_id: str, fingerprint: str | None, ca_pem: str | None) -> str:
     """Digest of an endpoint's trust anchors; bound into approvals and into the token's vault AAD (M5)."""
     return hashlib.sha256(json.dumps([base_url, token_id, fingerprint or "", hashlib.sha256((ca_pem or "").encode()).hexdigest()]).encode()).hexdigest()
+
+
+def needed_approvals(rt: Runtime, plan) -> int:
+    """Distinct ICS approvers required: risk tier + the customer policy's extra approvals for sensitive operations."""
+    return (rt.settings.required_approvals_high if plan.risk == "high" else 1) + (getattr(plan, "extra_approvals", 0) or 0)
 
 
 def plan_digest(action: str, params: dict, secret_enc: bytes | None, binding: str | None) -> str:
@@ -425,7 +442,8 @@ def _pre_runbook(db, rt, p: RunbookExecute):
 _PRECHECK = {ActionType.node_enroll: _pre_node_enroll, ActionType.check_create: _pre_check_create,
              ActionType.check_set_enabled: _pre_check_set_enabled, ActionType.check_bind_remediation: _pre_check_bind,
              ActionType.maintenance_create: _pre_maintenance, ActionType.alert_channel_create: _pre_channel_create,
-             ActionType.alert_channel_test: _pre_channel_test, ActionType.incident_ack: _pre_ack, ActionType.runbook_execute: _pre_runbook}
+             ActionType.alert_channel_test: _pre_channel_test, ActionType.incident_ack: _pre_ack, ActionType.runbook_execute: _pre_runbook,
+             **{ActionType(k): v for k, v in {**cred_actions.PRECHECK, **ten_actions.PRECHECK}.items()}}
 
 
 def create_plan(db: Session, rt: Runtime, user, action: ActionType, params: dict, ip: str | None) -> dict:
@@ -476,15 +494,58 @@ def create_plan(db: Session, rt: Runtime, user, action: ActionType, params: dict
         extra.update(_PRECHECK[action](db, rt, p) or {})
     if action in _PROV:
         extra.update(prov_actions.precheck(db, rt, action.value, p))
+    # ---- customer scoping + policy (agent M) ----
+    cust = full.get("customer_id") or tscope.customer_of_params(db, full)
+    if action == ActionType.endpoint_register and not cust:
+        cust = full["customer_id"] = tscope.DEFAULT_CUSTOMER
+    if action in _PROV:
+        try:
+            cust = prov_actions.bind_customer(db, action.value, p, full, cust, spec["model"], tscope.DEFAULT_CUSTOMER)
+        except ValueError as e:
+            raise PlanError(409, str(e)) from None
+    if getattr(user, "customer_ids", None) is not None and (cust is None or action.value in ("customer.create", "customer.update", "operator.set_scope")):
+        raise PlanError(404, "not found")  # scoped operators may only act on objects of their customers
+    if cust and not tscope.allowed(user, cust):
+        raise PlanError(404, "not found")
+    if action == ActionType.operator_set_scope and getattr(user, "customer_ids", None) is not None:
+        raise PlanError(403, "only an all-customers admin can change operator scopes")
+    decision = tpolicy.Decision()
+    if cust and action not in (ActionType.customer_create, ActionType.customer_update, ActionType.operator_set_scope):
+        try:
+            decision = tpolicy.evaluate(db, cust, action.value, p)
+        except tpolicy.PolicyDenied as e:
+            raise PlanError(403, str(e)) from None
+        extra.update({"customer_id": str(cust), "extra_approvals": decision.extra_approvals,
+                      "customer_approval_required": decision.customer_approval})
     pid = uuid.uuid4()
-    enc = rt.vault.encrypt(json.dumps(secret_part).encode(), f"plan:{pid}") if secret_part else None
-    digest = plan_digest(action.value, full, enc, binding)
-    auto = risk == "low"
+    if action in _PROV and secret_part:
+        # temporary provisioning credentials live ONLY in the credential subsystem (envelope encrypted, <= 15 min, wiped by the discard logic)
+        enc = None
+        cred_service.create(db, rt, provider="proxmox", customer_id=cust or tscope.DEFAULT_CUSTOMER, label=f"temporary provisioning ({action.value})",
+                            credential_type="password" if "admin_password" in secret_part else "api_token", purpose="temporary_provisioning",
+                            secret=json.dumps(secret_part), identity=(full.get("admin_username") or full.get("admin_token_id")),
+                            expires_at=datetime.now(timezone.utc) + timedelta(seconds=prov_actions.TEMP_CRED_TTL), actor=user.username,
+                            actor_id=user.id, reason=f"plan {pid}", ip=ip, cred_id=pid)
+        digest = plan_digest(action.value, full, prov_actions.temp_cred_blob(pid), binding)
+    else:
+        enc = rt.vault.encrypt(json.dumps(secret_part).encode(), f"plan:{pid}") if secret_part else None
+        digest = plan_digest(action.value, full, enc, binding)
+    auto = risk == "low" and not decision.customer_approval and decision.extra_approvals == 0
     db.execute(text(
-        "INSERT INTO plans (id, action, params, secret_enc, risk, status, requested_by, decided_at, params_hash) "
-        "VALUES (:id, :a, CAST(:p AS jsonb), :s, :r, :st, :u, :d, :h)"),
+        "INSERT INTO plans (id, action, params, secret_enc, risk, status, requested_by, decided_at, params_hash, customer_id, extra_approvals) "
+        "VALUES (:id, :a, CAST(:p AS jsonb), :s, :r, :st, :u, :d, :h, :cu, :xa)"),
         {"id": str(pid), "a": action.value, "p": audit.canon(full), "s": enc, "r": risk,
-         "st": "approved" if auto else "pending_approval", "u": user.id, "d": datetime.now(timezone.utc) if auto else None, "h": digest})
+         "st": "approved" if auto else "pending_approval", "u": user.id, "d": datetime.now(timezone.utc) if auto else None, "h": digest,
+         "cu": str(cust) if cust else None, "xa": decision.extra_approvals})
+    if decision.customer_approval:
+        try:
+            draft = tapprovals.create_draft(db, rt, user, cust, f"{action.value} requested by {user.username}",
+                                            {"provider": "proxmox", "summary": f"ICS action {action.value}", "permissions": full.get("permissions", []),
+                                             "action": action.value, "request": full}, plan_id=pid, ip=ip)
+        except tapprovals.ApprovalError as e:
+            raise PlanError(e.status if e.status in (404, 409, 422) else 422, e.msg) from None
+        db.execute(text("UPDATE plans SET customer_approval_id = :a WHERE id = :p"), {"a": draft["id"], "p": str(pid)})
+        extra["customer_approval_id"] = draft["id"]
     audit.append(db, "plan.create", actor_id=user.id, actor_name=user.username, ip=ip, resource="plan", resource_id=str(pid),
                  details={"action": action.value, "risk": risk, "params": full, "auto_approved": auto,
                           "params_hash": digest, **extra})
@@ -495,7 +556,7 @@ def create_plan(db: Session, rt: Runtime, user, action: ActionType, params: dict
         job_id = _enqueue(db, pid, action, user, ip, auto=True)
     db.commit()
     return {"plan_id": str(pid), "status": "approved" if auto else "pending_approval", "risk": risk, "job_id": job_id,
-            "params_hash": digest, "approvals_required": rt.settings.required_approvals_high if risk == "high" else 1, **extra}
+            "params_hash": digest, "approvals_required": (rt.settings.required_approvals_high if risk == "high" else 1) + decision.extra_approvals, **extra}
 
 
 def _enqueue(db: Session, plan_id, action, user, ip, auto: bool = False) -> str:
@@ -551,12 +612,14 @@ def decide_plan(db: Session, rt: Runtime, user, plan_id: UUID, approve: bool, ip
         raise PlanError(409, f"plan is already {plan.status}")
     if (datetime.now(timezone.utc) - plan.created_at).total_seconds() > rt.settings.plan_expiry_seconds:
         db.execute(text("UPDATE plans SET secret_enc = NULL, status = 'rejected', decided_at = now() WHERE id = :i"), {"i": str(plan_id)})
+        prov_actions.scrub_expired_credentials(db)
         audit.append(db, "plan.expired", actor_name="system", resource="plan", resource_id=str(plan_id))
         db.commit()
         raise PlanError(409, "plan expired")
     if not approve:
         db.execute(text("UPDATE plans SET status = 'rejected', decided_by = :u, decided_at = now(), secret_enc = NULL WHERE id = :i"),
                    {"u": user.id, "i": str(plan_id)})
+        prov_actions.scrub_expired_credentials(db)
         audit.append(db, "plan.reject", actor_id=user.id, actor_name=user.username, ip=ip, resource="plan", resource_id=str(plan_id),
                      details={"action": plan.action})
         db.commit()
@@ -567,18 +630,22 @@ def decide_plan(db: Session, rt: Runtime, user, plan_id: UUID, approve: bool, ip
     db.execute(text("INSERT INTO plan_approvals (plan_id, approver_id, params_hash) VALUES (:p, :u, :h)"),
                {"p": str(plan_id), "u": user.id, "h": plan.params_hash})
     n = db.execute(text("SELECT count(*) FROM plan_approvals WHERE plan_id = :p"), {"p": str(plan_id)}).scalar()
-    need = rt.settings.required_approvals_high if plan.risk == "high" else 1
+    need = needed_approvals(rt, plan)
     audit.append(db, "plan.approve", actor_id=user.id, actor_name=user.username, ip=ip, resource="plan", resource_id=str(plan_id),
                  details={"action": plan.action, "params_hash": plan.params_hash, "approvals": n, "required": need})
     job_id = None
     status = "pending_approval"
-    if n >= need:
+    waiting = None
+    if n >= need and plan.customer_approval_id and not tapprovals.gate_ok(db, plan.customer_approval_id):
+        waiting = "customer_approval"
+    if n >= need and waiting is None:
         db.execute(text("UPDATE plans SET status = 'approved', decided_by = :u, decided_at = now() WHERE id = :i"),
                    {"u": user.id, "i": str(plan_id)})
         job_id = _enqueue(db, plan_id, plan.action, user, ip)
         status = "approved"
     db.commit()
-    return {"plan_id": str(plan_id), "status": status, "job_id": job_id, "approvals": n, "approvals_required": need}
+    return {"plan_id": str(plan_id), "status": status, "job_id": job_id, "approvals": n, "approvals_required": need,
+            **({"waiting_for": waiting} if waiting else {})}
 
 
 # ---- execution ------------------------------------------------------------------
@@ -622,7 +689,7 @@ def reap_expired(rt: Runtime) -> int:
     return n
 
 
-_SAFE_ERRORS = (ProxmoxError, ProviderError, VaultError, PlanIntegrityError, JobTimeout, AgentError, IdentityError)
+_SAFE_ERRORS = (cred_service.CredentialUnavailable, ProxmoxError, ProviderError, VaultError, PlanIntegrityError, JobTimeout, AgentError, IdentityError)
 
 
 def _error_dict(e: BaseException, known: list[str]) -> dict:
@@ -637,9 +704,14 @@ def _error_dict(e: BaseException, known: list[str]) -> dict:
 def _verify_approval(rt: Runtime, db: Session, plan) -> None:
     """Re-verify, immediately before executing, that the plan still matches what was approved (M5) and approvals suffice."""
     binding = _ep_binding(db, plan.params["endpoint_id"]) if plan.action in endpoint_actions.BINDING_ACTIONS else None
-    digest = plan_digest(plan.action, plan.params, plan.secret_enc, binding)
+    blob = plan.secret_enc
+    if blob is None and plan.action in prov_actions.CATALOG and prov_actions.has_temp_cred(db, plan.id):
+        blob = prov_actions.temp_cred_blob(plan.id)
+    digest = plan_digest(plan.action, plan.params, blob, binding)
     appr = db.execute(text("SELECT approver_id, params_hash FROM plan_approvals WHERE plan_id = :p"), {"p": str(plan.id)}).all()
-    need = rt.settings.required_approvals_high if plan.risk == "high" else 1
+    need = needed_approvals(rt, plan)
+    if getattr(plan, "customer_approval_id", None) and not tapprovals.gate_ok(db, plan.customer_approval_id):
+        raise PlanIntegrityError("customer approval is missing; refusing to execute")
     if digest != plan.params_hash or not appr or any(a.params_hash != digest for a in appr):
         raise PlanIntegrityError("plan parameters or endpoint trust anchors changed after approval; refusing to execute")
     if len({a.approver_id for a in appr}) < need:
@@ -659,9 +731,14 @@ def run_job(rt: Runtime, job: dict) -> None:
             with rt.session() as db:
                 plan = db.execute(text("SELECT * FROM plans WHERE id = :i"), {"i": job["plan_id"]}).first()
                 _verify_approval(rt, db, plan)
-                secrets_ = json.loads(rt.vault.decrypt(plan.secret_enc, f"plan:{plan.id}")) if plan.secret_enc else {}
-                known.extend(str(v) for v in secrets_.values())
                 action = ActionType(job["action"])
+                if plan.secret_enc:
+                    secrets_ = json.loads(rt.vault.decrypt(plan.secret_enc, f"plan:{plan.id}"))
+                elif action in _PROV:
+                    secrets_ = prov_actions.load_temp_cred(rt, db, plan.id, job["id"])
+                else:
+                    secrets_ = {}
+                known.extend(str(v) for v in secrets_.values())
                 m = CATALOG[action]["model"].model_validate({**plan.params, **secrets_})
                 with job_execution(job["id"]):  # provider mutations are only reachable from here (providers.base)
                     res = _EXEC[action](rt, db, m, plan, known)
@@ -693,6 +770,7 @@ def run_job(rt: Runtime, job: dict) -> None:
                     {"s": "failed" if error else "succeeded", "r": audit.canon(result) if result else None,
                      "e": audit.canon(error) if error else None, "i": job["id"]})
                 db.execute(text("UPDATE plans SET secret_enc = NULL WHERE id = :i"), {"i": job["plan_id"]})
+                prov_actions.scrub_expired_credentials(db)   # temporary provisioning credentials die with the job
                 audit.append(db, "job.failed" if error else "job.succeeded", actor_name="worker", resource="job",
                              resource_id=str(job["id"]), details=audit.redact({"action": job["action"], "result": result, "error": error}, known))
                 db.commit()
@@ -703,8 +781,7 @@ def run_job(rt: Runtime, job: dict) -> None:
 
 
 def _client_for(rt: Runtime, ep, known: list[str]) -> ProxmoxReadClient:
-    aad = f"endpoint-token:{ep.id}:{endpoint_binding(ep.base_url, ep.token_id, ep.fingerprint_sha256, ep.ca_pem)}"
-    secret = rt.vault.decrypt(ep.token_secret_enc, aad).decode()
+    secret = cred_service.endpoint_secret(rt, ep, "inventory", actor="inventory")
     known.append(secret)
     return _new_client(rt, ep.base_url, ep.token_id, secret, ep.ca_pem, ep.fingerprint_sha256)
 
@@ -929,4 +1006,5 @@ _EXEC = {ActionType.endpoint_register: endpoint_actions.exec_register, ActionTyp
          ActionType.alert_channel_test: _exec_channel_test, ActionType.incident_ack: _exec_ack, ActionType.runbook_execute: _exec_runbook,
          **{ActionType(k): v for k, v in identity.EXECUTORS.items()},
          **{ActionType(k): v for k, v in endpoint_actions.EXECUTORS.items()},
-         **{ActionType(k): v for k, v in prov_actions.EXECUTORS.items()}}
+         **{ActionType(k): v for k, v in prov_actions.EXECUTORS.items()},
+         **{ActionType(k): v for k, v in {**cred_actions.EXECUTORS, **ten_actions.EXECUTORS}.items()}}

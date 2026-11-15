@@ -22,6 +22,7 @@ from ..auth import User, get_db, require
 from ..providers.proxmox import provisioning as pp
 from ..proxmox import ProxmoxError, ProxmoxHTTPError
 from ..runtime import Runtime
+from ..tenancy import scope as tscope
 from .model import Policy
 
 log = logging.getLogger("ics.provisioning")
@@ -60,6 +61,8 @@ def check_endpoint(rt: Runtime, db: Session, ep, st) -> dict:
     prev = st.status
     db.execute(text("UPDATE endpoint_policy SET last_drift = CAST(:d AS jsonb), last_drift_at = now(), status = :s WHERE endpoint_id = :e"),
                {"d": json.dumps(audit.sanitize(report), default=str), "s": status if st.status != "revoked" else "revoked", "e": str(ep.id)})
+    if status != prev and status in ("drift", "token_failed"):
+        _notify(db, ep, status, report)
     if status != prev:
         ev = {"drift": "provider.permissions.drift", "token_failed": "provider.token.failed"}.get(status, "provider.permissions.check")
         audit.append(db, ev, actor_name="worker", resource="endpoint", resource_id=str(ep.id),
@@ -67,6 +70,18 @@ def check_endpoint(rt: Runtime, db: Session, ep, st) -> dict:
                               "missing": {k: v.get("missing") for k, v in report["kinds"].items()},
                               "unexpected": {k: v.get("unexpected") for k, v in report["kinds"].items()}})
     return report
+
+
+def _notify(db: Session, ep, status: str, report: dict) -> int:
+    """Route drift / token failure to the alert outbox (alert_channels -> notifications -> monitor.dispatch_notifications). No secrets."""
+    kind = {"drift": "provider.permissions.drift", "token_failed": "provider.token.failed"}[status]
+    detail = (f"Integration '{ep.name}': " + ("the token(s) were rejected by Proxmox (revoked, expired or disabled)." if status == "token_failed"
+              else "permissions drifted from the approved policy (missing/unexpected privileges). Review and reconcile with an approved plan."))
+    chans = db.execute(text("SELECT id FROM alert_channels WHERE enabled")).all()
+    for ch in chans:
+        db.execute(text("INSERT INTO notifications (incident_id, channel_id, event, status, detail) VALUES (NULL, :ch, :e, 'pending', :d)"),
+                   {"ch": str(ch.id), "e": kind, "d": detail})
+    return len(chans)
 
 
 class _R:
@@ -125,11 +140,13 @@ def permissions_view(db: Session, eid) -> dict:
 def mount(app: FastAPI, rt: Runtime) -> None:
     @app.get(f"{API}/providers/{{provider_id}}/permissions")
     def permissions(provider_id: UUID, user: User = Depends(require("viewer")), db: Session = Depends(get_db)):
+        tscope.assert_endpoint(db, user, provider_id)
         return permissions_view(db, provider_id)
 
     @app.post(f"{API}/providers/{{provider_id}}/permissions/check")
     def check_now(provider_id: UUID, user: User = Depends(require("operator")), db: Session = Depends(get_db)):
         """Read-only live check with the integration's own token (no plan needed: it changes nothing in Proxmox)."""
+        tscope.assert_endpoint(db, user, provider_id)
         ep = db.execute(text("SELECT * FROM endpoints WHERE id = :i AND detached_at IS NULL AND enabled"), {"i": str(provider_id)}).first()
         st = db.execute(text("SELECT * FROM endpoint_policy WHERE endpoint_id = :i"), {"i": str(provider_id)}).first()
         if ep is None or st is None or st.status == "revoked":
@@ -142,6 +159,8 @@ def mount(app: FastAPI, rt: Runtime) -> None:
     def package(provider_id: str, package_id: UUID, format: str = "json", user: User = Depends(require("admin")), db: Session = Depends(get_db)):
         row = db.execute(text("SELECT * FROM provision_artifacts WHERE id = :i AND kind = 'package'"), {"i": str(package_id)}).first()
         if row is None:
+            raise HTTPException(404, "package not found")
+        if not tscope.allowed(user, row.customer_id) if row.customer_id else getattr(user, "customer_ids", None) is not None:
             raise HTTPException(404, "package not found")
         bound = str(row.endpoint_id) if row.endpoint_id else "unbound"
         if provider_id != bound:

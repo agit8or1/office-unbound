@@ -12,6 +12,7 @@ import pytest
 from sqlalchemy import text
 from sqlalchemy.exc import DBAPIError
 
+from ics.credentials.service import CredentialUnavailable
 from ics import audit, auth, worker
 from ics import actions as actions_mod
 from ics.actions import reap_expired
@@ -422,7 +423,7 @@ def test_m5_endpoint_trust_anchor_tamper_is_refused(team, pve, rt):
     # even if the approval-time check were bypassed, the token cannot be decrypted for a different trust anchor
     with rt.session() as db:
         ep = db.execute(text("SELECT * FROM endpoints WHERE id = :i"), {"i": eid}).first()
-        with pytest.raises(VaultError):
+        with pytest.raises((VaultError, CredentialUnavailable)):
             actions_mod._client_for(rt, ep, [])
 
 

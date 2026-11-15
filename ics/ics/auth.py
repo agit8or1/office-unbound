@@ -16,6 +16,7 @@ from sqlalchemy.orm import Session
 
 from . import audit
 from .runtime import Runtime
+from .tenancy import scope as tscope
 
 ROLES = ("viewer", "operator", "approver", "admin")
 RANK = {r: i for i, r in enumerate(ROLES)}
@@ -33,6 +34,7 @@ class User:
         self.created_by = getattr(row, "created_by", None)
         self.role_set_by = getattr(row, "role_set_by", None)
         self.csrf = csrf
+        self.customer_ids = None  # None = MSP all-customers scope; set by current_user from operator_customers
 
 
 def hash_token(t: str) -> str:
@@ -272,7 +274,9 @@ def current_user(request: Request, db: Session = Depends(get_db)) -> User:
                          details={"path": request.scope["path"]})
             db.commit()
             raise HTTPException(403, "CSRF token missing or invalid")
-    return User(row, row.csrf_token)
+    user = User(row, row.csrf_token)
+    tscope.attach(db, user, row)
+    return user
 
 
 def require(min_role: str):

@@ -577,12 +577,13 @@ def test_temporary_credentials_expire_after_15_minutes(w, owner, rt, owner_engin
               "admin_password": owner.sim.ROOT_PW, "preview_id": pv["preview_id"], "plan_hash": pv["plan_hash"]}
     p = w.plan("provider.provision.apply", params)
     with owner_engine.connect() as c:
-        assert c.execute(text("SELECT secret_enc IS NOT NULL FROM plans WHERE id = :i"), {"i": p["plan_id"]}).scalar()
+        assert c.execute(text("SELECT length(secret_enc) > 0 FROM credentials WHERE id = :i"), {"i": p["plan_id"]}).scalar()   # temp credential (vault)
         c.execute(text("UPDATE plans SET created_at = now() - interval '20 minutes' WHERE id = :i"), {"i": p["plan_id"]})
     from ics.actions import reap_expired
     reap_expired(rt)                                                                        # the reaper wipes the credential, approved or not
     with owner_engine.connect() as c:
         assert c.execute(text("SELECT secret_enc IS NULL FROM plans WHERE id = :i"), {"i": p["plan_id"]}).scalar()
+        assert c.execute(text("SELECT length(secret_enc) = 0 FROM credentials WHERE id = :i"), {"i": p["plan_id"]}).scalar()
     r1 = w.a1.post(f"{H}/plans/{p['plan_id']}/approve", headers=w.a1h)
     assert r1.status_code == 200
     r2 = w.a2.post(f"{H}/plans/{p['plan_id']}/approve", headers=w.a2h)
@@ -601,6 +602,7 @@ def test_rejected_plan_wipes_credentials(w, owner, owner_engine):
     assert w.a1.post(f"{H}/plans/{p['plan_id']}/reject", headers=w.a1h).status_code == 200
     with owner_engine.connect() as c:
         assert c.execute(text("SELECT secret_enc IS NULL FROM plans WHERE id = :i"), {"i": p["plan_id"]}).scalar()
+        assert c.execute(text("SELECT length(secret_enc) = 0 FROM credentials WHERE id = :i"), {"i": p["plan_id"]}).scalar()
 
 
 def test_requester_cannot_self_approve_and_two_approvers_needed(w, owner):

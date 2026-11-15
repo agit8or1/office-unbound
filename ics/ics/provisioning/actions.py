@@ -27,6 +27,7 @@ from sqlalchemy import text
 from sqlalchemy.orm import Session
 
 from .. import audit, endpoint_actions as ea
+from ..credentials import service as cred_service
 from ..providers.base import ProviderError
 from ..providers.proxmox import provisioning as pp
 from ..providers.proxmox.admin import ProxmoxAdminClient
@@ -42,6 +43,7 @@ SECRETS = ("admin_password", "admin_token_secret", "inventory_token_secret", "pr
 class Conn(BaseModel):
     """Either an existing endpoint, or the connection details of a cluster that is not registered yet."""
     endpoint_id: UUID | None = None
+    customer_id: UUID | None = None      # owner of a NOT-yet-registered cluster (defaults to the MSP's internal customer); must match the endpoint's
     name: str | None = Field(default=None, pattern=r"^[a-z0-9][a-z0-9_-]{0,62}$")
     base_url: str | None = None
     ca_pem: str | None = Field(default=None, max_length=100_000)
@@ -285,11 +287,12 @@ def _managed(db: Session, ep) -> dict:
     return dict(r.managed) if r else {}
 
 
-def _save_artifact(db: Session, kind: str, ep_id, plan_hash, data: dict, user) -> str:
+def _save_artifact(db: Session, kind: str, ep_id, plan_hash, data: dict, user, customer_id=None) -> str:
     aid = uuid.uuid4()
-    db.execute(text("INSERT INTO provision_artifacts (id, kind, endpoint_id, plan_hash, data, created_by) VALUES "
-                    "(:i, :k, :e, :h, CAST(:d AS jsonb), :u)"),
-               {"i": str(aid), "k": kind, "e": str(ep_id) if ep_id else None, "h": plan_hash, "d": json.dumps(data, default=str), "u": user})
+    db.execute(text("INSERT INTO provision_artifacts (id, kind, endpoint_id, plan_hash, data, created_by, customer_id) VALUES "
+                    "(:i, :k, :e, :h, CAST(:d AS jsonb), :u, :c)"),
+               {"i": str(aid), "k": kind, "e": str(ep_id) if ep_id else None, "h": plan_hash, "d": json.dumps(data, default=str), "u": user,
+                "c": str(customer_id) if customer_id else None})
     return str(aid)
 
 
@@ -391,7 +394,8 @@ def exec_preview(rt: Runtime, db: Session, m: PlanPreview, plan, known: list[str
     pl = pp.plan_for(policy, facts, pve_major=m.pve_major, managed=_managed(db, ep), prune=(m.purpose == "reconcile"), mode="A")
     pd = pl.to_dict()
     aid = _save_artifact(db, "plan", ep.id if ep else None, pd["plan_hash"],
-                         {"plan": pd, "purpose": m.purpose, "conn": {"base_url": base_url, "name": m.name}}, plan.requested_by)
+                         {"plan": pd, "purpose": m.purpose, "conn": {"base_url": base_url, "name": m.name}}, plan.requested_by,
+                         plan.customer_id)
     audit.append(db, "provider.provision.previewed", actor_name="worker", resource="plan", resource_id=str(plan.id),
                  details={"preview_id": aid, "plan_hash": pd["plan_hash"], "purpose": m.purpose, "summary": pd["summary"], "blocked": pd["blocked"]})
     return {"preview_id": aid, "plan_hash": pd["plan_hash"], "risk": pd["risk"], "summary": pd["summary"], "plan": pd}
@@ -446,7 +450,7 @@ def _register(rt: Runtime, db: Session, m, plan, known: list[str], ep, base_url,
     if ep is None:
         reg = EndpointRegister(name=m.name, type="proxmox", base_url=base_url, token_id=inv_id, token_secret=inv_sec,
                                provision_token_id=prov[0] if prov else None, provision_token_secret=prov[1] if prov else None,
-                               **_scope_kwargs(policy), **trust)
+                               customer_id=getattr(m, "customer_id", None), **_scope_kwargs(policy), **trust)
         return ea.exec_register(rt, db, reg, plan, known)["endpoint_id"]
     upd = ea.EndpointUpdate(endpoint_id=ep.id, token_id=inv_id, token_secret=inv_sec,
                             **({"provision_token_id": prov[0], "provision_token_secret": prov[1]} if prov else {"remove_provision": bool(ep.provision_token_id)}),
@@ -549,11 +553,8 @@ def _verif_public(v: dict) -> dict:
 
 
 def _vault_token(rt: Runtime, ep, kind: str) -> str:
-    from ..actions import endpoint_binding
-    b = endpoint_binding(ep.base_url, ep.token_id, ep.fingerprint_sha256, ep.ca_pem)
-    if kind == "inventory":
-        return rt.vault.decrypt(ep.token_secret_enc, f"endpoint-token:{ep.id}:{b}").decode()
-    return rt.vault.decrypt(ep.provision_secret_enc, f"endpoint-provision:{ep.id}:{b}:{ep.provision_token_id}").decode()
+    """Token secrets live only in the credential subsystem (ics.credentials); no parallel storage."""
+    return cred_service.endpoint_secret(rt, ep, kind, actor="provisioning")
 
 
 @safe
@@ -568,9 +569,9 @@ def exec_package(rt: Runtime, db: Session, m: ProvisionPackage, plan, known: lis
     pid = str(uuid.uuid4())
     files = pp.ProxmoxPackageGenerator(m.policy).generate(pl, {"package_id": pid})
     pd = pl.to_dict()
-    db.execute(text("INSERT INTO provision_artifacts (id, kind, endpoint_id, plan_hash, data, created_by) VALUES "
-                    "(:i, 'package', :e, :h, CAST(:d AS jsonb), :u)"),
-               {"i": pid, "e": str(ep.id) if ep else None, "h": pd["plan_hash"],
+    db.execute(text("INSERT INTO provision_artifacts (id, kind, endpoint_id, plan_hash, data, created_by, customer_id) VALUES "
+                    "(:i, 'package', :e, :h, CAST(:d AS jsonb), :u, :c)"),
+               {"i": pid, "e": str(ep.id) if ep else None, "h": pd["plan_hash"], "c": str(plan.customer_id) if plan.customer_id else None,
                 "d": json.dumps({"files": files, "plan": pd, "design": pp.stored_design(pl), "policy": m.policy.model_dump(mode="json")}), "u": plan.requested_by})
     audit.append(db, "provider.provision.package_generated", actor_name="worker", resource="package", resource_id=pid,
                  details={"plan_hash": pd["plan_hash"], "files": sorted(files), "summary": pd["summary"]})
@@ -730,6 +731,8 @@ def exec_revoke(rt: Runtime, db: Session, m: TokenRevoke, plan, known: list[str]
                         undone.append(f"role {r}")
         finally:
             admin.discard()
+    for role in ("inventory", "provision"):
+        cred_service.release_endpoint_role(db, ep, role, actor="provider.token.revoke", reason="integration revoked")   # ciphertext destroyed
     db.execute(text("UPDATE endpoints SET enabled = false, token_secret_enc = '\\x'::bytea, provision_token_id = NULL, provision_secret_enc = NULL "
                     "WHERE id = :i"), {"i": str(ep.id)})
     db.execute(text("UPDATE endpoint_policy SET status = 'revoked', updated_at = now() WHERE endpoint_id = :i"), {"i": str(ep.id)})
@@ -739,14 +742,68 @@ def exec_revoke(rt: Runtime, db: Session, m: TokenRevoke, plan, known: list[str]
     return {"endpoint_id": str(ep.id), "remote": remote, "not_removed": undone, "stored_credentials": "destroyed", "endpoint": "disabled"}
 
 
+from . import customer_plan as _customer_plan  # noqa: E402
+_customer_plan.register()   # the customer approval link shows the real permission plan and package
+
 EXECUTORS = {"provider.provision.plan_preview": exec_preview, "provider.provision.apply": exec_apply, "provider.provision.package": exec_package,
              "provider.credential.import": exec_import, "provider.permissions.reconcile": exec_reconcile, "provider.token.rotate": exec_rotate,
              "provider.token.revoke": exec_revoke}
 
 
 def scrub_expired_credentials(db: Session) -> int:
-    """Wipe temporary credentials from provisioning plans older than the TTL (and from plans that were rejected/never ran)."""
+    """Discard temporary provisioning credentials: (1) legacy plan-row secrets of provisioning plans past the TTL / rejected, and (2) every
+    `temporary_provisioning` credential that is expired, whose plan was rejected or vanished, or whose job has finished (ciphertext destroyed)."""
     r = db.execute(text("UPDATE plans SET secret_enc = NULL WHERE action IN ('provider.provision.plan_preview', 'provider.provision.apply', "
                         "'provider.permissions.reconcile', 'provider.token.rotate', 'provider.token.revoke') AND secret_enc IS NOT NULL AND "
                         "(created_at < now() - make_interval(secs => :t) OR status = 'rejected')"), {"t": TEMP_CRED_TTL})
-    return r.rowcount or 0
+    n = r.rowcount or 0
+    rows = db.execute(text(
+        "SELECT c.id FROM credentials c LEFT JOIN plans p ON p.id = c.id WHERE c.purpose = 'temporary_provisioning' AND c.purged_at IS NULL AND "
+        "(c.expires_at <= now() OR p.created_at < now() - make_interval(secs => :t) OR p.id IS NULL OR p.status = 'rejected' OR EXISTS (SELECT 1 FROM jobs j WHERE j.plan_id = p.id "
+        "AND j.status IN ('succeeded', 'failed'))) FOR UPDATE OF c"), {"t": TEMP_CRED_TTL}).all()
+    for c in rows:
+        cred_service.revoke(db, c.id, actor="system", reason="temporary provisioning credential discarded")
+        n += 1
+    return n
+
+
+# ---------------------------------------------------------------------------------------------------- integration with the credential vault / policy
+def temp_cred_blob(plan_id) -> bytes:
+    """What the plan digest binds in place of an encrypted secret blob: the id of the (write-once) temporary credential."""
+    return f"credential:{plan_id}".encode()
+
+
+def has_temp_cred(db: Session, plan_id) -> bool:
+    return db.execute(text("SELECT 1 FROM credentials WHERE id = :i AND purpose = 'temporary_provisioning'"), {"i": str(plan_id)}).first() is not None
+
+
+def load_temp_cred(rt: Runtime, db: Session, plan_id, job_id) -> dict:
+    """Decrypt the plan's temporary credentials (inside the job only). Unavailable (expired/discarded) -> a job error."""
+    if not has_temp_cred(db, plan_id):
+        return {}
+    try:
+        return json.loads(cred_service.get_secret(rt, plan_id, use="provision.temporary", actor=f"job:{job_id}"))
+    except cred_service.CredentialUnavailable:
+        raise ProxmoxError("the temporary provisioning credentials are no longer available (expired, rejected or already discarded)") from None
+
+
+def bind_customer(db: Session, action: str, p, full: dict, cust, model, default_customer: str):
+    """Customer a provider.* plan belongs to (policy + scoping key). Endpoint-bound -> the endpoint's customer; an explicit customer_id must agree;
+    unbound -> explicit or the MSP's internal customer. Referenced previews/packages must belong to the same customer."""
+    ep_cust = None
+    eid = getattr(p, "endpoint_id", None)
+    if eid is not None:
+        r = db.execute(text("SELECT customer_id FROM endpoints WHERE id = :i"), {"i": str(eid)}).first()
+        ep_cust = str(r.customer_id) if r else None
+    explicit = full.get("customer_id")
+    if ep_cust and explicit and str(explicit) != ep_cust:
+        raise ValueError("customer_id does not match the endpoint's customer")
+    cust = ep_cust or (str(explicit) if explicit else None) or (cust and str(cust)) or default_customer
+    if "customer_id" in model.model_fields and eid is None:
+        full["customer_id"] = cust
+    for k, kind in (("preview_id", "plan"), ("package_id", "package")):
+        if getattr(p, k, None) is not None:
+            art = _artifact(db, getattr(p, k), kind)
+            if art is not None and art.customer_id is not None and str(art.customer_id) != cust:
+                raise ValueError(f"{k} belongs to another customer")
+    return cust
