@@ -58,6 +58,13 @@ class World:
         self.kc: dict = {}
         self.gx: dict = {}
         self.stuck_imap = False
+        self.app_tokens: dict = {}          # uid -> number of live OpenCloud app tokens
+        self.devices: dict = {}             # uid -> {device_id: wipe status}
+        self.picks_up_after: int | None = None   # wipe is "delivered" after this many gromox.devices polls (None: never)
+        self.polls = 0
+        self.pw_at_wipe = None
+        self.kicked: list = []
+        self.revoke_ok = True
         self.passwords: dict = {}
         self.calls: list = []
         self.mas: dict = {}  # uid -> {"id","locked","deactivated","sessions"}
@@ -159,6 +166,31 @@ def world(monkeypatch):
             return {"uid": uid, "state": {"exists": bool(r), **(r or {})}, "maildir_mode": (r or {}).get("mode")}
         if action == "opencloud.check_user":
             return {"uid": uid, "resolved": bool(e) and not e["locked"]}
+        if action == "opencloud.revoke_app_tokens":
+            if not e or e["locked"]:
+                return {"uid": uid, "resolved": False, "ok": False}
+            n = w.app_tokens.get(uid, 0)
+            if w.revoke_ok:
+                w.app_tokens[uid] = 0
+            return {"uid": uid, "resolved": True, "ok": w.revoke_ok, "listed": n + 1, "revoked": n if w.revoke_ok else 0, "remaining": 0 if w.revoke_ok else n,
+                    "temp_token_dead": True}
+        if action == "gromox.kill_sessions":
+            w.kicked.append(uid)
+            return {"uid": uid, "kick_sent": True}
+        if action in ("gromox.wipe_devices", "gromox.devices"):
+            devs = w.devices.get(uid, {})
+            if action == "gromox.wipe_devices":
+                w.pw_at_wipe = w.passwords.get(uid)
+                w.polls = 0
+                for d in devs:
+                    devs[d] = max(devs[d], 2)
+            else:
+                w.polls += 1
+                if w.picks_up_after is not None and w.polls >= w.picks_up_after:
+                    for d in devs:
+                        devs[d] = 4
+            names = {0: "none", 2: "wipe_pending", 4: "wipe_delivered", 8: "wiped_acknowledged"}
+            return {"uid": uid, "devices": [{"device": d, "status": s, "status_name": names[s], "last_sync": 1, "history": []} for d, s in sorted(devs.items())]}
         raise AssertionError(action)
 
     monkeypatch.setattr(identity, "Directory", FakeDir)

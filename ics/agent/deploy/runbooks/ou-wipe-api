@@ -1,0 +1,136 @@
+#!/usr/bin/python3
+"""Minimal implementation of the grommunio-admin-api WIPE contract that grommunio-sync consumes (config.php ADMIN_API_WIPE_ENDPOINT /
+ADMIN_API_POLICY_ENDPOINT), for nodes that run grommunio-sync WITHOUT the full admin-api. Backed by the same Gromox tables (`user_devices`,
+`user_device_history`, schema n93) the real admin-api uses, so the data stays compatible if the real admin-api is installed later.
+
+  GET  /api/v1/service/wipe/<user>?devices=a,b   -> {"data": {"<device>": {"status": <int>}}}      (404 unknown user)
+  POST /api/v1/service/wipe/<user>?devices=a     {"status": 4|8|32|64, "remoteIP": "...", "time": <epoch>}
+        only the device ACKNOWLEDGEMENTS grommunio-sync sends (REQUESTED=4 / WIPED=8, account-only 32 / 64) are accepted, and only for a device whose
+        wipe was requested by an administrator (status already 2/16 or higher). A wipe REQUEST (status 2) can NOT be created over HTTP: only the
+        root helper `ou-gw-user wipe` (started by the ICS agent runbook) writes it. -> 201
+  GET  /api/v1/service/syncPolicy/<user>          -> {"data": {}}   (empty policy: no restrictions are pushed to devices)
+Listens on [::1]:8080 only (sync's default endpoint), runs as user ou-wipe with a DB account that can touch only those two tables.
+Config: /etc/ou-rb/wipe-api.json {"db_user", "db_password", "db_name"}"""
+import json
+import re
+import sys
+import time
+import urllib.parse
+from http.server import BaseHTTPRequestHandler, HTTPServer
+
+import pymysql
+
+USER_RE = re.compile(r"^[A-Za-z0-9._%+-]{1,64}@[A-Za-z0-9.-]{1,190}$")
+DEV_RE = re.compile(r"^[A-Za-z0-9]{1,64}$")
+ACK = {4, 8, 32, 64}
+POLICY_OK = 1   # grommunio-sync reports "policy deployed" (status 1) after phase 2 of a normal provisioning; it must be answered 201 or sync drops the policy key
+CFG = json.load(open("/etc/ou-rb/wipe-api.json"))
+
+
+def db():
+    return pymysql.connect(unix_socket="/run/mysqld/mysqld.sock", user=CFG["db_user"], password=CFG["db_password"], database=CFG["db_name"], autocommit=False)
+
+
+class H(BaseHTTPRequestHandler):
+    server_version = "ou-wipe-api"
+
+    def log_message(self, fmt, *a):
+        sys.stderr.write("%s\n" % (fmt % a))
+
+    def _send(self, code, obj):
+        b = json.dumps(obj).encode()
+        self.send_response(code)
+        self.send_header("Content-Type", "application/json")
+        self.send_header("Content-Length", str(len(b)))
+        self.end_headers()
+        self.wfile.write(b)
+
+    def _route(self):
+        u = urllib.parse.urlsplit(self.path)
+        m = re.fullmatch(r"/api/v1/service/(wipe|syncPolicy)/([^/]+)", u.path)
+        if not m:
+            return None
+        user = urllib.parse.unquote(m.group(2))
+        if not USER_RE.match(user):
+            return None
+        q = urllib.parse.parse_qs(u.query)
+        devs = [d for d in (q.get("devices", [""])[0].split(",")) if d]
+        if any(not DEV_RE.match(d) for d in devs):
+            return None
+        return m.group(1), user, devs
+
+    def do_GET(self):
+        r = self._route()
+        if r is None:
+            return self._send(404, {"message": "not found"})
+        kind, user, devs = r
+        if kind == "syncPolicy":
+            return self._send(200, {"data": {}})
+        c = db()
+        try:
+            cur = c.cursor()
+            cur.execute("SELECT id FROM users WHERE username=%s", (user,))
+            row = cur.fetchone()
+            if row is None:
+                return self._send(404, {"message": "User not found"})
+            cur.execute("SELECT device_id, status FROM user_devices WHERE user_id=%s", (row[0],))
+            have = {d: int(s) for d, s in cur.fetchall()}
+        finally:
+            c.close()
+        if devs:
+            data = {d: {"status": have.get(d, 0)} for d in devs}
+        else:
+            data = {d: {"status": s} for d, s in have.items()}
+        self._send(200, {"data": data})
+
+    def do_POST(self):
+        r = self._route()
+        if r is None or r[0] != "wipe":
+            return self._send(404, {"message": "not found"})
+        _, user, devs = r
+        try:
+            n = int(self.headers.get("Content-Length", "0"))
+            body = json.loads(self.rfile.read(min(n, 4096)) or b"{}")
+            status = int(body["status"])
+            remote = str(body.get("remoteIP", self.client_address[0]))[:64]
+            ts = int(body.get("time", time.time()))
+        except (ValueError, KeyError, TypeError):
+            return self._send(400, {"message": "bad request"})
+        if status not in ACK | {POLICY_OK} or not devs:
+            return self._send(403, {"message": "only device acknowledgements are accepted here"})
+        c = db()
+        try:
+            cur = c.cursor()
+            cur.execute("SELECT id FROM users WHERE username=%s", (user,))
+            row = cur.fetchone()
+            if row is None:
+                return self._send(404, {"message": "User not found"})
+            done = 0
+            for d in devs:
+                cur.execute("SELECT id, status FROM user_devices WHERE user_id=%s AND device_id=%s FOR UPDATE", (row[0], d))
+                dev = cur.fetchone()
+                if status == POLICY_OK:                 # never overwrites a requested/delivered wipe
+                    if dev is None:
+                        cur.execute("INSERT INTO user_devices (user_id, device_id, status) VALUES (%s, %s, 1)", (row[0], d))
+                    elif int(dev[1]) < 2:
+                        cur.execute("UPDATE user_devices SET status=1 WHERE id=%s", (dev[0],))
+                    done += 1
+                    continue
+                if dev is None or int(dev[1]) < 2:      # no wipe was requested for this device
+                    continue
+                cur.execute("UPDATE user_devices SET status=%s WHERE id=%s", (status, dev[0]))
+                cur.execute("INSERT INTO user_device_history (user_device_id, time, remote_ip, status) VALUES (%s, FROM_UNIXTIME(%s), %s, %s)",
+                            (dev[0], ts, remote, status))
+                done += 1
+            c.commit()
+        finally:
+            c.close()
+        self._send(201 if done else 403, {"message": "Success." if done else "no wipe pending"})
+
+
+class V6(HTTPServer):
+    address_family = 10   # AF_INET6
+
+
+if __name__ == "__main__":
+    V6(("::1", 8080), H).serve_forever()
