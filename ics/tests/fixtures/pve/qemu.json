@@ -1,0 +1,2 @@
+{"data":[{"vmid":100,"name":"web01","status":"running","qmpstatus":"running","cpus":2,"cpu":0.0113,"mem":1610612736,"maxmem":4294967296,"disk":0,"maxdisk":34359738368,"diskread":812345678,"diskwrite":1234567890,"netin":98765432,"netout":12345678,"uptime":86400,"pid":2345,"serial":1},
+{"vmid":9000,"name":"debian12-tmpl","status":"stopped","qmpstatus":"stopped","cpus":1,"cpu":0,"mem":0,"maxmem":2147483648,"disk":0,"maxdisk":8589934592,"diskread":0,"diskwrite":0,"netin":0,"netout":0,"uptime":0,"template":1}]}

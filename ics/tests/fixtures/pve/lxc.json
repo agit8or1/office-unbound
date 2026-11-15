@@ -1,0 +1,1 @@
+{"data":[{"vmid":200,"name":"ct-dns","status":"running","type":"lxc","cpus":1,"cpu":0.0004,"mem":52428800,"maxmem":536870912,"swap":0,"maxswap":536870912,"disk":623050752,"maxdisk":4294967296,"diskread":0,"diskwrite":0,"netin":4567,"netout":1234,"uptime":86000}]}

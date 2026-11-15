@@ -1,0 +1,2 @@
+{"data":[{"iface":"eno1","type":"eth","active":1,"autostart":1,"exists":1,"method":"manual","method6":"manual","families":["inet"],"priority":2},
+{"iface":"vmbr0","type":"bridge","active":1,"autostart":1,"exists":1,"bridge_ports":"eno1","bridge_stp":"off","bridge_fd":"0","cidr":"10.0.0.11/24","address":"10.0.0.11","netmask":"24","gateway":"10.0.0.1","method":"static","method6":"manual","families":["inet"],"priority":3}]}
