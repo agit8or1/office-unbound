@@ -10,7 +10,11 @@ Source of truth: the authoritative OpenLDAP. A person gets a phone only if their
   ou-pbx list                         no secrets.
 
 Credential handling: only md5_cred = MD5(user:realm:password) is stored on the PBX (Asterisk `auth_type=md5`); the clear password is
-returned to the caller once and is never written to disk or logs by this code. (Voicemail PINs, which Asterisk needs in clear in
+returned to the caller once and is never written to disk or logs by this code. NOTE: that HA1 is password-EQUIVALENT for SIP digest auth
+(whoever reads it can register as the device), so it is as sensitive as the password: state and generated config are root/ou-pbx-only, and
+web credentials are short-lived (see below).
+Web credentials carry an expiry (`expires`, tied to the Keycloak session of the softphone page): sync() drops expired devices, kicks their
+registrations, and a re-issue kicks the previous contact. Logout / back-channel logout / LDAP lock revoke immediately (security review 4, M10). (Voicemail PINs, which Asterisk needs in clear in
 voicemail.conf, are the one exception and are separate from SIP credentials.)
 
 Fail-static: if LDAP is unreachable or the answer looks wrong, sync raises and leaves the running config untouched.
@@ -36,6 +40,14 @@ EXT_RE = re.compile(r"^[1-9][0-9]{3}$")
 UID_RE = re.compile(r"^[a-z][a-z0-9_-]{0,30}$")
 DEV_RE = re.compile(r"^[a-z]{2,10}$")
 DEVICE_KINDS = ("web", "native", "desk")
+_NAME_BAD = re.compile(r"[^\w .'\-]", re.U)
+
+
+def safe_name(name, uid):
+    """Display name for callerid / voicemail.conf: letters, digits, space . ' - only. `,` `;` `|` `=` `"` `\\` newlines would shift voicemail.conf
+    fields or comment out the rest of the line (L7)."""
+    n = " ".join(_NAME_BAD.sub("", str(name)).split())[:60]
+    return n or uid
 EMERGENCY = ("112", "911", "999", "110", "933")
 
 _cfg = None
@@ -75,7 +87,9 @@ def ldap_users():
             continue
         seen.add(ext)
         locked = bool(e.pwdAccountLockedTime.values)
-        out[uid] = {"uid": uid, "ext": ext, "mail": str(e.mail.value or ""), "name": str(e.displayName.value or uid), "locked": locked}
+        mail = str(e.mail.value or "")
+        out[uid] = {"uid": uid, "ext": ext, "mail": mail if re.fullmatch(r"[A-Za-z0-9._%+-]{1,64}@[A-Za-z0-9.-]{1,190}", mail) else "",
+                    "name": safe_name(e.displayName.value or uid, uid), "locked": locked}
     conn.unbind()
     return out
 
@@ -136,6 +150,8 @@ def render(users, st):
         devs = st["devices"].get(uid, {})
         names = []
         for dev, rec in sorted(devs.items()):
+            if rec.get("expires") and rec["expires"] <= time.time():
+                continue
             ep = "%s.%s" % (uid, dev)
             names.append(ep)
             endpoints.append(ep)
@@ -199,6 +215,14 @@ def sync(users=None):
     with Lock():
         users = users if users is not None else ldap_users()
         st = load_state()
+        # purge expired device credentials (web credentials live as long as the Keycloak session of the softphone page)
+        now = time.time()
+        for uid in list(st["devices"]):
+            for dev in [d for d, r in st["devices"][uid].items() if r.get("expires") and r["expires"] <= now]:
+                log("credential of %s.%s expired" % (uid, dev))
+                del st["devices"][uid][dev]
+            if not st["devices"][uid]:
+                del st["devices"][uid]
         # purge credentials of users that are gone or locked (a re-enabled user must be issued new ones)
         for uid in list(st["devices"]):
             if uid not in users or users[uid]["locked"]:
@@ -228,8 +252,9 @@ def sync(users=None):
         return {"changed": ch, "endpoints": endpoints, "removed": sorted(old - set(endpoints))}
 
 
-def issue(uid, dev):
-    """Create/rotate credential. Returns the clear password ONCE (caller must hand it to the device and drop it)."""
+def issue(uid, dev, ttl=None):
+    """Create/rotate credential. Returns the clear password ONCE (caller must hand it to the device and drop it).
+    ttl (seconds): the credential expires then (sync() removes it); a rotation kicks the contact registered with the previous credential."""
     if not (UID_RE.match(uid) and DEV_RE.match(dev)):
         raise ValueError("bad user/device")
     c = cfg()
@@ -241,11 +266,17 @@ def issue(uid, dev):
         st = load_state()
         pw = secrets.token_hex(16)
         ep = "%s.%s" % (uid, dev)
-        st["devices"].setdefault(uid, {})[dev] = {"md5": md5_cred(ep, c["realm"], pw), "created": int(time.time())}
+        rotated = dev in st["devices"].get(uid, {})
+        rec = {"md5": md5_cred(ep, c["realm"], pw), "created": int(time.time())}
+        if ttl:
+            rec["expires"] = int(time.time()) + int(ttl)
+        st["devices"].setdefault(uid, {})[dev] = rec
         save_state(st)
     sync(users)
+    if rotated:
+        kick(ep)         # the old password must stop working NOW, not when the old registration times out (<= 600 s)
     return {"username": ep, "password": pw, "extension": u["ext"], "display_name": u["name"], "realm": c["realm"],
-            "domain": c["domain"], "wss": c["wss_url"], "tls_port": 5061, "outbound_proxy": c["domain"]}
+            "domain": c["domain"], "wss": c["wss_url"], "tls_port": 5061, "outbound_proxy": c["domain"], "expires_in": int(ttl) if ttl else None}
 
 
 def revoke(uid, dev=None):
@@ -265,6 +296,7 @@ def main():
     sp.add_parser("sync")
     sp.add_parser("list")
     a = sp.add_parser("issue"); a.add_argument("--user", required=True); a.add_argument("--device", required=True, choices=DEVICE_KINDS)
+    a.add_argument("--ttl", type=int, default=None, help="seconds until the credential expires (default: never)")
     r = sp.add_parser("revoke"); r.add_argument("--user", required=True); r.add_argument("--device")
     ns = ap.parse_args()
     if ns.cmd == "sync":
@@ -273,7 +305,7 @@ def main():
         st = load_state()
         print(json.dumps({u: sorted(d) for u, d in st["devices"].items()}))
     elif ns.cmd == "issue":
-        print(json.dumps(issue(ns.user, ns.device)))
+        print(json.dumps(issue(ns.user, ns.device, ns.ttl)))
     elif ns.cmd == "revoke":
         print(json.dumps(revoke(ns.user, ns.device)))
 

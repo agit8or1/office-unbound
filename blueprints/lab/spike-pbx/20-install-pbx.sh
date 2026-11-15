@@ -6,17 +6,18 @@ ST=/root/stage
 export DEBIAN_FRONTEND=noninteractive
 AST_VER="1:20.6.0~dfsg+~cs6.13.40431414-2build5"
 apt-get install -y -qq --no-install-recommends "asterisk=$AST_VER" "asterisk-modules=$AST_VER" "asterisk-config=$AST_VER" asterisk-core-sounds-en \
-  nginx-light python3-fastapi python3-uvicorn python3-ldap3 python3-httpx python3-jwt baresip sox >/dev/null
+  nginx-light python3-fastapi python3-uvicorn python3-ldap3 python3-httpx python3-jwt python3-cryptography baresip sox >/dev/null
 apt-mark hold asterisk asterisk-modules asterisk-config >/dev/null
 
 # ---- users, dirs, secrets
 id ou-pbx >/dev/null 2>&1 || useradd --system --home /var/lib/ou-pbx --shell /usr/sbin/nologin -G asterisk ou-pbx
+id ou-phone >/dev/null 2>&1 || useradd --system --home /nonexistent --shell /usr/sbin/nologin ou-phone   # M11: the web app is NOT in group asterisk
 install -d -m 0700 -o ou-pbx -g ou-pbx /var/lib/ou-pbx
 install -d -m 0755 /etc/ou-pbx /opt/ou-pbx /opt/ou-phone
 install -d -m 2770 -o ou-pbx -g asterisk /etc/asterisk/ou
 install -d -m 0755 /etc/asterisk/ou-templates
 install -m 0640 -o root -g ou-pbx "$ST/secrets/ldap-bind-password" /etc/ou-pbx/ldap-bind.pw
-install -m 0640 -o root -g ou-pbx "$ST/secrets/kc-ou-phone-client-secret" /etc/ou-pbx/phone-client-secret
+install -m 0640 -o root -g ou-phone "$ST/secrets/kc-ou-phone-client-secret" /etc/ou-pbx/phone-client-secret
 install -m 0644 "$ST/secrets/gw1-ca.crt" /etc/ou-lab/gw1-ca.crt
 install -m 0644 /etc/ou-lab/tls/pbx.crt /etc/asterisk/pbx.crt
 install -m 0640 -o root -g asterisk /etc/ou-lab/tls/pbx.key /etc/asterisk/pbx.key
@@ -31,6 +32,7 @@ cat > /etc/ou-pbx/ou-pbx.json <<'EOF'
 }
 EOF
 install -m 0644 "$ST/pbx/ou_pbx.py" /opt/ou-pbx/ou_pbx.py
+install -m 0644 "$ST/pbx/ou_pbx_helper.py" /opt/ou-pbx/ou_pbx_helper.py
 install -m 0755 "$ST/pbx/ou-pbx-mail" /usr/local/sbin/ou-pbx-mail
 printf '#!/bin/sh\nexec python3 /opt/ou-pbx/ou_pbx.py "$@"\n' > /usr/local/bin/ou-pbx; chmod 0755 /usr/local/bin/ou-pbx
 cp -r "$ST/phone/static" /opt/ou-phone/ && install -m 0644 "$ST/phone/phone_app.py" /opt/ou-phone/phone_app.py
@@ -87,6 +89,10 @@ noload => res_phoneprov.so
 noload => res_hep.so
 noload => app_voicemail_imap.so
 noload => app_voicemail_odbc.so
+noload => pbx_lua.so
+noload => pbx_ael.so
+noload => res_xmpp.so
+noload => chan_motif.so
 EOF
 printf '[general]\nenabled=no\n' > /etc/asterisk/manager.conf
 printf '[general]\nenabled=no\n' > /etc/asterisk/ari.conf
@@ -120,23 +126,58 @@ systemctl enable asterisk; systemctl restart asterisk
 sleep 3; systemctl is-active asterisk
 
 # ---- softphone + sync units, nginx
-cat > /etc/systemd/system/ou-phone.service <<'EOF'
+# M11: the helper alone holds the asterisk group + config write access; it listens on a unix socket usable only by ou-phone (0660 ou-pbx:ou-phone + SO_PEERCRED)
+cat > /etc/systemd/system/ou-pbx-helper.socket <<'EOF'
 [Unit]
-Description=Office Unbound web softphone + SIP credential endpoint
-After=network-online.target asterisk.service
+Description=Office Unbound PBX provisioning helper socket (ou-phone only)
+[Socket]
+ListenStream=/run/ou-pbx/helper.sock
+SocketUser=ou-pbx
+SocketGroup=ou-phone
+SocketMode=0660
+DirectoryMode=0750
+[Install]
+WantedBy=sockets.target
+EOF
+cat > /etc/systemd/system/ou-pbx-helper.service <<'EOF'
+[Unit]
+Description=Office Unbound PBX provisioning helper (issue/revoke web credentials, nothing else)
+After=asterisk.service
 [Service]
 User=ou-pbx
 Group=ou-pbx
 SupplementaryGroups=asterisk
+Environment=OU_PBX_LIB=/opt/ou-pbx OU_HELPER_PEER_USER=ou-phone
+ExecStart=/usr/bin/python3 /opt/ou-pbx/ou_pbx_helper.py
+NoNewPrivileges=true
+ProtectSystem=strict
+ProtectHome=true
+PrivateTmp=true
+ReadWritePaths=/var/lib/ou-pbx /etc/asterisk/ou /run/asterisk
+RestrictAddressFamilies=AF_UNIX AF_INET AF_INET6
+MemoryMax=160M
+EOF
+cat > /etc/systemd/system/ou-phone.service <<'EOF'
+[Unit]
+Description=Office Unbound web softphone + SIP credential endpoint (unprivileged)
+After=network-online.target ou-pbx-helper.socket
+Requires=ou-pbx-helper.socket
+[Service]
+User=ou-phone
+Group=ou-phone
 WorkingDirectory=/opt/ou-phone
-Environment=CLIENT_SECRET_FILE=/etc/ou-pbx/phone-client-secret OU_PBX_LIB=/opt/ou-pbx STATIC_DIR=/opt/ou-phone/static
+Environment=CLIENT_SECRET_FILE=/etc/ou-pbx/phone-client-secret STATIC_DIR=/opt/ou-phone/static OU_HELPER_SOCKET=/run/ou-pbx/helper.sock WSS_URL=wss://pbx.ou-lab.internal:8089/ws
 ExecStart=/usr/bin/python3 -m uvicorn phone_app:app --host 127.0.0.1 --port 8095 --no-access-log
 Restart=on-failure
 NoNewPrivileges=true
 ProtectSystem=strict
 ProtectHome=true
 PrivateTmp=true
-ReadWritePaths=/var/lib/ou-pbx /etc/asterisk/ou /run/asterisk
+PrivateDevices=true
+ProtectKernelTunables=true
+CapabilityBoundingSet=
+RestrictAddressFamilies=AF_UNIX AF_INET AF_INET6
+InaccessiblePaths=/etc/asterisk /var/lib/ou-pbx /run/asterisk
 MemoryMax=160M
 [Install]
 WantedBy=multi-user.target
@@ -173,7 +214,9 @@ server { listen 80 default_server; return 444; }
 EOF
 rm -f /etc/nginx/sites-enabled/default; ln -sf /etc/nginx/sites-available/phone.conf /etc/nginx/sites-enabled/phone.conf
 systemctl daemon-reload
-systemctl enable --now ou-phone ou-pbx-sync.timer
+systemctl enable --now ou-pbx-helper.socket ou-phone ou-pbx-sync.timer
 sed -i "s/^worker_processes.*/worker_processes 1;/" /etc/nginx/nginx.conf
 nginx -t && systemctl restart nginx
 sleep 2; curl -s http://127.0.0.1:8095/healthz; echo
+# L7: provisioning secrets must not stay behind in the staging dir (they are installed with their final owners above)
+find /root/stage/secrets -type f -exec shred -u {} + 2>/dev/null; rmdir /root/stage/secrets 2>/dev/null || true
