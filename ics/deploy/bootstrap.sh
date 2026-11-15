@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# Office Unbound ICS - one-shot, idempotent installer for a FRESH Ubuntu 24.04 host. Run as root from a checkout:
+# Office Unbound ICS - one-shot, idempotent installer for a FRESH Ubuntu 24.04 (or Debian 12) host. Run as root from a checkout:
 #   sudo ics/deploy/bootstrap.sh --listen-ip 192.0.2.10 --allow-cidr 192.0.2.0/24 --hostname ics.example.internal --admin alice
 # Re-running is a no-op apart from code updates (it compares file contents/modes and only touches what differs).
 # Manual steps this replaces are recorded in docs/admin/installing-the-ics.md and docs/status/host-changes.md.
@@ -19,6 +19,8 @@ export LC_ALL=C
 LISTEN_IP=""; HOSTNAME_FQDN=""; ADMIN=""; SKIP_TLS=0; SKIP_FW=0; UNINSTALL=0; PURGE=0
 TLS_CERT=""; TLS_KEY=""; ALLOW=()
 CHANGES=()
+OS_RELEASE_FILE="${OU_OS_RELEASE:-/etc/os-release}"   # overridable only so the OS check can be unit-tested
+CHECK_OS=0
 
 usage() {
 cat <<'EOF'
@@ -50,10 +52,23 @@ while [ $# -gt 0 ]; do
     --skip-firewall) SKIP_FW=1; shift;;
     --uninstall) UNINSTALL=1; shift;;
     --purge) PURGE=1; shift;;
+    --check-os) CHECK_OS=1; shift;;
     -h|--help) usage; exit 0;;
     *) usage >&2; die "unknown argument: $1";;
   esac
 done
+# Supported platforms and the PostgreSQL major version their archive ships (the code is tested on 16 and 15).
+os_profile() { # prints "<codename> <postgres major>" or fails
+  local ID="" VERSION_ID="" VERSION_CODENAME=""
+  # shellcheck disable=SC1090
+  . "$OS_RELEASE_FILE" 2>/dev/null || return 1
+  case "${ID:-}:${VERSION_ID:-}" in
+    ubuntu:24.04) echo "noble 16";;
+    debian:12) echo "bookworm 15";;
+    *) return 1;;
+  esac
+}
+if [ "$CHECK_OS" = 1 ]; then os_profile || { echo "unsupported"; exit 1; }; exit 0; fi
 [ "$(id -u)" = 0 ] || die "run as root"
 TMP="$(mktemp -d)"; chmod 700 "$TMP"
 cleanup() { if [ -f "$TMP.rc" ]; then rm -f /usr/sbin/policy-rc.d "$TMP.rc"; fi; rm -rf "$TMP"; }
@@ -78,7 +93,7 @@ if [ "$UNINSTALL" = 1 ]; then
   if [ "$PURGE" = 1 ]; then
     runuser -u postgres -- psql -q -c "DROP DATABASE IF EXISTS ics" -c "DROP ROLE IF EXISTS ics_app" -c "DROP ROLE IF EXISTS ics_owner" 2>/dev/null || true
     rm -rf "$ETC" "$STATE"; userdel ics 2>/dev/null || true
-    log "purged: database, roles, keys, env files, certificates, service user. Packages (postgresql-16, nginx, ...) were left installed."
+    log "purged: database, roles, keys, env files, certificates, service user. Packages (postgresql, nginx, ...) were left installed."
   else
     log "kept: $ETC (env files, keys, tls), PostgreSQL database 'ics' and roles, service user 'ics', packages. Re-run bootstrap.sh to reinstall on the same data."
   fi
@@ -86,8 +101,8 @@ if [ "$UNINSTALL" = 1 ]; then
 fi
 
 # ------------------------------------------------------------------------------------------------------------ preflight
-. /etc/os-release
-[ "${ID:-}" = ubuntu ] && [ "${VERSION_ID:-}" = "24.04" ] || die "Ubuntu 24.04 required (found ${PRETTY_NAME:-unknown})"
+OSP="$(os_profile)" || die "Ubuntu 24.04 or Debian 12 required (found $(. "$OS_RELEASE_FILE" 2>/dev/null; echo "${PRETTY_NAME:-unknown}"))"
+OS_CODENAME="${OSP% *}"; PGVER="${OSP#* }"
 [ -f "$SRC/requirements.lock" ] && [ -d "$SRC/migrations" ] && [ -f "$SRC/deploy/install.sh" ] || die "not an ICS source tree: $SRC"
 [[ -z "$ADMIN" || "$ADMIN" =~ ^[a-z0-9._-]{1,64}$ ]] || die "--admin must match [a-z0-9._-]{1,64}"
 if [ "$SKIP_TLS" = 1 ]; then
@@ -109,16 +124,17 @@ else
 fi
 
 # ------------------------------------------------------------------------------------------------------------ packages
-PKGS=(python3 python3-venv postgresql-16 rsync openssl curl sudo ca-certificates)
+PKGS=(python3 python3-venv "postgresql-$PGVER" rsync openssl curl sudo ca-certificates)
 [ "$SKIP_TLS" = 1 ] || PKGS+=(nginx nftables)
 MISSING=()
 for p in "${PKGS[@]}"; do dpkg-query -W -f='${Status}' "$p" 2>/dev/null | grep -q '^install ok installed$' || MISSING+=("$p"); done
 if [ ${#MISSING[@]} -gt 0 ]; then
-  log "installing packages (Ubuntu 24.04 noble archive; major versions pinned by package name): ${MISSING[*]}"
+  log "installing packages ($OS_CODENAME archive; major versions pinned by package name): ${MISSING[*]}"
+  # a fresh cloud image may still be running its first-boot apt job: wait for the dpkg lock (found in the Debian 12 dry run)
   # keep nginx/postgres from auto-starting with default (port 80) configuration during dpkg; we start them explicitly below
   if [ ! -e /usr/sbin/policy-rc.d ]; then printf '#!/bin/sh\nexit 101\n' > /usr/sbin/policy-rc.d; chmod 755 /usr/sbin/policy-rc.d; : > "$TMP.rc"; fi
-  apt-get -qq update
-  DEBIAN_FRONTEND=noninteractive apt-get -qq install -y --no-install-recommends "${MISSING[@]}" >/dev/null
+  apt-get -o DPkg::Lock::Timeout=600 -qq update
+  DEBIAN_FRONTEND=noninteractive apt-get -o DPkg::Lock::Timeout=600 -qq install -y --no-install-recommends "${MISSING[@]}" >/dev/null
   rm -f /usr/sbin/policy-rc.d "$TMP.rc"
   changed "apt packages: ${MISSING[*]}"
 fi
@@ -440,7 +456,7 @@ fi
 TOKEN_OUT=""; ADMIN_NOTE=""
 if [ -n "$ADMIN" ]; then
   if [ "$(runuser -u postgres -- psql -X -Atd ics -c "select count(*) from users where username='$ADMIN'")" != 0 ]; then
-    ADMIN_NOTE="account '$ADMIN' already exists: no token issued (re-issue deliberately with: sudo -u ics $OPT/.venv/bin/python -m ics.cli issue-enrollment --username $ADMIN)"
+    ADMIN_NOTE="account '$ADMIN' already exists: no token issued (re-issue deliberately with: cd $OPT && sudo -u ics .venv/bin/python -m ics.cli issue-enrollment --username $ADMIN)"
   else
     TOKEN_OUT="$(cd "$OPT" && runuser -u ics -- "$OPT/.venv/bin/python" -m ics.cli create-admin --username "$ADMIN" --role admin)" || die "create-admin failed"
     changed "admin account $ADMIN created"
@@ -452,7 +468,7 @@ echo
 echo "================ Office Unbound ICS: bootstrap summary ================"
 echo "console URL        : $URL"
 echo "release            : ${REL:0:16}... ($OPT)"
-dpkg-query -W -f='package            : ${Package} ${Version}\n' postgresql-16 python3-venv $([ "$SKIP_TLS" = 1 ] || echo nginx nftables)
+dpkg-query -W -f='package            : ${Package} ${Version}\n' "postgresql-$PGVER" python3-venv $([ "$SKIP_TLS" = 1 ] || echo nginx nftables)
 if [ "$SKIP_TLS" = 1 ]; then echo "mode               : loopback only (127.0.0.1:8088, no TLS, no nginx, no firewall)"
 else
   echo "listen / allow     : $LISTEN_IP:443  <-  127.0.0.1 $LISTEN_IP ${ALLOW[*]}"

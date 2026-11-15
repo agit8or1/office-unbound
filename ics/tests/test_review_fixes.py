@@ -455,3 +455,23 @@ def test_l5_check_results_are_capped_per_check(env, rt, monkeypatch):
     monitor._last_retention = None
     assert monitor.retention(env.rt) >= 5
     assert env.q("SELECT count(*) FROM check_results WHERE check_id = :c", c=cid)[0][0] == 3
+
+
+def test_monitor_loop_runs_vault_expiry_and_approval_expiry(rt, monkeypatch):
+    """Found on a fresh Debian 12 install (dry run AQ): `self._next_vault = 0.0` sat after `return` in healthy(), so every monitor pass
+    raised AttributeError and credential/approval expiry never ran."""
+    calls = []
+    monkeypatch.setattr(monitor, "tick", lambda r: None)
+    monkeypatch.setattr(worker.identity, "reconcile_due", lambda r: None)
+    monkeypatch.setattr(worker.cred_expiry, "tick", lambda r: calls.append("cred"))
+    monkeypatch.setattr(worker.tapprovals, "expire_due", lambda r: calls.append("approvals"))
+    w = worker.Worker(rt, interval=0.05)
+    assert w._next_vault == 0.0
+    w.start()
+    try:
+        deadline = time.monotonic() + 5
+        while time.monotonic() < deadline and len(calls) < 2:
+            time.sleep(0.05)
+    finally:
+        w.stop()
+    assert calls[:2] == ["cred", "approvals"]

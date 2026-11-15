@@ -5,16 +5,17 @@ Evidence: [ics-installer-results.md](../status/ics-installer-results.md) (the in
 New to this? Follow the [Quick start](quick-start.md); this page is the reference.
 
 ## Requirements
-- A fresh Ubuntu 24.04 host, root access, outbound access to the Ubuntu archive and PyPI, and an IP address already configured on the host for the console.
+- A fresh Ubuntu 24.04 host (PostgreSQL 16, Python 3.12) or Debian 12 host (PostgreSQL 15, Python 3.11; dry-run evidence in [quickstart-dryrun-results.md](../status/quickstart-dryrun-results.md)), root access, outbound access to the distribution archive and PyPI, and an IP address already configured on the host for the console.
 - The Office Unbound source tree on the host. The lab copied the tree to `/root/src` and ran the script from there; run the commands below from the repository root.
-- Not tested: other distributions, IPv6, a host without internet access.
+- Not tested: other distributions or releases (`bootstrap.sh` refuses anything but Ubuntu 24.04 and Debian 12; `bootstrap.sh --check-os` prints the detected profile), IPv6, a host without internet access.
 
 ## One-command install
 ```
 sudo ics/deploy/bootstrap.sh --listen-ip 192.168.186.137 --allow-cidr 192.168.186.0/24 \
      --hostname ics1.ou-lab.internal --admin alice
 ```
-(These are the arguments that were run in the lab; replace the addresses with yours.) Takes about 2 minutes on a fresh host.
+(These are the arguments that were run in the lab; replace the addresses with yours.) Takes about 2 minutes on a fresh Ubuntu host (about 4 on a fresh Debian 12 cloud VM).
+The `ics.cli` commands below must be run from `/opt/office-unbound/ics` (the code is not installed into the virtualenv); from any other folder they fail with `No module named 'ics'`.
 
 | flag | meaning |
 |---|---|
@@ -28,8 +29,8 @@ sudo ics/deploy/bootstrap.sh --listen-ip 192.168.186.137 --allow-cidr 192.168.18
 | `--uninstall` / `--purge` | see [Uninstall](#uninstall) |
 
 What it does (every step compares before writing, so a re-run changes nothing that is already right; a second run prints `changes this run: none`):
-1. Requires root and Ubuntu 24.04; refuses a missing allow-list.
-2. Installs missing packages from the Ubuntu archive (`python3 python3-venv postgresql-16 rsync openssl curl sudo ca-certificates nginx nftables`). Pinning is by release and major version; exact versions are printed in the summary. Python packages are hash-pinned.
+1. Requires root and Ubuntu 24.04 or Debian 12; refuses a missing allow-list.
+2. Installs missing packages from the distribution archive, waiting for a running first-boot `apt` job (`python3 python3-venv postgresql-16 [postgresql-15 on Debian 12] rsync openssl curl sudo ca-certificates nginx nftables`). Pinning is by release and major version; exact versions are printed in the summary. Python packages are hash-pinned.
 3. Creates the `ics` service user and `/etc/office-unbound` (`root:root 0711`).
 4. Generates the keys `vault.key`, `audit.key`, `ics-signing.key` (32 random bytes each). **An existing key is never overwritten**; it refuses to continue if a key is a symlink, unreadable, too short, or missing while the database already holds data (restore it from backup instead).
 5. Creates the database roles `ics_owner` / `ics_app` and database `ics` with random passwords held only in `ics-migrate.env` (`root:root 0600`) and `ics.env` (`root:ics 0640`). Your edits to these files survive re-runs.
@@ -40,7 +41,7 @@ What it does (every step compares before writing, so a re-run changes nothing th
 10. Prints a summary: console URL, package versions, the CA path and its **SHA-256**, what changed, and the enrollment token last.
 
 **After install**
-1. Verify the CA SHA-256 printed in the summary out of band, then import `/etc/office-unbound/tls/ca.crt` (public certificate only) into each admin workstation's trust store. Do not click through browser warnings.
+1. Verify the CA SHA-256 printed in the summary out of band (`sudo openssl x509 -in /etc/office-unbound/tls/ca.crt -noout -fingerprint -sha256`; `/etc/office-unbound/tls` is root-only), then import `/etc/office-unbound/tls/ca.crt` (public certificate only) into each admin workstation's trust store. Do not click through browser warnings.
 2. Enroll the first admin: open `https://<listen-ip>/`, use the enrollment page with the token, choose your own password and confirm your TOTP code. No password is ever chosen or shown for you.
 3. Check `GET /readyz` (database, worker heartbeat, audit tail).
 
@@ -52,7 +53,7 @@ so a working installation needs at least three people: one requester and two app
 
 On the ICS host, for each person (prints a one-time token, valid 24 h, single use, stored hashed; hand it over out of band):
 ```
-sudo -u ics /opt/office-unbound/ics/.venv/bin/python -m ics.cli create-admin --username bob --role approver
+cd /opt/office-unbound/ics && sudo -u ics .venv/bin/python -m ics.cli create-admin --username bob --role approver
 ```
 `--role` is one of `viewer|operator|approver|admin` (default `admin`). The lab created its requester and two approvers this way. Re-issue a token with `issue-enrollment --username X` (this resets the password, TOTP and sessions).
 Once an admin can log in, further accounts are invited from the console ([Users and access](users-and-access.md)); inviting an approver or admin is itself a two-approver plan.
@@ -67,7 +68,7 @@ A fresh `bootstrap.sh` install contains exactly the accounts you create and noth
 If a controller was used for demonstration, the lab precedent ([host-changes.md](../status/host-changes.md), "Production ICS cleanup" and "demo-data purge") was:
 1. Take a backup first (`ics/deploy/backup/ics-backup.sh`).
 2. Disable demo checks through normal approved plans, and demo operator accounts with the audited break-glass command:
-   `sudo -u ics /opt/office-unbound/ics/.venv/bin/python -m ics.cli disable-user --username <name> --reason "<why the approval workflow could not be used, at least 10 characters>"`
+   `cd /opt/office-unbound/ics && sudo -u ics .venv/bin/python -m ics.cli disable-user --username <name> --reason "<why the approval workflow could not be used, at least 10 characters>"`
    (refuses the last active admin; ends the account's sessions; recorded as `user.disabled.break_glass`).
 3. Purge the remaining rows in one database transaction using the DB-owner credential (`ics-migrate.env`), because approval records are insert-only for the application role by design. That purge was done **by hand once**; **there is no purge tool for it in the repository** (users, IdM stacks and approval records are outside the removal actions; a generic purge procedure is **Planned**). It recorded the audit event `maintenance.demo_data_purged`, and the chain was verified afterwards.
 

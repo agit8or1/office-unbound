@@ -22,7 +22,7 @@ Security review 2026-11-15 findings are remediated; see `docs/status/security-re
 | `ics-test.env` | `root:administrator 0640` | test-only DB credentials for database `ics_test` (roles `ics_test_owner`, `ics_test_app`; no access to the `ics` database) |
 
 The interactive user (`administrator`) is not in group `ics` and cannot read the vault key, audit key, app env or migrate env.
-Break-glass operations are run with `sudo -u ics /opt/office-unbound/ics/.venv/bin/python -m ics.cli ...` (needs root on the host).
+Break-glass operations are run with `cd /opt/office-unbound/ics && sudo -u ics .venv/bin/python -m ics.cli ...` (needs root on the host).
 
 ### Postgres (one-time, as postgres superuser; passwords only in the env files)
 ```
