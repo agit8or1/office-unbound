@@ -883,7 +883,11 @@ class ProxmoxMutations(ProxmoxProvider):
         require_job_execution()
         g = self._guest(ref)
         if g.get("status") == "running":
-            raise ProviderError("invalid_state", f"guest {ref.vmid} is running; stop it before destroying it")
+            # /cluster/resources is a cache that lags a few seconds behind a just-completed stop (observed on PVE 9.2,
+            # 2026-11-15): decide on the guest's authoritative live status instead.
+            live = self._get(f"/nodes/{_seg(ref.node)}/{_KIND_PATH[ref.kind]}/{int(ref.vmid)}/status/current", self._w) or {}
+            if live.get("status") != "stopped":
+                raise ProviderError("invalid_state", f"guest {ref.vmid} is running; stop it before destroying it")
         up = self._do("delete", f"/nodes/{_seg(ref.node)}/{_KIND_PATH[ref.kind]}/{int(ref.vmid)}?purge=1&destroy-unreferenced-disks=1")
         return self._task(ref.node, up, ref.vmid, "destroy", ref.deployment_id)
 

@@ -44,3 +44,8 @@ Harness: agent A's provider (branch worktree-agent-a31f4b7a5376f1798) inside an 
 | Untagged guest guard | worked as designed: provider refused to configure *or destroy* the untagged VM 136 |
 | Cleanup | lead deleted VM 136 via direct API after 7 explicit safety checks (name prefix, pool, untagged, not template, stopped, own clone task of 131 exists, not ICS); task OK; guests back to [126, 131] |
 Remaining verbs (configure, resize, start, snapshot, stop, destroy via provider) to be re-run after the integration fixes land.
+
+## Real lifecycle re-run after integration (lead, 2026-11-15 ~19:55 UTC) — 14/15 PASS, then fixed
+Merged main (node allowlist + real-UPID finalize_clone). Scope: pool officeunbound-pve06, storage PVE06-Storage, bridge vmbr0, nodes {pve06}, protected {126}.
+PASS: refuse unauthorized pool; refuse storage ha-zfs; **refuse target node pve05 — now ICS-enforced** (ScopeViolation, no API call); refuse power-off/snapshot of ICS VM 126; full clone of template 131 → VM 136 (12 s); **finalize_clone tags the VM using the real source-vmid UPID**; tags `ou-managed;ou-deployment-<id>` present; refuse NIC on unapproved bridge; configure 2 cores / 2048 MiB / vmbr0 / cloud-init user + DHCP; resize scsi0 to 8 GiB; start (running in 4 s); snapshot; stop.
+FAIL → FIXED: destroy right after a successful stop was refused ("is running") because `/cluster/resources` lagged behind the stop by a few seconds. `destroy_vm` now confirms with the authoritative `/status/current`; simulator models the cache lag (`cached_status`); regression test `test_destroy_uses_live_status_when_cluster_cache_lags` fails on the old code. Test VM 136 destroyed through the provider; guests back to [126, 131].

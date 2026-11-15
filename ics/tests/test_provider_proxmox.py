@@ -514,3 +514,21 @@ def test_thin_storage_reports_provisioned_vs_physical(sim):
     d = read_provider(sim).discover()
     s = next(x for x in d.storage if x["name"] == "local-lvm" and x["node"] == "pve1")
     assert s["thin"] is True and s["total"] == 10 << 30 and s["provisioned_bytes"] > 20 << 30
+
+
+def test_destroy_uses_live_status_when_cluster_cache_lags(sim, job):
+    """Real PVE 9.2 (2026-11-15): right after a successful stop, /cluster/resources still reported 'running' for a few
+    seconds and destroy refused. The precondition must use the authoritative /status/current."""
+    m = mutations(sim)
+    m.wait(m.power(ref(), "start"), timeout=5)
+    m.wait(m.power(ref(), "stop"), timeout=5)
+    sim.sim.vms[150]["cached_status"] = "running"          # stale cache, VM actually stopped
+    st = m.wait(m.destroy_vm(ref()), timeout=5)
+    assert st.state == "ok" and 150 not in sim.sim.vms
+
+
+def test_destroy_still_refuses_genuinely_running_guest(sim, job):
+    m = mutations(sim)
+    m.wait(m.power(ref(), "start"), timeout=5)
+    with pytest.raises(ProviderError, match="running"):
+        m.destroy_vm(ref())

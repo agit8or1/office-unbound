@@ -227,7 +227,7 @@ class PveSim:
         c = vm["cfg"]
         run = vm["status"] == "running"
         d = {"id": f"{vm['kind']}/{vm['vmid']}", "type": vm["kind"], "vmid": vm["vmid"], "node": vm["node"], "name": c.get("name"),
-             "status": vm["status"], "maxcpu": c.get("cores", 1), "cpu": 0.03 if run else 0, "maxmem": c.get("memory", 512) << 20,
+             "status": vm.get("cached_status", vm["status"]), "maxcpu": c.get("cores", 1), "cpu": 0.03 if run else 0, "maxmem": c.get("memory", 512) << 20,
              "mem": (c.get("memory", 512) << 20) // 4 if run else 0, "maxdisk": self._vm_disk(vm), "disk": 0,
              "uptime": 5000 if run else 0, "netin": 1000, "netout": 500, "template": 1 if c.get("template") else 0}
         if c.get("tags"):
@@ -289,6 +289,7 @@ class PveSim:
             R("GET", r"/nodes/([^/]+)/rrddata", self.r_rrd_node),
             R("GET", r"/nodes/([^/]+)/" + g + r"/(\d+)/rrddata", self.r_rrd_vm),
             R("GET", r"/nodes/([^/]+)/" + g + r"/(\d+)/config", self.r_get_config),
+            R("GET", r"/nodes/([^/]+)/" + g + r"/(\d+)/status/current", self.r_status_current),
             R("PUT", r"/nodes/([^/]+)/" + g + r"/(\d+)/config", self.r_set_config),
             R("POST", r"/nodes/([^/]+)/" + g + r"/(\d+)/config", self.r_set_config),
             R("PUT", r"/nodes/([^/]+)/" + g + r"/(\d+)/resize", self.r_resize),
@@ -426,6 +427,11 @@ class PveSim:
         self._node_up(node)
         return [{"vmid": v["vmid"], "name": v["cfg"].get("name"), "status": v["status"]} for v in self.vms.values()
                 if v["node"] == node and v["kind"] == kind and self.can(tid, "vm", v["vmid"], "VM.Audit")]
+
+    def r_status_current(self, tid, q, f, node, kind, vmid):
+        vm = self._find(node, int(vmid), kind)
+        self.need(tid, "vm", vm["vmid"], "VM.Audit")
+        return {"vmid": vm["vmid"], "status": vm["status"], "name": vm["cfg"].get("name")}
 
     def r_get_config(self, tid, q, f, node, kind, vmid):
         vm = self._find(node, int(vmid), kind)
