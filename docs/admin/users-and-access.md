@@ -19,8 +19,16 @@ The Users page and `GET access-policy` show the effective rules.
 
 **Lockout / recovery:** `ics.cli unlock --username X` clears login throttling; `issue-enrollment` resets password, TOTP and sessions.
 
+**Console:** **Administration > Users & roles** (admin) has the directory, invitations and roles; disabling, role changes and invites there create the same plans. Evidence: [ui-verification-main.md](../status/ui-verification-main.md) (invitation, disable and privileged-account flows checked end to end; the Users page overflows horizontally on narrow screens).
+
+**Break-glass disable:** if an operator account must be shut off and the approval workflow cannot be used (no second approver available, compromised approver), root on the ICS host runs
+```
+sudo -u ics /opt/office-unbound/ics/.venv/bin/python -m ics.cli disable-user --username <name> --reason "<at least 10 characters>"
+```
+It refuses the last active admin, deletes the account's sessions, and records `user.disabled.break_glass` (actor `cli`, with your reason). Re-enable through the normal `user.enable` plan. Evidence: host-changes.md (used on the lab controller); [ics/README.md](../../ics/README.md).
+
 **Break-glass:** anyone with root on the ICS host (or `sudo -u ics`) can create accounts and read keys through the CLI. This is by design (ADR-0002), is audited as actor `cli`, and cannot be prevented. Restrict host root accordingly.
-Lab demo accounts (`lab-op`, `lab-ap1`, `lab-ap2`) hold all two-person roles: delete them before any real use (accepted lab risk, review M5).
+**Production contains no demo accounts.** The lab demo accounts (`lab-op`, `lab-ap1`, `lab-ap2`) were disabled with the break-glass command and then purged from the production lab controller; a fresh install has none. See [Installing the ICS](installing-the-ics.md#production-contains-no-sample-data). Do not create throwaway accounts on a real controller.
 Not implemented: password change endpoint, session listing UI (**Planned**).
 
 ## Customer users (one stack: LDAP + Keycloak + OpenCloud + Gromox)

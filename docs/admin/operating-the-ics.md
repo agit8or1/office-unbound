@@ -2,8 +2,11 @@
 
 Evidence: [ics/README.md](../../ics/README.md), [ics-monitoring-results.md](../status/ics-monitoring-results.md),
 [security-review-ics-monitoring-2026-11-15.md](../status/security-review-ics-monitoring-2026-11-15.md) (remediation tables).
-Console pages: Overview, Endpoints, Plans, Jobs, Inventory, Checks, Incidents, Maintenance, Users, Audit, Plan preview.
-The monitoring pages were built and type-checked but **not exercised in a browser** in the monitoring session; the procedures below were run through the API.
+
+## The console
+Login lands on the **Overview** dashboard (status cards for health, clusters, nodes, VMs, containers, deployments, pending operations, incidents). The sidebar groups: Infrastructure (clusters, nodes, VMs, containers, storage, networks), Deployments, Operations (jobs, approvals, maintenance), Monitoring (health checks, utilization, incidents), Administration (users & roles, integrations, audit log). Items not built are labelled **Planned** (Catalog, Changes, Updates, Access policies, Configuration).
+Owner decision: wizards are an option, never auto-opened. With no cluster connected the dashboard offers **Start guided setup**; once connected and with no deployments it offers **Start deployment wizard**. Both only build plans that still need approval. Evidence: [ui-verification-main.md](../status/ui-verification-main.md) (UI check of the redesign, with open accessibility and layout defects listed there; the Infrastructure pages needed the Proxmox API that was merged afterwards and have not been re-verified in a browser), screenshots in `docs/screenshots/`.
+The monitoring pages were not exercised in a browser in the monitoring session; those procedures were run through the API.
 
 ## Plans, approvals, jobs
 - Discover actions with `GET actions`. Create a plan with `POST plans {action, params}`; approvers `approve|reject` it; the job runs once and re-verifies the plan hash. Pending plans expire after 7 days.
@@ -45,5 +48,18 @@ Enrollment: on the node `ou-agent init` prints a one-time token (1 h) and two fi
 Install on a node as root: `sh ics/agent/deploy/install-agent.sh <bind-ip> <hostname>`. Keep node clocks synced: requests outside their validity window are rejected (fail closed).
 Rotating the ICS signing key means re-enrolling agents. No node revoke/disable action exists yet (**Planned**).
 
-## Deployments
-`deployment.create|change|destroy` plans exist and are tested against a fake provider only (**In development**; no real Proxmox mutation, no real component artifacts pinned). Customer user actions: [users-and-access.md](users-and-access.md).
+## Deployments (In development)
+`deployment.create|change|destroy` plans, the deployment wizard and change wizard exist. Evidence ([deployment-engine.md](../status/deployment-engine.md)): plan generation, capacity, drift report and the executor are tested with a fake provider and fake agent; the Proxmox provider steps (clone, tag, configure, resize, start, snapshot, stop, destroy) passed once on a real VM ([provider-proxmox-real.md](../status/provider-proxmox-real.md)).
+**End-to-end deployment is In development**: there is no `docs/status/first-real-deployment.md` yet, the guest-side steps after `agent.enroll` fail by design (no agent enrollment flow on real VMs), component artifacts are unpinned so real-catalog plans are non-executable (`artifact_unpinned`), and backup scheduling and DNS records are plan output only. Do not rely on it to build a customer environment.
+Flow you can use for reviewing a plan: wizard or `POST deployments/plan` (no side effects) -> `deployment.create` plan (high risk, two approvers) -> job steps visible under **Deployments**. Disruptive changes need a maintenance window or an explicit override (two approvers). Drift is reported, never auto-repaired. Customer user actions: [users-and-access.md](users-and-access.md).
+
+## Removing things
+Only `endpoint.remove` (see [Connecting Proxmox](connecting-proxmox.md)), `idm.user.delete`, `user.revoke_invite` and `check.set_enabled` (disable) exist. Actions that remove checks, alert channels, node agents or old plans are **Planned**; they are not on main. Disable instead of remove for now.
+
+## Roadmap feed
+Project progress is one file, `docs/progress.json` (schema in [progress-schema.md](../progress-schema.md)); `ROADMAP.md` is generated from it. After editing the feed run:
+```
+python3 scripts/render_roadmap.py          # rewrite ROADMAP.md
+python3 scripts/render_roadmap.py --check  # exit 1 if stale or invalid (evidence paths must exist)
+```
+A status may only advance with evidence in the repo (ADR-0000).

@@ -10,7 +10,7 @@ Open-source, self-hosted alternative to Microsoft 365 / Google Workspace for bus
 - `docs/` — ADRs, evaluations, test evidence, security reviews
 
 ## Documentation
-- [Administrator guide](docs/admin/index.md): install, operate, back up and secure the ICS (only procedures executed in the lab; the rest marked Planned)
+- [Administrator guide](docs/admin/index.md): [quick start](docs/admin/quick-start.md), install, connect Proxmox, operate, back up and secure the ICS, [glossary](docs/admin/glossary.md) (only procedures executed in the lab; the rest marked Planned / In development)
 - [Architecture](docs/ARCHITECTURE.md), [ADRs](docs/adr/), [status](docs/status/STATUS.md)
 
 ## License

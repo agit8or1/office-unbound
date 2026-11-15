@@ -4,20 +4,21 @@ Sources: [STATUS.md](../status/STATUS.md), [ARCHITECTURE.md](../ARCHITECTURE.md)
 
 ## Platform
 - Pre-alpha, lab only. One host; customer stacks run in systemd-nspawn on the ICS host, not on Proxmox VMs. Clean-room reinstall of the whole stack is not yet re-run.
-- Proxmox: read-only inventory only. No clone/configure/power/destroy, no real deployment execution. Deployment wizards and endpoint provisioning modes are **In development**. Component artifacts are unpinned, so real-catalog plans are non-executable by design.
-- Collabora own source build (unlimited, rebranded) is Implementing; labs used the vendor CODE image. Anti-spam (rspamd/ClamAV), archiving, chat/meetings/telephony: **Planned**.
+- Proxmox: the provider ran a full VM lifecycle once on one real node, but **no customer deployment has run end to end** (In development; see [operating-the-ics.md](operating-the-ics.md#deployments-in-development)). Component artifacts are unpinned, so real-catalog plans are non-executable by design. The console wizard has no recorded real-cluster registration.
+- Collabora own build ("Office Unbound Docs") is Implementing and only lab-tested; other labs used the vendor CODE image. Chat, meetings and telephony are lab prototypes without ICS integration; anti-spam (rspamd/ClamAV) and archiving are **Planned** ([lab-proven-components.md](lab-proven-components.md)).
 - Product-grade backup (scheduling, encryption, off-host copies, retention, RPO) is **Planned**; see [backup-and-restore.md](backup-and-restore.md).
 - No HA/standby ICS; no automated cut-over.
 
 ## Clients and user experience
 - New Outlook for Windows and Outlook mobile cannot use MAPI/EWS against a non-Microsoft server (IMAP/SMTP only). Classic Outlook and Outlook for Mac are the targets, but **no real Outlook, phone or Thunderbird client has been tested**.
-- Webmail has no SSO (grommunio-web lacks OIDC): users sign in with the same LDAP password. SMTP submission (587/465) is not configured on the lab host.
+- Webmail SSO is proven on one lab node only (not on the main lab mail node); realm key rotation breaks it until the key file is refreshed by hand (key follower **Planned**). Other protocols still use the LDAP password. SMTP submission (587/465) is not configured on the lab host.
 - Device onboarding profiles are unsigned and untested on real devices.
-- Migration assessment has never run against a real Microsoft 365 or Google tenant, and no data-migration step exists.
+- Migration assessment has never run against a real Microsoft 365 or Google tenant, and the migration engine is not in the repository yet (see [lab-proven-components.md](lab-proven-components.md)).
 
 ## Operations and security
 - Pushover and SMS alert channels cannot be enabled (ADR-0007). Webhook channel tested only locally.
 - Revocation gaps and the lack of mailbox purge/export: see [users-and-access.md](users-and-access.md).
+- No removal actions for checks, alert channels, agents or plans, and no demo-data purge tool (only a one-off manual purge was done).
 - No node revoke/disable, password-change endpoint, off-host audit head export, privileged executor process, or key-generation tooling.
 - Real restart of `mariadb`/`nginx` through the agent and the monitoring UI in a browser were not exercised.
 - Legal review items (GPL-2.0-only gromox files, trademarks, AGPL section 13, fonts) are open: [third-party-inventory.md](../status/third-party-inventory.md).
