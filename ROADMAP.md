@@ -67,9 +67,9 @@ Core platform components are integrated and tested in an isolated lab: own sourc
 
 | | Item | Status | Evidence |
 |---|---|---|---|
-| P5.1 | Patch rings, controlled upgrades and rollback | ⚪ Planned | — |
+| P5.1 | Patch rings, controlled upgrades and rollback <br><sub>Signed pinned-package upgrade + rollback demonstrated on the lab mail server; merge pending</sub> | 🛠️ Implementing | — |
 | P5.2 | Capacity analytics and scaling plans | ⚪ Planned | — |
-| P5.3 | Encrypted off-host backups with measured RPO/RTO | ⚪ Planned | — |
+| P5.3 | Encrypted off-host backups with measured RPO/RTO <br><sub>Encrypted append-only backups as ICS jobs with verified restores (RTO 29-127 s in lab)</sub> | 🧪 Integrated in lab | [`docs/status/backup-product-results.md`](docs/status/backup-product-results.md) |
 
 ## P6 — Chat, meetings and telephony  (🛠️ Implementing)
 
@@ -92,11 +92,11 @@ Core platform components are integrated and tested in an isolated lab: own sourc
 |---|---|---|---|
 | P8.1 | Deliverability, performance, security testing and support documentation | ⚪ Planned | — |
 
-## First functional demo — acceptance tests (19/24 demonstrated in lab)
+## First functional demo — acceptance tests (22/24 demonstrated in lab)
 
 | | Test | Status | Note |
 |---|---|---|---|
-| A1 | ICS deploys the required components into approved lab infrastructure | 🛠️ Implementing | Real VM lifecycle on Proxmox verified; full ICS-driven component deployment in progress |
+| A1 | ICS deploys the required components into approved lab infrastructure | 🧪 Integrated in lab | ICS deployed a VM + signed container on real Proxmox end to end (lab-only bootstrap; production no-SSH bootstrap pending owner storage prerequisite) |
 | A2 | Services reachable through correctly configured TLS endpoints | 🧪 Integrated in lab | Lab CA |
 | A3 | Keycloak login and user provisioning | 🧪 Integrated in lab |  |
 | A4 | User can enter the Office Unbound portal | 🧪 Integrated in lab | Portal with Keycloak SSO in lab |
@@ -114,10 +114,10 @@ Core platform components are integrated and tested in an isolated lab: own sourc
 | A16 | Approved recovery action succeeds | 🧪 Integrated in lab |  |
 | A17 | Backup restored to a separate test machine | 🧪 Integrated in lab | Files, identity, groupware and ICS controller tiers restored to separate machines |
 | A18 | Tests identify unsupported functionality instead of concealing it | 🧪 Integrated in lab |  |
-| A19 | User deprovisioning removes effective access | 🧪 Integrated in lab | Known gaps listed in P1.8 |
-| A20 | Two isolated customer deployments pass access-denial tests | ⚪ Planned |  |
-| A21 | Pinned upgrades and recovery demonstrated | ⚪ Planned |  |
-| A22 | Installer can repeat the installation | 🧪 Integrated in lab | Groupware rebuilt from source on a fresh machine; ICS one-command installer proven on two fresh machines (install, idempotent re-run, upgrade, restore) |
+| A19 | User deprovisioning removes effective access | 🧪 Integrated in lab | App tokens, IMAP sessions, ActiveSync wipe, Matrix and phone access all revoked in lab |
+| A20 | Two isolated customer deployments pass access-denial tests | 🧪 Integrated in lab | Two independent customer stacks: 153/155 isolation checks; per-customer network isolation needs VLAN/SDN in production; backup key boundary being re-tested |
+| A21 | Pinned upgrades and recovery demonstrated | 🧪 Integrated in lab | Pinned signed-package upgrade and rollback demonstrated (merge pending) |
+| A22 | Installer can repeat the installation | 🧪 Integrated in lab | All lab tiers install in one pass on fresh machines and re-run idempotently; ICS installer on Ubuntu 24.04 and Debian 12 |
 | A23 | Monitoring and audit history survive restarts | 🧪 Integrated in lab | Audit chain verified after controller restore |
 | A24 | Administrator documentation describes real procedures | 🛠️ Implementing |  |
 

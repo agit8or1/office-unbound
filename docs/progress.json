@@ -279,8 +279,9 @@
         {
           "id": "P5.1",
           "title": "Patch rings, controlled upgrades and rollback",
-          "status": "planned",
-          "evidence": []
+          "status": "implementing",
+          "evidence": [],
+          "note": "Signed pinned-package upgrade + rollback demonstrated on the lab mail server; merge pending"
         },
         {
           "id": "P5.2",
@@ -291,8 +292,11 @@
         {
           "id": "P5.3",
           "title": "Encrypted off-host backups with measured RPO/RTO",
-          "status": "planned",
-          "evidence": []
+          "status": "integrated_lab",
+          "evidence": [
+            "docs/status/backup-product-results.md"
+          ],
+          "note": "Encrypted append-only backups as ICS jobs with verified restores (RTO 29-127 s in lab)"
         }
       ]
     },
@@ -369,8 +373,8 @@
     {
       "id": "A1",
       "title": "ICS deploys the required components into approved lab infrastructure",
-      "status": "implementing",
-      "note": "Real VM lifecycle on Proxmox verified; full ICS-driven component deployment in progress"
+      "status": "integrated_lab",
+      "note": "ICS deployed a VM + signed container on real Proxmox end to end (lab-only bootstrap; production no-SSH bootstrap pending owner storage prerequisite)"
     },
     {
       "id": "A2",
@@ -467,23 +471,25 @@
       "id": "A19",
       "title": "User deprovisioning removes effective access",
       "status": "integrated_lab",
-      "note": "Known gaps listed in P1.8"
+      "note": "App tokens, IMAP sessions, ActiveSync wipe, Matrix and phone access all revoked in lab"
     },
     {
       "id": "A20",
       "title": "Two isolated customer deployments pass access-denial tests",
-      "status": "planned"
+      "status": "integrated_lab",
+      "note": "Two independent customer stacks: 153/155 isolation checks; per-customer network isolation needs VLAN/SDN in production; backup key boundary being re-tested"
     },
     {
       "id": "A21",
       "title": "Pinned upgrades and recovery demonstrated",
-      "status": "planned"
+      "status": "integrated_lab",
+      "note": "Pinned signed-package upgrade and rollback demonstrated (merge pending)"
     },
     {
       "id": "A22",
       "title": "Installer can repeat the installation",
       "status": "integrated_lab",
-      "note": "Groupware rebuilt from source on a fresh machine; ICS one-command installer proven on two fresh machines (install, idempotent re-run, upgrade, restore)"
+      "note": "All lab tiers install in one pass on fresh machines and re-run idempotently; ICS installer on Ubuntu 24.04 and Debian 12"
     },
     {
       "id": "A23",
