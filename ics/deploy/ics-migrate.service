@@ -1,0 +1,23 @@
+[Unit]
+Description=Office Unbound ICS database migrations (runs as the DB owner role, root-only config)
+After=postgresql.service
+Requires=postgresql.service
+
+[Service]
+Type=oneshot
+RemainAfterExit=yes
+User=root
+WorkingDirectory=/opt/office-unbound/ics
+# ics_owner URL: root-only file, deliberately NOT readable by the ics service user
+Environment=ICS_MIGRATE_ENV_FILE=/etc/office-unbound/ics-migrate.env
+ExecStart=/opt/office-unbound/ics/.venv/bin/python -m ics.migrate
+NoNewPrivileges=true
+ProtectSystem=strict
+ProtectHome=true
+PrivateTmp=true
+PrivateDevices=true
+CapabilityBoundingSet=
+RestrictAddressFamilies=AF_INET AF_INET6 AF_UNIX
+
+[Install]
+WantedBy=multi-user.target

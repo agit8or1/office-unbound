@@ -9,6 +9,7 @@ from .pve_mock import FIX, SEC, TID
 
 
 def client(pve, **kw):
+    kw.setdefault('allow_loopback', True)
     return ProxmoxReadClient(pve.url, TID, SEC, **kw)
 
 
@@ -49,7 +50,7 @@ def test_unverified_construction_rejected(pve):
 
 
 def test_bad_token_is_error_not_data(pve):
-    c = ProxmoxReadClient(pve.url, TID, "wrong-secret-xx", fingerprint_sha256=pve.fingerprint)
+    c = ProxmoxReadClient(pve.url, TID, "wrong-secret-xx", fingerprint_sha256=pve.fingerprint, allow_loopback=True)
     with pytest.raises(ProxmoxError, match="401"):
         c.version()
 

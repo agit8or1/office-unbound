@@ -30,6 +30,7 @@ def test_register_validation(client, mk_user, login, pve):
 def test_self_approval_rejected_and_full_flow(client, mk_user, login, pve, rt):
     o, oh = login(mk_user("op", "operator"))
     ap, aph = login(mk_user("ap", "approver"))
+    ap2, aph2 = login(mk_user("ap2", "approver"))
     ad, adh = login(mk_user("adm", "admin"))
     r = o.post(f"{H}/plans", json=reg_body(pve), headers=oh)
     assert r.status_code == 201 and r.json()["status"] == "pending_approval" and r.json()["job_id"] is None
@@ -43,10 +44,13 @@ def test_self_approval_rejected_and_full_flow(client, mk_user, login, pve, rt):
     with rt.session() as db:
         assert db.execute(text("SELECT count(*) FROM audit_events WHERE action='plan.self_decision_rejected'")).scalar() == 2
         assert db.execute(text("SELECT count(*) FROM jobs")).scalar() == 0
-    # a different approver succeeds, exactly once
-    a = ap.post(f"{H}/plans/{pid}/approve", headers=aph)
-    assert a.status_code == 200 and a.json()["job_id"]
+    # high risk needs two distinct approvers, each exactly once
+    a1 = ap.post(f"{H}/plans/{pid}/approve", headers=aph)
+    assert a1.status_code == 200 and a1.json()["status"] == "pending_approval" and a1.json()["job_id"] is None
     assert ap.post(f"{H}/plans/{pid}/approve", headers=aph).status_code == 409
+    a = ap2.post(f"{H}/plans/{pid}/approve", headers=aph2)
+    assert a.status_code == 200 and a.json()["job_id"] and a.json()["status"] == "approved"
+    assert ap2.post(f"{H}/plans/{pid}/approve", headers=aph2).status_code == 409
     assert worker.run_once(rt) is True and worker.run_once(rt) is False
     job = o.get(f"{H}/jobs/{a.json()['job_id']}").json()
     assert job["status"] == "succeeded" and job["started_at"] and job["finished_at"], job
@@ -74,8 +78,10 @@ def test_self_approval_rejected_and_full_flow(client, mk_user, login, pve, rt):
 def test_job_fails_on_wrong_pin_with_structured_error(client, mk_user, login, pve, rt):
     o, oh = login(mk_user("op", "operator"))
     ap, aph = login(mk_user("ap", "approver"))
+    ap2, aph2 = login(mk_user("ap2", "approver"))
     pid = o.post(f"{H}/plans", json=reg_body(pve, fingerprint_sha256="cd" * 32), headers=oh).json()["plan_id"]
-    jid = ap.post(f"{H}/plans/{pid}/approve", headers=aph).json()["job_id"]
+    ap.post(f"{H}/plans/{pid}/approve", headers=aph)
+    jid = ap2.post(f"{H}/plans/{pid}/approve", headers=aph2).json()["job_id"]
     worker.run_once(rt)
     job = o.get(f"{H}/jobs/{jid}").json()
     assert job["status"] == "failed" and job["error"]["type"] == "ProxmoxError" and "pinned" in job["error"]["message"]

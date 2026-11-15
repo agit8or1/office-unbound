@@ -59,6 +59,8 @@ def preview(blueprint_yaml: str, known_endpoints: set[str]) -> dict:
         if not isinstance(raw, dict):
             raise ValueError("blueprint must be a YAML mapping")
         bp = Blueprint.model_validate(raw)
+    except RecursionError:
+        return {"valid": False, "errors": [{"loc": [], "msg": "blueprint is nested too deeply"}]}
     except yaml.YAMLError as e:
         return {"valid": False, "errors": [{"loc": [], "msg": f"invalid YAML: {e}".splitlines()[0]}]}
     except ValidationError as e:

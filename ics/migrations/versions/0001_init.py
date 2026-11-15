@@ -2,7 +2,7 @@
 
 Runs as ics_owner. The runtime role ics_app gets NO UPDATE/DELETE/TRUNCATE on audit_events.
 """
-from alembic import op
+from alembic import context, op
 
 revision = "0001"
 down_revision = None
@@ -97,16 +97,17 @@ CREATE TABLE inventory_snapshots (
 CREATE INDEX inventory_snapshots_ep ON inventory_snapshots (endpoint_id, collected_at DESC);
 
 -- least privilege for the runtime role
-GRANT USAGE ON SCHEMA public TO ics_app;
+GRANT USAGE ON SCHEMA public TO {APP};
 GRANT SELECT, INSERT, UPDATE, DELETE ON users, sessions, login_attempts, endpoints, plans, jobs,
-      worker_heartbeat, inventory_snapshots TO ics_app;
-GRANT SELECT, INSERT ON audit_events TO ics_app;   -- deliberately no UPDATE/DELETE/TRUNCATE
-GRANT USAGE ON ALL SEQUENCES IN SCHEMA public TO ics_app;
+      worker_heartbeat, inventory_snapshots TO {APP};
+GRANT SELECT, INSERT ON audit_events TO {APP};   -- deliberately no UPDATE/DELETE/TRUNCATE
+GRANT USAGE ON ALL SEQUENCES IN SCHEMA public TO {APP};
 """
 
 
 def upgrade() -> None:
-    for stmt in [s for s in DDL.split(";\n") if s.strip()]:
+    app = context.config.attributes.get("app_role", "ics_app")
+    for stmt in [s for s in DDL.replace("{APP}", app).split(";\n") if s.strip()]:
         op.execute(stmt)
 
 

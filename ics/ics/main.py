@@ -5,13 +5,13 @@ from uuid import UUID
 
 import pyotp
 from fastapi import Depends, FastAPI, HTTPException, Request, Response
-from pydantic import BaseModel, ValidationError
+from pydantic import BaseModel, Field, ValidationError
 from sqlalchemy import text
 from sqlalchemy.orm import Session
 
 from . import audit, auth
 from .actions import CATALOG, ActionType, PlanError, create_plan, decide_plan
-from .auth import COOKIE, ROLES, User, client_ip, get_db, require
+from .auth import ROLES, User, client_ip, cookie_name, get_db, require
 from .blueprint import preview
 from .config import Settings
 from .runtime import Runtime
@@ -21,15 +21,26 @@ API = "/api/v1"
 
 
 class LoginIn(BaseModel):
-    username: str
-    password: str
-    totp_code: str
+    username: str = Field(max_length=64)
+    password: str = Field(max_length=1024)
+    totp_code: str = Field(max_length=32)
 
 
 class UserIn(BaseModel):
-    username: str
-    password: str
-    role: str
+    username: str = Field(max_length=64)
+    role: str = Field(max_length=16)
+
+
+class EnrollIn(BaseModel):
+    username: str = Field(max_length=64)
+    token: str = Field(max_length=200)
+    password: str = Field(max_length=1024)
+
+
+class EnrollConfirmIn(BaseModel):
+    username: str = Field(max_length=64)
+    token: str = Field(max_length=200)
+    totp_code: str = Field(max_length=32)
 
 
 class PlanIn(BaseModel):
@@ -49,8 +60,74 @@ def _row(r, *drop):
     return {k: (str(v) if v is not None and (k.endswith("id") or k == "id") else _iso(v)) for k, v in r._mapping.items() if k not in drop}
 
 
-def create_app(settings: Settings | None = None) -> FastAPI:
-    rt = Runtime(settings)
+SECURITY_HEADERS = [
+    (b"content-security-policy", b"default-src 'none'; frame-ancestors 'none'; base-uri 'none'; form-action 'none'"),
+    (b"x-content-type-options", b"nosniff"),
+    (b"referrer-policy", b"no-referrer"),
+    (b"x-frame-options", b"DENY"),
+    (b"cross-origin-resource-policy", b"same-origin"),
+    (b"cache-control", b"no-store"),
+]
+
+
+class SecurityHeadersAndLimits:
+    """Pure ASGI middleware: security headers on every response and a request body cap (L6/M6)."""
+
+    def __init__(self, app, max_body: int, relax_paths: tuple[str, ...] = ()):
+        self.app, self.max_body, self.relax = app, max_body, relax_paths
+
+    async def __call__(self, scope, receive, send):
+        if scope["type"] != "http":
+            return await self.app(scope, receive, send)
+        relaxed = scope["path"].startswith(self.relax) if self.relax else False
+
+        async def send_h(msg):
+            if msg["type"] == "http.response.start":
+                names = {h[0].lower() for h in msg.get("headers", [])}
+                msg = {**msg, "headers": list(msg.get("headers", [])) + [
+                    h for h in SECURITY_HEADERS if h[0] not in names and not (relaxed and h[0] == b"content-security-policy")]}
+            await send(msg)
+
+        async def too_big():
+            body = b'{"detail":"request body too large"}'
+            await send_h({"type": "http.response.start", "status": 413,
+                          "headers": [(b"content-type", b"application/json"), (b"content-length", str(len(body)).encode())]})
+            await send_h({"type": "http.response.body", "body": body})
+
+        cl = dict(scope["headers"]).get(b"content-length")
+        if cl and cl.isdigit() and int(cl) > self.max_body:
+            return await too_big()
+        seen = 0
+        started = False
+
+        async def recv():
+            nonlocal seen
+            m = await receive()
+            if m["type"] == "http.request":
+                seen += len(m.get("body", b""))
+                if seen > self.max_body:
+                    raise _TooBig()
+            return m
+
+        async def send_track(msg):
+            nonlocal started
+            if msg["type"] == "http.response.start":
+                started = True
+            await send_h(msg)
+
+        try:
+            await self.app(scope, recv, send_track)
+        except _TooBig:
+            if not started:
+                await too_big()
+
+
+class _TooBig(Exception):
+    pass
+
+
+def create_app(settings: Settings | None = None, runtime: Runtime | None = None) -> FastAPI:
+    rt = runtime or Runtime(settings)
     worker = Worker(rt) if rt.settings.worker_enabled else None
 
     @asynccontextmanager
@@ -61,8 +138,11 @@ def create_app(settings: Settings | None = None) -> FastAPI:
         if worker:
             worker.stop()
 
-    app = FastAPI(title="Office Unbound ICS", version="0.1.0", lifespan=lifespan)
+    docs = rt.settings.enable_docs  # off in production: Swagger UI is CDN-hosted (M6)
+    app = FastAPI(title="Office Unbound ICS", version="0.1.0", lifespan=lifespan,
+                  docs_url="/docs" if docs else None, redoc_url=None, openapi_url="/openapi.json" if docs else None)
     app.state.rt = rt
+    app.add_middleware(SecurityHeadersAndLimits, max_body=rt.settings.max_body_bytes, relax_paths=("/docs",) if docs else ())
 
     # ---- health ----
     @app.get("/healthz")
@@ -78,12 +158,11 @@ def create_app(settings: Settings | None = None) -> FastAPI:
                 checks["database"] = {"ok": True}
                 hb = db.execute(text("SELECT max(at) FROM worker_heartbeat")).scalar()
                 age = (datetime.now(timezone.utc) - hb).total_seconds() if hb else None
-                checks["worker"] = {"ok": age is not None and age <= rt.settings.heartbeat_max_age_seconds,
-                                    "heartbeat_age_seconds": None if age is None else round(age, 1)}
+                checks["worker"] = {"ok": age is not None and age <= rt.settings.heartbeat_max_age_seconds}
                 v = audit.verify_chain(db, tail=200)
-                checks["audit_chain"] = {"ok": v["ok"], "head": v["head"], "checked_tail": v["checked"]}
-        except Exception as e:  # noqa: BLE001
-            checks.setdefault("database", {"ok": False, "error": type(e).__name__})
+                checks["audit_chain"] = {"ok": v["ok"]}
+        except Exception:  # noqa: BLE001
+            checks.setdefault("database", {"ok": False})
         ok = all(c.get("ok") for c in checks.values()) and len(checks) == 3
         if not ok:
             response.status_code = 503
@@ -93,14 +172,31 @@ def create_app(settings: Settings | None = None) -> FastAPI:
     @app.post(f"{API}/auth/login")
     def login(body: LoginIn, request: Request, response: Response, db: Session = Depends(get_db)):
         token, csrf, user = auth.login(db, rt, body.username, body.password, body.totp_code, client_ip(request))
-        response.set_cookie(COOKIE, token, httponly=True, secure=rt.settings.cookie_secure, samesite="strict",
+        response.set_cookie(cookie_name(rt), token, httponly=True, secure=rt.settings.cookie_secure, samesite="strict",
                             max_age=rt.settings.session_absolute_seconds, path="/")
         return {"csrf_token": csrf, "user": {"username": user.username, "role": user.role}}
 
     @app.post(f"{API}/auth/logout")
     def logout(request: Request, response: Response, user: User = Depends(auth.current_user), db: Session = Depends(get_db)):
-        auth.logout(db, request.cookies[COOKIE], user, client_ip(request))
-        response.delete_cookie(COOKIE, path="/")
+        auth.logout(db, request.cookies[cookie_name(rt)], user, client_ip(request))
+        response.delete_cookie(cookie_name(rt), path="/")
+        return {"ok": True}
+
+    @app.post(f"{API}/auth/logout-all")
+    def logout_all(request: Request, response: Response, user: User = Depends(auth.current_user), db: Session = Depends(get_db)):
+        n = auth.logout_all(db, user, client_ip(request))
+        response.delete_cookie(cookie_name(rt), path="/")
+        return {"ok": True, "sessions_revoked": n}
+
+    # ---- first-login enrollment: the invited user sets their own password and TOTP (H2) ----
+    @app.post(f"{API}/auth/enroll")
+    def enroll(body: EnrollIn, request: Request, db: Session = Depends(get_db)):
+        uri = auth.enroll_begin(db, rt, body.username, body.token, body.password, client_ip(request))
+        return {"totp_provisioning_uri": uri}
+
+    @app.post(f"{API}/auth/enroll/confirm")
+    def enroll_confirm(body: EnrollConfirmIn, request: Request, db: Session = Depends(get_db)):
+        auth.enroll_confirm(db, rt, body.username, body.token, body.totp_code, client_ip(request))
         return {"ok": True}
 
     @app.get(f"{API}/auth/me")
@@ -109,14 +205,18 @@ def create_app(settings: Settings | None = None) -> FastAPI:
 
     @app.post(f"{API}/users", status_code=201)
     def add_user(body: UserIn, request: Request, user: User = Depends(require("admin")), db: Session = Depends(get_db)):
+        """Creates an *invited* viewer/operator. No credential is chosen or returned: the enrollment token is issued on the
+        host (`python -m ics.cli issue-enrollment`). approver/admin accounts need the approved `user.create` plan action."""
+        if body.role not in ("viewer", "operator"):
+            raise HTTPException(422, "approver/admin accounts are created via the high-risk plan action user.create (needs approval)")
         try:
-            uri = auth.create_user(db, rt, body.username, body.password, body.role, actor=user.username)
+            auth.create_invite(db, rt, body.username, body.role, created_by=user.id, actor=user.username)
         except ValueError as e:
             raise HTTPException(422, str(e))
         except Exception as e:  # unique violation
             db.rollback()
             raise HTTPException(409, "could not create user (duplicate username?)") from e
-        return {"username": body.username, "role": body.role, "totp_provisioning_uri": uri}  # shown once
+        return {"username": body.username, "role": body.role, "invite": True}
 
     # ---- plans / jobs ----
     @app.get(f"{API}/actions")
@@ -136,7 +236,7 @@ def create_app(settings: Settings | None = None) -> FastAPI:
 
     def _decide(plan_id: UUID, approve: bool, request: Request, user: User, db: Session):
         try:
-            return decide_plan(db, user, plan_id, approve, client_ip(request))
+            return decide_plan(db, rt, user, plan_id, approve, client_ip(request))
         except PlanError as e:
             raise HTTPException(e.status, e.msg)
 
@@ -192,7 +292,10 @@ def create_app(settings: Settings | None = None) -> FastAPI:
         if len(body.blueprint_yaml) > 200_000:
             raise HTTPException(413, "blueprint too large")
         known = {r.name for r in db.execute(text("SELECT name FROM endpoints"))}
-        out = preview(body.blueprint_yaml, known)
+        try:
+            out = preview(body.blueprint_yaml, known)
+        except RecursionError:
+            out = {"valid": False, "errors": [{"loc": [], "msg": "blueprint is nested too deeply"}]}
         audit.append(db, "plan.preview", actor_id=user.id, actor_name=user.username, ip=client_ip(request),
                      details={"valid": out["valid"], "sha256": hashlib.sha256(body.blueprint_yaml.encode()).hexdigest()})
         db.commit()

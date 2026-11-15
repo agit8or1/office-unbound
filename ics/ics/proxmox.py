@@ -8,8 +8,12 @@ unverified peer that we do not then check).
 """
 import hashlib
 import hmac
+import json
+import ipaddress
 import re
+import socket
 import ssl
+import time
 from typing import Any
 from urllib.parse import urlparse
 
@@ -20,6 +24,27 @@ _FP_RE = re.compile(r"^[0-9a-f]{64}$")
 
 class ProxmoxError(Exception):
     pass
+
+
+_SECRET_RE = re.compile(r"^[A-Za-z0-9_-]{8,200}$")
+_TOKEN_ID_RE = re.compile(r"^[A-Za-z0-9._-]+@[A-Za-z0-9._-]+![A-Za-z0-9._-]+$")
+
+
+def check_destination(host: str, allow_loopback: bool = False) -> list[str]:
+    """SSRF guard: resolve the host and refuse loopback, link-local (incl. cloud metadata), unspecified, multicast, reserved.
+    RFC1918 stays allowed (management networks). Returns the resolved addresses (shown to the approver)."""
+    try:
+        infos = socket.getaddrinfo(host, None, type=socket.SOCK_STREAM)
+    except OSError:
+        raise ProxmoxError("endpoint host does not resolve") from None
+    ips = sorted({i[4][0].split("%")[0] for i in infos})
+    for ip in ips:
+        a = ipaddress.ip_address(ip)
+        if isinstance(a, ipaddress.IPv6Address) and a.ipv4_mapped:
+            a = a.ipv4_mapped
+        if a.is_unspecified or a.is_multicast or a.is_link_local or a.is_reserved or (a.is_loopback and not allow_loopback):
+            raise ProxmoxError(f"endpoint address {ip} is not an allowed destination")
+    return ips
 
 
 def normalize_fingerprint(fp: str) -> str:
@@ -67,30 +92,54 @@ def build_ssl_context(*, ca_pem: str | None, fingerprint_sha256: str | None) -> 
 
 class ProxmoxReadClient:
     def __init__(self, base_url: str, token_id: str, token_secret: str, *, ca_pem: str | None = None,
-                 fingerprint_sha256: str | None = None, timeout: float = 10.0):
+                 fingerprint_sha256: str | None = None, timeout: float = 5.0, deadline: float = 30.0,
+                 max_bytes: int = 16 * 1024 * 1024, allow_loopback: bool = False):
         u = urlparse(base_url)
         if u.scheme != "https" or not u.hostname:
             raise ValueError("base_url must be https://host[:port]")
+        # never put unvalidated bytes into a header, and never echo them in an error
+        if not _SECRET_RE.match(token_secret) or not _TOKEN_ID_RE.match(token_id):
+            raise ValueError("token id/secret has an invalid format")
+        check_destination(u.hostname, allow_loopback)
+        self._deadline, self._max_bytes = deadline, max_bytes
         self._base = f"https://{u.netloc}/api2/json"
         self._client = httpx.Client(
             verify=build_ssl_context(ca_pem=ca_pem, fingerprint_sha256=fingerprint_sha256),
             headers={"Authorization": f"PVEAPIToken={token_id}={token_secret}"},
-            timeout=timeout, follow_redirects=False, trust_env=False,
+            timeout=httpx.Timeout(timeout), follow_redirects=False, trust_env=False,
         )
 
     def close(self) -> None:
         self._client.close()
 
     def _get(self, path: str) -> Any:
+        """GET with an overall wall-clock deadline and a response size cap. Errors never include transport text
+        (it can echo request headers); only the exception class name is reported."""
+        end = time.monotonic() + self._deadline
+        buf = bytearray()
         try:
-            r = self._client.get(self._base + path)
-        except (httpx.HTTPError, ssl.SSLError) as e:
-            raise ProxmoxError(f"GET {path} failed: {type(e).__name__}: {e}") from None
-        if r.status_code != 200:
-            raise ProxmoxError(f"GET {path} returned HTTP {r.status_code}")
+            with self._client.stream("GET", self._base + path) as r:
+                if r.status_code != 200:
+                    raise ProxmoxError(f"GET {path} returned HTTP {r.status_code}")
+                if int(r.headers.get("content-length", "0") or 0) > self._max_bytes:
+                    raise ProxmoxError(f"GET {path}: response too large")
+                for chunk in r.iter_raw():
+                    if time.monotonic() > end:
+                        raise ProxmoxError(f"GET {path}: overall deadline of {self._deadline:g}s exceeded")
+                    buf += chunk
+                    if len(buf) > self._max_bytes:
+                        raise ProxmoxError(f"GET {path}: response exceeds {self._max_bytes} bytes")
+                if time.monotonic() > end:
+                    raise ProxmoxError(f"GET {path}: overall deadline of {self._deadline:g}s exceeded")
+        except ProxmoxError:
+            raise
+        except (httpx.ConnectError, ssl.SSLError) as e:  # TLS/connect layer: no request headers involved
+            raise ProxmoxError(f"GET {path} failed: {type(e).__name__}: {str(e)[:200]}") from None
+        except (httpx.HTTPError, OSError, ValueError) as e:
+            raise ProxmoxError(f"GET {path} failed: {type(e).__name__}") from None
         try:
-            return r.json()["data"]
-        except (ValueError, KeyError):
+            return json.loads(bytes(buf))["data"]
+        except (ValueError, KeyError, TypeError):
             raise ProxmoxError(f"GET {path}: unexpected response body") from None
 
     def version(self) -> dict: return self._get("/version")
@@ -111,7 +160,7 @@ class ProxmoxReadClient:
                 try:
                     entry.update(qemu=self.qemu(name), lxc=self.lxc(name), storage=self.storage(name), network=self.network(name))
                 except ProxmoxError as e:
-                    entry["error"] = str(e)
+                    entry["error"] = str(e)[:300]
             out["nodes"].append(entry)
         return out
 

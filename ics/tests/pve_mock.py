@@ -38,8 +38,28 @@ class Handler(http.server.BaseHTTPRequestHandler):
     def log_message(self, *a):
         pass
 
+    def _stream(self, mode):
+        import time
+        try:
+            self.send_response(200)
+            self.send_header("Content-Type", "application/json")
+            self.end_headers()
+            if mode == "drip":
+                for _ in range(40):
+                    self.wfile.write(b" ")
+                    self.wfile.flush()
+                    time.sleep(0.25)
+            else:
+                for _ in range(80):
+                    self.wfile.write(b" " * 65536)
+                    self.wfile.flush()
+        except (BrokenPipeError, ConnectionResetError, ssl.SSLError):
+            pass
+
     def do_GET(self):
         self.server.seen.append(("GET", self.path))
+        if getattr(self.server, "mode", None):
+            return self._stream(self.server.mode)
         if self.headers.get("Authorization") != TOKEN:
             return self._send(401, {"data": None})
         p = self.path.split("?")[0].removeprefix("/api2/json")
@@ -86,6 +106,9 @@ class MockPVE:
         self.srv.socket = ctx.wrap_socket(self.srv.socket, server_side=True)
         self.url = f"https://127.0.0.1:{self.srv.server_address[1]}"
         threading.Thread(target=self.srv.serve_forever, daemon=True).start()
+
+    def set_mode(self, mode):
+        self.srv.mode = mode
 
     @property
     def seen(self):

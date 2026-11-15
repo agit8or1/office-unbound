@@ -41,7 +41,7 @@ def test_rate_limit(client, mk_user):
     codes = [client.post("/api/v1/auth/login", json={"username": "dave", "password": "bad bad bad bad", "totp_code": "111111"}).status_code
              for _ in range(7)]
     assert codes[:5] == [401] * 5 and codes[5:] == [429, 429]
-    # even the correct credentials are locked out now
+    # even the correct credentials are backed off now (from this same IP)
     assert client.post("/api/v1/auth/login", json={"username": "dave", "password": u["password"], "totp_code": totp_for(u)}).status_code == 429
 
 
@@ -73,8 +73,8 @@ def test_roles(client, mk_user, login):
     assert v.post("/api/v1/plans/preview", json={"blueprint_yaml": "x: 1"}, headers=vh).status_code == 403
     assert o.post("/api/v1/plans/preview", json={"blueprint_yaml": "x: 1"}, headers=oh).status_code == 200
     assert o.get("/api/v1/audit").status_code == 403 and a.get("/api/v1/audit").status_code == 200
-    new = {"username": "newbie", "password": "a-long-password-1", "role": "viewer"}
+    new = {"username": "newbie", "role": "viewer"}
     assert a.post("/api/v1/users", json=new, headers=ah).status_code == 403
     r = ad.post("/api/v1/users", json=new, headers=adh)
-    assert r.status_code == 201 and r.json()["totp_provisioning_uri"].startswith("otpauth://totp/")
+    assert r.status_code == 201 and r.json() == {"username": "newbie", "role": "viewer", "invite": True}
     assert ad.post("/api/v1/users", json=new, headers=adh).status_code == 409
