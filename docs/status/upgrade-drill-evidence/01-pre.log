@@ -1,0 +1,27 @@
+state recorded in /var/backups/ou-prepkg/20261115T213505Z: 5014 files, source-built.tar 299M
+# installed state of gw1.ou-lab.internal before migration, 20261115T213505Z
+src.libhx=v4.28 37aba2e4c56fc1253623797a6e72259ef7ecc79b
+src.wmime=wmime-1.2.0 9c8e38c79158c53c31ac08f8bf329472f8bcf657
+src.gromox=gromox-3.13 8b620206f91b4766c48537b54575fe65e131abab
+src.gromox-ac=gromox-3.13 8b620206f91b4766c48537b54575fe65e131abab
+src.mapi-header-php=2.4 99cf86a3a05dd52f5fffa74db347fac0a1969986
+src.grommunio-sync=2.7 d493c82431dc8ab5282bb0aeb6bf8b8bd3b872ad
+src.grommunio-dav=1.9 5220793d117b50e6638e5428909379122b48edbd
+src.grommunio-web=grommunio-web-5.2 dd9029d93cecec1ba868ed0d8d976bb3f185a328
+dpkg-owned gromox/ou packages: 0
+kernel=6.8.0-87-generic os=Debian GNU/Linux 12 (bookworm)
+listening: *:3306 0.0.0.0:25 0.0.0.0:443 0.0.0.0:80 127.0.0.1:6379 192.168.186.218:8443 192.168.186.218:8444 [::1]:5000 [::1]:5555 [::1]:6379 [::1]:8080 [::ffff:0.0.0.0]:143 [::ffff:0.0.0.0]:993 [::ffff:127.0.0.1]:10080 [::ffff:127.0.0.1]:24 
+svc.gromox-delivery-queue=active
+svc.gromox-delivery=active
+svc.gromox-imap=active
+svc.gromox-http=active
+svc.gromox-zcore=active
+svc.gromox-midb=active
+svc.gromox-timer=active
+svc.gromox-event=active
+svc.php8.2-fpm=active
+svc.nginx=active
+svc.mariadb=active
+svc.postfix=active
+svc.redis-server=active
+gromox_binaries_sha256: 56e324d66280a3da 8e3b46474676d82d 7a6824f5bf793218 

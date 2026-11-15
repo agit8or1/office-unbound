@@ -8,7 +8,7 @@ import pyotp
 from pathlib import Path
 
 from fastapi import Depends, FastAPI, HTTPException, Request, Response
-from fastapi.responses import RedirectResponse
+from fastapi.responses import JSONResponse, RedirectResponse
 from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel, Field, ValidationError
 from sqlalchemy import text
@@ -23,7 +23,9 @@ from . import userdir
 from .config import Settings
 from .deploy.api import register_routes as register_deploy_routes
 from .sysinfo import register as register_system_routes
+from .guest import callback as guest_callback
 from .inventory import api as inventory_api
+from . import version as ver
 from .provisioning import service as prov_service
 from .credentials import api as credentials_api, service as cred_service
 from .tenancy import api as tenancy_api, public as tenancy_public, scope as tscope
@@ -177,7 +179,7 @@ def create_app(settings: Settings | None = None, runtime: Runtime | None = None)
             worker.stop()
 
     docs = rt.settings.enable_docs  # off in production: Swagger UI is CDN-hosted (M6)
-    app = FastAPI(title="Office Unbound ICS", version="0.1.0", lifespan=lifespan,
+    app = FastAPI(title="Office Unbound ICS", version=ver.__version__, lifespan=lifespan,
                   docs_url="/docs" if docs else None, redoc_url=None, openapi_url="/openapi.json" if docs else None)
     app.state.rt = rt
     app.add_middleware(SecurityHeadersAndLimits, max_body=rt.settings.max_body_bytes, relax_paths=("/docs",) if docs else ())
@@ -204,7 +206,29 @@ def create_app(settings: Settings | None = None, runtime: Runtime | None = None)
         ok = all(c.get("ok") for c in checks.values()) and len(checks) == 3
         if not ok:
             response.status_code = 503
-        return {"ready": ok, "checks": checks}
+        return {"ready": ok, "version": ver.__version__, "checks": checks}
+
+    # ---- version (ADR-0011) ----
+    def _full_version(db: Session) -> dict:
+        i = ver.build_info()
+        try:
+            db_rev = db.execute(text("SELECT version_num FROM alembic_version")).scalar()
+        except Exception:  # noqa: BLE001
+            db.rollback()
+            db_rev = None
+        return {"product": i["product"], "version": i["version"], "commit": i.get("commit"), "dirty": i.get("dirty"),
+                "built_at": i.get("built_at"), "build_source": i.get("source"), "api": ver.API_VERSION,
+                "schema": {"build_head": i.get("schema_head"), "database": db_rev},
+                "components": {"ics": i["version"], **i.get("components", {})}, "interfaces": i.get("interfaces", {})}
+
+    @app.get(f"{API}/version")
+    def version_info(request: Request, db: Session = Depends(get_db)):
+        """Public: product name and version only. With a valid session: commit, build date, schema and component versions."""
+        try:
+            auth.current_user(request, db)
+        except HTTPException:
+            return {"product": ver.PRODUCT, "version": ver.__version__}
+        return _full_version(db)
 
     # ---- auth ----
     @app.post(f"{API}/auth/login")
@@ -375,6 +399,7 @@ def create_app(settings: Settings | None = None, runtime: Runtime | None = None)
         return out
 
     register_system_routes(app, rt, API, worker)  # GET system (admin): version, migration, readiness, threads, sizes, backup
+    guest_callback.register(app, rt)  # golden-image bootstrap callback (guest/callback.py): HMAC-authenticated, single use, rate limited
     register_deploy_routes(app, rt)  # catalog, deployments, drift, change preview, job steps (deploy/api.py)
 
     # ---- monitoring (read-only views; every mutation is a typed plan) ----
@@ -469,6 +494,14 @@ def create_app(settings: Settings | None = None, runtime: Runtime | None = None)
             raise HTTPException(404, "no unrevealed, unexpired enrollment for this plan and requester")
         return r
 
+    @app.post(f"{API}/identity/sip-credentials/{{plan_id}}/reveal")
+    def idm_sip_reveal(plan_id: UUID, user: User = Depends(require("operator")), db: Session = Depends(get_db)):
+        """Shows the one-time SIP device credential of an idm.user.issue_sip_credential plan to ITS REQUESTER, once (the PBX keeps only a digest)."""
+        r = identity.reveal_sip_credential(db, rt, user, plan_id)
+        if not r:
+            raise HTTPException(404, "no unrevealed, unexpired SIP credential for this plan and requester")
+        return JSONResponse(r, headers={"Cache-Control": "no-store"})
+
     @app.post(f"{API}/identity/enroll")
     def idm_enroll(body: IdmEnrollIn, request: Request, db: Session = Depends(get_db)):
         """The new user sets their OWN initial password with the one-time token (never stored, never logged). Unauthenticated by design."""
@@ -490,7 +523,8 @@ def create_app(settings: Settings | None = None, runtime: Runtime | None = None)
 
     @app.get(f"{API}/identity/stacks")
     def idm_stacks(user: User = Depends(require("viewer")), db: Session = Depends(get_db)):
-        rows = db.execute(text("SELECT id, name, config, last_reconcile_at, created_at FROM idm_stacks ORDER BY name")).all()
+        rows = db.execute(text("SELECT id, name, config, last_reconcile_at, created_at FROM idm_stacks "
+                               f"WHERE {tscope.clause(db, 'config->>' + chr(39) + 'customer_id' + chr(39))} ORDER BY name")).all()   # a stack belongs to one customer (tenant isolation)
         hide = {"identity_ca_pem", "mail_ca_pem"}
         return [{**_row(r, "config"), "config": {k: v for k, v in r.config.items() if k not in hide}} for r in rows]
 
@@ -499,14 +533,15 @@ def create_app(settings: Settings | None = None, runtime: Runtime | None = None)
         rows = db.execute(text(
             "SELECT u.id, s.name AS stack, u.uid, u.entry_uuid, u.mail, u.display_name, u.groups, u.state, u.created_at, u.disabled_at, "
             "u.last_verification FROM idm_users u JOIN idm_stacks s ON s.id = u.stack_id WHERE (CAST(:s AS text) IS NULL OR s.name = :s) "
-            "ORDER BY u.uid LIMIT 500"), {"s": stack}).all()
+            f"AND {tscope.clause(db, 's.config->>' + chr(39) + 'customer_id' + chr(39))} ORDER BY u.uid LIMIT 500"), {"s": stack}).all()
         return [_row(r) for r in rows]
 
     @app.get(f"{API}/identity/reconcile")
     def idm_reconcile_runs(stack: str | None = None, limit: int = 10, user: User = Depends(require("viewer")), db: Session = Depends(get_db)):
         rows = db.execute(text(
             "SELECT r.id, s.name AS stack, r.at, r.trigger, r.ok, r.findings FROM idm_reconcile_runs r JOIN idm_stacks s ON s.id = r.stack_id "
-            "WHERE (CAST(:s AS text) IS NULL OR s.name = :s) ORDER BY r.at DESC LIMIT :n"), {"s": stack, "n": min(max(limit, 1), 100)}).all()
+            "WHERE (CAST(:s AS text) IS NULL OR s.name = :s) "
+            f"AND {tscope.clause(db, 's.config->>' + chr(39) + 'customer_id' + chr(39))} ORDER BY r.at DESC LIMIT :n"), {"s": stack, "n": min(max(limit, 1), 100)}).all()
         return [{**_row(r), "id": r.id} for r in rows]
 
     # ---- backup product (mutations are typed plans backup.*; these are read-only views; ADR-0010) ----

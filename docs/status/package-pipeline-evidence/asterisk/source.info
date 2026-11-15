@@ -1,0 +1,8 @@
+component=asterisk
+repo=https://github.com/asterisk/asterisk
+tag=22.12.0
+commit=d3fb2aa68d38b5c931faec521ee7e54b3664130b
+source_date_epoch=1793884505
+signature=valid OpenPGP (GOODSIG+VALIDSIG, primary key F2FC93DB7587BD1FB49E045A5D984BE337191CE7) over the release tarball; sha256 pin ok
+tarball_sha256=f8b2ba98aac6c4ff3376bc0a2868bea6ed577ca684efb7ec739ae6e8ce6e35e2
+orig_sha256=6d8ca38930d085bb0d4147164eae938a7b33d9196f66bd1c2b1d29e6adac5496

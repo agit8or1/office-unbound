@@ -1,0 +1,10 @@
+Format: https://www.debian.org/doc/packaging-manuals/copyright-format/1.0/
+Upstream-Name: mapi-header-php
+
+Files: *
+Copyright: grommunio GmbH, Kopano b.v., Zarafa B.V. and contributors (see per-file headers)
+License: AGPL-3+
+
+Files: debian/*
+Copyright: Office Unbound
+License: AGPL-3+

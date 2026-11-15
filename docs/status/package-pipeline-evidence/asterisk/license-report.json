@@ -1,0 +1,42 @@
+{
+ "bundled_licences": {},
+ "bundled_packages": 0,
+ "component": "asterisk",
+ "files_scanned": 5565,
+ "in_inventory": true,
+ "licence_files": {
+  "COPYING": "GPL (text)",
+  "LICENSE": "GPL (text)",
+  "_bundled/pjproject/COPYING": "LGPL (text)",
+  "_bundled/pjproject/third_party/gsm/COPYRIGHT": "unrecognized",
+  "_bundled/pjproject/third_party/resample/COPYING": "LGPL (text)",
+  "_bundled/pjproject/third_party/speex/COPYING": "BSD-style (text)",
+  "_bundled/pjproject/third_party/srtp/LICENSE": "BSD-style (text)",
+  "_bundled/pjproject/third_party/webrtc/LICENSE": "BSD-style (text)",
+  "_bundled/pjproject/third_party/webrtc/LICENSE_THIRD_PARTY": "MIT-style (text)",
+  "_bundled/pjproject/third_party/webrtc_aec3/LICENSE": "BSD-style (text)",
+  "_bundled/pjproject/third_party/webrtc_aec3/src/absl/LICENSE": "Apache (text)",
+  "_bundled/pjproject/third_party/webrtc_aec3/src/common_audio/third_party/ooura/LICENSE": "unrecognized",
+  "_bundled/pjproject/third_party/webrtc_aec3/src/common_audio/third_party/spl_sqrt_floor/LICENSE": "unrecognized",
+  "_bundled/pjproject/third_party/webrtc_aec3/src/third_party/rnnoise/COPYING": "BSD-style (text)",
+  "_bundled/pjproject/third_party/yuv/LICENSE": "BSD-style (text)",
+  "_bundled/pjproject/third_party/yuv/LICENSE_THIRD_PARTY": "unrecognized",
+  "addons/ooh323c/COPYING": "GPL (text)",
+  "codecs/gsm/COPYRIGHT": "unrecognized",
+  "codecs/ilbc/LICENSE": "BSD-style (text)",
+  "codecs/ilbc/LICENSE_ADDENDUM": "unrecognized"
+ },
+ "problems": [],
+ "result": "PASS",
+ "spdx_found": {
+  "file:GPL-2.0-only": 2
+ },
+ "warnings": [
+  "licence file with unrecognised text (manual review): _bundled/pjproject/third_party/gsm/COPYRIGHT",
+  "licence file with unrecognised text (manual review): _bundled/pjproject/third_party/webrtc_aec3/src/common_audio/third_party/ooura/LICENSE",
+  "licence file with unrecognised text (manual review): _bundled/pjproject/third_party/webrtc_aec3/src/common_audio/third_party/spl_sqrt_floor/LICENSE",
+  "licence file with unrecognised text (manual review): _bundled/pjproject/third_party/yuv/LICENSE_THIRD_PARTY",
+  "licence file with unrecognised text (manual review): codecs/gsm/COPYRIGHT",
+  "licence file with unrecognised text (manual review): codecs/ilbc/LICENSE_ADDENDUM"
+ ]
+}

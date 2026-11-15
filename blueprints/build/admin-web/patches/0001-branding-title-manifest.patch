@@ -1,0 +1,35 @@
+Description: Office Unbound branding of the page title, description and PWA manifest
+ Only the user-visible document strings are changed; the remaining UI strings
+ and the logo are listed under "Branding remaining" in docs/status/package-pipeline-results.md.
+Author: Office Unbound
+Forwarded: not-needed
+Last-Update: 2026-11-15
+
+--- a/public/index.html
++++ b/public/index.html
+@@ -7,12 +7,12 @@
+     <meta name="theme-color" content="#000000" />
+     <meta
+       name="description"
+-      content="grommunio admin-web"
++      content="Office Unbound Admin"
+     />
+     <link rel="apple-touch-icon" href="%PUBLIC_URL%/logo192.png" />
+     <link rel="manifest" href="%PUBLIC_URL%/manifest.json" />
+     <link rel="stylesheet" href="%PUBLIC_URL%/leaflet.css" />
+-    <title>grommunio</title>
++    <title>Office Unbound Admin</title>
+   </head>
+   <body>
+     <noscript>You need to enable JavaScript to run this app.</noscript>
+--- a/public/manifest.json
++++ b/public/manifest.json
+@@ -1,6 +1,6 @@
+ {
+-  "short_name": "grommunio admin",
+-  "name": "grommunio admin web",
++  "short_name": "OU admin",
++  "name": "Office Unbound Admin",
+   "icons": [
+     {
+       "src": "favicon.ico",

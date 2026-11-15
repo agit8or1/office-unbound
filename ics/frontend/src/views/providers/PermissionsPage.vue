@@ -10,8 +10,9 @@ import ErrorBox from '../../components/ErrorBox.vue'
 import { Banner, HelpNote } from '../../wizards/kit'
 import ClusterHeader from './ClusterHeader.vue'
 import ActionFlow, { type FlowKind } from './ActionFlow.vue'
+import ScopeChangeFlow from './ScopeChangeFlow.vue'
 import { api, load, msg } from './api'
-import { PRESETS, TYPE_LABEL, driftItems, policyStatus, type DriftReport } from './model'
+import { PRESETS, SCOPE_MODE_LABEL, TYPE_LABEL, driftItems, policyStatus, type DriftReport } from './model'
 import './providers.css'
 
 const props = defineProps<{ id: string }>()
@@ -24,6 +25,10 @@ const d = computed(() => data.data.value)
 const v = computed(() => d.value?.perms ?? null)
 const status = computed(() => policyStatus(v.value))
 const flow = ref<FlowKind | null>(null)
+const scopeFlow = ref(false)
+const scopeMode = computed(() => (v.value?.scope_mode ? SCOPE_MODE_LABEL[v.value.scope_mode] ?? v.value.scope_mode : 'Not recorded'))
+const scopeNotes = computed(() => (v.value?.scope_enforcement ?? []))
+const icsDrift = computed(() => (report.value?.ics_scope && !report.value.ics_scope.ok ? report.value.ics_scope : null))
 const checking = ref(false), checkError = ref(''), checked = ref<DriftReport | null>(null)
 const report = computed<DriftReport | null>(() => checked.value ?? v.value?.last_drift ?? null)
 const items = computed(() => driftItems(report.value))
@@ -53,6 +58,7 @@ const tone = (t: string) => t
           <div class="muted small"><div>Last verified: <b>{{ v.last_verified_at ? ago(v.last_verified_at) : 'never' }}</b></div><div>Last drift check: <b>{{ v.last_drift_at ? ago(v.last_drift_at) : 'never' }}</b></div></div>
           <div class="row">
             <Button size="sm" :loading="checking" :disabled="!canOperate || !v.managed_by_provisioning" @click="validate">Run validation</Button>
+            <Button size="sm" variant="primary" :disabled="!canAdmin || !v.managed_by_provisioning" @click="scopeFlow = true">Change scope</Button>
             <Button size="sm" :disabled="!canAdmin || !v.managed_by_provisioning" @click="flow = 'change'">Change access</Button>
             <Button size="sm" :disabled="!canAdmin || !v.managed_by_provisioning" @click="flow = 'rotate'">Rotate tokens</Button>
             <Button size="sm" variant="danger" :disabled="!canAdmin || !v.managed_by_provisioning" @click="flow = 'revoke'">Revoke</Button>
@@ -62,6 +68,15 @@ const tone = (t: string) => t
         <Banner v-if="!v.managed_by_provisioning" kind="info" title="Permissions are managed outside Office Unbound">{{ v.note }} To get drift detection, reconciliation and rotation, reconnect this cluster with "Set it up for me" or a setup package.</Banner>
 
         <template v-if="v.managed_by_provisioning">
+          <Banner v-if="icsDrift" kind="bad" title="Office Unbound's own limits differ from the approved scope">{{ icsDrift.note }} Nodes approved: {{ icsDrift.nodes.policy.join(', ') || 'none' }}; in force: {{ icsDrift.nodes.endpoint.join(', ') || 'none' }}. <span class="muted">(Enforced by Office Unbound)</span></Banner>
+          <Card title="Scope" hint="How much of the cluster this integration may reach">
+            <dl class="pv-dl"><dt>Scope</dt><dd><b>{{ scopeMode }}</b><span v-if="v.scope_mode === 'single_node'" class="badge ok">Recommended for security</span></dd>
+              <dt>Nodes</dt><dd>{{ v.scope_mode === 'whole_cluster' ? 'All nodes (' + (v.scope?.nodes?.length ?? 0) + ' found when set)' : (v.scope?.nodes ?? []).join(', ') || 'none' }}</dd>
+              <dt>Storage</dt><dd>{{ [...(v.scope?.storages ?? []), ...(v.scope?.backup_storages ?? [])].join(', ') || 'none' }}</dd></dl>
+            <div class="pv-enf"><div class="pv-enf-col" data-who="proxmox"><h4>Held by Proxmox</h4><ul class="pv-list small"><li v-for="e in scopeNotes.filter((x) => x.enforced_by === 'proxmox')" :key="e.control"><b>{{ e.control }}</b><div class="muted small">{{ e.detail }}</div></li></ul></div>
+              <div class="pv-enf-col" data-who="ics"><h4>Held by Office Unbound (also)</h4><ul class="pv-list small"><li v-for="e in scopeNotes.filter((x) => x.enforced_by === 'ics' || x.enforced_by === 'both')" :key="e.control"><b>{{ e.control }}</b><div class="muted small">{{ e.detail }}</div></li></ul></div></div>
+            <p v-if="!scopeNotes.length" class="muted small">This integration was set up before scope modes existed. Use Change scope to choose one node or the whole cluster.</p>
+          </Card>
           <Card v-if="items.length || (report && !report.ok)" title="Drift: expected versus actual" hint="Proxmox no longer matches what was approved">
             <Banner v-if="report?.error" kind="bad" :title="report.error_code === 'token_failed' ? 'The token is rejected' : 'The check could not complete'">{{ report.error }}</Banner>
             <div v-if="items.length" class="tablewrap"><table class="pv-table"><thead><tr><th>Difference</th><th>Token</th><th>Where</th><th>Privileges</th><th>Suggested correction</th></tr></thead><tbody>
@@ -114,6 +129,7 @@ const tone = (t: string) => t
           </Card>
         </template>
       </template>
+      <ScopeChangeFlow v-if="scopeFlow && v" :endpoint-id="id" :name="d.ep.name" :view="v" @close="scopeFlow = false; void data.reload()" @done="data.reload" />
       <ActionFlow v-if="flow && v" :kind="flow" :endpoint-id="id" :name="d.ep.name" :view="v" @close="closeFlow" @done="data.reload" />
     </template>
   </div>

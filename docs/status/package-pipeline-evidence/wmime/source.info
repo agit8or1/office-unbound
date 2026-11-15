@@ -1,0 +1,7 @@
+component=wmime
+repo=https://github.com/grommunio/wmime
+tag=wmime-1.2.0
+commit=9c8e38c79158c53c31ac08f8bf329472f8bcf657
+source_date_epoch=1793093757
+signature=signed by pinned key id AEB6941A2F9C9944 (signature NOT cryptographically verified: public key not available from an authorized endpoint)
+orig_sha256=2444e727bc9a2a17b8f374813a487a9256993ab7117cc782447845a0f4fd4eea

@@ -1,0 +1,7 @@
+component=libexmdbpp
+repo=https://github.com/grommunio/libexmdbpp
+tag=1.9
+commit=ef153e8a2f13148b8a170fb81f158dae67a2b2e7
+source_date_epoch=1655904835
+signature=none
+orig_sha256=84245d75c216c47d31bf784183108f3687e1bf9de34ee1e37118903d54e096fd

@@ -1,0 +1,17 @@
+#!/usr/bin/make -f
+%:
+	dh $@ --buildsystem=cmake
+
+override_dh_auto_configure:
+	dh_auto_configure -- -DCMAKE_BUILD_TYPE=Release \
+	  -DVMIME_HAVE_MESSAGING_PROTO_SENDMAIL=OFF -DVMIME_BUILD_TESTS=OFF \
+	  -DVMIME_BUILD_DOCUMENTATION=OFF -DVMIME_BUILD_SAMPLES=OFF \
+	  -DVMIME_BUILD_STATIC_LIBRARY=OFF
+
+override_dh_auto_test:
+
+override_dh_makeshlibs:
+	dh_makeshlibs -V 'ou-wmime (>= 1.2.0)'
+
+override_dh_missing:
+	dh_missing --fail-missing

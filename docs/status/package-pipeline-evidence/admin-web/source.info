@@ -1,0 +1,7 @@
+component=admin-web
+repo=https://github.com/grommunio/admin-web
+tag=5.0.0
+commit=56aa5b432d68183171dc4846522ef8bbee39c477
+source_date_epoch=1775127639
+signature=none
+orig_sha256=c6ce193c43c6cea9895e342549c687f9956ab16c55826d127d231007923efc3e

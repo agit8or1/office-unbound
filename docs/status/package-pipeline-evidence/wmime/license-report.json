@@ -1,0 +1,13 @@
+{
+ "bundled_licences": {},
+ "bundled_packages": 0,
+ "component": "wmime",
+ "files_scanned": 582,
+ "in_inventory": true,
+ "problems": [],
+ "result": "PASS",
+ "spdx_found": {
+  "file:GPL-3.0-only": 1
+ },
+ "warnings": []
+}

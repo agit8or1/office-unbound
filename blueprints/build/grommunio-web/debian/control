@@ -1,0 +1,23 @@
+Source: ou-grommunio-web
+Section: web
+Priority: optional
+Maintainer: Office Unbound Build <build@officeunbound.com>
+Build-Depends: debhelper-compat (= 13), make, gettext, php-cli, nodejs (>= 22.23.5), ou-mapi-header-php
+Standards-Version: 4.6.2
+Rules-Requires-Root: no
+
+Package: ou-grommunio-web
+Architecture: all
+Depends: ${misc:Depends}, php-cli, ou-mapi-header-php, ou-gromox-php-mapi, php-fpm, php-gd, php-intl, php-mbstring, php-xml, php-curl, php-zip, php-sqlite3, php-redis
+Recommends: nginx
+Conflicts: grommunio-web
+Replaces: grommunio-web
+Provides: grommunio-web
+Description: Web client for Gromox (Office Unbound Web)
+ Webmail, calendar, contacts and tasks client (grommunio-web), rebranded as
+ "Office Unbound Web". Application tree in /usr/share/grommunio-web (compiled
+ and minified from the pinned upstream tag with a locked npm tree, see the
+ package SBOM), configuration in /etc/grommunio-web/config.php (conffile).
+ nginx and php-fpm snippets are shipped as examples under
+ /usr/share/doc/ou-grommunio-web/examples. The session cleanup timer is
+ installed but not enabled.

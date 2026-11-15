@@ -108,10 +108,18 @@ class PlanBuildError(ValueError):
 
 # ---------------------------------------------------------------------------------------------------- design
 CAP_ROLE_SUFFIX = {"monitor": "Monitor", "deploy": "Deploy", "storage": "Storage", "template_clone": "TemplateClone", "network": "Network",
-                   "backup": "Backup", "custom": "Custom", "full_admin": "FullAdmin"}
+                   "backup": "Backup", "custom": "Custom", "full_admin": "FullAdmin", "node_audit": "NodeAudit"}
 
 
 def capabilities(policy: Policy) -> list[str]:
+    caps = _base_capabilities(policy)
+    if policy.scope_mode and "full_admin" not in caps:
+        # scope modes: Sys.Audit lives in its own role so it is granted ONLY on /nodes paths (never on pool/storage/vm paths)
+        caps.insert(1, "node_audit")
+    return caps
+
+
+def _base_capabilities(policy: Policy) -> list[str]:
     if policy.preset == "monitoring":
         return ["monitor"]
     if policy.preset == "deploy":
@@ -129,8 +137,10 @@ def capabilities(policy: Policy) -> list[str]:
 def role_privileges(cap: str, policy: Policy, major: int) -> set[str]:
     if major < MIN_MAJOR:
         raise PlanBuildError(f"Proxmox VE {major} is not supported (need 8 or 9)")
-    if cap == "monitor":
-        p = {"Sys.Audit", "VM.Audit", "Datastore.Audit", "Pool.Audit"}
+    if cap == "node_audit":
+        p = {"Sys.Audit"}
+    elif cap == "monitor":
+        p = {"VM.Audit", "Datastore.Audit", "Pool.Audit"} if (policy.scope_mode and policy.preset != "full_admin") else {"Sys.Audit", "VM.Audit", "Datastore.Audit", "Pool.Audit"}
         if policy.guest_agent:
             p.add("VM.GuestAgent.Audit" if major >= 9 else "VM.Monitor")
     elif cap == "deploy":
@@ -211,11 +221,15 @@ def design(policy: Policy, major: int, final_names: dict[str, str] | None = None
     zones = vnet_zones or {}
     roles = {c: ((final_names or {}).get(c) or role_name(policy, c), frozenset(role_privileges(c, policy, major))) for c in caps}
     both, prov = ("inventory", "provision"), ("provision",)
+    nodecap = "node_audit" if "node_audit" in caps else "monitor"
     acl: list[AclSpec] = []
     if "full_admin" in caps:
         acl = [AclSpec("/", "monitor", 1, ("inventory",)), AclSpec("/", "full_admin", 1, prov)]
     else:
-        acl += [AclSpec(f"/nodes/{n}", "monitor", 1, both) for n in s.nodes]
+        if policy.mode() == "whole_cluster":
+            acl.append(AclSpec("/nodes", nodecap, 1, both))          # every current and future node: Sys.Audit with propagation
+        else:
+            acl += [AclSpec(f"/nodes/{n}", nodecap, 1, both) for n in s.nodes]   # single_node / legacy: exactly the selected nodes, never /nodes or /
         acl += [AclSpec(f"/pool/{p}", "monitor", 1, both) for p in s.pools]
         acl += [AclSpec(f"/storage/{x}", "monitor", 1, both) for x in s.storages]
         acl += [AclSpec(f"/vms/{t}", "monitor", 0, both) for t in s.template_vmids]
@@ -234,7 +248,7 @@ def design(policy: Policy, major: int, final_names: dict[str, str] | None = None
             acl += [AclSpec(g.path, "custom", 1, prov) for g in policy.custom_grants]
             if policy.allow_cicustom:
                 acl.append(AclSpec("/", "custom", 1, prov))
-    kinds = ["inventory"] + (["provision"] if len(caps) > 1 else [])
+    kinds = ["inventory"] + (["provision"] if len([c for c in caps if c != "node_audit"]) > 1 else [])
     base = policy.token_base
     toks = {k: (token_names or {}).get(k) or f"{base}-{'inv' if k == 'inventory' else 'prov'}" for k in kinds}
     # monitoring-only: the single token is the inventory token
@@ -280,6 +294,7 @@ class Facts:
     pools: set[str] = field(default_factory=set)
     guests: dict[int, dict] = field(default_factory=dict)
     networks: dict[str, str] = field(default_factory=dict)         # bridge/vnet -> zone
+    bridge_nodes: dict[str, set] = field(default_factory=dict)     # classic bridge -> nodes that have it
     users: dict[str, dict] = field(default_factory=dict)
     roles: dict[str, frozenset] = field(default_factory=dict)
     builtin_roles: set[str] = field(default_factory=set)
@@ -308,12 +323,14 @@ def collect_facts(c) -> Facts:
         f.nodes[n["node"]] = n.get("status", "unknown")
     for s in c.get("/storage"):
         f.storages[s["storage"]] = {"type": s.get("type"), "shared": bool(s.get("shared")), "content": s.get("content", ""),
-                                    "nodes": [x for x in (s.get("nodes") or "").split(",") if x] or sorted(f.nodes)}
+                                    "nodes": [x for x in (s.get("nodes") or "").split(",") if x] or sorted(f.nodes),
+                                    "node_restricted": bool(s.get("nodes"))}
     for p in _opt(c, "/pools", f, "pools") or []:
         f.pools.add(p["poolid"])
     for r in _opt(c, "/cluster/resources?type=vm", f, "guests") or []:
         if "vmid" in r:
-            f.guests[int(r["vmid"])] = {"node": r.get("node"), "name": r.get("name"), "pool": r.get("pool"), "template": bool(r.get("template")), "type": r.get("type")}
+            f.guests[int(r["vmid"])] = {"node": r.get("node"), "name": r.get("name"), "pool": r.get("pool"), "template": bool(r.get("template")), "type": r.get("type"),
+                                      "tags": r.get("tags") or "", "status": r.get("status")}
     for z in _opt(c, "/cluster/sdn/vnets", f, "SDN vnets") or []:
         f.networks[z["vnet"]] = z.get("zone", "localnetwork")
     for n, st in f.nodes.items():
@@ -321,6 +338,7 @@ def collect_facts(c) -> Facts:
             for i in _opt(c, f"/nodes/{n}/network", f, f"network of {n}") or []:
                 if i.get("type") in ("bridge", "OVSBridge"):
                     f.networks.setdefault(i["iface"], "localnetwork")
+                    f.bridge_nodes.setdefault(i["iface"], set()).add(n)
     for u in _opt(c, "/access/users?full=1", f, "users") or []:
         f.users[u["userid"]] = {"comment": u.get("comment", ""), "enable": u.get("enable", 1),
                                 "tokens": {t["tokenid"]: t for t in u.get("tokens", []) or []}}
@@ -363,7 +381,118 @@ def enforcement_matrix(policy: Policy) -> list[EnforcementNote]:
         E("Guest types (qemu/lxc)", "ics", "Not expressible in Proxmox ACLs. Policy guard implemented; broker wiring pending."),
         E("CPU / RAM / disk caps", "ics", "Proxmox has no per-user resource quota in ACLs. Policy guard implemented; broker wiring pending."),
     ]
+    return out + scope_enforcement(policy)
+
+
+def scope_enforcement(policy: Policy) -> list[EnforcementNote]:
+    """What the chosen scope mode is held by, control by control. 'proxmox' = Proxmox refuses it itself (ACLs/privileges); 'ics' = only the
+    Office Unbound broker stops it; 'both' = Proxmox stops it incidentally and the broker stops it deliberately."""
+    s, E = policy.scope, EnforcementNote
+    mode = policy.mode()
+    if mode == "single_node":
+        nodes = ", ".join(s.nodes)
+        return [
+            E(f"Node visibility: only {nodes}", "proxmox", "Sys.Audit is granted on /nodes/<node> for the selected node(s) only. Never on /nodes and never on /; Proxmox shows nothing else."),
+            E("Disk placement: node-local storage only", "proxmox",
+              "Datastore.AllocateSpace only on storages that exist on the selected node(s) and are not shared (checked when the plan is built). Proxmox refuses a disk anywhere else, "
+              "so a VM cannot be given storage on another node."),
+            E("No moving guests between nodes (VM.Migrate)", "proxmox", "VM.Migrate is not in any role (unless the explicit high-risk 'migrate' override was approved)."),
+            E("Which node a new guest is created on", "both",
+              "Proxmox pools are cluster-wide: a pool ACL cannot say 'only on node X'. Placement on another node is blocked incidentally by Proxmox (the node-local storage does not exist there) "
+              "and deliberately by the Office Unbound broker (EndpointScope.nodes, deny by default). It relies on the broker alone if a shared-storage override was approved."),
+            E("Pool and network names are cluster-wide", "ics",
+              "Pool ACLs (/pool/<pool>) and the classic-bridge SDN zone (/sdn/zones/localnetwork/<bridge>) apply to the whole cluster by name. Guests of the pool on other nodes would be "
+              "permitted by Proxmox; Office Unbound refuses them through the node allowlist."),
+            E("Nothing at the cluster root or on other nodes", "proxmox", "Checked after every apply and by drift checks: any effective grant on /, /nodes, another node or an unlisted storage is reported."),
+        ]
+    if mode == "whole_cluster":
+        return [
+            E("Node visibility: every node", "proxmox", "Sys.Audit is granted on /nodes with propagation, so it also covers nodes that join later."),
+            E("Which nodes Office Unbound may change", "ics",
+              "The broker's node allowlist is the set of nodes found when the scope was chosen (" + (", ".join(s.nodes) or "all nodes at plan time") + "). A node added to the cluster later is NOT used until the scope is updated."),
+            E("Shared storage and moving guests", "proxmox", "Shared storage can be selected; VM.Migrate is only available when the migrate option is on."),
+        ]
+    return []
+
+
+def _path_reach(path: str, nodes: set[str]) -> str | None:
+    """Why an ACL path would let the integration act outside the selected nodes (None = it does not). Used for custom grants and permission checks."""
+    p = path.rstrip("/") or "/"
+    if p == "/":
+        return "the cluster root: every node, storage and guest"
+    if p in ("/nodes", "/vms", "/storage", "/pool", "/sdn", "/sdn/zones", "/access", "/access/groups", "/access/realm"):
+        return f"every {p.strip('/').split('/')[0].rstrip('s')} in the cluster"
+    m = re.match(r"/nodes/([^/]+)", p)
+    if m and m.group(1) not in nodes:
+        return f"node {m.group(1)}"
+    return None
+
+
+def scope_reach(actual: dict[str, set[str]], policy: Policy, storages_allowed: set[str]) -> list[dict]:
+    """Effective permissions (from /access/permissions) that reach beyond a single_node scope. Every finding is a Proxmox-level grant, so the
+    label is 'proxmox' (the fix has to happen in Proxmox, not in the ICS)."""
+    if policy.mode() != "single_node":
+        return []
+    nodes = set(policy.scope.nodes)
+    out = []
+    for path, privs in sorted(actual.items()):
+        if not privs:
+            continue
+        why = _path_reach(path, nodes)
+        if why is None and path.startswith("/storage/") and path.split("/")[2] not in storages_allowed:
+            why = f"storage {path.split('/')[2]}, which is not part of the approved scope"
+        if why:
+            out.append({"path": path, "privileges": sorted(privs), "reaches": why, "enforced_by": "proxmox"})
     return out
+
+
+def _single_node_checks(plan: ProvisioningPlan, policy: Policy, facts: Facts) -> set[str]:
+    """Extra validation for scope_mode=single_node against the discovered cluster. Returns ACL paths whose grant is a high-risk override."""
+    s = policy.scope
+    sel = set(s.nodes)
+    ov = set(policy.scope_risk_overrides)
+    risky: set[str] = set()
+    for x in sorted(set(s.storages) | set(s.backup_storages)):
+        st = facts.storages.get(x)
+        if st is None:
+            continue
+        content = set((st.get("content") or "").split(","))
+        if not content & {"images", "rootdir"}:
+            continue      # backup-only / ISO storage cannot hold VM disks, so it cannot place a guest on another node
+        if (not st["shared"]) and set(st["nodes"]) <= sel:
+            continue
+        where = "shared between nodes" if st["shared"] else "also available on " + ", ".join(sorted(set(st["nodes"]) - sel))
+        if f"shared_storage:{x}" in ov:
+            risky.add(f"/storage/{x}")
+            plan.warnings.append(f"HIGH RISK OVERRIDE: storage {x} is {where}. Disks can be created on it for guests on nodes outside the selection; only the ICS node allowlist keeps guests on the selected node(s).")
+            plan.consequences.append(f"Storage {x} is {where}: Proxmox will let this integration allocate disks there. The node limit then rests on Office Unbound alone.")
+        else:
+            plan.blocked.append(f"storage {x} is {where}, so a VM disk could be placed outside the selected node(s). Choose a storage local to {', '.join(sorted(sel))}, "
+                                f"or approve the explicit override 'shared_storage:{x}' (high risk)")
+    for t in s.template_vmids:
+        g = facts.guests.get(t)
+        if g is not None and g.get("node") not in sel:
+            plan.blocked.append(f"template {t} lives on node {g.get('node')}, outside the selected node(s); clones would have to read it across nodes")
+    for pname in s.pools:
+        elsewhere = sorted(v for v, g in facts.guests.items() if g.get("pool") == pname and g.get("node") not in sel)
+        if elsewhere:
+            plan.warnings.append(f"pool {pname} already holds guest(s) {', '.join(map(str, elsewhere[:8]))} on other node(s). Proxmox pools are cluster-wide, so the integration would be permitted to act on them; "
+                                 "the Office Unbound node allowlist refuses it.")
+            plan.facts.setdefault("pool_guests_elsewhere", {})[pname] = elsewhere
+    for n in s.networks:
+        have = facts.bridge_nodes.get(n)
+        if have is not None and not sel <= have:
+            plan.warnings.append(f"bridge {n} was not found on node(s) {', '.join(sorted(sel - have))}: a VM there could not attach to it")
+        if facts.networks.get(n, "localnetwork") == "localnetwork":
+            plan.warnings.append(f"bridge {n}: the permission /sdn/zones/localnetwork/{n} is cluster-wide by name (it covers the bridge of that name on every node). Proxmox cannot limit it per node.")
+    for g in policy.custom_grants:
+        why = _path_reach(g.path, sel)
+        if why:
+            plan.blocked.append(f"custom grant on {g.path} would reach {why}: not allowed in single_node scope")
+    for n in sorted(sel):
+        if facts.nodes.get(n) not in (None, "online"):
+            plan.warnings.append(f"node {n} is {facts.nodes.get(n)}")
+    return risky
 
 
 def plan_for(policy: Policy, facts: Facts | None, *, pve_major: int | None = None, managed: dict | None = None, prune: bool = False,
@@ -378,6 +507,9 @@ def plan_for(policy: Policy, facts: Facts | None, *, pve_major: int | None = Non
     elevated = check_privileges(policy, major)
     for e in elevated:
         e["approved"] = e["privilege"] in policy.approve_elevated
+    if policy.mode() == "whole_cluster" and facts and not policy.scope.nodes:
+        # the broker allowlist of a whole-cluster scope is the explicit list of nodes found now (deny by default for nodes that join later)
+        policy = policy.model_copy(update={"scope": policy.scope.model_copy(update={"nodes": sorted(facts.nodes)})})
     plan = ProvisioningPlan("proxmox", policy.model_dump(mode="json"))
     plan.enforcement = enforcement_matrix(policy)
     plan.elevated = elevated
@@ -427,6 +559,7 @@ def plan_for(policy: Policy, facts: Facts | None, *, pve_major: int | None = Non
                         plan.warnings.append(f"pool {pname} contains protected guest {vmid}: Proxmox would allow changes to it; the ICS refuses them")
             else:
                 plan.steps.append(Step("pool", "create", pname, {}, "authorised pool does not exist yet (needs Pool.Allocate from the provisioning identity)"))
+        risky_paths = _single_node_checks(plan, policy, facts) if policy.mode() == "single_node" else set()
         unauthorised = sorted(set(facts.nodes) - set(s.nodes)) if s.nodes else []
         if unauthorised:
             plan.facts["unauthorized_nodes"] = unauthorised
@@ -437,6 +570,12 @@ def plan_for(policy: Policy, facts: Facts | None, *, pve_major: int | None = Non
             plan.warnings.append("the provisioning identity cannot read /access/acl: ACL conflicts cannot be fully checked")
         plan.warnings += facts.notes
     else:
+        risky_paths = set()
+        if policy.mode() == "single_node":
+            for g in policy.custom_grants:
+                if _path_reach(g.path, set(policy.scope.nodes)):
+                    plan.blocked.append(f"custom grant on {g.path} would reach beyond the selected node(s): not allowed in single_node scope")
+            plan.warnings.append("offline plan: node-local storage could not be verified; preview the plan against the cluster before applying it")
         plan.warnings.append("offline plan: nothing was discovered; the script checks conflicts on the node at run time")
         for pname in policy.scope.pools:
             plan.steps.append(Step("pool", "create", pname, {}, "created only if it does not exist"))
@@ -505,7 +644,7 @@ def plan_for(policy: Policy, facts: Facts | None, *, pve_major: int | None = Non
     want = acl_entries(d)
     for path, subj, role, prop in want:
         key = f"{path}|{subj}|{role}"
-        step_risk = "normal"
+        step_risk = "high" if path in risky_paths else "normal"
         if path == "/" and policy.preset != "full_admin" and role != d.roles.get("monitor", ("",))[0]:
             step_risk = "high"
         if (path, subj, role) in have:
@@ -521,6 +660,7 @@ def plan_for(policy: Policy, facts: Facts | None, *, pve_major: int | None = Non
                 plan.steps.append(Step("acl", "remove", f"{a['path']}|{a['ugid']}|{a['roleid']}",
                                        {"path": a["path"], "subject": a["ugid"], "role": a["roleid"]}, "not part of the approved policy"))
     plan.facts["pve_major"] = major
+    plan.facts["scope_mode"] = policy.mode()
     plan.facts["service_user"] = userid
     plan.facts["roles"] = {cap: n for cap, (n, _) in d.roles.items()}
     plan.facts["tokens"] = dict(d.tokens)
@@ -645,6 +785,8 @@ def verify_token(reader, d: Design, policy: Policy, kind: str, facts_nodes: list
     probes += [f"/storage/{x}" for x in facts_storages if x not in s.storages and x not in s.backup_storages]
     if "full_admin" not in capabilities(policy):
         probes.append("/")
+        if policy.mode() == "single_node":
+            probes += ["/nodes", "/vms", "/storage"]
     exposure = []
     for p in probes:
         got = _perm_sets(reader.get("/access/permissions?path=" + p)).get(p, set())
@@ -674,8 +816,12 @@ def verify_token(reader, d: Design, policy: Policy, kind: str, facts_nodes: list
         if "template_clone" in caps:
             verbs.append(priv.evaluate("clone_template", [(f"/vms/{t}", ["VM.Clone", "VM.Audit"]) for t in s.template_vmids], perms_at))
     bad = [v for v in verbs if not v.ok]
-    ok = rep.ok and not exposure and not bad
-    return {"kind": kind, "ok": ok, "missing": rep.missing, "unexpected": rep.unexpected, "forbidden": rep.forbidden, "unauthorized_exposure": exposure,
+    reach = scope_reach(actual, policy, set(s.storages) | set(s.backup_storages))
+    seen = {r["path"] for r in reach}
+    reach += [{**e, "reaches": _path_reach(e["path"], set(s.nodes)) or "outside the approved scope", "enforced_by": "proxmox"}
+              for e in exposure if policy.mode() == "single_node" and e["path"] not in seen]
+    ok = rep.ok and not exposure and not bad and not reach
+    return {"kind": kind, "ok": ok, "missing": rep.missing, "unexpected": rep.unexpected, "forbidden": rep.forbidden, "unauthorized_exposure": exposure, "scope_reach": reach,
             "verbs": [{"verb": v.verb, "ok": v.ok, "missing": v.missing} for v in verbs], "suggestion": rep.suggestion,
             "expected": {p: sorted(x) for p, x in exp.items()}}
 
@@ -709,6 +855,11 @@ def drift_check(reader, policy: Policy, plan_facts: dict, d: Design, kind: str) 
     rep.acl = {"checked": False, "note": "the token cannot read /access/acl; ACL-level comparison needs a provisioning identity (run a reconcile preview)"}
     out = rep.to_dict()
     out["node_reach"] = node_reach(reader, policy, exp)
+    reach = scope_reach(actual, policy, set(policy.scope.storages) | set(policy.scope.backup_storages))
+    out["scope_reach"] = reach
+    if reach:
+        out["ok"] = False
+        out["suggestion"] = list(out.get("suggestion", [])) + [f"remove {', '.join(r['privileges'])} on {r['path']}: it reaches {r['reaches']}, beyond the single-node scope" for r in reach]
     return out
 
 
@@ -774,18 +925,39 @@ def generate_script(plan: ProvisioningPlan, d: Design, meta: dict) -> str:
          '  if acl_has "$1" "$2" "$3"; then log "acl $1 $2 $3: ok"; return; fi',
          '  if [ "$5" = token ]; then pveum acl modify "$1" --roles "$3" --tokens "$2" --propagate "$4"; else pveum acl modify "$1" --roles "$3" --users "$2" --propagate "$4"; fi',
          '  CHANGES=$((CHANGES+1)); log "acl $1 $2 $3: granted"',
+         "}",
+         "remove_acl() {  # path, subject, role, user|token  (scope change: narrowing)",
+         '  if ! acl_has "$1" "$2" "$3"; then log "acl $1 $2 $3: already absent"; return; fi',
+         '  if [ "$4" = token ]; then pveum acl delete "$1" --roles "$3" --tokens "$2"; else pveum acl delete "$1" --roles "$3" --users "$2"; fi',
+         '  CHANGES=$((CHANGES+1)); log "acl $1 $2 $3: removed"',
+         "}",
+         "update_role() {  # name, old privileges, new privileges (scope change): only a role that still has exactly the old privileges is changed",
+         '  local want have new',
+         '  new=$(printf "%s\\n" $3 | sort | tr "\\n" " ")',
+         '  have=$(role_privs "$1")',
+         '  if [ "$have" = "$new" ]; then log "role $1: ok"; return; fi',
+         '  want=$(printf "%s\\n" $2 | sort | tr "\\n" " ")',
+         '  [ "$have" = "$want" ] || die "role $1 has unexpected privileges (have: $have). It is NOT modified."',
+         '  pveum role modify "$1" --privs "$3"; CHANGES=$((CHANGES+1)); log "role $1: privileges updated"',
          "}", ""]
+    sc = (meta or {}).get("scope_change") or {}
     for s in plan.steps:
         if s.kind == "pool":
             L.append(f"ensure_pool {_sh(s.target)}")
     for s in plan.steps:
         if s.kind == "role":
-            L.append(f"ensure_role {_sh(s.target)} {_sh(' '.join(sorted(s.detail['privileges'])))}")
+            ru = (sc.get("role_updates") or {}).get(s.target)
+            if ru:
+                L.append(f"update_role {_sh(s.target)} {_sh(' '.join(ru['old']))} {_sh(' '.join(ru['new']))}")
+            else:
+                L.append(f"ensure_role {_sh(s.target)} {_sh(' '.join(sorted(s.detail['privileges'])))}")
     L.append(f"ensure_user {_sh(d.userid)}")
     for kind, name in d.tokens.items():
         L.append(f"ensure_token {_sh(d.userid)} {_sh(name)} {_sh(kind)}")
     for path, subj, role, prop in acl_entries(d):
         L.append(f"ensure_acl {_sh(path)} {_sh(subj)} {_sh(role)} {prop} {'token' if '!' in subj else 'user'}")
+    for path, subj, role, prop in sc.get("remove_acl") or []:
+        L.append(f"remove_acl {_sh(path)} {_sh(subj)} {_sh(role)} {'token' if '!' in subj else 'user'}")
     L += ["", 'log "changes made: $CHANGES"',
           'if [ -n "$ISSUED" ]; then',
           '  printf "\\n==================== NEW API TOKEN SECRET(S) - SHOWN ONCE ====================\\n"',
@@ -794,6 +966,25 @@ def generate_script(plan: ProvisioningPlan, d: Design, meta: dict) -> str:
           '  printf "Hand these over securely (password manager / encrypted channel). Do NOT e-mail or paste into chat.\\n"',
           '  printf "Enter them in Office Unbound under Settings > Infrastructure > Import credential.\\n"',
           "fi", "exit 0", ""]
+    return "\n".join(L)
+
+
+def generate_scope_rollback(plan: ProvisioningPlan, meta: dict) -> str:
+    """Scope change rollback: put the previous ACL entries back and remove the ones the change added. Never deletes users, tokens or roles."""
+    sc = meta["scope_change"]
+    L = ["#!/usr/bin/env bash", "# Office Unbound - scope change rollback: restores the previous scope. Contains no secrets.",
+         f"# plan_hash: {plan.hash()}", "set -euo pipefail",
+         'log() { printf "%s\\n" "$*"; }',
+         'acl_has() { pvesh get /access/acl --output-format json | tr -d " \\n" | sed "s/},{/}\\n{/g" | grep -F "\\"path\\":\\"$1\\"" | grep -F "\\"ugid\\":\\"$2\\"" | grep -F "\\"roleid\\":\\"$3\\"" >/dev/null; }']
+    for path, subj, role, prop in sc["restore_acl"]:
+        flag = "--tokens" if "!" in subj else "--users"
+        L.append(f'if ! acl_has {_sh(path)} {_sh(subj)} {_sh(role)}; then pveum acl modify {_sh(path)} --roles {_sh(role)} {flag} {_sh(subj)} --propagate {prop}; log "acl restored: {path} {subj} {role}"; fi')
+    for path, subj, role, prop in sc["undo_acl"]:
+        flag = "--tokens" if "!" in subj else "--users"
+        L.append(f'if acl_has {_sh(path)} {_sh(subj)} {_sh(role)}; then pveum acl delete {_sh(path)} --roles {_sh(role)} {flag} {_sh(subj)}; log "acl removed: {path} {subj} {role}"; fi')
+    for name, ru in (sc.get("role_updates") or {}).items():
+        L.append(f'pveum role modify {_sh(name)} --privs {_sh(" ".join(ru["old"]))}   # restores the previous privileges')
+    L += ['log "scope rollback complete"', ""]
     return "\n".join(L)
 
 
@@ -827,7 +1018,7 @@ def generate_rollback(plan: ProvisioningPlan, d: Design) -> str:
     return "\n".join(L)
 
 
-def command_list(plan: ProvisioningPlan, d: Design) -> str:
+def command_list(plan: ProvisioningPlan, d: Design, meta: dict | None = None) -> str:
     L = ["# Copy-paste alternative to provision.sh (run as root on one Proxmox VE node). No secrets in this file.",
          f"# plan_hash: {plan.hash()}", ""]
     for s in plan.steps:
@@ -842,6 +1033,11 @@ def command_list(plan: ProvisioningPlan, d: Design) -> str:
     for path, subj, role, prop in acl_entries(d):
         who = f"--tokens {_sh(subj)}" if "!" in subj else f"--users {_sh(subj)}"
         L.append(f"pveum acl modify {_sh(path)} --roles {_sh(role)} {who} --propagate {prop}")
+    sc = (meta or {}).get("scope_change") or {}
+    for path, subj, role, prop in sc.get("remove_acl") or []:
+        L.append(f"pveum acl delete {_sh(path)} --roles {_sh(role)} {'--tokens' if '!' in subj else '--users'} {_sh(subj)}")
+    for name, ru in (sc.get("role_updates") or {}).items():
+        L.append(f"pveum role modify {_sh(name)} --privs {_sh(' '.join(ru['new']))}")
     return "\n".join(L) + "\n"
 
 
@@ -877,6 +1073,11 @@ def report_markdown(plan: ProvisioningPlan, d: Design, meta: dict) -> str:
         o += ["", "## Consequences", ""] + [f"- {c}" for c in plan.consequences]
     if plan.conflicts or plan.warnings:
         o += ["", "## Conflicts and warnings", ""] + [f"- {c}" for c in plan.conflicts + plan.warnings]
+    sc = (meta or {}).get("scope_change")
+    if sc:
+        o += ["", "## Scope change", "", f"- Direction: **{sc['direction']}**", f"- Before: {sc['old_scope']['mode']} - nodes {', '.join(sc['old_scope']['nodes']) or 'all'}",
+              f"- After: {sc['new_scope']['mode']} - nodes {', '.join(sc['new_scope']['nodes']) or 'all'}",
+              "- Permissions removed: " + (", ".join(f"`{p}` {r}" for p, _, r, _ in sc["remove_acl"]) or "none")]
     o += ["", "## Who enforces what", "", "| Control | Enforced by | Detail |", "|---|---|---|"]
     o += [f"| {e.control} | {e.enforced_by} | {e.detail} |" for e in plan.enforcement]
     o += ["", "## Never granted", "", "Permissions.Modify, User.Modify, Realm.*, Group.Allocate, Sys.Modify (unless listed above as elevated), the built-in Administrator and PVEAdmin roles.",
@@ -942,6 +1143,7 @@ class ProxmoxPackageGenerator:
                "service_user": d.userid, "tokens": [f"{d.userid}!{t}" for t in d.tokens.values()],
                "roles": {n: sorted(p) for _, (n, p) in d.roles.items()}, "acl": [{"path": a, "subject": b, "role": c, "propagate": e} for a, b, c, e in acl_entries(d)],
                "plan": plan.to_dict(), "files": ["provision.sh", "rollback.sh", "commands.txt", "validate.txt", "report.md", "report.html", "package.json"]}
-        return {"provision.sh": generate_script(plan, d, meta), "rollback.sh": generate_rollback(plan, d), "commands.txt": command_list(plan, d),
+        return {"provision.sh": generate_script(plan, d, meta), "rollback.sh": (generate_scope_rollback(plan, meta) if meta.get("scope_change") else generate_rollback(plan, d)),
+                "commands.txt": command_list(plan, d, meta),
                 "validate.txt": validation_commands(d), "report.md": md, "report.html": report_html(md),
                 "package.json": json.dumps(pkg, indent=2, sort_keys=True, default=str)}

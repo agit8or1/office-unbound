@@ -48,6 +48,14 @@ def dirs():
     return cfgdir, os.path.join(data, "units"), os.path.join(data, "verified")
 
 
+def quadlet_available():
+    return any(os.path.exists(p) for p in ("/usr/lib/systemd/system-generators/podman-system-generator", "/usr/libexec/podman/quadlet"))
+
+
+def unit_dir(mode):
+    return dirs()[0] if mode == "quadlet" else os.path.join(home(), ".config/systemd/user")
+
+
 def atomic_write(path, text, mode=0o644):
     os.makedirs(os.path.dirname(path), mode=0o755, exist_ok=True)
     tmp = path + ".tmp"
@@ -67,19 +75,85 @@ def unit_state(base):
 
 
 # ---------------------------------------------------------------- podman.pull_verified
-def pull_verified(p, cfg):
-    reg, repo, digest = g.parse_image(p["image"], cfg["runbooks"]["podman.pull_verified"]["registries"])
-    # --signature-policy: the ROOT-owned policy (default reject; sigstoreSigned with the pinned key for the allowlisted registries). The
-    # service user's own ~/.config/containers/policy.json is never consulted for this pull.
-    r = run([PODMAN, "pull", "--quiet", "--signature-policy", g.POLICY_FILE, p["image"]], timeout=600)
-    if r.returncode != 0:
-        return {"verified": False, "image": p["image"], "error": tail(r.stderr)[-600:]}
+def _http_get(url, limit, accept=None):
+    import urllib.request
+    req = urllib.request.Request(url, headers={"Accept": accept} if accept else {})
+    with urllib.request.urlopen(req, timeout=30) as r:   # noqa: S310 (scheme is chosen by us: https, or http for an operator-listed registry)
+        body = r.read(limit + 1)
+    if len(body) > limit:
+        raise ValueError("response too large")
+    return body
+
+
+def verify_sigstore_attachment(reg, repo, digest, pubkey_pem, insecure):
+    """Python verification of a cosign-format signature attached to the registry (tag sha256-<hex>.sig), for podman builds whose
+    containers/image has sigstore support patched out (Debian 12: "Debian-local change: sigstore disabled"). Same guarantee as the
+    `sigstoreSigned` policy: the image manifest is fetched BY DIGEST and re-hashed, the signature payload must name exactly this
+    digest and this repository, and the ECDSA signature must verify against the ONE pinned public key. Returns (ok, reason)."""
+    import base64
+    import hashlib
+    from cryptography.exceptions import InvalidSignature
+    from cryptography.hazmat.primitives import hashes, serialization
+    from cryptography.hazmat.primitives.asymmetric import ec
+    base = f"{'http' if reg in insecure else 'https'}://{reg}/v2/{repo}"
+    try:
+        manifest = _http_get(f"{base}/manifests/{digest}", 1 << 20,
+                             "application/vnd.oci.image.manifest.v1+json, application/vnd.docker.distribution.manifest.v2+json")
+        if "sha256:" + hashlib.sha256(manifest).hexdigest() != digest:
+            return False, "the registry served a manifest that does not hash to the pinned digest"
+        sigman = json.loads(_http_get(f"{base}/manifests/sha256-{digest.split(':')[1]}.sig", 1 << 20,
+                                      "application/vnd.oci.image.manifest.v1+json, application/vnd.docker.distribution.manifest.v2+json"))
+        pub = serialization.load_pem_public_key(pubkey_pem.encode())
+        if not isinstance(pub, ec.EllipticCurvePublicKey):
+            return False, "the pinned signing key is not an ECDSA key"
+        for layer in sigman.get("layers", []):
+            sig = (layer.get("annotations") or {}).get("dev.cosignproject.cosign/signature")
+            if layer.get("mediaType") != "application/vnd.dev.cosign.simplesigning.v1+json" or not sig:
+                continue
+            payload = _http_get(f"{base}/blobs/{layer['digest']}", 1 << 16)
+            if "sha256:" + hashlib.sha256(payload).hexdigest() != layer["digest"]:
+                continue
+            try:
+                pub.verify(base64.b64decode(sig, validate=True), payload, ec.ECDSA(hashes.SHA256()))
+            except (InvalidSignature, ValueError):
+                continue
+            crit = json.loads(payload).get("critical", {})
+            ref = str((crit.get("identity") or {}).get("docker-reference", ""))
+            if (crit.get("type") == "cosign container image signature" and (crit.get("image") or {}).get("docker-manifest-digest") == digest
+                    and (ref == f"{reg}/{repo}" or ref.startswith(f"{reg}/{repo}:"))):
+                return True, "signature verified"
+        return False, "no valid signature by the pinned key for this digest and repository"
+    except (OSError, ValueError, KeyError, TypeError) as e:   # network, JSON, key problems: all are a refusal, never an accept
+        return False, f"signature could not be verified ({type(e).__name__})"
+
+
+def _record_pulled(p, digest, how):
     insp = run([PODMAN, "image", "inspect", "--format", "{{.Digest}}", p["image"]], timeout=30)
     got = insp.stdout.strip()
     if insp.returncode != 0 or got != digest:
         return {"verified": False, "image": p["image"], "error": "pulled digest does not match the pinned digest"}
     atomic_write(os.path.join(dirs()[2], digest.split(":")[1] + ".json"), json.dumps({"image": p["image"], "ts": int(time.time())}), 0o600)
-    return {"verified": True, "image": p["image"], "digest": got, "policy": "sigstoreSigned"}
+    return {"verified": True, "image": p["image"], "digest": got, "policy": how}
+
+
+def pull_verified(p, cfg):
+    rb = cfg["runbooks"]["podman.pull_verified"]
+    reg, repo, digest = g.parse_image(p["image"], rb["registries"])
+    # --signature-policy: the ROOT-owned policy (default reject; sigstoreSigned with the pinned key for the allowlisted registries). The
+    # service user's own ~/.config/containers/policy.json is never consulted for this pull.
+    r = run([PODMAN, "pull", "--quiet", "--signature-policy", g.POLICY_FILE, p["image"]], timeout=600)
+    if r.returncode != 0 and "sigstore disabled" in (r.stderr or ""):
+        # this podman cannot evaluate sigstoreSigned (Debian 12): verify here with the same rules, then pull by digest under a pull-only policy
+        ok, why = verify_sigstore_attachment(reg, repo, digest, open(g.PUBKEY_FILE).read(), rb.get("insecure", []))
+        if not ok:
+            return {"verified": False, "image": p["image"], "error": why}
+        r = run([PODMAN, "pull", "--quiet", "--signature-policy", g.PULLONLY_POLICY_FILE, p["image"]], timeout=600)
+        if r.returncode != 0:
+            return {"verified": False, "image": p["image"], "error": tail(r.stderr)[-600:]}
+        return _record_pulled(p, digest, "python-sigstore")
+    if r.returncode != 0:
+        return {"verified": False, "image": p["image"], "error": tail(r.stderr)[-600:]}
+    return _record_pulled(p, digest, "sigstoreSigned")
 
 
 # ---------------------------------------------------------------- podman.deploy_unit / remove / status
@@ -91,11 +165,12 @@ def deploy_unit(p, cfg):
         raise Reject("image_not_verified", "image was not pulled with podman.pull_verified on this node")
     if run([PODMAN, "image", "exists", s["image"]]).returncode != 0:
         raise Reject("image_missing", "verified image is not in local storage; pull it again")
-    files = g.render(s)
+    mode = "quadlet" if quadlet_available() else "service"   # Debian 12 (podman 4.3.1) has no Quadlet: plain user unit running `podman run`
+    files = g.render(s) if mode == "quadlet" else g.render_service(s)
     names = g.resource_names(s)
     changed = False
     for fn, text in files.items():
-        path = os.path.join(cfgdir, fn)
+        path = os.path.join(unit_dir(mode), fn)
         try:
             same = open(path).read() == text
         except FileNotFoundError:
@@ -106,11 +181,13 @@ def deploy_unit(p, cfg):
     base = names["base"]
     manifest = {"component": s["component"], "name": s["name"], "image": s["image"], "files": sorted(files),
                 "volumes": sorted(names["volumes"].values()), "network": names["network"], "type": s["type"],
-                "spec_sha256": g.spec_hash(s), "deployed_at": int(time.time())}
+                "spec_sha256": g.spec_hash(s), "mode": mode, "deployed_at": int(time.time())}
     atomic_write(os.path.join(unitdir, base + ".json"), json.dumps(manifest), 0o600)
     r = user_systemctl("daemon-reload")
     if r.returncode != 0:
         return {"unit": base, "started": False, "error": tail(r.stderr)}
+    if mode == "service":   # Quadlet units are wanted through the generator; a plain unit must be enabled to survive a reboot
+        user_systemctl("enable", base + ".service")
     r = user_systemctl("restart" if changed else "start", base + ".service", timeout=150)
     st = {}
     for _ in range(30):
@@ -155,9 +232,9 @@ def remove_unit(p, cfg):
     others = [x for x in _manifests(p["component"]) if x["name"] != p["name"]]
     for fn in m["files"]:
         shared = any(fn in o["files"] for o in others)   # volume/network files used by a sibling unit stay
-        if fn == base + ".container" or (p["purge_volumes"] and fn.endswith(".volume") and not shared) or (fn.endswith(".network") and not others):
+        if fn in (base + ".container", base + ".service") or (p["purge_volumes"] and fn.endswith(".volume") and not shared) or (fn.endswith(".network") and not others):
             try:
-                os.unlink(os.path.join(cfgdir, fn))
+                os.unlink(os.path.join(unit_dir(m.get("mode", "quadlet")), fn))
             except FileNotFoundError:
                 pass
     os.unlink(mpath)

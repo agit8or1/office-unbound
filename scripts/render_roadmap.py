@@ -3,7 +3,7 @@
 Usage: render_roadmap.py            # write ROADMAP.md
        render_roadmap.py --check    # exit 1 if ROADMAP.md is out of date or progress.json is invalid
 The public website reads docs/progress.json directly (raw.githubusercontent.com/agit8or1/office-unbound/main/docs/progress.json)."""
-import json, pathlib, sys
+import json, pathlib, re, sys
 
 ROOT = pathlib.Path(__file__).resolve().parent.parent
 SRC, OUT = ROOT / "docs" / "progress.json", ROOT / "ROADMAP.md"
@@ -24,6 +24,33 @@ def validate(d: dict) -> None:
                 assert (ROOT / ev).exists(), f"{it['id']}: evidence path missing: {ev}"
     for a in d["acceptance"]:
         assert a["status"] in allowed, a["id"]
+    validate_releases(d)
+
+
+SEMVER = re.compile(r"^\d+\.\d+\.\d+(-[0-9A-Za-z.-]+)?$")
+RELEASE_STATUS = ("prepared", "released", "yanked")
+
+
+def validate_releases(d: dict) -> None:
+    """current_version must equal the VERSION file; releases[] is newest-first, unique, dated, and has notes URL + highlights."""
+    ver = (ROOT / "VERSION").read_text().strip() if (ROOT / "VERSION").exists() else None
+    assert SEMVER.match(d.get("current_version", "")), "current_version missing or not SemVer"
+    if ver is not None:
+        assert d["current_version"] == ver, f"current_version {d['current_version']} != VERSION {ver}"
+    rels = d.get("releases", [])
+    assert rels, "releases[] must list at least the current version"
+    seen = set()
+    for r in rels:
+        v = r.get("version", "")
+        assert SEMVER.match(v), f"release version not SemVer: {v!r}"
+        assert v not in seen, f"duplicate release {v}"; seen.add(v)
+        assert re.match(r"^\d{4}-\d{2}-\d{2}$", r.get("date", "")), f"{v}: date must be YYYY-MM-DD"
+        assert r.get("status") in RELEASE_STATUS, f"{v}: status must be one of {RELEASE_STATUS}"
+        assert r.get("highlights"), f"{v}: highlights required"
+        assert str(r.get("notes_url", "")).startswith("https://"), f"{v}: notes_url must be https"
+    assert d["current_version"] in seen, "current_version is not listed in releases[]"
+    dates = [r["date"] for r in rels]
+    assert dates == sorted(dates, reverse=True), "releases[] must be newest first"
 
 
 def link(p: str) -> str:
@@ -35,7 +62,7 @@ def render(d: dict) -> str:
     lab = lambda s: f"{ICON.get(s, '')} {sv[s]}"
     out = [f"# {d['project']} roadmap & progress", "",
            f"> Generated from [`docs/progress.json`](docs/progress.json) by `scripts/render_roadmap.py` — edit the JSON, not this file. "
-           f"Last updated **{d['updated']}** · stage: **{d['stage']}**.", "", d["summary"], "", "**Principles**", ""]
+           f"Last updated **{d['updated']}** · stage: **{d['stage']}** · current version: **{d['current_version']}**.", "", d["summary"], "", "**Principles**", ""]
     out += [f"- {p}" for p in d["principles"]]
     out += ["", "**Status legend:** " + " · ".join(lab(k) for k in sv), ""]
     for ph in d["phases"]:
@@ -49,7 +76,11 @@ def render(d: dict) -> str:
     out += [f"## First functional demo — acceptance tests ({done}/{len(d['acceptance'])} demonstrated in lab)", "",
             "| | Test | Status | Note |", "|---|---|---|---|"]
     out += [f"| {a['id']} | {a['title']} | {lab(a['status'])} | {a.get('note', '')} |" for a in d["acceptance"]]
-    out += ["", "## Known limitations", ""] + [f"- {k}" for k in d["known_limitations"]] + [""]
+    out += ["", "## Releases", "", "| Version | Date | Status | Highlights |", "|---|---|---|---|"]
+    for r in d["releases"]:
+        hl = "<br>".join(r["highlights"])
+        out.append(f"| [{r['version']}]({r['notes_url']}) | {r['date']} | {r['status']} | {hl} |")
+    out += ["", "Full history: [`CHANGELOG.md`](CHANGELOG.md). Process: [`docs/RELEASING.md`](docs/RELEASING.md).", "", "## Known limitations", ""] + [f"- {k}" for k in d["known_limitations"]] + [""]
     return "\n".join(out)
 
 

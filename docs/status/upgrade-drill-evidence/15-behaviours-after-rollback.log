@@ -1,0 +1,11 @@
+== gromox behaviours on ou-gw1 (bearer: unpatched, kick: unpatched) (run e5f5d8b167) ==
+   legacy                 {'real': 'ACCEPTED', 'alg_none': 'rejected', 'alg_hs256_header': 'rejected', 'alg_rs512_header': 'rejected'}
+   aud=ou-webmail         {'real': 'ACCEPTED', 'alg_none': 'rejected', 'alg_hs256_header': 'rejected', 'alg_rs512_header': 'rejected'}
+   aud=account+iss        {'real': 'ACCEPTED', 'alg_none': 'rejected', 'alg_hs256_header': 'rejected', 'alg_rs512_header': 'rejected'}
+   aud=account+wrong iss  {'real': 'ACCEPTED', 'alg_none': 'rejected', 'alg_hs256_header': 'rejected', 'alg_rs512_header': 'rejected'}
+PASS legacy (no policy): real token accepted - ACCEPTED
+PASS UNPATCHED: audience/issuer directives ignored (token for another client still accepted) - ACCEPTED as expected for ou1
+   event_kick -> KICK (True, False) (4.3s)
+PASS UNPATCHED imap: event sent but NOT acknowledged (kick_sent must be false) - (True, False)
+PASS UNPATCHED: session NOT terminated by the kick event - still open (verb unknown to ou1)
+-- gromox behaviours on ou-gw1 (bearer: unpatched, kick: unpatched): 4 PASS, 0 FAIL, 0 SKIP

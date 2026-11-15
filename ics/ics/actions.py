@@ -67,6 +67,8 @@ class ActionType(StrEnum):
     idm_user_delete = "idm.user.delete"
     idm_reconcile = "idm.reconcile"
     idm_user_devices = "idm.user.devices"
+    idm_user_set_extension = "idm.user.set_extension"
+    idm_user_issue_sip_credential = "idm.user.issue_sip_credential"
     deployment_create = "deployment.create"
     deployment_change = "deployment.change"
     deployment_destroy = "deployment.destroy"
@@ -83,6 +85,8 @@ class ActionType(StrEnum):
     provider_permissions_reconcile = "provider.permissions.reconcile"
     provider_token_rotate = "provider.token.rotate"
     provider_token_revoke = "provider.token.revoke"
+    provider_scope_change = "provider.scope.change"
+    provider_scope_package = "provider.scope.package"
     credential_create = "credential.create"
     credential_replace = "credential.replace"
     credential_rotate = "credential.rotate"
@@ -379,6 +383,8 @@ CATALOG: dict[ActionType, dict] = {
     ActionType.idm_user_delete: {"model": identity.UserDelete, "risk": "high", "secrets": ()},
     ActionType.idm_reconcile: {"model": identity.Reconcile, "risk": "low", "secrets": ()},
     ActionType.idm_user_devices: {"model": identity.UserDevices, "risk": "low", "secrets": ()},
+    ActionType.idm_user_set_extension: {"model": identity.UserSetExtension, "risk": "normal", "secrets": ()},
+    ActionType.idm_user_issue_sip_credential: {"model": identity.IssueSipCredential, "risk": "normal", "secrets": ()},
     # deployment engine (deploy/ops.py). "risk" is the catalog default; create_plan takes the real tier from the change diff (override => high)
     ActionType.deployment_create: {"model": deploy_ops.DeploymentCreate, "risk": "high", "secrets": ()},
     ActionType.deployment_change: {"model": deploy_ops.DeploymentChange, "risk": "normal", "secrets": ()},

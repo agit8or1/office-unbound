@@ -1,0 +1,11 @@
+# End-to-end test catalog (docs/status/first-real-deployment.md): ONE profile `lab` with ONE VM and ONE containerized component, Debian 12 template.
+# Use with OU_CATALOG_DIR=blueprints/e2e-catalog. Not part of the product catalog.
+catalog_version: 1.0.0
+os_images:
+  - id: debian-12
+    title: Debian 12 (bookworm) genericcloud image
+    template: ou-debian12-template
+    sha256: ""
+default_os_image: debian-12
+vm_overhead: {cores: 0, memory_mb: 512, disk_gb: 10}
+placement: {cpu_overcommit: 4, memory_reserve_pct: 10, storage_reserve_pct: 10, thin_max_ratio_pct: 100}

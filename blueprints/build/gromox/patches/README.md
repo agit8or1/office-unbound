@@ -1,7 +1,14 @@
 # Gromox patches carried by Office Unbound (for the build pipeline)
 
-Apply with `patch -p1` from the Gromox source root (3.13, tree `/usr/src/ou/gromox`). Patches are intended to be upstreamable as they are; each is
-self-contained and has no build-system change.
+Ordered queue, applied by the pipeline (`gromox/recipe.yaml`, package version 3.13-ou2) or by hand with `patch -p1` from the Gromox source root (3.13), in this order.
+Patches are intended to be upstreamable as they are.
+
+## 0001-authmgr-bearer-claims.patch
+
+Validates `alg` (RS256 only), `exp`/`nbf`, non-empty `email` and, with the new `gromox.cfg` directives `bearer_issuer` and `bearer_audience`, `iss` and `aud` of OIDC
+bearer tokens (agent AA; unit test `tests/bearer.cpp`, behaviour test `blueprints/lab/upgrade/gw_behaviour_tests.py`). Adds `include/gromox/bearer.hpp`, `tests/bearer.cpp`
+and Makefile.am entries (so unlike 0002 it touches the build system).
+
 
 ## 0002-imap-event-user-kick.patch
 

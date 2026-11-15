@@ -1,0 +1,24 @@
+[
+ {
+  "sbom": "ou-grommunio-web_5.2-ou1.spdx.json",
+  "packages_scanned": 237,
+  "vulnerable_packages": 3,
+  "osv_scanner": "2.7.1",
+  "advisories": [
+   "glob@13.0.6 GHSA-3g3m-2fjr-6pw4",
+   "minimatch@10.2.6 GHSA-g3hv-75wg-m249",
+   "postal-mime@4.0.5 GHSA-f2hq-32vh-53cc"
+  ]
+ },
+ {
+  "sbom": "ou-grommunio-web_5.2-ou2.spdx.json",
+  "packages_scanned": 235,
+  "vulnerable_packages": 3,
+  "osv_scanner": "2.7.1",
+  "advisories": [
+   "glob@13.0.6 GHSA-3g3m-2fjr-6pw4",
+   "minimatch@10.2.6 GHSA-g3hv-75wg-m249",
+   "postal-mime@4.0.5 GHSA-f2hq-32vh-53cc"
+  ]
+ }
+]

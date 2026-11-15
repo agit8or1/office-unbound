@@ -1,0 +1,10 @@
+/var/log/asterisk/messages /var/log/asterisk/security {
+  weekly
+  rotate 8
+  compress
+  missingok
+  notifempty
+  postrotate
+    /usr/sbin/asterisk -rx "logger reload" >/dev/null 2>&1 || true
+  endscript
+}

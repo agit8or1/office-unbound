@@ -1,6 +1,6 @@
 # Office Unbound roadmap & progress
 
-> Generated from [`docs/progress.json`](docs/progress.json) by `scripts/render_roadmap.py` — edit the JSON, not this file. Last updated **2026-11-15** · stage: **pre-alpha (lab)**.
+> Generated from [`docs/progress.json`](docs/progress.json) by `scripts/render_roadmap.py` — edit the JSON, not this file. Last updated **2026-11-15** · stage: **pre-alpha (lab)** · current version: **0.1.0**.
 
 Core platform components are integrated and tested in an isolated lab: own source build of Exchange-compatible groupware with single sign-on webmail, Keycloak SSO, file sync and browser document editing, backup/restore drills, chat and video meetings, and an infrastructure control server with monitoring, self-healing and a real Proxmox integration (VM lifecycle verified on a live cluster). Guided deployment wizards, provisioning automation and the credential vault are being integrated.
 
@@ -35,6 +35,7 @@ Core platform components are integrated and tested in an isolated lab: own sourc
 | P1.9 | Backup and restore drills to separate machines (files, identity, ICS controller) | 🧪 Integrated in lab | [`docs/status/restore-drill-results.md`](docs/status/restore-drill-results.md), [`docs/runbooks/ics-recovery.md`](docs/runbooks/ics-recovery.md) |
 | P1.10 | Groupware restore to a separate machine and clean-room rebuild <br><sub>Online logical backup; point-in-time consistency across mailboxes needs snapshots</sub> | 🧪 Integrated in lab | [`docs/status/restore-drill-results.md`](docs/status/restore-drill-results.md) |
 | P1.11 | Real Outlook, Thunderbird and mobile client compatibility matrix | ⚪ Planned | [`blueprints/lab/tests/MANUAL-CHECKLIST.md`](blueprints/lab/tests/MANUAL-CHECKLIST.md) |
+| P1.12 | Versioning, changelog, release notes and release tracking (VERSION, build info, /api/v1/version, console System page) <br><sub>Release 0.1.0 prepared; signed tag and GitHub Release are published by the owner. Production signing key not yet created.</sub> | ✅ Tested | [`docs/adr/0011-versioning-and-releases.md`](docs/adr/0011-versioning-and-releases.md), [`CHANGELOG.md`](CHANGELOG.md), [`docs/RELEASING.md`](docs/RELEASING.md), [`ics/tests/test_version.py`](ics/tests/test_version.py) |
 
 ## P2 — Infrastructure orchestration and repeatable deployment  (🛠️ Implementing)
 
@@ -121,8 +122,16 @@ Core platform components are integrated and tested in an isolated lab: own sourc
 | A23 | Monitoring and audit history survive restarts | 🧪 Integrated in lab | Audit chain verified after controller restore |
 | A24 | Administrator documentation describes real procedures | 🛠️ Implementing |  |
 
+## Releases
+
+| Version | Date | Status | Highlights |
+|---|---|---|---|
+| [0.1.0](https://github.com/agit8or1/office-unbound/releases/tag/v0.1.0) | 2026-11-15 | prepared | Installable ICS with console, typed actions, approvals and hash-chained audit<br>Groupware, identity, files and browser document editing integrated and tested in an isolated lab<br>Proxmox provider verified on a live cluster; deployment engine, wizards, credential vault<br>Office Unbound Docs own source build, user portal, SSO, chat/meetings and telephony lab prototypes<br>Lab pre-alpha only: not production supported; security review 4 findings open |
+
+Full history: [`CHANGELOG.md`](CHANGELOG.md). Process: [`docs/RELEASING.md`](docs/RELEASING.md).
+
 ## Known limitations
 
 - New Outlook for Windows and Outlook mobile cannot use MAPI/EWS against non-Microsoft servers (Microsoft limitation); IMAP/SMTP only
 - Lab currently runs in isolated containers on a single host; production topology is full VMs on Proxmox
-- No production releases exist yet
+- Release 0.1.0 is a lab pre-alpha, unsigned; no production-supported release exists yet

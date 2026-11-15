@@ -28,6 +28,7 @@ m.endpointId = props.endpointId; m.method = 'admin'
 if (original) {
   m.preset = original.preset; m.capabilities = [...original.capabilities]; Object.assign(m.scope, JSON.parse(JSON.stringify(original.scope)))
   m.serviceUser = original.service_user; m.scopeSuggested = true; m.acknowledgeFullAdmin = original.acknowledge_full_admin
+  m.scopeMode = original.scope_mode ?? (original.scope.nodes.length ? 'single_node' : 'whole_cluster'); m.riskOverrides = [...(original.scope_risk_overrides ?? [])]; m.allowMigrate = original.allow_migrate
 }
 const s = newSecrets()
 onBeforeUnmount(() => wipeAdmin(s))
@@ -112,7 +113,7 @@ function toReview() { const e = validateScope(m); errors.value = e; if (!Object.
         <template v-if="kind === 'change' && stage === 'configure'">
           <p class="muted">Choose the new access. You will see exactly what changes before anything is submitted. Widening access always needs approval.</p>
           <p v-if="loadingDisc" class="muted">Loading what is in the cluster...</p>
-          <ScopeEditor v-else :m="m" :errors="errors" compact-advanced />
+          <ScopeEditor v-else :m="m" :errors="errors" compact-advanced scope-locked />
           <div class="wz-row mt"><button type="button" class="wz-btn primary" @click="toReview">Review the change</button><button type="button" class="wz-btn" @click="emit('close')">Cancel</button></div>
         </template>
 

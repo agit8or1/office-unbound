@@ -1,0 +1,9 @@
+A future release will drop --no-tag-display-limit; please use '--tag-display-limit 0' instead.
+running with root privileges is not recommended!
+W: ou-grommunio-sync: copyright-without-copyright-notice
+W: ou-grommunio-sync: debian-changelog-line-too-long [usr/share/doc/ou-grommunio-sync/changelog.Debian.gz:3]
+I: ou-grommunio-sync: extra-license-file [usr/share/grommunio-sync/LICENSE]
+I: ou-grommunio-sync: extra-license-file [usr/share/grommunio-sync/vendor/composer/LICENSE]
+I: ou-grommunio-sync: package-contains-documentation-outside-usr-share-doc [usr/share/grommunio-sync/LICENSE]
+I: ou-grommunio-sync: package-contains-documentation-outside-usr-share-doc [usr/share/grommunio-sync/README.rst]
+I: ou-grommunio-sync: package-contains-documentation-outside-usr-share-doc [usr/share/grommunio-sync/vendor/composer/LICENSE]

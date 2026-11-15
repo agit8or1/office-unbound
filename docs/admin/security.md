@@ -23,7 +23,7 @@ Evidence: ADR-0002, [ics-installer-results.md](../status/ics-installer-results.m
 
 ## Verifying the audit chain
 ```
-sudo -u ics /opt/office-unbound/ics/.venv/bin/python -m ics.cli verify-chain
+cd /opt/office-unbound/ics && sudo -u ics .venv/bin/python -m ics.cli verify-chain
 ```
 Exit 1 if broken. Problem kinds: `bad_mac`, `altered`, `broken_link`, `details_mismatch`. Also `GET audit/verify` (approver). Run it after every restore and on a schedule you choose (no scheduler exists).
 **Limit:** off-host export of a signed head does not exist, so tail truncation by the database owner is undetectable from the DB alone (**Planned**).
@@ -41,7 +41,7 @@ Privately via GitHub: Security, Report a vulnerability (see [SECURITY.md](../../
 Evidence: [credential-vault.md](../status/credential-vault.md) (tests `ics/tests/test_vault_m.py`, `test_vault_audit.py`; mock provider, never a real one).
 - Provider credentials (Proxmox tokens and temporary admin credentials) are stored in the `credentials` table with **envelope encryption**: a random 256-bit data key per credential encrypts the secret with AES-256-GCM, and the master key (the same `vault.key` file as before) wraps the data key. Both layers are bound to `credential:<id>:<provider>:<customer>` as authenticated data, so moving or editing a row makes it undecryptable.
 - Only the service's secret getter returns plaintext, and it refuses revoked, expired, invalid and retired credentials. Every use is audited (`credential.use`; inventory use at most every 5 minutes per credential). Temporary admin credentials live at most 15 minutes and are destroyed when the job ends, is rejected or expires.
-- Legacy per-endpoint secrets are moved into the vault by `sudo -u ics /opt/office-unbound/ics/.venv/bin/python -m ics.cli migrate-credentials` (idempotent; also run at application start).
+- Legacy per-endpoint secrets are moved into the vault by `cd /opt/office-unbound/ics && sudo -u ics .venv/bin/python -m ics.cli migrate-credentials` (idempotent; also run at application start).
 - **Rotate the master key** with `ics.cli rewrap-master`: one all-or-nothing database transaction that re-wraps data keys and re-encrypts every other vault secret (TOTP seeds, check, alert channel and IdM secrets, pending plan secrets). Steps from credential-vault.md:
   1. Create the new key: `umask 077; head -c 32 /dev/urandom > NEW; chown root:ics NEW; chmod 0640 NEW`.
   2. Stop jobs if possible; as the `ics` user run `python -m ics.cli rewrap-master --new-key-file NEW` (it needs the current key from the settings plus the new one).

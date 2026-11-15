@@ -9,7 +9,7 @@ Local accounts, argon2id password + mandatory TOTP, server-side sessions (max 10
 **Invite a user** (admin): plan `user.invite` (viewer/operator: low risk; approver/admin: **high**, two approvers, mandatory justification). The invite has no password or TOTP and cannot log in.
 A host operator then issues the one-time token out of band:
 ```
-sudo -u ics /opt/office-unbound/ics/.venv/bin/python -m ics.cli issue-enrollment --username <name>
+cd /opt/office-unbound/ics && sudo -u ics .venv/bin/python -m ics.cli issue-enrollment --username <name>
 ```
 The person enrolls (own password, TOTP) as described in [installing-the-ics.md](installing-the-ics.md). Tokens last 24 h, single use, stored hashed.
 
@@ -23,7 +23,7 @@ The Users page and `GET access-policy` show the effective rules.
 
 **Break-glass disable:** if an operator account must be shut off and the approval workflow cannot be used (no second approver available, compromised approver), root on the ICS host runs
 ```
-sudo -u ics /opt/office-unbound/ics/.venv/bin/python -m ics.cli disable-user --username <name> --reason "<at least 10 characters>"
+cd /opt/office-unbound/ics && sudo -u ics .venv/bin/python -m ics.cli disable-user --username <name> --reason "<at least 10 characters>"
 ```
 It refuses the last active admin, deletes the account's sessions, and records `user.disabled.break_glass` (actor `cli`, with your reason). Re-enable through the normal `user.enable` plan. Evidence: host-changes.md (used on the lab controller); [ics/README.md](../../ics/README.md).
 

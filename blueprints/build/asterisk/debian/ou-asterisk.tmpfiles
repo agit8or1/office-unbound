@@ -1,0 +1,6 @@
+d /run/asterisk 0775 asterisk asterisk -
+d /var/lib/asterisk 0750 asterisk asterisk -
+d /var/spool/asterisk 0750 asterisk asterisk -
+d /var/spool/asterisk/voicemail 0750 asterisk asterisk -
+d /var/log/asterisk 0750 asterisk asterisk -
+d /etc/asterisk/ou 2770 root asterisk -

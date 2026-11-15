@@ -1,0 +1,30 @@
+# ADR-0008 recipe: admin-web (React SPA, administration UI for admin-api), rebranded title/manifest only
+component: admin-web
+src_name: ou-admin-web
+description: Administration web UI (static single-page app)
+source:
+  repo: https://github.com/grommunio/admin-web
+  tag: "5.0.0"
+  tag_object: 030c08be2330e6bbd6598a735b00720e38b5ef14
+  commit: 56aa5b432d68183171dc4846522ef8bbee39c477
+  upstream_version: "5.0.0"
+verification:
+  kind: sha-pin
+  note: tag is annotated but unsigned; commit SHA pin is the only control. yarn.lock pins every npm dependency with integrity hashes (--frozen-lockfile).
+# builder step with network, before the network-less compile: exactly the locked yarn tree (yarn classic pinned)
+prefetch: |
+  # unprivileged user; yarn classic from the npm registry into a private prefix; NO lifecycle scripts, the one script we need (tinymce copy) runs explicitly
+  npm install --prefix "$HOME/.yarnbin" yarn@1.22.22 --ignore-scripts >/dev/null
+  export PATH=$HOME/.yarnbin/node_modules/.bin:$PATH
+  yarn install --frozen-lockfile --non-interactive --ignore-engines --ignore-scripts
+  node postinstall.js
+packages: [ou-admin-web]
+bundles_lock_packages: true
+licenses: [AGPL-3.0-only, AGPL-3.0-or-later, GPL-3.0-only, GPL-3.0-or-later, LGPL-3.0-only, LGPL-3.0-or-later, LGPL-2.1-or-later, Apache-2.0, MPL-2.0, MIT, BSD-2-Clause, BSD-3-Clause, ISC, CC0-1.0, 0BSD, OFL-1.1, Unlicense, Python-2.0, BlueOak-1.0.0, CC-BY-4.0]
+license_exceptions: {}
+inventory_match: "admin-web"
+patches:
+  - 0001-branding-title-manifest.patch: page title, description, PWA manifest names
+branding: >
+  Done: document title, description, manifest. Remaining: logo/favicon/images, UI strings and i18n catalogues naming "grommunio",
+  help links (trademark review, inventory lawyer item 2).

@@ -10,6 +10,7 @@ from sqlalchemy import text
 from sqlalchemy.orm import Session
 
 from . import audit
+from . import version as ver
 from .auth import User, get_db, require
 
 BACKUP_DIR = os.environ.get("ICS_BACKUP_DIR", "/var/backups/office-unbound/ics")
@@ -68,6 +69,11 @@ def register(app: FastAPI, rt, API: str, worker) -> None:
             disk = {"total": du.total, "free": du.free}
         except OSError:
             disk = None
-        return {"version": "0.1.0", "migration_head": head, "ready": len(checks) == 3 and all(checks.values()), "checks": checks,
+        bi = ver.build_info()
+        return {"product": bi["product"], "version": ver.__version__, "commit": bi.get("commit"), "dirty": bi.get("dirty"), "built_at": bi.get("built_at"),
+                "build_source": bi.get("source"), "api": ver.API_VERSION, "schema": {"build_head": bi.get("schema_head"), "database": head},
+                "components": {"ics": ver.__version__, **bi.get("components", {})}, "interfaces": bi.get("interfaces", {}),
+                "updates": ver.update_status(),   # read-only comparison with the bundled release list; no network
+                "migration_head": head, "ready": len(checks) == 3 and all(checks.values()), "checks": checks,
                 "heartbeat_age_seconds": round(hb_age) if hb_age is not None else None, "worker_enabled": worker is not None,
                 "threads": threads, "database_bytes": size, "disk": disk, "backup": _last_backup()}

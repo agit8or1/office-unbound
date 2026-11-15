@@ -86,7 +86,33 @@ class Settings:
     metrics_interval_seconds: int = 60
     metrics_retention_days: int = 30
     inventory_stale_seconds: int = 900
+    # guest bootstrap (ICS-driven first boot, guest/sshboot.py) and the image supply chain pushed into every guest
+    guest_agent_dir: str | None = None           # directory with ou_agent/ and deploy/ (the agent bundle source); default: <repo>/ics/agent
+    guest_image_registries: tuple[str, ...] = ()           # host[:port] registries the guests' agents may pull from (signed images only)
+    guest_insecure_registries: tuple[str, ...] = ()        # subset of the above that is reached over plain HTTP (lab); signatures still required
+    guest_image_signing_pubkey_file: str | None = None     # PEM of the ONE cosign-format ECDSA P-256 public key images must be signed with
+    guest_image_signing_key_sha256: str | None = None      # operator-confirmed pin: sha256 of that key's DER SubjectPublicKeyInfo (checked at render time)
+    guest_mgmt_sources: tuple[str, ...] = ()               # CIDRs allowed to reach guest agents; default: this host's source address towards the guest
+    guest_bootstrap_timeout_seconds: int = 1500
+    environment: str = "production"              # "production" (default) | "lab"; lab-only features are refused unless this is "lab"
+    lab_ssh_bootstrap: bool = False              # LAB ONLY (ICS_LAB_SSH_BOOTSTRAP): the ICS-driven SSH guest bootstrap of docs/status/first-real-deployment.md; ADR-0002 addendum
+    guest_callback_url: str | None = None        # https://<ics-host>:<port> the guests call back (golden-image bootstrap); no path
+    guest_callback_pin_sha256: str | None = None # sha256 (hex) of the certificate (CA or leaf) the guests pin for that URL
+    guest_bootstrap_ttl_seconds: int = 1800      # lifetime of a per-VM one-time bootstrap secret
+    guest_keep_bootstrap_ssh: bool = False       # DEBUG ONLY: do not seal the bootstrap SSH access after enrollment (the guest's own timer still seals it after bootstrap_seal_seconds)
     trusted_proxy: str | None = None             # exact IP of a local reverse proxy whose X-Forwarded-For is honoured (e.g. 127.0.0.1); None = ignore XFF
+
+    def __post_init__(self):
+        _check_lab_only(self)   # lab-only features are refused in production no matter how the Settings object was built
+
+
+def _check_lab_only(s: "Settings") -> None:
+    if s.environment not in ("production", "lab"):
+        raise RuntimeError("ICS_ENVIRONMENT must be 'production' or 'lab'")
+    if (s.lab_ssh_bootstrap or s.guest_keep_bootstrap_ssh) and s.environment != "lab":
+        raise RuntimeError("ICS_LAB_SSH_BOOTSTRAP / ICS_GUEST_KEEP_BOOTSTRAP_SSH are lab-only (ADR-0002 addendum): refused unless ICS_ENVIRONMENT=lab")
+    if s.guest_keep_bootstrap_ssh and not s.lab_ssh_bootstrap:
+        raise RuntimeError("ICS_GUEST_KEEP_BOOTSTRAP_SSH needs ICS_LAB_SSH_BOOTSTRAP")
 
 
 def _trusted_proxy(v: str | None) -> str | None:
@@ -100,6 +126,10 @@ def _trusted_proxy(v: str | None) -> str | None:
     return str(ip)
 
 
+def _csv(v: str | None) -> tuple[str, ...]:
+    return tuple(x.strip() for x in (v or "").split(",") if x.strip())
+
+
 def load_settings() -> Settings:
     env = _load_env_file(os.environ.get("ICS_ENV_FILE", DEFAULT_ENV_FILE))
     env.update({k: v for k, v in os.environ.items() if k.startswith("ICS_")})
@@ -108,7 +138,7 @@ def load_settings() -> Settings:
         return env.get(name, str(default)).lower() in ("1", "true", "yes")
 
     try:
-        return Settings(
+        s = Settings(
             database_url=env["ICS_DATABASE_URL"],
             vault_key_file=env["ICS_VAULT_KEY_FILE"],
             audit_key_file=env["ICS_AUDIT_KEY_FILE"],
@@ -120,7 +150,22 @@ def load_settings() -> Settings:
             login_max_failures=int(env.get("ICS_LOGIN_MAX_FAILURES", 5)),
             allow_loopback_endpoints=b("ICS_ALLOW_LOOPBACK_ENDPOINTS", False),
             trusted_proxy=_trusted_proxy(env.get("ICS_TRUSTED_PROXY")),
+            job_timeout_seconds=int(env.get("ICS_JOB_TIMEOUT_SECONDS", 180)),
+            guest_agent_dir=env.get("ICS_GUEST_AGENT_DIR") or None,
+            guest_image_registries=_csv(env.get("ICS_GUEST_IMAGE_REGISTRIES")),
+            guest_insecure_registries=_csv(env.get("ICS_GUEST_INSECURE_REGISTRIES")),
+            guest_image_signing_pubkey_file=env.get("ICS_GUEST_IMAGE_SIGNING_PUBKEY_FILE") or None,
+            guest_image_signing_key_sha256=env.get("ICS_GUEST_IMAGE_SIGNING_KEY_SHA256") or None,
+            guest_mgmt_sources=_csv(env.get("ICS_GUEST_MGMT_SOURCES")),
+            guest_bootstrap_timeout_seconds=int(env.get("ICS_GUEST_BOOTSTRAP_TIMEOUT_SECONDS", 1500)),
+            guest_keep_bootstrap_ssh=b("ICS_GUEST_KEEP_BOOTSTRAP_SSH", False),
+            environment=env.get("ICS_ENVIRONMENT", "production").strip().lower(),
+            lab_ssh_bootstrap=b("ICS_LAB_SSH_BOOTSTRAP", False),
+            guest_callback_url=env.get("ICS_GUEST_CALLBACK_URL") or None,
+            guest_callback_pin_sha256=env.get("ICS_GUEST_CALLBACK_PIN_SHA256") or None,
+            guest_bootstrap_ttl_seconds=int(env.get("ICS_GUEST_BOOTSTRAP_TTL_SECONDS", 1800)),
         )
+        return s
     except KeyError as e:  # pragma: no cover
         raise RuntimeError(f"missing required config {e}; see README (config)") from None
 

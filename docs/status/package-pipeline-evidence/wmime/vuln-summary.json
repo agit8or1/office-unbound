@@ -1,0 +1,16 @@
+[
+ {
+  "sbom": "ou-wmime-dev_1.2.0-ou1.spdx.json",
+  "packages_scanned": 2,
+  "vulnerable_packages": 0,
+  "osv_scanner": "2.7.1",
+  "advisories": []
+ },
+ {
+  "sbom": "ou-wmime_1.2.0-ou1.spdx.json",
+  "packages_scanned": 8,
+  "vulnerable_packages": 0,
+  "osv_scanner": "2.7.1",
+  "advisories": []
+ }
+]

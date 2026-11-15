@@ -11,7 +11,7 @@ from sqlalchemy import text
 from ics.credentials import service as cred_service
 
 HERE = os.path.dirname(__file__)
-EXPECTED = ["0001", "0002", "0003", "0004", "0005", "0006d", "0006b", "0006a", "0007", "0007s3", "0007l", "0007m", "0008i", "0008"]
+EXPECTED = ["0001", "0002", "0003", "0004", "0005", "0006d", "0006b", "0006a", "0007", "0007s3", "0007l", "0007m", "0008i", "0008", "0009", "0009b"]
 
 
 def _cfg(url):
@@ -24,7 +24,7 @@ def _cfg(url):
 
 def test_single_linear_chain():
     sd = ScriptDirectory(os.path.join(HERE, "..", "migrations"))
-    assert sd.get_heads() == ["0008"]
+    assert sd.get_heads() == ["0009b"]
     assert [s.revision for s in reversed(list(sd.walk_revisions()))] == EXPECTED
 
 
@@ -51,6 +51,28 @@ def test_upgrade_from_production_state_0007_with_a_legacy_endpoint(rt, base_sett
             assert c.execute(text("SELECT count(*) FROM deployment_locks")).scalar() == 0
     finally:
         # leave the shared test database at head with a clean slate for the other tests
+        with owner_engine.connect() as c:
+            c.execute(text("DROP SCHEMA public CASCADE"))
+            c.execute(text("CREATE SCHEMA public"))
+        command.upgrade(cfg, "head")
+
+
+def test_upgrade_from_production_head_0008i(rt, base_settings, owner_engine):
+    """Production is at 0008i: the whole remaining chain (backups, telephony, guest bootstrap) applies on top and leaves the expected tables."""
+    from tests.conftest import _test_env
+    cfg = _cfg(_test_env()["ICS_TEST_OWNER_DATABASE_URL"])
+    with owner_engine.connect() as c:
+        c.execute(text("DROP SCHEMA public CASCADE"))
+        c.execute(text("CREATE SCHEMA public"))
+    command.upgrade(cfg, "0008i")
+    try:
+        command.upgrade(cfg, "head")
+        with owner_engine.connect() as c:
+            assert c.execute(text("SELECT version_num FROM alembic_version")).scalar() == "0009b"
+            have = {r[0] for r in c.execute(text("SELECT table_name FROM information_schema.tables WHERE table_schema = 'public'"))}
+            assert {"backup_policies", "idm_sip_credentials", "guest_bootstrap"} <= have
+            assert c.execute(text("SELECT count(*) FROM information_schema.columns WHERE table_name = 'idm_users' AND column_name = 'extension'")).scalar() == 1
+    finally:
         with owner_engine.connect() as c:
             c.execute(text("DROP SCHEMA public CASCADE"))
             c.execute(text("CREATE SCHEMA public"))

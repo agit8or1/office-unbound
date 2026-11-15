@@ -50,6 +50,11 @@ def check_endpoint(rt: Runtime, db: Session, ep, st) -> dict:
             if not r["ok"]:
                 report["ok"] = False
                 status = "drift"
+        ics = ics_scope_check(ep, policy)
+        report["ics_scope"] = ics
+        if not ics["ok"]:
+            report["ok"] = False
+            status = "drift"
     except ProxmoxHTTPError as e:
         report = {"ok": False, "error": "token failure" if e.status == 401 else f"Proxmox answered HTTP {e.status}",
                   "error_code": "token_failed" if e.status == 401 else "pve_error", "kinds": report["kinds"]}
@@ -70,6 +75,16 @@ def check_endpoint(rt: Runtime, db: Session, ep, st) -> dict:
                               "missing": {k: v.get("missing") for k, v in report["kinds"].items()},
                               "unexpected": {k: v.get("unexpected") for k, v in report["kinds"].items()}})
     return report
+
+
+def ics_scope_check(ep, policy: Policy) -> dict:
+    """The ICS-side allowlists (what the broker enforces) must equal the approved policy. A difference is drift in the ICS, not in Proxmox."""
+    want_n = sorted(policy.scope.nodes)
+    want_s = sorted(set(policy.scope.storages) | set(policy.scope.backup_storages))
+    have_n, have_s = sorted(ep.allowed_nodes or []), sorted(ep.allowed_storage or [])
+    ok = want_n == have_n and want_s == have_s
+    return {"ok": ok, "enforced_by": "ics", "nodes": {"policy": want_n, "endpoint": have_n}, "storages": {"policy": want_s, "endpoint": have_s},
+            "note": "" if ok else "the broker allowlists differ from the approved scope; re-run the scope change or reconcile"}
 
 
 def _notify(db: Session, ep, status: str, report: dict) -> int:
@@ -121,9 +136,11 @@ def effective_grants(d, policy) -> list[dict]:
     for a in d.acl:
         name, privs = d.roles[a.cap]
         node_path = a.path.startswith("/nodes")
+        whole = a.path == "/nodes"
         out.append({"path": a.path, "capability": a.cap, "role": name, "privileges": sorted(privs), "propagate": bool(a.propagate),
                     "tokens": ["user"] + list(a.tokens), "enforced_by": "proxmox",
-                    "note": ("visibility only; which nodes ICS may change is enforced by the ICS node allowlist" if node_path
+                    "note": ("visibility of every node, including nodes that join later; which nodes ICS may change is enforced by the ICS node allowlist" if whole
+                             else "visibility of this node only; which nodes ICS may change is enforced by the ICS node allowlist" if node_path
                              else "enforced by Proxmox ACL")})
     out.sort(key=lambda r: (r["path"], r["role"]))
     if policy.scope.nodes:
@@ -153,7 +170,8 @@ def permissions_view(db: Session, eid) -> dict:
         "actual": {k: {"expected_paths": sorted(v)} for k, v in expected.items()},
         "last_verification": st.last_verification, "last_verified_at": st.last_verified_at, "last_drift": st.last_drift, "last_drift_at": st.last_drift_at,
         "enforcement": [e.__dict__ for e in pp.enforcement_matrix(policy)],
-        "scope": policy.scope.model_dump(mode="json"),
+        "scope": policy.scope.model_dump(mode="json"), "scope_mode": policy.mode(), "scope_risk_overrides": policy.scope_risk_overrides,
+        "scope_enforcement": [e.__dict__ for e in pp.scope_enforcement(policy)],
         "never_granted": sorted(pp.FORBIDDEN), "managed_objects": st.managed,
     }
 

@@ -1,0 +1,12 @@
+component=collabora
+repo=https://github.com/CollaboraOnline/online.mirror.git
+tag=cp-26.04.6-1
+commit=febe91b27107ff458ddb8dcdf8c0c6d521483033
+source_date_epoch=1794700000
+signature=none (annotated tag, sha-pinned)
+stage_machine=ou-build1
+stage_tar=/root/build/out/ou-docs-cp-26.04.6-1.tar
+stage_tar_sha256=814c402e82a61238e992cb60893e999b96608d0da60d2166b4f110a7868392bd
+recipe_sh_sha256=cb98ce51ca29d38036c8033d767abfdea19872765fadd1577e1d6d730e50d9eb
+reproducible=NOT PROVEN (engine not rebuilt by the pipeline)
+orig_sha256=814c402e82a61238e992cb60893e999b96608d0da60d2166b4f110a7868392bd

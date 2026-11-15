@@ -1,0 +1,38 @@
+#!/usr/bin/make -f
+include /usr/share/dpkg/pkg-info.mk
+PKG=debian/ou-grommunio-web
+APP=$(PKG)/usr/share/grommunio-web
+export HOME=/root
+%:
+	dh $@
+
+# node_modules was installed from package-lock.json by the recipe prefetch step (no network from here on)
+override_dh_auto_build:
+	$(MAKE) deploy DESTDIR=$(CURDIR)/deploy WEBAPPVERSION=$(DEB_VERSION_UPSTREAM)
+
+override_dh_auto_test:
+override_dh_auto_clean:
+	rm -rf deploy
+
+override_dh_auto_install:
+	mkdir -p $(APP)
+	cp -a deploy/. $(APP)/
+	# branding assets (see patches/ and branding/): replace upstream logos/icons by Office Unbound ones
+	cp -f debian/branding/grommunio-logo.svg debian/branding/grommunio_icon.svg \
+	  debian/branding/grommunio_icon_192.png debian/branding/grommunio_icon_512.png \
+	  debian/branding/favicon.ico debian/branding/grommunio.ico $(APP)/client/resources/images/
+	# the upstream build precompressed the old logos (.gz/.br): drop them or gzip_static would serve the old artwork
+	for f in grommunio-logo.svg grommunio_icon.svg favicon.ico grommunio.ico; do rm -f $(APP)/client/resources/images/$$f.gz $(APP)/client/resources/images/$$f.br; done
+	rm -f $(APP)/config.php $(APP)/debug.php
+	install -D -m0644 deploy/config.php.dist $(PKG)/etc/grommunio-web/config.php
+	ln -s /etc/grommunio-web/config.php $(APP)/config.php
+	install -D -m0644 debian/ou-grommunio-web.sysusers $(PKG)/usr/lib/sysusers.d/ou-grommunio-web.conf
+	install -d $(PKG)/usr/share/doc/ou-grommunio-web/examples
+	install -m0644 build/grommunio-web.conf build/grommunio-web-upstream.conf build/pool-grommunio-web.conf \
+	  $(PKG)/usr/share/doc/ou-grommunio-web/examples/
+	install -D -m0755 build/grommunio-web-session-cleanup $(PKG)/usr/libexec/grommunio-web/session-cleanup
+	install -D -m0644 build/grommunio-web-session-cleanup.service $(PKG)/usr/lib/systemd/system/grommunio-web-session-cleanup.service
+	install -D -m0644 build/grommunio-web-session-cleanup.timer $(PKG)/usr/lib/systemd/system/grommunio-web-session-cleanup.timer
+
+override_dh_installsystemd:
+	dh_installsystemd --no-enable --no-start

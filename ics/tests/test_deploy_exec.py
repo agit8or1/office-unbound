@@ -284,10 +284,10 @@ def test_create_end_to_end(client, actors, rt, env):
     assert cfg.cores == next(v for v in p["vms"] if v["name"].endswith("-id"))["cores"] and cfg.nics[0].bridge == "vmbr0"
     # per-VM order: clone -> configure -> start; pull before deploy_unit
     order = [c for c in prov.calls if c[1] == "acme-prod-files"]
-    assert [c[0] for c in order] == ["clone", "tag", "configure", "power"]
+    assert [c[0] for c in order] == ["clone", "tag", "configure", "resize", "power"]
     rb = [r[1] for r in agent.runbooks if r[0] == "node-acme-prod-files"]
     assert rb.index("podman.pull_verified") < rb.index("podman.deploy_unit")
-    assert any(r[1] == "pkg.install_pinned" and r[2]["package"] == "ou-gromox" for r in agent.runbooks)
+    assert any(r[1] == "pkg.install_pinned" and r[2]["packages"][0]["name"] == "ou-gromox" for r in agent.runbooks)
     # steps are durable and visible
     st = steps(actors[0], jid)
     assert len(st) == len(p["steps"]) and all(s["status"] == "succeeded" and s["progress"] == 100 and s["attempts"] == 1 for s in st)

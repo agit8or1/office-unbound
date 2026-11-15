@@ -1,0 +1,7 @@
+component=gromox
+repo=https://github.com/grommunio/gromox
+tag=gromox-3.13
+commit=8b620206f91b4766c48537b54575fe65e131abab
+source_date_epoch=1793288395
+signature=signed by pinned key id AEB6941A2F9C9944 (signature NOT cryptographically verified: public key not available from an authorized endpoint)
+orig_sha256=e379eda15e3c8d6bf501aa50bb9d5431a59253c2d6924b390b5410d4df8cda0a

@@ -1,0 +1,18 @@
+# ADR-0008 recipe: libexmdbpp (C++ EXMDB client + the pyexmdb Python binding that admin-api imports for EXMDB-backed admin operations)
+component: libexmdbpp
+src_name: ou-libexmdbpp
+description: EXMDB client library and pyexmdb Python module (admin-api folder/store operations)
+source:
+  repo: https://github.com/grommunio/libexmdbpp
+  tag: "1.9"
+  tag_object: ef153e8a2f13148b8a170fb81f158dae67a2b2e7   # lightweight tag: object == commit
+  commit: ef153e8a2f13148b8a170fb81f158dae67a2b2e7
+  upstream_version: "1.9"
+verification:
+  kind: sha-pin
+  note: lightweight unsigned tag; commit SHA pin is the only control.
+packages: [ou-libexmdbpp, ou-libexmdbpp-dev, ou-python3-pyexmdb]
+licenses: [AGPL-3.0-only, AGPL-3.0-or-later]
+inventory_match: "exmdbpp"
+patches: []
+branding: none (library)

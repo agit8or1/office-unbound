@@ -1,0 +1,30 @@
+#!/usr/bin/make -f
+export DEB_BUILD_MAINT_OPTIONS = hardening=+all
+%:
+	dh $@
+
+override_dh_auto_configure:
+	dh_auto_configure -- --sysconfdir=/etc --localstatedir=/var --disable-static
+
+override_dh_auto_test:
+
+override_dh_install:
+	find debian/tmp -name '*.la' -delete
+	# split: PHP extension -> ou-gromox-php-mapi, everything else -> ou-gromox
+	mkdir -p debian/ou-gromox-php-mapi/usr/lib debian/ou-gromox-php-mapi/etc debian/ou-gromox
+	mv debian/tmp/usr/lib/php debian/ou-gromox-php-mapi/usr/lib/
+	mv debian/tmp/etc/php debian/ou-gromox-php-mapi/etc/
+	cp -a debian/tmp/. debian/ou-gromox/
+	# PHP ABI dependency of the extension
+	echo "php:Depends=phpapi-$$(php-config --phpapi)" >> debian/ou-gromox-php-mapi.substvars
+
+override_dh_installsystemd:
+	dh_installsystemd --no-enable --no-start
+
+override_dh_missing:
+
+# upstream ships tmpfiles snippet; let debhelper install it and add the postinst handling (sysusers: see ou-gromox.postinst)
+override_dh_installtmpfiles:
+	cp system/tmpfiles-gromox.conf debian/ou-gromox.tmpfiles
+	rm -f debian/ou-gromox/usr/lib/tmpfiles.d/tmpfiles-gromox.conf
+	dh_installtmpfiles

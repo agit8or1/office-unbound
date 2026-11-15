@@ -1,0 +1,16 @@
+{% extends "base.html" %}
+{% block title %}About · {{ cfg.org_name }}{% endblock %}
+{% block main %}
+<section class="hero narrow">
+  <h1>About this portal</h1>
+  <p class="lead">{{ info.product }} user portal, version <strong>{{ info.version }}</strong>.</p>
+  {% if info.commit or info.built_at %}
+  <dl>
+    {% if info.product_version %}<dt>Product release</dt><dd>{{ info.product_version }}</dd>{% endif %}
+    {% if info.commit %}<dt>Build</dt><dd><code>{{ info.commit[:7] }}</code></dd>{% endif %}
+    {% if info.built_at %}<dt>Built</dt><dd>{{ info.built_at }}</dd>{% endif %}
+  </dl>
+  {% endif %}
+  <p><a class="btn" href="/">Back to home</a></p>
+</section>
+{% endblock %}

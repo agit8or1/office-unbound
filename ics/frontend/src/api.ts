@@ -105,7 +105,14 @@ export interface ChainResult {
   ok: boolean; checked: number; head: string; legacy_unauthenticated: number; mac_checked: boolean
   problems: { seq: number; kind: string; detail: string }[]
 }
-export interface Ready { ready: boolean; checks: Record<string, { ok: boolean }> }
+export interface Ready { ready: boolean; version?: string; checks: Record<string, { ok: boolean }> }
+/** GET /api/v1/version: public callers get only product+version; signed-in users get the rest. */
+export interface BuildInfo {
+  product: string; version: string; commit?: string | null; dirty?: boolean | null; built_at?: string | null; build_source?: string; api?: string
+  schema?: { build_head: string | null; database: string | null }; components?: Record<string, string>; interfaces?: Record<string, string>
+}
+export interface UpdateStatus { current: string; latest_known: string | null; latest_date: string | null; notes_url: string | null; update_available: boolean; checked: string }
+export interface SystemInfo extends BuildInfo { updates: UpdateStatus }
 
 // ---- monitoring (read-only views; mutations go through typed plans) ----
 export type CheckState = 'ok' | 'warning' | 'critical' | 'unknown'

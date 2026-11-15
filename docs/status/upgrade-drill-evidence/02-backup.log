@@ -1,0 +1,17 @@
+[gw-backup-inner] db dump 49461 bytes
+[gw-backup-inner] EXPORT FAILED for lcb2fff6@ou-lab.internal (store dir mode 0, 0 0 0 messages: total inbox calendar): 
+[gw-backup-inner] EXPORT FAILED for lc80719c@ou-lab.internal (store dir mode 0, 0 0 0 messages: total inbox calendar): 
+[gw-backup-inner] EXPORT FAILED for lc6b7d61@ou-lab.internal (store dir mode 0, 0 0 0 messages: total inbox calendar): 
+[gw-backup-inner] EXPORT FAILED for lc107607@ou-lab.internal (store dir mode 0, 0 0 0 messages: total inbox calendar): 
+[gw-backup-inner] EXPORT FAILED for lce4ac45@ou-lab.internal (store dir mode 0, 0 0 0 messages: total inbox calendar): 
+[gw-backup-inner] EXPORT FAILED for kicktest2@ou-lab.internal (store dir mode 0, 3 3 0 messages: total inbox calendar): 
+[gw-backup-inner]   -> raw sqlite fallback stored for kicktest2@ou-lab.internal
+[gw-backup-inner] EXPORT FAILED for lg787fc9@ou-lab.internal (store dir mode 0, 0 0 0 messages: total inbox calendar): 
+[gw-backup-inner] EXPORT FAILED for lhbcaf4a@ou-lab.internal (store dir mode 0, 0 0 0 messages: total inbox calendar): 
+[gw-backup-inner] EXPORT FAILED for lg62248c@ou-lab.internal (store dir mode 0, 0 0 0 messages: total inbox calendar): 
+[gw-backup-inner] EXPORT FAILED for lha23b0c@ou-lab.internal (store dir mode 0, 0 0 0 messages: total inbox calendar): 
+[gw-backup-inner] EXPORT FAILED for lg0a9905@ou-lab.internal (store dir mode 0, 0 0 0 messages: total inbox calendar): 
+[gw-backup-inner] EXPORT FAILED for lh0fa4ea@ou-lab.internal (store dir mode 0, 0 0 0 messages: total inbox calendar): 
+[gw-backup-inner] EXPORT FAILED for lce9f037@ou-lab.internal (store dir mode 0, 0 0 0 messages: total inbox calendar): 
+[gw-backup-inner] exported 54 mailboxes (0 without store)
+/var/backups/office-unbound/lab/ou-gw1/20261115T213520Z

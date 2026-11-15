@@ -25,6 +25,11 @@ USER_RUNBOOKS = {
     "gromox.devices": ("ou-rb-gromox-devices", "gromox-devices"),     # read-only: the user's EAS devices + wipe status/history
     "opencloud.check_user": ("ou-rb-opencloud-check", "opencloud-check"),  # can OpenCloud still resolve this user (1 s app token probe)
     "opencloud.revoke_app_tokens": ("ou-rb-opencloud-revoke", "opencloud-revoke"),  # delete ALL app tokens of the user (before the lock)
+    # telephony (PBX node). The PBX derives everything from the directory: the uid only selects what is reported/kicked.
+    "pbx.sync_extensions": ("ou-rb-pbx-sync", "pbx-sync"),     # read LDAP, rewrite pjsip/dialplan/voicemail config, reload; report this user's state
+    "pbx.kick_user": ("ou-rb-pbx-kick", "pbx-kick"),            # sync, then delete the user's registrations and hang up live calls
+    "pbx.user_state": ("ou-rb-pbx-state", "pbx-state"),         # read-only: endpoint present? registered contacts? live channels?
+    "pbx.issue_credential": ("ou-rb-pbx-issue", "pbx-issue"),   # params {user, device}: new SIP credential, returned ONCE (PBX keeps an md5 digest)
 }
 # Backup product (ADR-0010): fixed runbooks; the root helper /usr/local/sbin/ou-backup does the work and re-validates. config: {"tiers": [...]}.
 BACKUP_RESULT_DIR = "/run/ou-rb-backup"
@@ -32,6 +37,8 @@ BACKUP_RUNBOOKS = ("backup.run", "backup.verify", "backup.prune")
 BACKUP_TIERS = ("files", "identity", "groupware", "ics")
 SNAPSHOT_RE = re.compile(r"^[0-9a-f]{8,64}$")
 UID_RE = re.compile(r"^[a-z][a-z0-9._-]{1,31}\Z")
+SIP_DEVICES = ("web", "native", "desk")
+SECRET_DIR = "/run/ou-rb-secret"   # 0700 dir owned by ou-agent (made by the helper); the credential result is 0600, the agent unlinks it after reading
 RESULT_DIR = "/run/ou-rb"
 MAX_RESULT = 24576
 _ENV = {"PATH": "/usr/bin:/bin", "LANG": "C"}
@@ -88,6 +95,11 @@ def check_allowed(cfg: dict, action: str, params: dict) -> dict:
         return guestspec.CHECKS[action](params, spec)   # typed, closed-shape validation; nothing is spooled before this passes
     if action in BACKUP_RUNBOOKS:
         return check_backup(action, params, spec)
+    if action == "pbx.issue_credential":
+        if set(params) != {"user", "device"} or not isinstance(params["user"], str) or not UID_RE.fullmatch(params["user"]) \
+                or params["device"] not in SIP_DEVICES:
+            raise Reject("bad_params", "params must be exactly {user, device} (device web|native|desk)")
+        return {"user": params["user"], "device": params["device"]}
     if action in USER_RUNBOOKS:
         if set(params) != {"user"} or not isinstance(params["user"], str) or not UID_RE.fullmatch(params["user"]):
             raise Reject("bad_params", "params must be exactly {user} (lowercase uid)")
@@ -167,6 +179,29 @@ def _user_runbook(action: str, uid: str) -> dict:
     return out
 
 
+def _pbx_issue(uid: str, device: str) -> dict:
+    """The result carries a one-time secret: read from SECRET_DIR (not world readable) and unlinked at once. Never logged by the agent."""
+    started = int(time.time())
+    inst = f"{uid}.{device}"          # uid may contain dots, the device never does: the helper splits on the LAST dot
+    r = _systemctl("start", "--wait", f"ou-rb-pbx-issue@{inst}.service", timeout=100)
+    out = {"user": uid, "returncode": r.returncode}
+    path = os.path.join(SECRET_DIR, f"pbx-issue-{inst}.json")
+    try:
+        with open(path) as f:
+            data = json.load(f)
+        if not isinstance(data, dict) or data.get("uid") != uid or data.get("device") != device or int(data.get("ts", 0)) < started - 2:
+            raise ValueError("stale or foreign result")
+        out["result"] = data
+    except (OSError, ValueError):
+        out["result"] = None
+    finally:
+        try:
+            os.unlink(path)
+        except OSError:
+            pass
+    return out
+
+
 SPOOL_DIR = "/run/ou-agent-spool"   # RuntimeDirectory of ou-agent.service (agent-writable, world-readable); params are not secret
 RESULT_ROOT = "/run"
 
@@ -239,6 +274,8 @@ def execute(action: str, params: dict) -> dict:
         return _backup_runbook(action, params)
     if action in guestspec.GUEST_RUNBOOKS:
         return _guest_runbook(action, params)
+    if action == "pbx.issue_credential":
+        return _pbx_issue(params["user"], params["device"])
     if action in USER_RUNBOOKS:
         return _user_runbook(action, params["user"])
     if action == "service.status":

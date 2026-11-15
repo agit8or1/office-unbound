@@ -1,0 +1,26 @@
+[
+ {
+  "sbom": "ou-gromox-php-mapi_3.13-ou1.spdx.json",
+  "packages_scanned": 6,
+  "vulnerable_packages": 0,
+  "osv_scanner": "2.7.1",
+  "advisories": []
+ },
+ {
+  "sbom": "ou-gromox_3.13-ou1.spdx.json",
+  "packages_scanned": 19,
+  "vulnerable_packages": 1,
+  "osv_scanner": "2.7.1",
+  "advisories": [
+   "libxml2@2.9.14+dfsg-1.3~deb12u6 DEBIAN-CVE-2026-11979",
+   "libxml2@2.9.14+dfsg-1.3~deb12u6 DEBIAN-CVE-2026-6653",
+   "libxml2@2.9.14+dfsg-1.3~deb12u6 DEBIAN-CVE-2026-74860",
+   "libxml2@2.9.14+dfsg-1.3~deb12u6 DEBIAN-CVE-2026-76781",
+   "libxml2@2.9.14+dfsg-1.3~deb12u6 DEBIAN-CVE-2026-86138",
+   "libxml2@2.9.14+dfsg-1.3~deb12u6 DEBIAN-CVE-2026-86140",
+   "libxml2@2.9.14+dfsg-1.3~deb12u6 DEBIAN-CVE-2026-86142",
+   "libxml2@2.9.14+dfsg-1.3~deb12u6 DEBIAN-CVE-2026-86143",
+   "libxml2@2.9.14+dfsg-1.3~deb12u6 DEBIAN-CVE-2026-86144"
+  ]
+ }
+]

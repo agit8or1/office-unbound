@@ -323,6 +323,17 @@ def test_parse_recent_limit_and_ago():
     assert services.human_size(1536) == "1.5 KB"
 
 
+def test_about_page_and_footer_show_version(env):
+    from app.version import PORTAL_VERSION
+    c, m, _ = env
+    r = c.get("/about")
+    assert r.status_code == 200 and "Office Unbound" in r.text and PORTAL_VERSION in r.text
+    assert f"Office Unbound portal v{PORTAL_VERSION}" in c.get("/").text
+    _, q = login(c, m)
+    finish(c, q)
+    assert PORTAL_VERSION in c.get("/about").text
+
+
 def test_mail_calendar_contacts_tiles_use_sso_deep_links_and_no_separate_password_note(env):
     c, m, _ = env
     _, q = login(c, m)

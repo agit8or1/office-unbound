@@ -1,0 +1,16 @@
+[Unit]
+Description=Office Unbound identity runbook (pbx-sync) for %i
+
+[Service]
+Type=oneshot
+User=root
+ExecStart=/usr/local/sbin/ou-pbx-user sync %i
+RuntimeDirectory=ou-rb
+RuntimeDirectoryMode=0755
+RuntimeDirectoryPreserve=yes
+UMask=0022
+TimeoutStartSec=60
+NoNewPrivileges=true
+PrivateTmp=true
+ProtectHome=true
+ProtectKernelModules=true
