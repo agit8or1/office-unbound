@@ -68,9 +68,10 @@ test('first-run setup wizard route (when merged) renders', async ({ page }) => {
   expect(t.length).toBeGreaterThan(50)
 })
 
-// Owner rule: the wizard is the default easy path. With no endpoint connected an admin lands in the setup wizard.
-test('first run: an admin with no endpoint is sent to the setup wizard', async ({ page }) => {
+// Owner decision: login lands on the dashboard; the setup wizard is only offered there, never opened automatically.
+test('no endpoint: dashboard stays open and offers the guided setup as one primary button', async ({ page }) => {
   await page.goto('/ui/#/overview')
-  await expect(page).toHaveURL(/#\/setup/)
-  await expect(page.getByRole('heading', { level: 1 })).toContainText(/connect your infrastructure/i)
+  await expect(page.getByRole('heading', { name: 'Connect your first Proxmox cluster' })).toBeVisible()
+  await expect(page).toHaveURL(/#\/overview/)
+  await expect(page.getByRole('link', { name: 'Start guided setup' })).toHaveCount(1)
 })
