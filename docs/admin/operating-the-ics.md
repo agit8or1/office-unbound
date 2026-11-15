@@ -46,15 +46,23 @@ at the end one summary of suppressed alerts is sent and still-open incidents are
 ## Node agents
 Enrollment: on the node `ou-agent init` prints a one-time token (1 h) and two fingerprints; a `node.enroll` plan (high, two approvers) carries them; the ICS checks both before sending the token.
 Install on a node as root: `sh ics/agent/deploy/install-agent.sh <bind-ip> <hostname>`. Keep node clocks synced: requests outside their validity window are rejected (fail closed).
-Rotating the ICS signing key means re-enrolling agents. No node revoke/disable action exists yet (**Planned**).
+Rotating the ICS signing key means re-enrolling agents. Retire a node with `node.decommission` (see Removing things); a separate revoke/disable action does not exist.
 
 ## Deployments (In development)
 `deployment.create|change|destroy` plans, the deployment wizard and change wizard exist. Evidence ([deployment-engine.md](../status/deployment-engine.md)): plan generation, capacity, drift report and the executor are tested with a fake provider and fake agent; the Proxmox provider steps (clone, tag, configure, resize, start, snapshot, stop, destroy) passed once on a real VM ([provider-proxmox-real.md](../status/provider-proxmox-real.md)).
 **End-to-end deployment is In development**: there is no `docs/status/first-real-deployment.md` yet, the guest-side steps after `agent.enroll` fail by design (no agent enrollment flow on real VMs), component artifacts are unpinned so real-catalog plans are non-executable (`artifact_unpinned`), and backup scheduling and DNS records are plan output only. Do not rely on it to build a customer environment.
-Flow you can use for reviewing a plan: wizard or `POST deployments/plan` (no side effects) -> `deployment.create` plan (high risk, two approvers) -> job steps visible under **Deployments**. Disruptive changes need a maintenance window or an explicit override (two approvers). Drift is reported, never auto-repaired. Customer user actions: [users-and-access.md](users-and-access.md).
+Security review 3 fixes now in the engine (regression tests in `ics/tests/test_security_review3.py`, remediation table in [security-review-3-2026-11-15.md](../status/security-review-3-2026-11-15.md)): one execution lock with a renewed lease per deployment, destroy plans derived from the applied revision and re-derived at execution, change plans refused if another change was applied after planning, ownership by recorded VMID plus tags (never by name). Flow you can use for reviewing a plan: wizard or `POST deployments/plan` (no side effects) -> `deployment.create` plan (high risk, two approvers) -> job steps visible under **Deployments**. Disruptive changes need a maintenance window or an explicit override (two approvers). Drift is reported, never auto-repaired. Customer user actions: [users-and-access.md](users-and-access.md).
 
 ## Removing things
-Only `endpoint.remove` (see [Connecting Proxmox](connecting-proxmox.md)), `idm.user.delete`, `user.revoke_invite` and `check.set_enabled` (disable) exist. Actions that remove checks, alert channels, node agents or old plans are **Planned**; they are not on main. Disable instead of remove for now.
+Removal actions run through the normal plan, approval, job and audit path. Each guard is checked at plan time and again at execution (if the world changed after approval the job fails and nothing is deleted); the audit entry names the removed object. Plans are evidence: they are only ever hidden. Evidence: `ics/ics/removal.py` and `ics/tests/test_removals.py` (executed against the test database; not yet used on a running lab controller), [security-review-3-2026-11-15.md](../status/security-review-3-2026-11-15.md) ("Also added in this branch").
+| Action | Risk | Guard (from the code) |
+|---|---|---|
+| `check.delete` | normal | refused for a check managed by a deployment, or one bound to an active remediation attempt |
+| `alert_channel.delete` | normal; **high** with `confirm_no_alerting` | the last enabled channel can only be removed with that explicit confirmation |
+| `node.decommission` | high | reason required; refused while a check still has a remediation bound to the node |
+| `maintenance.cancel` / `maintenance.delete` | normal | delete only after the window ended or was cancelled |
+| `plan.archive` | low | only finished plans (rejected, or approved with a finished job); hides, never deletes |
+Also available: `endpoint.remove` ([Connecting Proxmox](connecting-proxmox.md)), `idm.user.delete`, `user.revoke_invite` ([Users and access](users-and-access.md)). Mailbox purge is still **Planned**. These actions replace the one-off manual purge for checks, channels, agents and plans ([Installing the ICS](installing-the-ics.md#production-contains-no-sample-data)); approval records stay insert-only.
 
 ## Roadmap feed
 Project progress is one file, `docs/progress.json` (schema in [progress-schema.md](../progress-schema.md)); `ROADMAP.md` is generated from it. After editing the feed run:

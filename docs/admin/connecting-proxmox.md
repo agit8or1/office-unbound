@@ -13,7 +13,8 @@ Evidence: [provider-proxmox-real.md](../status/provider-proxmox-real.md) (real P
 | Console guided setup (the wizard that registers an endpoint) | **In development**: deployed and tested against the API and simulator; a real registration through the wizard is not recorded in any evidence document |
 | Deploying a customer stack to Proxmox end to end | **In development**: [deployment-engine.md](../status/deployment-engine.md); will stay so until `docs/status/first-real-deployment.md` exists (it does not yet) |
 | Migrate, rollback verbs | Implemented against the simulator only; `migrate` needs `VM.Migrate`, not granted on the real cluster |
-| Token rotation action | **Planned** (rotate on the Proxmox side, then update the endpoint; not rehearsed) |
+| Automatic (Mode A) or customer-approved package (Mode B) permission setup, permissions/drift view, credential vault pages | Implemented; **simulator-proven only**, never run on a real cluster (sections 8-11) |
+| Token rotation actions (`credential.rotate`, `provider.token.rotate`) | Implemented; simulator/mock-proven only. The manual rotation in section 7 is the only path used on the real node |
 
 ## Principles
 - Two separate Proxmox identities, neither `root@pam`, both **privilege-separated** API tokens: an **inventory** token (read-only) and an optional **provision** token (scoped to a pool). Without the provision token the endpoint is monitor-only and cannot create machines.
@@ -81,10 +82,38 @@ Typed plans, bound to the endpoint's current trust anchors (changing them betwee
 | `inventory.refresh` | low | Inventory also refreshes every 300 s |
 
 ## 7. Token rotation
-Rotate after any exposure (the real token was pasted in chat and rotation is still an open owner item) and periodically. There is no dedicated ICS rotation action (**Planned**) and rotation has not been rehearsed.
+Rotate after any exposure (the real token was pasted in chat and rotation is still an open owner item) and periodically. The ICS rotation actions of section 11 exist but have only run against the simulator; this manual path has not been rehearsed on the real cluster either.
 1. On the node: `pveum user token remove <user> <tokenname>`, `pveum user token add <user> <tokenname> --privsep 1`, then re-apply the token ACLs from sections 1-2 (a recreated token has none).
 2. Submit an `endpoint.update` with the new secret (high risk, two approvers) and check the probe result.
 3. Confirm with `pveum user token list <user>` that only the intended token exists.
+
+## 8. Providing the permissions: automatic (Mode A) or customer-approved package (Mode B)
+**Simulator-proven only.** Evidence: [provider-provisioning.md](../status/provider-provisioning.md) and [provider-stack-integration.md](../status/provider-stack-integration.md) say plainly that none of this ran on a real cluster; sections 1-3 above remain the only hand procedure that was applied to a real node. The simulator is a test double, so exact privilege names, `pvesh` output shapes and clone permission behaviour on PVE 9.2 are **not verified**.
+Both modes compute the same design: service user `<name>@pve` (never PAM, no password), two privilege-separated tokens (inventory with the monitor role only; provision with the rest), roles `OfficeUnboundMonitor/Deploy/Storage/TemplateClone/Network/Backup/Custom/FullAdmin` (an existing role with different privileges is never modified), and ACLs for the user and each token.
+| | Mode A: automatic | Mode B: package |
+|---|---|---|
+| Action | `provider.provision.apply` (**high**, two approvers) | `provider.provision.package` (normal; high for full-admin or elevated) |
+| Who runs it | The ICS, using a **temporary admin credential** you supply for this one job | The Proxmox owner runs the generated `provision.sh` on a node (with `rollback.sh`, `commands.txt`, `validate.txt`, report) |
+| Credential handling | Held in the vault for at most 15 minutes, used only inside the job, destroyed when the job ends, is rejected, or expires; never in plans, audit or results | No admin credential ever reaches the ICS; the owner then imports the resulting token with `provider.credential.import` (normal) |
+| After | Token secrets go to the credential vault | Import is refused for a foreign or over-privileged token |
+Start with the read-only `provider.provision.plan_preview` (low risk): it lists every role, path and privilege, any conflicts, and any elevated privilege with its reason. Apply is bound to the previewed plan hash and refuses if the cluster changed since. A failed apply rolls back what that run created.
+Never granted by any preset: `Permissions.Modify`, `User.Modify`, `Group.Allocate`, `Realm.*`, and the built-in `Administrator`/`PVEAdmin` roles. `Sys.Modify` (for `cicustom`) only as an explicit elevated privilege with high-risk approval; full cluster administration needs `acknowledge_full_admin` and still withholds those items.
+Console: **Infrastructure > Providers > Proxmox** (list, connect wizard, dashboard, permissions, credentials; [providers-ui.md](../status/providers-ui.md): typechecked, unit-tested and screenshotted against a dev-only mock; **not exercised against a real backend** by its author). The connect wizard's read-only discovery with temporary admin credentials (setup probe stage `discover`) is in main (commit `291bb1e`) and has no results document yet.
+**Customer-owned clusters** can require the customer's approval of the permission design before anything is applied: see [Users and access](users-and-access.md#customers-scoping-and-external-approval-links). Limit: a Mode A plan waiting on a customer link outlives its 15-minute credential and must be re-planned; Mode B is the intended path.
+
+## 9. What is enforced where
+| Rule | Enforced by |
+|---|---|
+| Pool, storage and bridge allowlists, clone sources, token privilege separation | Proxmox ACLs |
+| Ownership tags, protected VMs (including the ICS VM), per-mutation scope re-checks, **authorised nodes** | The ICS (Proxmox cannot restrict which node a pooled guest lands on) |
+| VMID ranges, guest types, CPU/RAM/disk caps | Policy fields exist and the check code is tested, but it is **not yet wired into the provider** ("Not enforced yet"); do not rely on them |
+
+## 10. Permissions view and drift
+`GET /providers/{id}/permissions` (console: provider > Permissions) shows expected versus actual access, which side enforces each control, and the last verification. `POST /providers/{id}/permissions/check` (operator, read-only) re-checks live and reports missing, unexpected and forbidden grants, and online nodes outside the allowlist that still have an authorised storage. Drift and token failures are written to the audit log and the alert channels once per transition. `provider.permissions.reconcile` (high) restores only the **stored** policy, never a wider one. Evidence: provider-provisioning.md (simulator).
+
+## 11. Credentials page
+Console: provider > Credentials, `GET /credentials` (metadata only; secrets are never returned). Types and purposes: inventory, provision, temporary provisioning; status `active|expiring|expired|revoked|invalid|retired`; an alert is raised 14 days before expiry and at expiry. Actions: `credential.create|replace|revoke` (high), `credential.rotate` (normal; the new secret is authenticated against Proxmox before it is stored), `credential.test` (low). A replaced credential stays unusable for 7 days then its ciphertext is purged; a revoked one is destroyed immediately. `provider.token.rotate` and `provider.token.revoke` (high) act on the Proxmox side token. `GET /credentials/access-review` (approver) lists who used which credential, from the audit chain.
+This **replaces** the manual rotation steps in section 7 once verified; until a rotation has been run against a real cluster treat section 7 as the tested path. Evidence: [credential-vault.md](../status/credential-vault.md) (executed against the test database and a mock Proxmox). Recovery cases (expired token, disabled service account, customer revoked access, lost vault key): [provider-access-recovery.md](../runbooks/provider-access-recovery.md). Encryption design: [Security](security.md).
 
 ## Known real-cluster caveats
 - Thin pool overcommit (15.17 TiB provisioned on 10.91 TiB physical, autoextend off) is a warning; plans use physical space ([troubleshooting](troubleshooting.md)).

@@ -36,3 +36,16 @@ Exit 1 if broken. Problem kinds: `bad_mac`, `altered`, `broken_link`, `details_m
 
 ## Reporting a vulnerability
 Privately via GitHub: Security, Report a vulnerability (see [SECURITY.md](../../SECURITY.md)). Do not open public issues. Acknowledgement target: 5 business days.
+
+## Credential vault: envelope encryption and master-key re-wrap
+Evidence: [credential-vault.md](../status/credential-vault.md) (tests `ics/tests/test_vault_m.py`, `test_vault_audit.py`; mock provider, never a real one).
+- Provider credentials (Proxmox tokens and temporary admin credentials) are stored in the `credentials` table with **envelope encryption**: a random 256-bit data key per credential encrypts the secret with AES-256-GCM, and the master key (the same `vault.key` file as before) wraps the data key. Both layers are bound to `credential:<id>:<provider>:<customer>` as authenticated data, so moving or editing a row makes it undecryptable.
+- Only the service's secret getter returns plaintext, and it refuses revoked, expired, invalid and retired credentials. Every use is audited (`credential.use`; inventory use at most every 5 minutes per credential). Temporary admin credentials live at most 15 minutes and are destroyed when the job ends, is rejected or expires.
+- Legacy per-endpoint secrets are moved into the vault by `sudo -u ics /opt/office-unbound/ics/.venv/bin/python -m ics.cli migrate-credentials` (idempotent; also run at application start).
+- **Rotate the master key** with `ics.cli rewrap-master`: one all-or-nothing database transaction that re-wraps data keys and re-encrypts every other vault secret (TOTP seeds, check, alert channel and IdM secrets, pending plan secrets). Steps from credential-vault.md:
+  1. Create the new key: `umask 077; head -c 32 /dev/urandom > NEW; chown root:ics NEW; chmod 0640 NEW`.
+  2. Stop jobs if possible; as the `ics` user run `python -m ics.cli rewrap-master --new-key-file NEW` (it needs the current key from the settings plus the new one).
+  3. Point `ICS_VAULT_KEY_FILE` at `NEW`, keep the old file offline until verified, restart `ics`.
+  4. Check `GET /credentials` and run one `credential.test`. The audit event `vault.master_key_rewrapped` records key ids, not keys.
+  Tested: success, and failure leaves data unchanged (test suite only; not drilled on a lab controller). A backup taken before the rewrap needs the old key, so take a new backup afterwards.
+- Security review 3 (1 High, 5 Medium, 8 Low) fixes are merged with regression tests: [security-review-3-2026-11-15.md](../status/security-review-3-2026-11-15.md), "Remediation".

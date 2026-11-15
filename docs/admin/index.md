@@ -18,7 +18,8 @@ businesses. The constraint behind every design choice is ADR-0007: no mandatory 
 | **Proxmox provider** | Read-only inventory plus scoped VM lifecycle (clone, configure, resize, power, snapshot, destroy) | Lifecycle run once against a real PVE 9.2 node ([provider-proxmox-real.md](../status/provider-proxmox-real.md)); see [Connecting Proxmox](connecting-proxmox.md) |
 | **Deployment engine + wizards** | Plans a customer stack, shows it, runs it after approval | **In development**: no real end-to-end deployment yet ([deployment-engine.md](../status/deployment-engine.md)) |
 | **Customer stack** (one isolated stack per customer, ADR-0006) | OpenLDAP + Keycloak, Gromox mail (own source build), OpenCloud files, Collabora documents | Integrated in lab; see [Lab-proven components](lab-proven-components.md) |
-| **Chat, meetings, telephony, migration** | Matrix/Jitsi, Asterisk softphone, mail migration | Lab prototypes only; not deployable by the ICS ([Lab-proven components](lab-proven-components.md)) |
+| **Chat, meetings, telephony** | Matrix/Jitsi, Asterisk softphone | Lab prototypes only; not deployable by the ICS ([Lab-proven components](lab-proven-components.md)) |
+| **Mail migration** | Read-only M365/Google assessment; IMAP mailbox mover | Lab-proven, command line only, not ICS-controlled ([migration.md](migration.md)) |
 
 The lab topology is **not** the intended production topology: customer stacks run in nspawn machines on the ICS host ([Known limitations](known-limitations.md)).
 
@@ -26,14 +27,15 @@ The lab topology is **not** the intended production topology: customer stacks ru
 1. [Quick start](quick-start.md) - fresh Ubuntu 24.04 host to "Proxmox connected"
 2. [Glossary](glossary.md) - plan, approval, job, endpoint, node agent, deployment, profile, drift
 3. [Installing the ICS](installing-the-ics.md) - the one-command installer, accounts, upgrade, uninstall
-4. [Connecting Proxmox](connecting-proxmox.md) - least-privilege setup, endpoint settings, node allowlist, protected ICS VM
+4. [Connecting Proxmox](connecting-proxmox.md) - least-privilege setup, endpoint settings, node allowlist, protected ICS VM, automatic vs customer-approved provisioning, credentials
 5. [Operating the ICS](operating-the-ics.md) - console tour, plans, deployments, monitoring, remediation, roadmap feed
 6. [Users and access](users-and-access.md) - operators, privileged-access workflow, break-glass, customer users
 7. [Backup and restore](backup-and-restore.md) - the drilled procedures and what they do not cover
-8. [Lab-proven components](lab-proven-components.md) - webmail SSO, chat/meetings, telephony, Office Unbound Docs, migration
-9. [Security](security.md) - what is enforced where, secrets, audit verification
-10. [Troubleshooting](troubleshooting.md) - real issues found in the lab
-11. [Known limitations](known-limitations.md)
+8. [Lab-proven components](lab-proven-components.md) - webmail SSO, chat/meetings, telephony, Office Unbound Docs
+9. [Mail migration](migration.md) - assessment and IMAP mailbox migration (lab-proven)
+10. [Security](security.md) - what is enforced where, secrets, audit verification
+11. [Troubleshooting](troubleshooting.md) - real issues found in the lab
+12. [Known limitations](known-limitations.md)
 
 Conventions: **Verified** = executed, evidence cited. **Planned** = not implemented, never to be relied on. **In development** = code
 exists but is not proven end to end.

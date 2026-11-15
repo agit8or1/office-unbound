@@ -69,9 +69,9 @@ If a controller was used for demonstration, the lab precedent ([host-changes.md]
 2. Disable demo checks through normal approved plans, and demo operator accounts with the audited break-glass command:
    `sudo -u ics /opt/office-unbound/ics/.venv/bin/python -m ics.cli disable-user --username <name> --reason "<why the approval workflow could not be used, at least 10 characters>"`
    (refuses the last active admin; ends the account's sessions; recorded as `user.disabled.break_glass`).
-3. Purge the remaining rows in one database transaction using the DB-owner credential (`ics-migrate.env`), because approval records are insert-only for the application role by design. That purge was done **by hand once**; **there is no purge tool or action in the repository** (a generic purge procedure is **Planned**). It recorded the audit event `maintenance.demo_data_purged`, and the chain was verified afterwards.
+3. Purge the remaining rows in one database transaction using the DB-owner credential (`ics-migrate.env`), because approval records are insert-only for the application role by design. That purge was done **by hand once**; **there is no purge tool for it in the repository** (users, IdM stacks and approval records are outside the removal actions; a generic purge procedure is **Planned**). It recorded the audit event `maintenance.demo_data_purged`, and the chain was verified afterwards.
 
-Easier and safer: reinstall on a clean host (`--uninstall --purge`, below). In-product removal actions for checks, alert channels and agents are **Planned** (only `endpoint.remove` and `idm.user.delete` exist).
+Easier and safer: reinstall on a clean host (`--uninstall --purge`, below). Typed removal actions for checks, alert channels, node agents, maintenance windows and plans now exist on main ([Operating the ICS](operating-the-ics.md#removing-things); tested, not yet used on a running lab controller), so step 3 should only be needed for rows they do not cover (for example demo users and customer stacks).
 
 ## Uninstall
 `sudo ics/deploy/bootstrap.sh --uninstall` removes the services, nginx site, firewall table and code, and **keeps** `/etc/office-unbound` (env files, keys, certificates), the database, roles, the `ics` user and packages, so a later `bootstrap.sh` resumes on the same data (proven).
