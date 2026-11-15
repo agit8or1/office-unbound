@@ -1,0 +1,7 @@
+component=grommunio-dav
+repo=https://github.com/grommunio/grommunio-dav
+tag=1.9
+commit=5220793d117b50e6638e5428909379122b48edbd
+source_date_epoch=1791630409
+signature=none
+orig_sha256=80b60479177c7e7bc90cde27d6ea15e7bdee5067dcef81adc7c902917c0d047f

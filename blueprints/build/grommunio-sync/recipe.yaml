@@ -1,0 +1,24 @@
+# ADR-0008 recipe: grommunio-sync (ActiveSync). PHP; only composer autoload generation as build step.
+component: grommunio-sync
+src_name: ou-grommunio-sync
+description: ActiveSync server (Z-Push derived)
+source:
+  repo: https://github.com/grommunio/grommunio-sync
+  tag: "2.7"
+  tag_object: 075ddc1e9b3890bd7a1bfe3b2a4fd951b801baa9
+  commit: d493c82431dc8ab5282bb0aeb6bf8b8bd3b872ad
+  upstream_version: "2.7"
+verification:
+  kind: sha-pin
+  note: tag is annotated but unsigned; commit SHA pin is the only control.
+# builder step before the network-less compile. composer.json has no external requires; this only regenerates
+# the optimized autoloader (classmap over /usr/share/php-mapi from ou-mapi-header-php).
+prefetch: |
+  HOME=/root COMPOSER_HOME=/root/.composer COMPOSER_ALLOW_SUPERUSER=1 composer dump-autoload --no-dev -a --no-interaction
+packages: [ou-grommunio-sync]
+licenses: [AGPL-3.0-only, AGPL-3.0-or-later, MIT, BSD-3-Clause, GPL-3.0-only, LGPL-2.1-or-later, Apache-2.0, ISC]
+inventory_match: "grommunio-sync"
+patches: []
+branding: >
+  Name "grommunio Sync" stays in code and paths (nominative use; trademark review pending, inventory lawyer item 2).
+  See docs/status/package-pipeline-results.md "branding remaining".

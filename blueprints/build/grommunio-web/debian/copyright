@@ -1,0 +1,27 @@
+Format: https://www.debian.org/doc/packaging-manuals/copyright-format/1.0/
+Upstream-Name: grommunio-web
+
+Files: *
+Copyright: grommunio GmbH, Kopano b.v., Zarafa B.V. and contributors (see per-file SPDX headers, REUSE.toml)
+License: AGPL-3+
+
+Files: client/extjs/*
+Copyright: Sencha Inc. (Ext JS 3.4)
+License: GPL-3
+
+Files: client/tinymce/*
+Copyright: Tiny Technologies, Inc.
+License: GPL-2+
+
+Files: client/resources/fonts/*
+Copyright: Google (Roboto, Fira Mono), Outfit project authors
+License: Apache-2.0 and OFL-1.1
+
+Files: client/resources/iconsets/*
+Copyright: Microsoft (Fluent UI System Icons), grommunio GmbH
+License: MIT
+
+Files: debian/*
+Copyright: Office Unbound
+License: AGPL-3+
+ Branding assets in debian/branding are original Office Unbound artwork.

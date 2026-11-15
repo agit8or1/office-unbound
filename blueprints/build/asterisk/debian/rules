@@ -1,0 +1,60 @@
+#!/usr/bin/make -f
+# Asterisk 22 LTS minimal build. Deterministic: SOURCE_DATE_EPOCH from the signature time, fixed build path, no BUILD_NATIVE.
+export DEB_BUILD_MAINT_OPTIONS = hardening=+all
+export LC_ALL = C.UTF-8
+PKG = $(CURDIR)/debian/ou-asterisk
+STG = $(CURDIR)/debian/tmp
+CACHE = $(CURDIR)/../externals-cache
+%:
+	dh $@
+
+override_dh_auto_configure:
+	./configure --prefix=/usr --sysconfdir=/etc --localstatedir=/var --libdir=/usr/lib \
+	  --with-pjproject-bundled --with-externals-cache=$(CACHE) --without-x11 \
+	  --with-jansson --with-srtp --with-ssl --with-sqlite3 --with-uuid --with-libedit --with-gsm=internal \
+	  --without-pwlib --without-dahdi --without-pri --without-radius --without-unixodbc --without-ldap --without-postgres --without-sdl \
+	  --without-spandsp --without-speex --without-opus --without-ogg --without-vorbis --without-curl --without-iksemel \
+	  --without-lua --without-neon --without-newt --without-popt --without-portaudio --without-tds --without-bluetooth \
+	  CFLAGS="$(shell dpkg-buildflags --get CFLAGS)" LDFLAGS="$(shell dpkg-buildflags --get LDFLAGS)"
+	$(MAKE) menuselect.makeopts
+	menuselect/menuselect \
+	  $(foreach c,ADDONS APPS BRIDGES CDR CEL CHANNELS CODECS FORMATS FUNCS PBX RES TESTS UTILS AGIS CORE_SOUNDS MOH EXTRA_SOUNDS,--disable-category MENUSELECT_$(c)) \
+	  --disable BUILD_NATIVE $(addprefix --enable ,$(shell cat debian/menuselect-enable.txt)) menuselect.makeopts
+	menuselect/menuselect --check-deps menuselect.makeopts
+	menuselect/menuselect --list-options menuselect.makeopts | grep '^+' | sort > $(CURDIR)/debian/enabled-modules.txt
+
+override_dh_auto_build:
+	$(MAKE) -j$(or $(subst parallel=,,$(filter parallel=%,$(DEB_BUILD_OPTIONS))),1) ASTDATADIR=/usr/share/asterisk
+
+override_dh_auto_test:
+
+override_dh_auto_install:
+	$(MAKE) install DESTDIR=$(STG) ASTDATADIR=/usr/share/asterisk
+	install -d $(PKG)
+	cp -a $(STG)/usr $(PKG)/
+	cp -a $(STG)/var $(PKG)/
+	rm -rf $(PKG)/usr/include $(PKG)/usr/lib/pkgconfig $(PKG)/var/run $(PKG)/usr/share/asterisk/scripts
+	find $(PKG)/usr/share/asterisk/static-http -type f ! -name 'core-*.xml' ! -name 'appdocsxml.xslt' -delete
+	install -d $(PKG)/etc/asterisk/ou $(PKG)/usr/share/doc/ou-asterisk
+	for f in asterisk modules logger pjsip http rtp extensions voicemail cdr manager; do install -m0640 debian/conf/$$f.conf $(PKG)/etc/asterisk/$$f.conf; done
+	install -D -m0644 debian/ou-asterisk.service $(PKG)/lib/systemd/system/ou-asterisk.service
+	install -D -m0644 debian/ou-asterisk.sysusers $(PKG)/usr/lib/sysusers.d/ou-asterisk.conf
+	install -D -m0644 debian/ou-asterisk.tmpfiles $(PKG)/usr/lib/tmpfiles.d/ou-asterisk.conf
+	install -D -m0644 debian/ou-asterisk.logrotate $(PKG)/etc/logrotate.d/ou-asterisk
+	install -m0644 debian/enabled-modules.txt $(PKG)/usr/share/doc/ou-asterisk/modules-built.txt
+	install -m0644 COPYING LICENSE $(PKG)/usr/share/doc/ou-asterisk/
+
+override_dh_installsystemd:
+	dh_installsystemd --name=ou-asterisk --no-enable --no-start
+
+override_dh_missing:
+	dh_missing --list-missing
+
+override_dh_dwz:
+
+override_dh_strip:
+	dh_strip --no-automatic-dbgsym
+
+override_dh_autoreconf:
+
+override_dh_update_autotools_config:

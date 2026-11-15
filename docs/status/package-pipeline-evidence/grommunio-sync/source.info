@@ -1,0 +1,7 @@
+component=grommunio-sync
+repo=https://github.com/grommunio/grommunio-sync
+tag=2.7
+commit=d493c82431dc8ab5282bb0aeb6bf8b8bd3b872ad
+source_date_epoch=1791630177
+signature=none
+orig_sha256=4cd8fda8d50ef8ccf33e9a812530cfdc49c71378abfda3d7fa0be524ff07b1c5

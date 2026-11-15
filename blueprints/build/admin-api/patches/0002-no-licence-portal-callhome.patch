@@ -1,0 +1,30 @@
+Description: Remove the call-home to the vendor licence portal
+ PUT /system/license/creds used to POST entered subscription credentials to the
+ vendor licence portal to download a licence certificate. Office Unbound needs
+ no licence and must not send credentials to a third party, so the request is
+ removed; credentials (if an admin still enters any) are only stored locally.
+Author: Office Unbound
+Forwarded: not-needed
+Last-Update: 2026-11-15
+
+diff -ruN b/endpoints/system/misc.py c/endpoints/system/misc.py
+--- a/endpoints/system/misc.py
++++ b/endpoints/system/misc.py
+@@ -175,15 +175,8 @@
+         with open(Config["options"]["subscriptionFile"], "w") as file:
+             file.write(":".join((data["username"], data["password"])))
+ 
+-        # Fetch license from partner portal
+-        url = "https://portal.grommunio.com/api/v1/licenses/user/"
+-        body = { "password": data["password"] }
+-        response = requests.post(url + data["username"], json=body)
+-        res = updateCertificate(response.content)
+-        if res is not None:
+-            return jsonify(message=res), 400
+-
+-        return jsonify(message="okidoki")
++        # Office Unbound: no licence portal; credentials are only stored, never sent to a third party
++        return jsonify(message="stored")
+     except KeyError:
+         return jsonify(message="Subscription detail storage path not configured"), 503
+     except PermissionError as err:

@@ -1,0 +1,19 @@
+# ADR-0008 recipe: wmime (grommunio fork of vmime; Gromox build/runtime dependency, not in Debian)
+component: wmime
+src_name: ou-wmime
+description: MIME/mail library (vmime fork) required by Gromox
+source:
+  repo: https://github.com/grommunio/wmime
+  tag: wmime-1.2.0
+  tag_object: 04a892136f128da7b674fe6ba47dae91da3b09f0
+  commit: 9c8e38c79158c53c31ac08f8bf329472f8bcf657
+  upstream_version: "1.2.0"
+verification:
+  kind: pgp-tag
+  signer_fingerprint: 2BDA563E9DDE46AF71CC171DAEB6941A2F9C9944
+  note: Same signer as libHX/gromox (tagger Jan Engelhardt); key not available from an authorized endpoint, commit SHA pin is the control.
+packages: [ou-wmime, ou-wmime-dev]
+licenses: [GPL-3.0-only, OpenSSL-Exception]   # GPLv3 + OpenSSL exception (COPYING, COPYING.OpenSSL)
+inventory_match: "wmime"
+patches: []
+branding: none (library)

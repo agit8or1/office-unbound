@@ -1,0 +1,18 @@
+{
+ "bundled_licences": {},
+ "bundled_packages": 0,
+ "component": "libhx",
+ "files_scanned": 134,
+ "in_inventory": true,
+ "problems": [],
+ "result": "PASS",
+ "spdx_found": {
+  "MIT": 22,
+  "file:GPL-3.0-only": 1,
+  "file:LGPL-2.1-only": 1,
+  "file:LGPL-3.0-only": 1
+ },
+ "warnings": [
+  "found but not declared in recipe: LGPL-2.1-only (1 files)"
+ ]
+}

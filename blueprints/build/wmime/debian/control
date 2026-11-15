@@ -1,0 +1,23 @@
+Source: ou-wmime
+Section: libs
+Priority: optional
+Maintainer: Office Unbound Build <build@officeunbound.com>
+Build-Depends: debhelper-compat (= 13), cmake, pkg-config, libgsasl-dev, libgnutls28-dev, libssl-dev, libidn2-dev, zlib1g-dev, libicu-dev
+Standards-Version: 4.6.2
+Rules-Requires-Root: no
+
+Package: ou-wmime
+Architecture: any
+Multi-Arch: same
+Depends: ${shlibs:Depends}, ${misc:Depends}
+Description: wmime MIME library (Office Unbound build)
+ grommunio fork of the vmime C++ mail library, required by Gromox and not
+ packaged by Debian.
+
+Package: ou-wmime-dev
+Section: libdevel
+Architecture: any
+Multi-Arch: same
+Depends: ou-wmime (= ${binary:Version}), ${misc:Depends}
+Description: wmime development files (Office Unbound build)
+ Headers and pkg-config files for ou-wmime.

@@ -1,0 +1,2 @@
+d /var/log/grommunio-dav 0750 grodav grodav -
+d /var/lib/grommunio-dav 0750 grodav grodav -

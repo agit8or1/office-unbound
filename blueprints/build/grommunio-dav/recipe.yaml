@@ -1,0 +1,25 @@
+# ADR-0008 recipe: grommunio-dav (CalDAV/CardDAV). PHP + composer vendor tree from the upstream composer.lock.
+component: grommunio-dav
+src_name: ou-grommunio-dav
+description: CalDAV/CardDAV server (sabre/dav based)
+source:
+  repo: https://github.com/grommunio/grommunio-dav
+  tag: "1.9"
+  tag_object: 0f3f5df333b3af137317b4db15ec1b5ed3cd25fe
+  commit: 5220793d117b50e6638e5428909379122b48edbd
+  upstream_version: "1.9"
+verification:
+  kind: sha-pin
+  note: tag is annotated but unsigned; commit SHA pin is the only control. composer.lock pins dependency versions and dist hashes.
+# builder step with network, before the network-less compile: install the locked, production-only dependency tree.
+prefetch: |
+  export HOME=/root COMPOSER_HOME=/root/.composer COMPOSER_ALLOW_SUPERUSER=1
+  composer config autoloader-suffix OUDav --no-interaction   # composer's random autoloader class suffix would make builds non-reproducible
+  HOME=/root COMPOSER_HOME=/root/.composer COMPOSER_ALLOW_SUPERUSER=1 composer install --no-dev -a --no-interaction --no-scripts
+packages: [ou-grommunio-dav]
+bundles_lock_packages: true
+licenses: [AGPL-3.0-only, AGPL-3.0-or-later, MIT, BSD-3-Clause, Apache-2.0]
+inventory_match: "grommunio-dav"
+patches: []
+branding: >
+  Name "grommunio DAV" stays in code and paths (nominative use; trademark review pending, inventory lawyer item 2).

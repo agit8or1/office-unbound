@@ -1,0 +1,33 @@
+Source: ou-gromox
+Section: mail
+Priority: optional
+Maintainer: Office Unbound Build <build@officeunbound.com>
+Build-Depends: debhelper-compat (= 13), autoconf, automake, libtool, pkg-config, g++, gettext, perl, php-dev,
+ ou-libhx-dev (>= 4.28), ou-wmime-dev (>= 1.2.0), libfmt-dev, libjsoncpp-dev, libxml2-dev, libzstd-dev, libmariadb-dev,
+ libldap-dev, libssl-dev, libsqlite3-dev, libtinyxml2-dev, zlib1g-dev, libcurl4-openssl-dev, libpam0g-dev,
+ libxxhash-dev, libc-ares-dev, libkrb5-dev, libgsasl-dev, libgnutls28-dev, libidn2-dev, libsystemd-dev
+Standards-Version: 4.6.2
+Rules-Requires-Root: no
+
+Package: ou-gromox
+Architecture: any
+Depends: ${shlibs:Depends}, ${misc:Depends}
+Recommends: mariadb-server | default-mysql-server, ou-gromox-php-mapi
+Conflicts: gromox
+Replaces: gromox
+Provides: gromox (= ${binary:Version})
+Description: Gromox groupware server (Office Unbound build)
+ Gromox provides Exchange-compatible protocols (EWS, MAPI/HTTP, RPC/HTTP),
+ IMAP/POP3 and mail delivery on top of a MariaDB/SQLite mailbox store.
+ Built from the pinned upstream tag without vendor repositories. It contains
+ no user cap or licence check. Services are installed but neither enabled
+ nor started: configure the database first (gromox-dbop) and enable the
+ units explicitly.
+
+Package: ou-gromox-php-mapi
+Architecture: any
+Depends: ${shlibs:Depends}, ${misc:Depends}, ${php:Depends}, ou-gromox (= ${binary:Version})
+Conflicts: gromox-php-mapi
+Description: PHP MAPI extension for Gromox (Office Unbound build)
+ php_mapi PHP extension used by the web, sync and dav front ends to talk to
+ Gromox (zcore).

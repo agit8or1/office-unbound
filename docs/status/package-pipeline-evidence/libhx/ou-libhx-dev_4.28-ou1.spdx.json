@@ -1,0 +1,89 @@
+{
+ "SPDXID": "SPDXRef-DOCUMENT",
+ "creationInfo": {
+  "created": "2025-09-10T12:35:52Z",
+  "creators": [
+   "Organization: Office Unbound",
+   "Tool: ou-sbom-1 (blueprints/build/lib/sbom.py)"
+  ]
+ },
+ "dataLicense": "CC0-1.0",
+ "documentNamespace": "https://officeunbound.com/spdx/0f675eaa-5207-5c76-a07e-8f1f6ae6956d",
+ "name": "ou-libhx-dev-4.28-ou1",
+ "packages": [
+  {
+   "SPDXID": "SPDXRef-Package",
+   "checksums": [
+    {
+     "algorithm": "SHA256",
+     "checksumValue": "c96ff680573a48147b24c0158b2639592bf11d1a887e32b2ad8860c4b2a74a71"
+    }
+   ],
+   "copyrightText": "NOASSERTION",
+   "downloadLocation": "NOASSERTION",
+   "externalRefs": [
+    {
+     "referenceCategory": "PACKAGE-MANAGER",
+     "referenceLocator": "pkg:deb/officeunbound/ou-libhx-dev@4.28-ou1?arch=amd64&distro=debian-12",
+     "referenceType": "purl"
+    }
+   ],
+   "filesAnalyzed": false,
+   "licenseComments": "declared source licences (SPDX ids / exception texts): LGPL-2.1-or-later, LGPL-3.0-only, GPL-3.0-only, MIT",
+   "licenseDeclared": "NOASSERTION",
+   "name": "ou-libhx-dev",
+   "supplier": "Organization: Office Unbound",
+   "versionInfo": "4.28-ou1"
+  },
+  {
+   "SPDXID": "SPDXRef-Source",
+   "checksums": [
+    {
+     "algorithm": "SHA256",
+     "checksumValue": "949ea5f8b5dd8d674c62f261e598492957d186e7568fd21870290cf8a7f02072"
+    }
+   ],
+   "comment": "checksum is of the deterministic git-archive orig tarball; commit pinned in recipe",
+   "copyrightText": "NOASSERTION",
+   "downloadLocation": "git+https://github.com/jengelh/libhx@37aba2e4c56fc1253623797a6e72259ef7ecc79b",
+   "externalRefs": [
+    {
+     "referenceCategory": "PACKAGE-MANAGER",
+     "referenceLocator": "pkg:github/jengelh/libhx@37aba2e4c56fc1253623797a6e72259ef7ecc79b",
+     "referenceType": "purl"
+    }
+   ],
+   "filesAnalyzed": false,
+   "licenseDeclared": "NOASSERTION",
+   "name": "ou-libhx-upstream",
+   "versionInfo": "v4.28"
+  },
+  {
+   "SPDXID": "SPDXRef-Dep-1",
+   "comment": "runtime Depends (virtual/our package or not in builder)",
+   "copyrightText": "NOASSERTION",
+   "downloadLocation": "NOASSERTION",
+   "filesAnalyzed": false,
+   "licenseDeclared": "NOASSERTION",
+   "name": "ou-libhx"
+  }
+ ],
+ "relationships": [
+  {
+   "relatedSpdxElement": "SPDXRef-Package",
+   "relationshipType": "DESCRIBES",
+   "spdxElementId": "SPDXRef-DOCUMENT"
+  },
+  {
+   "relatedSpdxElement": "SPDXRef-Source",
+   "relationshipType": "GENERATED_FROM",
+   "spdxElementId": "SPDXRef-Package"
+  },
+  {
+   "relatedSpdxElement": "SPDXRef-Dep-1",
+   "relationshipType": "DEPENDS_ON",
+   "spdxElementId": "SPDXRef-Package"
+  }
+ ],
+ "spdxVersion": "SPDX-2.3"
+}

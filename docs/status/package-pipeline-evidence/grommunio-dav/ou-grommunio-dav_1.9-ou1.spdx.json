@@ -1,0 +1,388 @@
+{
+ "SPDXID": "SPDXRef-DOCUMENT",
+ "creationInfo": {
+  "created": "2026-10-10T11:06:49Z",
+  "creators": [
+   "Organization: Office Unbound",
+   "Tool: ou-sbom-1 (blueprints/build/lib/sbom.py)"
+  ]
+ },
+ "dataLicense": "CC0-1.0",
+ "documentNamespace": "https://officeunbound.com/spdx/0e8d03e3-9778-50ea-abe4-361ef732087d",
+ "name": "ou-grommunio-dav-1.9-ou1",
+ "packages": [
+  {
+   "SPDXID": "SPDXRef-Package",
+   "checksums": [
+    {
+     "algorithm": "SHA256",
+     "checksumValue": "4b4b75d01e3c096ae88ff0b0ba0db7df07acb85db3ec4837a5ec98f758276e22"
+    }
+   ],
+   "copyrightText": "NOASSERTION",
+   "downloadLocation": "NOASSERTION",
+   "externalRefs": [
+    {
+     "referenceCategory": "PACKAGE-MANAGER",
+     "referenceLocator": "pkg:deb/officeunbound/ou-grommunio-dav@1.9-ou1?arch=amd64&distro=debian-12",
+     "referenceType": "purl"
+    }
+   ],
+   "filesAnalyzed": false,
+   "licenseComments": "declared source licences (SPDX ids / exception texts): AGPL-3.0-only, AGPL-3.0-or-later, MIT, BSD-3-Clause, Apache-2.0",
+   "licenseDeclared": "NOASSERTION",
+   "name": "ou-grommunio-dav",
+   "supplier": "Organization: Office Unbound",
+   "versionInfo": "1.9-ou1"
+  },
+  {
+   "SPDXID": "SPDXRef-Source",
+   "checksums": [
+    {
+     "algorithm": "SHA256",
+     "checksumValue": "80b60479177c7e7bc90cde27d6ea15e7bdee5067dcef81adc7c902917c0d047f"
+    }
+   ],
+   "comment": "checksum is of the deterministic git-archive orig tarball; commit pinned in recipe",
+   "copyrightText": "NOASSERTION",
+   "downloadLocation": "git+https://github.com/grommunio/grommunio-dav@5220793d117b50e6638e5428909379122b48edbd",
+   "externalRefs": [
+    {
+     "referenceCategory": "PACKAGE-MANAGER",
+     "referenceLocator": "pkg:github/grommunio/grommunio-dav@5220793d117b50e6638e5428909379122b48edbd",
+     "referenceType": "purl"
+    }
+   ],
+   "filesAnalyzed": false,
+   "licenseDeclared": "NOASSERTION",
+   "name": "ou-grommunio-dav-upstream",
+   "versionInfo": "1.9"
+  },
+  {
+   "SPDXID": "SPDXRef-Dep-1",
+   "comment": "runtime Depends (virtual/our package or not in builder)",
+   "copyrightText": "NOASSERTION",
+   "downloadLocation": "NOASSERTION",
+   "filesAnalyzed": false,
+   "licenseDeclared": "NOASSERTION",
+   "name": "ou-gromox-php-mapi"
+  },
+  {
+   "SPDXID": "SPDXRef-Dep-2",
+   "comment": "runtime Depends; version = what the builder had installed",
+   "copyrightText": "NOASSERTION",
+   "downloadLocation": "NOASSERTION",
+   "filesAnalyzed": false,
+   "licenseDeclared": "NOASSERTION",
+   "name": "ou-mapi-header-php",
+   "versionInfo": "2.4-ou1"
+  },
+  {
+   "SPDXID": "SPDXRef-Dep-3",
+   "comment": "runtime Depends; version = what the builder had installed",
+   "copyrightText": "NOASSERTION",
+   "downloadLocation": "NOASSERTION",
+   "externalRefs": [
+    {
+     "referenceCategory": "PACKAGE-MANAGER",
+     "referenceLocator": "pkg:deb/debian/php-cli@2:8.2+93?arch=amd64&distro=debian-12",
+     "referenceType": "purl"
+    }
+   ],
+   "filesAnalyzed": false,
+   "licenseDeclared": "NOASSERTION",
+   "name": "php-cli",
+   "versionInfo": "2:8.2+93"
+  },
+  {
+   "SPDXID": "SPDXRef-Dep-4",
+   "comment": "runtime Depends; version = what the builder had installed",
+   "copyrightText": "NOASSERTION",
+   "downloadLocation": "NOASSERTION",
+   "externalRefs": [
+    {
+     "referenceCategory": "PACKAGE-MANAGER",
+     "referenceLocator": "pkg:deb/debian/php-curl@2:8.2+93?arch=amd64&distro=debian-12",
+     "referenceType": "purl"
+    }
+   ],
+   "filesAnalyzed": false,
+   "licenseDeclared": "NOASSERTION",
+   "name": "php-curl",
+   "versionInfo": "2:8.2+93"
+  },
+  {
+   "SPDXID": "SPDXRef-Dep-5",
+   "comment": "runtime Depends (virtual/our package or not in builder)",
+   "copyrightText": "NOASSERTION",
+   "downloadLocation": "NOASSERTION",
+   "filesAnalyzed": false,
+   "licenseDeclared": "NOASSERTION",
+   "name": "php-fpm"
+  },
+  {
+   "SPDXID": "SPDXRef-Dep-6",
+   "comment": "runtime Depends; version = what the builder had installed",
+   "copyrightText": "NOASSERTION",
+   "downloadLocation": "NOASSERTION",
+   "externalRefs": [
+    {
+     "referenceCategory": "PACKAGE-MANAGER",
+     "referenceLocator": "pkg:deb/debian/php-mbstring@2:8.2+93?arch=amd64&distro=debian-12",
+     "referenceType": "purl"
+    }
+   ],
+   "filesAnalyzed": false,
+   "licenseDeclared": "NOASSERTION",
+   "name": "php-mbstring",
+   "versionInfo": "2:8.2+93"
+  },
+  {
+   "SPDXID": "SPDXRef-Dep-7",
+   "comment": "runtime Depends (virtual/our package or not in builder)",
+   "copyrightText": "NOASSERTION",
+   "downloadLocation": "NOASSERTION",
+   "filesAnalyzed": false,
+   "licenseDeclared": "NOASSERTION",
+   "name": "php-sqlite3"
+  },
+  {
+   "SPDXID": "SPDXRef-Dep-8",
+   "comment": "runtime Depends; version = what the builder had installed",
+   "copyrightText": "NOASSERTION",
+   "downloadLocation": "NOASSERTION",
+   "externalRefs": [
+    {
+     "referenceCategory": "PACKAGE-MANAGER",
+     "referenceLocator": "pkg:deb/debian/php-xml@2:8.2+93?arch=amd64&distro=debian-12",
+     "referenceType": "purl"
+    }
+   ],
+   "filesAnalyzed": false,
+   "licenseDeclared": "NOASSERTION",
+   "name": "php-xml",
+   "versionInfo": "2:8.2+93"
+  },
+  {
+   "SPDXID": "SPDXRef-Bundled-0",
+   "copyrightText": "NOASSERTION",
+   "downloadLocation": "NOASSERTION",
+   "externalRefs": [
+    {
+     "referenceCategory": "PACKAGE-MANAGER",
+     "referenceLocator": "pkg:composer/monolog/monolog@2.11.1",
+     "referenceType": "purl"
+    }
+   ],
+   "filesAnalyzed": false,
+   "licenseDeclared": "MIT",
+   "name": "monolog/monolog",
+   "versionInfo": "2.11.1"
+  },
+  {
+   "SPDXID": "SPDXRef-Bundled-1",
+   "copyrightText": "NOASSERTION",
+   "downloadLocation": "NOASSERTION",
+   "externalRefs": [
+    {
+     "referenceCategory": "PACKAGE-MANAGER",
+     "referenceLocator": "pkg:composer/psr/log@1.1.4",
+     "referenceType": "purl"
+    }
+   ],
+   "filesAnalyzed": false,
+   "licenseDeclared": "MIT",
+   "name": "psr/log",
+   "versionInfo": "1.1.4"
+  },
+  {
+   "SPDXID": "SPDXRef-Bundled-2",
+   "copyrightText": "NOASSERTION",
+   "downloadLocation": "NOASSERTION",
+   "externalRefs": [
+    {
+     "referenceCategory": "PACKAGE-MANAGER",
+     "referenceLocator": "pkg:composer/sabre/dav@4.4.0",
+     "referenceType": "purl"
+    }
+   ],
+   "filesAnalyzed": false,
+   "licenseDeclared": "BSD-3-Clause",
+   "name": "sabre/dav",
+   "versionInfo": "4.4.0"
+  },
+  {
+   "SPDXID": "SPDXRef-Bundled-3",
+   "copyrightText": "NOASSERTION",
+   "downloadLocation": "NOASSERTION",
+   "externalRefs": [
+    {
+     "referenceCategory": "PACKAGE-MANAGER",
+     "referenceLocator": "pkg:composer/sabre/event@5.1.9",
+     "referenceType": "purl"
+    }
+   ],
+   "filesAnalyzed": false,
+   "licenseDeclared": "BSD-3-Clause",
+   "name": "sabre/event",
+   "versionInfo": "5.1.9"
+  },
+  {
+   "SPDXID": "SPDXRef-Bundled-4",
+   "copyrightText": "NOASSERTION",
+   "downloadLocation": "NOASSERTION",
+   "externalRefs": [
+    {
+     "referenceCategory": "PACKAGE-MANAGER",
+     "referenceLocator": "pkg:composer/sabre/http@5.1.13",
+     "referenceType": "purl"
+    }
+   ],
+   "filesAnalyzed": false,
+   "licenseDeclared": "BSD-3-Clause",
+   "name": "sabre/http",
+   "versionInfo": "5.1.13"
+  },
+  {
+   "SPDXID": "SPDXRef-Bundled-5",
+   "copyrightText": "NOASSERTION",
+   "downloadLocation": "NOASSERTION",
+   "externalRefs": [
+    {
+     "referenceCategory": "PACKAGE-MANAGER",
+     "referenceLocator": "pkg:composer/sabre/uri@2.3.4",
+     "referenceType": "purl"
+    }
+   ],
+   "filesAnalyzed": false,
+   "licenseDeclared": "BSD-3-Clause",
+   "name": "sabre/uri",
+   "versionInfo": "2.3.4"
+  },
+  {
+   "SPDXID": "SPDXRef-Bundled-6",
+   "copyrightText": "NOASSERTION",
+   "downloadLocation": "NOASSERTION",
+   "externalRefs": [
+    {
+     "referenceCategory": "PACKAGE-MANAGER",
+     "referenceLocator": "pkg:composer/sabre/vobject@4.6.1",
+     "referenceType": "purl"
+    }
+   ],
+   "filesAnalyzed": false,
+   "licenseDeclared": "BSD-3-Clause",
+   "name": "sabre/vobject",
+   "versionInfo": "4.6.1"
+  },
+  {
+   "SPDXID": "SPDXRef-Bundled-7",
+   "copyrightText": "NOASSERTION",
+   "downloadLocation": "NOASSERTION",
+   "externalRefs": [
+    {
+     "referenceCategory": "PACKAGE-MANAGER",
+     "referenceLocator": "pkg:composer/sabre/xml@2.2.11",
+     "referenceType": "purl"
+    }
+   ],
+   "filesAnalyzed": false,
+   "licenseDeclared": "BSD-3-Clause",
+   "name": "sabre/xml",
+   "versionInfo": "2.2.11"
+  }
+ ],
+ "relationships": [
+  {
+   "relatedSpdxElement": "SPDXRef-Package",
+   "relationshipType": "DESCRIBES",
+   "spdxElementId": "SPDXRef-DOCUMENT"
+  },
+  {
+   "relatedSpdxElement": "SPDXRef-Source",
+   "relationshipType": "GENERATED_FROM",
+   "spdxElementId": "SPDXRef-Package"
+  },
+  {
+   "relatedSpdxElement": "SPDXRef-Dep-1",
+   "relationshipType": "DEPENDS_ON",
+   "spdxElementId": "SPDXRef-Package"
+  },
+  {
+   "relatedSpdxElement": "SPDXRef-Dep-2",
+   "relationshipType": "DEPENDS_ON",
+   "spdxElementId": "SPDXRef-Package"
+  },
+  {
+   "relatedSpdxElement": "SPDXRef-Dep-3",
+   "relationshipType": "DEPENDS_ON",
+   "spdxElementId": "SPDXRef-Package"
+  },
+  {
+   "relatedSpdxElement": "SPDXRef-Dep-4",
+   "relationshipType": "DEPENDS_ON",
+   "spdxElementId": "SPDXRef-Package"
+  },
+  {
+   "relatedSpdxElement": "SPDXRef-Dep-5",
+   "relationshipType": "DEPENDS_ON",
+   "spdxElementId": "SPDXRef-Package"
+  },
+  {
+   "relatedSpdxElement": "SPDXRef-Dep-6",
+   "relationshipType": "DEPENDS_ON",
+   "spdxElementId": "SPDXRef-Package"
+  },
+  {
+   "relatedSpdxElement": "SPDXRef-Dep-7",
+   "relationshipType": "DEPENDS_ON",
+   "spdxElementId": "SPDXRef-Package"
+  },
+  {
+   "relatedSpdxElement": "SPDXRef-Dep-8",
+   "relationshipType": "DEPENDS_ON",
+   "spdxElementId": "SPDXRef-Package"
+  },
+  {
+   "relatedSpdxElement": "SPDXRef-Bundled-0",
+   "relationshipType": "CONTAINS",
+   "spdxElementId": "SPDXRef-Package"
+  },
+  {
+   "relatedSpdxElement": "SPDXRef-Bundled-1",
+   "relationshipType": "CONTAINS",
+   "spdxElementId": "SPDXRef-Package"
+  },
+  {
+   "relatedSpdxElement": "SPDXRef-Bundled-2",
+   "relationshipType": "CONTAINS",
+   "spdxElementId": "SPDXRef-Package"
+  },
+  {
+   "relatedSpdxElement": "SPDXRef-Bundled-3",
+   "relationshipType": "CONTAINS",
+   "spdxElementId": "SPDXRef-Package"
+  },
+  {
+   "relatedSpdxElement": "SPDXRef-Bundled-4",
+   "relationshipType": "CONTAINS",
+   "spdxElementId": "SPDXRef-Package"
+  },
+  {
+   "relatedSpdxElement": "SPDXRef-Bundled-5",
+   "relationshipType": "CONTAINS",
+   "spdxElementId": "SPDXRef-Package"
+  },
+  {
+   "relatedSpdxElement": "SPDXRef-Bundled-6",
+   "relationshipType": "CONTAINS",
+   "spdxElementId": "SPDXRef-Package"
+  },
+  {
+   "relatedSpdxElement": "SPDXRef-Bundled-7",
+   "relationshipType": "CONTAINS",
+   "spdxElementId": "SPDXRef-Package"
+  }
+ ],
+ "spdxVersion": "SPDX-2.3"
+}

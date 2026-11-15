@@ -1,0 +1,18 @@
+{
+ "bundled_licences": {
+  "BSD-3-Clause": 6,
+  "MIT": 2
+ },
+ "bundled_packages": 8,
+ "component": "grommunio-dav",
+ "files_scanned": 51,
+ "in_inventory": true,
+ "problems": [],
+ "result": "PASS",
+ "spdx_found": {
+  "AGPL-3.0-only": 36,
+  "AGPL-3.0-or-later": 1,
+  "file:AGPL-3.0-only": 1
+ },
+ "warnings": []
+}

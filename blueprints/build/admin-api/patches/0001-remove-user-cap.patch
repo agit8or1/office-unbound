@@ -1,0 +1,50 @@
+Description: Remove the 5-user licence cap
+ Upstream admin-api refuses to create or reactivate a mailbox user once the
+ number of active users reaches the licence certificate limit (default 5
+ without a certificate). Gromox itself has no such limit. Office Unbound
+ ships no user, mailbox or connection caps (ADR-0007), so both checks are
+ removed and the default (informational) licence reports users=0, meaning
+ unlimited. The licence data model and endpoints stay so admin-web keeps working.
+Author: Office Unbound
+Forwarded: not-needed
+Last-Update: 2026-11-15
+
+diff -ruN a/orm/users.py b/orm/users.py
+--- a/orm/users.py
++++ b/orm/users.py
+@@ -241,11 +241,8 @@
+     @staticmethod
+     def checkCreateParams(data, maildir=True):
+         from orm.domains import Domains
+-        from tools.license import getLicense
+         if "username" not in data:
+             return "Missing username"
+-        if maildir and data.get("status", Users.NORMAL) == Users.NORMAL and Users.count() >= getLicense().users:
+-            return "License user limit exceeded"
+         if "domainID" in data:
+             domain = Domains.query.filter(Domains.ID == data.get("domainID")).first()
+         elif "@" in data["username"]:
+@@ -562,9 +559,6 @@
+ 
+     @status.setter
+     def status(self, val):
+-        from tools.license import getLicense
+-        if self.status and not val and Users.count() >= getLicense().users:
+-            raise ValueError("License user limit exceeded")
+         self.addressStatus = ((self.addressStatus or 0) & ~self.USER_MASK) | (val & self.USER_MASK)
+ 
+     @status.expression
+diff -ruN a/tools/license.py b/tools/license.py
+--- a/tools/license.py
++++ b/tools/license.py
+@@ -47,8 +47,8 @@
+ def _defaultLicense():
+     return GrommunioLicense(cert=None,
+                             file=None,
+-                            users=5,
+-                            product="Community",
++                            users=0,   # 0 = unlimited: no user cap is enforced anywhere (Office Unbound ADR-0007)
++                            product="Office Unbound",
+                             notBefore=datetime(1000, 1, 1, tzinfo=TZ),
+                             notAfter=datetime(MAXYEAR, 12, 31, 23, 59, 59, tzinfo=TZ))
+ 

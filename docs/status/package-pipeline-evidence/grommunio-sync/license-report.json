@@ -1,0 +1,15 @@
+{
+ "bundled_licences": {},
+ "bundled_packages": 0,
+ "component": "grommunio-sync",
+ "files_scanned": 153,
+ "in_inventory": true,
+ "problems": [],
+ "result": "PASS",
+ "spdx_found": {
+  "AGPL-3.0-only": 138,
+  "BSD-3-Clause": 1,
+  "file:AGPL-3.0-only": 1
+ },
+ "warnings": []
+}

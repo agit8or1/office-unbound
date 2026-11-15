@@ -1,0 +1,97 @@
+{
+ "SPDXID": "SPDXRef-DOCUMENT",
+ "creationInfo": {
+  "created": "2026-10-10T10:45:47Z",
+  "creators": [
+   "Organization: Office Unbound",
+   "Tool: ou-sbom-1 (blueprints/build/lib/sbom.py)"
+  ]
+ },
+ "dataLicense": "CC0-1.0",
+ "documentNamespace": "https://officeunbound.com/spdx/21e5dab6-d6e7-5c66-b73d-05dbc8d69692",
+ "name": "ou-mapi-header-php-2.4-ou1",
+ "packages": [
+  {
+   "SPDXID": "SPDXRef-Package",
+   "checksums": [
+    {
+     "algorithm": "SHA256",
+     "checksumValue": "4a198b13d5879129d406ad8abc0585957cbb4d264ef0a3d08710cee8f420c23f"
+    }
+   ],
+   "copyrightText": "NOASSERTION",
+   "downloadLocation": "NOASSERTION",
+   "externalRefs": [
+    {
+     "referenceCategory": "PACKAGE-MANAGER",
+     "referenceLocator": "pkg:deb/officeunbound/ou-mapi-header-php@2.4-ou1?arch=amd64&distro=debian-12",
+     "referenceType": "purl"
+    }
+   ],
+   "filesAnalyzed": false,
+   "licenseComments": "declared source licences (SPDX ids / exception texts): AGPL-3.0-only, AGPL-3.0-or-later",
+   "licenseDeclared": "NOASSERTION",
+   "name": "ou-mapi-header-php",
+   "supplier": "Organization: Office Unbound",
+   "versionInfo": "2.4-ou1"
+  },
+  {
+   "SPDXID": "SPDXRef-Source",
+   "checksums": [
+    {
+     "algorithm": "SHA256",
+     "checksumValue": "b4eb222c1abb908695c6f59f73658993db7de7dc628d7771f04011eec1b833d2"
+    }
+   ],
+   "comment": "checksum is of the deterministic git-archive orig tarball; commit pinned in recipe",
+   "copyrightText": "NOASSERTION",
+   "downloadLocation": "git+https://github.com/grommunio/mapi-header-php@99cf86a3a05dd52f5fffa74db347fac0a1969986",
+   "externalRefs": [
+    {
+     "referenceCategory": "PACKAGE-MANAGER",
+     "referenceLocator": "pkg:github/grommunio/mapi-header-php@99cf86a3a05dd52f5fffa74db347fac0a1969986",
+     "referenceType": "purl"
+    }
+   ],
+   "filesAnalyzed": false,
+   "licenseDeclared": "NOASSERTION",
+   "name": "ou-mapi-header-php-upstream",
+   "versionInfo": "2.4"
+  },
+  {
+   "SPDXID": "SPDXRef-Dep-1",
+   "comment": "runtime Depends; version = what the builder had installed",
+   "copyrightText": "NOASSERTION",
+   "downloadLocation": "NOASSERTION",
+   "externalRefs": [
+    {
+     "referenceCategory": "PACKAGE-MANAGER",
+     "referenceLocator": "pkg:deb/debian/php-cli@2:8.2+93?arch=amd64&distro=debian-12",
+     "referenceType": "purl"
+    }
+   ],
+   "filesAnalyzed": false,
+   "licenseDeclared": "NOASSERTION",
+   "name": "php-cli",
+   "versionInfo": "2:8.2+93"
+  }
+ ],
+ "relationships": [
+  {
+   "relatedSpdxElement": "SPDXRef-Package",
+   "relationshipType": "DESCRIBES",
+   "spdxElementId": "SPDXRef-DOCUMENT"
+  },
+  {
+   "relatedSpdxElement": "SPDXRef-Source",
+   "relationshipType": "GENERATED_FROM",
+   "spdxElementId": "SPDXRef-Package"
+  },
+  {
+   "relatedSpdxElement": "SPDXRef-Dep-1",
+   "relationshipType": "DEPENDS_ON",
+   "spdxElementId": "SPDXRef-Package"
+  }
+ ],
+ "spdxVersion": "SPDX-2.3"
+}

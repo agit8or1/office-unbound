@@ -1,0 +1,9 @@
+[
+ {
+  "sbom": "ou-grommunio-dav_1.9-ou1.spdx.json",
+  "packages_scanned": 14,
+  "vulnerable_packages": 0,
+  "osv_scanner": "2.7.1",
+  "advisories": []
+ }
+]

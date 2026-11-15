@@ -1,0 +1,3 @@
+# Office Unbound admin API: the service user may run exactly these commands as root (mail queue handling).
+# Upstream also grants /usr/sbin/grommunio-update (vendor updater); that is deliberately not included.
+grommunio       ALL = NOPASSWD: /usr/sbin/postconf, /usr/sbin/postsuper

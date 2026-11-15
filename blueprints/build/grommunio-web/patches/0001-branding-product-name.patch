@@ -1,0 +1,81 @@
+Description: Rebrand user-visible product name, page title and web manifest
+ Default WEBAPP_TITLE, fallback title, version banner, PWA manifest name, desktop
+ app title and the logo aria-label say "Office Unbound Web" instead of the
+ trademarked "grommunio Web". Logos and icons are replaced at package build time
+ from debian/branding (binary files cannot be carried in a quilt patch).
+ Upstream copyright/SPDX headers are untouched.
+Author: Office Unbound
+Forwarded: not-needed
+Last-Update: 2026-11-15
+
+diff -ruN a/config.php.dist b/config.php.dist
+--- a/config.php.dist
++++ b/config.php.dist
+@@ -140,7 +140,7 @@
+ 	//define("THEME", 'grommunioLighttheme');
+ 
+ 	// The title that will be shown in the title bar of the browser
+-	define("WEBAPP_TITLE", "grommunio Web");
++	define("WEBAPP_TITLE", "Office Unbound Web");
+ 
+ 	// Enable widgets/today context.
+ 	// Overrides defaults.php
+diff -ruN a/index.php b/index.php
+--- a/index.php
++++ b/index.php
+@@ -55,7 +55,7 @@
+ }
+ $webappTitle = Theming::getBrand()['title'] ?? '';
+ if ($webappTitle === '') {
+-	$webappTitle = defined('WEBAPP_TITLE') && WEBAPP_TITLE ? WEBAPP_TITLE : 'grommunio Web';
++	$webappTitle = defined('WEBAPP_TITLE') && WEBAPP_TITLE ? WEBAPP_TITLE : 'Office Unbound Web';
+ }
+ // If the user wants to logout (and is not using single-signon)
+ // then destroy the session and redirect to this page, so the login page
+@@ -135,7 +135,7 @@
+ 	}
+ 
+ 	// Set some template variables for the login page
+-	$version = 'grommunio Web ' . trim(file_get_contents('version'));
++	$version = 'Office Unbound Web ' . trim(file_get_contents('version'));
+ 	$user = sanitizeGetValue('user', '', USERNAME_REGEX);
+ 
+ 	$url = '?logon';
+diff -ruN a/manifest.webmanifest b/manifest.webmanifest
+--- a/manifest.webmanifest
++++ b/manifest.webmanifest
+@@ -1,7 +1,7 @@
+ {
+-	"name": "grommunio Web",
+-	"short_name": "grommunioWeb",
+-	"description": "A web client written in PHP that makes use of HTML5, JSON and ExtJS to allow users to make full use of grommunio through a web browser.",
++	"name": "Office Unbound Web",
++	"short_name": "OUWeb",
++	"description": "A web client written in PHP that makes use of HTML5, JSON and ExtJS to allow users to make full use of Office Unbound through a web browser.",
+ 	"categories": ["productivity", "business"],
+ 	"start_url": "/",
+ 	"display": "standalone",
+diff -ruN a/server/includes/templates/deskapp.php b/server/includes/templates/deskapp.php
+--- a/server/includes/templates/deskapp.php
++++ b/server/includes/templates/deskapp.php
+@@ -1,7 +1,7 @@
+ <!doctype html>
+ <html>
+ <head>
+-	<title>grommunio Web</title>
++	<title>Office Unbound Web</title>
+ </head>
+ <body>
+ 	<!-- This file helps DeskApp to inject local storage into grommunio Webs origin -->
+diff -ruN a/server/includes/templates/webclient.php b/server/includes/templates/webclient.php
+--- a/server/includes/templates/webclient.php
++++ b/server/includes/templates/webclient.php
+@@ -156,7 +156,7 @@
+ 				<span class="product-badge" aria-hidden="true"></span>
+ 				<div id="content">
+ 					<div class="left">
+-						<div id="logo" role="img" aria-label="grommunio"></div>
++						<div id="logo" role="img" aria-label="Office Unbound"></div>
+ 					</div>
+ 					<div class="product-chip"><span class="icon"></span>Web</div>
+ 					<div class="right">
