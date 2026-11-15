@@ -19,6 +19,8 @@ ID_M = os.environ.get("OU_ID_MACHINE", "ou-id1")
 KC_HOST = os.environ.get("OU_HOST_KC", "auth.ou-lab.internal")
 OC_HOST = os.environ.get("OU_HOST_FILES", "cloud.ou-lab.internal")
 MAIL_DOMAIN = os.environ.get("OU_MAIL_DOMAIN", "ou-lab.internal")
+BASE_DN = "dc=" + MAIL_DOMAIN.replace(".", ",dc=")   # clean-room lab (cr.ou-lab.internal) support: no hard-coded names
+LDAP_HOST = "ldap." + MAIL_DOMAIN
 DIRSH = "/root/lab/spike-identity-files/kc/ldap-user.sh"
 SYNC = "/usr/local/sbin/gw-ldap-sync.py"
 

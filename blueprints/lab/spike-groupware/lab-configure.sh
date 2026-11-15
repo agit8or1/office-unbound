@@ -123,4 +123,8 @@ postconf -e "myhostname=$HOSTN" "mydestination=localhost" "virtual_mailbox_domai
   "default_transport=error:lab: no outbound relay" "relayhost=" \
   "smtpd_tls_cert_file=/etc/ou-lab-tls/server-chain.pem" "smtpd_tls_key_file=/etc/ou-lab-tls/server.key" "smtpd_tls_security_level=may"
 usermod -aG gromoxcf postfix || true
+## --- start the services (A22 clean-room: never scripted, gw1 had them enabled by hand; lab-ldap.sh then skipped its restart/--create-domain
+## step because gromox-imap was inactive) ---
+systemctl daemon-reload
+systemctl enable --now gromox-event gromox-midb gromox-http gromox-zcore gromox-delivery gromox-delivery-queue gromox-timer gromox-imap postfix
 echo done-configure
