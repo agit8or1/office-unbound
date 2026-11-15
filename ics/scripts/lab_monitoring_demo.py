@@ -10,6 +10,7 @@ Secrets are read from root-readable lab files and never printed. Usage: lab_moni
 import datetime
 import imaplib
 import json
+import os
 import re
 import secrets
 import ssl
@@ -23,7 +24,9 @@ import pyotp
 BASE = "http://127.0.0.1:8088/api/v1"
 CA = open("/etc/office-unbound/lab/gw1-ca.crt").read()
 ICS_PY = "/opt/office-unbound/ics/.venv/bin/python"
-STATE = "/tmp/ou-demo-creds.json"      # lab-only throwaway account passwords (mode 600), never printed
+# Lab demo account passwords + TOTP secrets (never printed). Review M5: not in /tmp; override with OU_DEMO_CREDS.
+# Default: root:administrator 0640 under /etc/office-unbound/lab/ (moved there by the host owner, see ics/README.md).
+STATE = os.environ.get("OU_DEMO_CREDS", "/etc/office-unbound/lab/demo-creds.json")
 PW = dict(l.strip().split("=", 1) for l in open("/etc/office-unbound/lab/gw1-users.env") if l.startswith("OU_GW1_PW_"))
 HOST = "gw1.ou-lab.internal"
 
@@ -76,10 +79,9 @@ def setup_accounts():
         secret = re.search(r"secret=([A-Z2-7]+)", r.json()["totp_provisioning_uri"]).group(1)
         httpx.post(f"{BASE}/auth/enroll/confirm", json={"username": name, "token": token, "totp_code": pyotp.TOTP(secret).now()}).raise_for_status()
         creds[name] = {"password": pw, "secret": secret}
-    with open(STATE, "w") as f:
+    fd = os.open(STATE, os.O_WRONLY | os.O_CREAT | os.O_TRUNC, 0o600)   # never world-readable, not even briefly
+    with os.fdopen(fd, "w") as f:
         json.dump(creds, f)
-    import os
-    os.chmod(STATE, 0o600)
     return creds
 
 

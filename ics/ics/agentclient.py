@@ -120,7 +120,7 @@ def enroll(address: str, port: int, tls_fp: str, *, token: str, ics_pubkey_b64: 
     resp, sig = d.get("resp"), d.get("sig")
     if not isinstance(resp, dict) or not isinstance(sig, str) or not verify(pub_from_b64(expect_agent_pubkey_b64), RESP_PREFIX, resp, sig):
         raise AgentError("enrollment response signature invalid")
-    if resp.get("node_id") != node_id or resp.get("agent_pubkey") != expect_agent_pubkey_b64:
+    if resp.get("type") != "enroll" or resp.get("node_id") != node_id or resp.get("agent_pubkey") != expect_agent_pubkey_b64:
         raise AgentError("enrollment response does not match the request")
     return resp
 
@@ -132,11 +132,15 @@ def call(node, priv, *, action: str, params: dict, job_id: str, ttl: int = 60, d
     body = req_override or build_request(priv, action=action, params=params, node_id=str(node.id), job_id=job_id, ttl=ttl)
     code, d = _post(node.address, node.port, node.tls_fingerprint_sha256.strip(), "/v1/exec", body, allow_loopback=allow_loopback, deadline=deadline)
     resp, sig = d.get("resp"), d.get("sig")
+    if code == 403 and isinstance(d.get("error"), str) and sig is None:   # pre-authentication refusal: deliberately unsigned (review L2)
+        raise AgentError(f"agent refused the request before authentication: {d['error'][:40]}")
     if not isinstance(resp, dict) or not isinstance(sig, str):
         raise AgentError("agent returned an unsigned/malformed response")
     if not verify(pub_from_b64(node.agent_pubkey), RESP_PREFIX, resp, sig):
         raise AgentError("agent response signature invalid")
     req = body["req"]
+    if resp.get("type") != "exec":
+        raise AgentError("agent response has the wrong type")
     if resp.get("nonce") != req.get("nonce") or resp.get("job_id") != req.get("job_id") or resp.get("node_id") != str(node.id):
         raise AgentError("agent response does not match the request (nonce/job/node)")
     return req, resp
