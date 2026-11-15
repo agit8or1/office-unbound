@@ -334,6 +334,8 @@ setup_tls() {
 # ------------------------------------------------------------------------------------- code + venv + migrations
 REL="$( cd "$SRC" && find . \( -name .venv -o -name __pycache__ -o -name .pytest_cache -o -name tests -o -name node_modules \) -prune -o -type f -print0 \
         | sort -z | xargs -0 sha256sum | sha256sum | cut -d' ' -f1 )"
+# a VERSION/VERSIONS.json bump outside ics/ must also trigger a reinstall (BUILD_INFO.json is derived from them)
+REL="$( { echo "$REL"; cat "$SRC/../VERSION" "$SRC/../VERSIONS.json" 2>/dev/null; } | sha256sum | cut -d' ' -f1 )"
 need_install=0
 [ -x "$OPT/.venv/bin/python" ] || need_install=1
 [ "$(cat "$STAMP" 2>/dev/null)" = "$REL" ] || need_install=1

@@ -8,6 +8,8 @@ Human view: [`ROADMAP.md`](../ROADMAP.md) (generated — run `python3 scripts/re
 | `schema` | string | `office-unbound-progress/1` — bump on breaking changes |
 | `updated` | ISO date | last edit of the feed |
 | `stage` | string | overall project stage |
+| `current_version` | string | product version (SemVer); must equal the repo-root `VERSION` file (validated in CI) |
+| `releases[]` | object | newest first: `version` (SemVer, unique), `date`, `status` (`prepared` \| `released` \| `yanked`), `highlights[]`, `notes_url` (https), optional `channel`, `changelog`. Bundled into `BUILD_INFO.json` at install time so ICS can show "pending updates" offline (ADR-0011) |
 | `summary` | string | one-paragraph public summary |
 | `status_values` | object | machine status key → display label (ADR-0000 values + `blocked`) |
 | `principles` | string[] | product principles |

@@ -5,6 +5,24 @@
   "repository": "https://github.com/agit8or1/office-unbound",
   "updated": "2026-11-15",
   "stage": "pre-alpha (lab)",
+  "current_version": "0.1.0",
+  "releases": [
+    {
+      "version": "0.1.0",
+      "date": "2026-11-15",
+      "status": "prepared",
+      "channel": "pre-alpha",
+      "highlights": [
+        "Installable ICS with console, typed actions, approvals and hash-chained audit",
+        "Groupware, identity, files and browser document editing integrated and tested in an isolated lab",
+        "Proxmox provider verified on a live cluster; deployment engine, wizards, credential vault",
+        "Office Unbound Docs own source build, user portal, SSO, chat/meetings and telephony lab prototypes",
+        "Lab pre-alpha only: not production supported; security review 4 findings open"
+      ],
+      "notes_url": "https://github.com/agit8or1/office-unbound/releases/tag/v0.1.0",
+      "changelog": "CHANGELOG.md"
+    }
+  ],
   "summary": "Core platform components are integrated and tested in an isolated lab: own source build of Exchange-compatible groupware with single sign-on webmail, Keycloak SSO, file sync and browser document editing, backup/restore drills, chat and video meetings, and an infrastructure control server with monitoring, self-healing and a real Proxmox integration (VM lifecycle verified on a live cluster). Guided deployment wizards, provisioning automation and the credential vault are being integrated.",
   "status_values": {
     "planned": "Planned",
@@ -155,6 +173,18 @@
           "evidence": [
             "blueprints/lab/tests/MANUAL-CHECKLIST.md"
           ]
+        },
+        {
+          "id": "P1.12",
+          "title": "Versioning, changelog, release notes and release tracking (VERSION, build info, /api/v1/version, console System page)",
+          "status": "tested",
+          "evidence": [
+            "docs/adr/0011-versioning-and-releases.md",
+            "CHANGELOG.md",
+            "docs/RELEASING.md",
+            "ics/tests/test_version.py"
+          ],
+          "note": "Release 0.1.0 prepared; signed tag and GitHub Release are published by the owner. Production signing key not yet created."
         }
       ]
     },
@@ -503,6 +533,6 @@
   "known_limitations": [
     "New Outlook for Windows and Outlook mobile cannot use MAPI/EWS against non-Microsoft servers (Microsoft limitation); IMAP/SMTP only",
     "Lab currently runs in isolated containers on a single host; production topology is full VMs on Proxmox",
-    "No production releases exist yet"
+    "Release 0.1.0 is a lab pre-alpha, unsigned; no production-supported release exists yet"
   ]
 }

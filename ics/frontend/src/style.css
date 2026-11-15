@@ -320,3 +320,4 @@ dl.sys { display: grid; grid-template-columns: minmax(150px, max-content) 1fr; g
 .steps3 li { display: flex; flex-direction: column; gap: 2px; padding: 12px 14px; background: var(--surface2); border-radius: var(--radius-sm); }
 .steps3 span { color: var(--muted); font-size: 12.5px; }
 td.msg { min-width: 260px; }
+.side .foot .build { margin-top: 4px; font-variant-numeric: tabular-nums; opacity: .85; }

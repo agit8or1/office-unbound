@@ -10,6 +10,8 @@ install -d -o root -g root -m 0755 /opt/office-unbound "$DST"
 rsync -a --delete --exclude .venv --exclude __pycache__ --exclude .pytest_cache --exclude tests --exclude node_modules "$SRC"/ "$DST"/
 [ -x "$DST/.venv/bin/python" ] || python3 -m venv "$DST/.venv"
 "$DST/.venv/bin/pip" install -q --require-hashes -r "$DST/requirements.lock"
+# build metadata is computed here (install time), never by the running service (ADR-0011)
+python3 "$SRC/deploy/write_build_info.py" "$SRC/.." "$DST/BUILD_INFO.json"
 chown -R root:root "$DST"; chmod -R go-w "$DST"
 # Deployment catalog (blueprints/catalog) — read by ics.deploy.catalog at /opt/office-unbound/blueprints/catalog.
 # Found in production 2026-11-15: it was never installed (tests run from the checkout, where it sits next to the code) -> /catalog/* 500.

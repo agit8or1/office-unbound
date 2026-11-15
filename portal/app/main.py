@@ -17,12 +17,13 @@ from fastapi.templating import Jinja2Templates
 
 from . import devices, services
 from .config import Settings, load
+from .version import PORTAL_VERSION, build_info
 from .oidc import OIDC, OIDCError, new_pkce
 from .sessions import COOKIE, FLOW_COOKIE, Session, Store
 
 log = logging.getLogger("ou-portal")
 HERE = Path(__file__).parent
-VERSION = "0.1.0"
+VERSION = PORTAL_VERSION
 KINDS = ("document", "spreadsheet", "presentation")
 
 
@@ -125,6 +126,14 @@ def create_app(cfg: Settings | None = None, transport: httpx.AsyncBaseTransport 
     @app.get("/healthz", include_in_schema=False)
     async def healthz() -> Response:
         return Response("ok\n", media_type="text/plain")
+
+    @app.get("/about", response_class=HTMLResponse)
+    async def about(request: Request) -> Response:
+        s = await current(request)
+        info = build_info()
+        if not s:  # signed-out visitors see the product and version only
+            info = {k: info[k] for k in ("product", "version")}
+        return render(request, "about.html", {"info": info}, sess=s)
 
     @app.get("/.well-known/autoconfig/mail/config-v1.1.xml", include_in_schema=False)
     @app.get("/mail/config-v1.1.xml", include_in_schema=False)

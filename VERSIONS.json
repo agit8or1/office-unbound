@@ -1,0 +1,15 @@
+{
+  "schema": "office-unbound-versions/1",
+  "_note": "Per-component versions for independently shipped parts. The product version is the VERSION file (ADR-0011). ICS core always equals the product version.",
+  "components": {
+    "node_agent": "0.1.0",
+    "portal": "0.1.0",
+    "migration_toolkit": "0.1.0",
+    "docs_engine": "cp-26.04.6-1+ou1"
+  },
+  "interfaces": {
+    "api": "v1",
+    "progress_feed_schema": "office-unbound-progress/1",
+    "catalog_schema": "1"
+  }
+}

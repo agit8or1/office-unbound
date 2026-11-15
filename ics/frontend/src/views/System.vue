@@ -1,7 +1,8 @@
 <script setup lang="ts">
-import { get } from '../api'
+import { computed } from 'vue'
+import { get, type SystemInfo as BuildSystemInfo } from '../api'
 import { fmtBytes, fmtTime, useLoad } from '../store'
-import { ago } from '../format'
+import { ago, COMPONENT_LABELS, buildLabel } from '../format'
 import PageHeader from '../ui/PageHeader.vue'
 import Card from '../ui/Card.vue'
 import StatusBadge from '../ui/StatusBadge.vue'
@@ -10,12 +11,14 @@ import Button from '../ui/Button.vue'
 import ErrorBox from '../components/ErrorBox.vue'
 
 interface Thread { name: string; state: 'ok' | 'stalled' | 'off'; last_progress_seconds: number | null }
-interface SystemInfo {
-  version: string; migration_head: string | null; ready: boolean; checks: Record<string, boolean>; heartbeat_age_seconds: number | null
+interface SystemInfo extends BuildSystemInfo {
+  migration_head: string | null; ready: boolean; checks: Record<string, boolean>; heartbeat_age_seconds: number | null
   worker_enabled: boolean; threads: Thread[]; database_bytes: number | null; disk: { total: number; free: number } | null
   backup: { known: boolean; at: string | null }
 }
 const sys = useLoad(() => get<SystemInfo>('system'), 15000)
+const comps = computed(() => Object.entries(sys.data.value?.components ?? {}).map(([k, v]) => ({ key: k, label: COMPONENT_LABELS[k] ?? k, version: v })))
+const ifaces = computed(() => Object.entries(sys.data.value?.interfaces ?? {}))
 const CHECK = { database: 'Database', worker: 'Background worker', audit_chain: 'Audit log integrity' } as Record<string, string>
 const THREAD = { jobs: 'Job runner', monitor: 'Health monitor', inventory: 'Inventory collector', heartbeat: 'Heartbeat' } as Record<string, string>
 const tone = (s: string) => (s === 'ok' ? 'ok' : s === 'off' ? 'idle' : 'critical')
@@ -36,10 +39,14 @@ const tone = (s: string) => (s === 'ok' ? 'ok' : s === 'off' ? 'idle' : 'critica
             <dt>Last heartbeat</dt><dd>{{ sys.data.value.heartbeat_age_seconds === null ? 'none yet' : sys.data.value.heartbeat_age_seconds + ' s ago' }}</dd>
           </dl>
         </Card>
-        <Card title="Software">
-          <dl class="sys">
+        <Card title="Software" :hint="buildLabel(sys.data.value)">
+          <dl class="sys" data-testid="build-facts">
+            <dt>Product</dt><dd>{{ sys.data.value.product }}</dd>
             <dt>Console version</dt><dd>{{ sys.data.value.version }}</dd>
-            <dt>Database schema</dt><dd class="mono">{{ sys.data.value.migration_head ?? 'not readable by the service account' }}</dd>
+            <dt>Commit</dt><dd class="mono">{{ sys.data.value.commit ?? 'unknown' }}<span v-if="sys.data.value.dirty"> (built with local modifications)</span></dd>
+            <dt>Built</dt><dd>{{ sys.data.value.built_at ? fmtTime(sys.data.value.built_at) : 'unknown' }}</dd>
+            <dt>API</dt><dd>{{ sys.data.value.api }}</dd>
+            <dt>Database schema</dt><dd class="mono">{{ sys.data.value.migration_head ?? 'not readable by the service account' }} (build head {{ sys.data.value.schema?.build_head ?? 'unknown' }})</dd>
             <dt>Database size</dt><dd>{{ fmtBytes(sys.data.value.database_bytes) }}</dd>
             <dt>Disk free</dt><dd>{{ sys.data.value.disk ? fmtBytes(sys.data.value.disk.free) + ' of ' + fmtBytes(sys.data.value.disk.total) : 'unknown' }}</dd>
           </dl>
@@ -58,6 +65,28 @@ const tone = (s: string) => (s === 'ok' ? 'ok' : s === 'off' ? 'idle' : 'critica
           <dl v-else class="sys"><dt>Last backup</dt><dd><span :title="fmtTime(sys.data.value.backup.at)">{{ ago(sys.data.value.backup.at) }}</span></dd></dl>
         </Card>
       </div>
+      <Card title="Pending updates" hint="Read-only comparison with the release list bundled at install time. No network check is made.">
+        <div data-testid="updates">
+          <p v-if="sys.data.value.updates.update_available">
+            <StatusBadge s="warning" text="Update available" /> Version {{ sys.data.value.updates.latest_known }} ({{ sys.data.value.updates.latest_date }}) is newer than the installed {{ sys.data.value.updates.current }}.
+            <a v-if="sys.data.value.updates.notes_url" :href="sys.data.value.updates.notes_url" target="_blank" rel="noopener noreferrer">Release notes</a>
+          </p>
+          <p v-else-if="sys.data.value.updates.latest_known"><StatusBadge s="ok" text="Up to date" /> Installed {{ sys.data.value.updates.current }} is the latest release known to this installation.</p>
+          <p v-else class="muted">No release list is bundled with this installation.</p>
+          <p class="muted">Updating is done by an operator from a clean checkout of the release tag (docs/RELEASING.md); this page never changes anything.</p>
+        </div>
+      </Card>
+      <Card title="Component versions" flush>
+        <div class="tablewrap">
+          <table data-testid="components">
+            <thead><tr><th>Component</th><th>Version</th></tr></thead>
+            <tbody>
+              <tr v-for="c in comps" :key="c.key"><td>{{ c.label }}</td><td class="mono">{{ c.version }}</td></tr>
+              <tr v-for="[k, v] in ifaces" :key="k"><td>Interface: {{ k }}</td><td class="mono">{{ v }}</td></tr>
+            </tbody>
+          </table>
+        </div>
+      </Card>
     </template>
   </div>
 </template>
