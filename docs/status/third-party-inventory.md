@@ -74,6 +74,26 @@ Conventions: "OU-UNASSIGNED" = no Office Unbound maintenance owner is named in a
 | lldap (NOT ADOPTED: superseded by OpenLDAP in the 2026-11-15 lab, see identity-files-lab-results.md) | github.com/lldap/lldap | 0.6.3 (amd64 tarball; SHA256 computed by us, upstream publishes none) | UNVERIFIED (no source report states it) | Vendor binary, hash pinned by us | Not evaluated beyond "lightest option" | UNVERIFIED | UNVERIFIED | GitHub releases | None | lldap project (upstream); OU-UNASSIGNED | UNCLEAR (licence not verified; upstream checksum absent) |
 | OpenJDK 21 headless (Keycloak runtime) | Ubuntu 24.04 archive, `openjdk-21-jre-headless` | 21 (package version UNVERIFIED) | UNVERIFIED | Vendor pkg (Ubuntu archive) | None | None | UNVERIFIED | Ubuntu archive | None | Canonical / OpenJDK; OU-UNASSIGNED | UNCLEAR (licence not verified) |
 
+## 5a. Collaboration spike (chat + meetings; lab prototype 2026-11-15, `docs/status/collaboration-lab-results.md`)
+
+Licenses below were read from the installed packages / release artifacts in the lab machines (package `copyright` files, release `LICENSE`, upstream README) on 2026-11-15, not from vendor marketing.
+
+| Component | Source | Pinned version | License (as found) | Build method (lab) | Restrictions found | Branding | Commercial use / redistribution | Gate |
+|---|---|---|---|---|---|---|---|---|
+| Synapse (`matrix-synapse-py3`) | github.com/element-hq/synapse; packages.matrix.org/debian noble | 1.165.0+noble1 | AGPL-3.0-or-later OR Element Commercial License (dual; Debian copyright file `License: AGPL-3.0-or-later or LicenseRef-Element-Commercial`; older files Apache-2.0) | Vendor deb (lab). Production per ADR-0007: own build from pinned source | None in the AGPL source (no user/room caps found); AGPL s.13 network-source duty for modified versions | Element trademarks not used in code path | AGPL: yes, source offer for modifications | PASS-with-obligations (AGPL) |
+| matrix-authentication-service (MAS) | github.com/element-hq/matrix-authentication-service | 1.29.0 (`mas-cli-x86_64-linux.tar.gz`, sha256 d233fd94...e02f93, equals GitHub asset digest) | AGPL-3.0 (LICENSE file) OR Element commercial (README: "dual-licensed by Element Creations Ltd") | Vendor release binary (lab). Production: build from source (Rust) | None found | - | AGPL | PASS-with-obligations (AGPL) |
+| Element Web | github.com/element-hq/element-web | 1.12.35 (tarball sha256 5aaff32e...bba5, detached .asc verified against Element release key 712BFBEE...A179B100) | AGPL-3.0-or-later OR Element commercial (README "multi licensed by New Vector Ltd") | Vendor release tarball (lab). Production: build from source (node/yarn) | None found | Element name/logo: rebrand required for our distribution (trademark) | AGPL | PASS-with-obligations (AGPL + rebrand) |
+| Jitsi Meet (`jitsi-meet`, `jitsi-meet-web`, `-web-config`, `-prosody`, `-tokens`) | github.com/jitsi/jitsi-meet; download.jitsi.org stable | jitsi-meet 2.0.11248-1; web/config/prosody/tokens 1.0.9442-1 | Apache-2.0 (package copyright files) | Vendor debs (lab) | None found; no participant caps in source | Jitsi/8x8 name and logos (trademark) | Apache-2.0 | PASS |
+| Jicofo | github.com/jitsi/jicofo | 1.0-1205-1 | Apache-2.0 | Vendor deb | None found | - | Apache-2.0 | PASS |
+| Jitsi Videobridge (`jitsi-videobridge2`) | github.com/jitsi/jitsi-videobridge | 2.3-318-gbf271b11f-1 | Apache-2.0 | Vendor deb | None found | - | Apache-2.0 | PASS |
+| Prosody | prosody.im; Ubuntu 24.04 archive | 0.12.4-1build3 | MIT/X11 ("Expat") | Ubuntu archive | None | - | Permitted | PASS |
+| lua-cjson / lua-basexx (Jitsi builds `-jitsi1`) | download.jitsi.org | 2.1.0.10-jitsi1 / 0.4.1-jitsi1 | MIT (UNVERIFIED in package copyright; upstream projects are MIT) | Vendor debs | - | - | - | PASS (verify copyright files) |
+| nginx | Ubuntu archive | 1.24.0-2ubuntu7 | BSD-2-Clause (upstream; not re-read in the lab) | Ubuntu archive | None | - | Permitted | PASS |
+| PostgreSQL 16 | Ubuntu archive | 16.15-0ubuntu0.24.04.1 | PostgreSQL License (permissive; from upstream, not re-read in the lab) | Ubuntu archive | None | - | Permitted | PASS |
+| Office Unbound Jitsi token service (`blueprints/lab/spike-collab/meet-token/app.py`) | this repo | n/a | Ours (FastAPI/httpx/PyJWT from Ubuntu archive: MIT/BSD/MIT) | Source | - | - | - | PASS |
+
+Note (ADR-0007): the Element Commercial License / "ESS Pro" features (LDAP/SCIM, S3 media, HA) are NOT used; everything exercised in the lab is the AGPL source path. Element's AGPL builds carry no user caps in the source we read, but the AGPL s.13 duty (offer source of modified network-served versions) applies to Synapse, MAS and Element Web if we patch them.
+
 ## 6. Lab-only tooling
 
 | Component | Repository | Pinned version | License (as found in source) | Build method | Runtime/user/connection restrictions | Branding obligations | Commercial use / redistribution | Update source | Fork/patch status | Maintenance owner | Gate |

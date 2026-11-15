@@ -80,6 +80,9 @@ issue files  "${IP_FILES}"  "${HOST_FILES}"
 issue office "${IP_OFFICE}" "${HOST_OFFICE}"
 # user portal (portal/), only when IP_PORTAL is set in lab.env
 if [ -n "${IP_PORTAL:-}" ]; then issue portal "${IP_PORTAL}" "${HOST_PORTAL}"; fi
+# collaboration spike (spike-collab/), only when IP_CHAT / IP_MEET are set
+if [ -n "${IP_CHAT:-}" ]; then issue chat "${IP_CHAT}" "${HOST_CHAT}" "${HOST_MATRIX}" "${HOST_MAS}"; fi
+if [ -n "${IP_MEET:-}" ]; then issue meet "${IP_MEET}" "${HOST_MEET}" "${HOST_MEETAUTH}"; fi
 # mail cert only when the mail machine is inside the name-constrained subnet (set LAB_CA_ISSUE_MAIL=1)
 [ "${LAB_CA_ISSUE_MAIL:-0}" = 1 ] && issue mail   "${IP_MAIL}"   "${HOST_MAIL}" "${HOST_AUTODISCOVER}"
 
