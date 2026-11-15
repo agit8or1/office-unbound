@@ -1,0 +1,24 @@
+[Unit]
+Description=Office Unbound guest runbook (podman family) request %i
+# Started only by the node agent through a polkit rule that allows exactly this template. Runs as the unprivileged rootless-Podman
+# service user (NOT root): a runbook bug can at most touch what that user owns. NoNewPrivileges is deliberately off: rootless Podman
+# needs the setuid newuidmap/newgidmap helpers.
+After=user@.service
+
+[Service]
+Type=oneshot
+User=ou-svc
+Group=ou-svc
+Environment=PYTHONPATH=/opt/ou-agent PYTHONDONTWRITEBYTECODE=1
+ExecStart=/usr/bin/python3 -m ou_agent.guesthelper podman %i
+RuntimeDirectory=ou-rb-podman
+RuntimeDirectoryMode=0755
+RuntimeDirectoryPreserve=yes
+UMask=0022
+TimeoutStartSec=900
+PrivateTmp=true
+ProtectKernelModules=true
+ProtectKernelTunables=true
+ProtectControlGroups=true
+LockPersonality=true
+RestrictRealtime=true

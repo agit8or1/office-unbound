@@ -1,0 +1,20 @@
+[Unit]
+Description=Office Unbound guest runbook (pkg.install_pinned) request %i
+
+[Service]
+Type=oneshot
+User=root
+Environment=PYTHONPATH=/opt/ou-agent PYTHONDONTWRITEBYTECODE=1
+ExecStart=/usr/bin/python3 -m ou_agent.guesthelper pkg %i
+RuntimeDirectory=ou-rb-pkg
+RuntimeDirectoryMode=0755
+RuntimeDirectoryPreserve=yes
+UMask=0022
+TimeoutStartSec=1000
+NoNewPrivileges=true
+PrivateTmp=true
+ProtectHome=true
+ProtectKernelModules=true
+ProtectKernelTunables=true
+ProtectControlGroups=true
+LockPersonality=true
