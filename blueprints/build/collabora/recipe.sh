@@ -73,8 +73,11 @@ do_patch() {
 
 do_engine() {
   cd "$SRC/engine"
+  # --with-product-name: engine PRODUCTNAME (PDF Producer, bootstraprc ProductKey, registry ooName, ...); the first build (2026-11-15)
+  # omitted it and kept "Collabora Office". Pass PRODUCT_NAME="" to reproduce that.
+  PN=(); [ "${PRODUCT_NAME-x}" = "" ] || PN=(--with-product-name="$BRAND_NAME")
   ./autogen.sh --with-distro=OfficeUnbound-LOKit --disable-epm --without-package-format --disable-symbols \
-     --with-parallelism=$JOBS
+     "${PN[@]}" --with-parallelism=$JOBS
   make -j"$JOBS" 2>&1
 }
 

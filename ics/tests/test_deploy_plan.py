@@ -50,8 +50,9 @@ def test_real_catalog_loads_and_is_complete():
     for comp in c.components.values():  # every formula cites its evidence
         for f in (comp.resources.cores, comp.resources.memory_mb, comp.resources.disk_gb, *(v.size_gb for v in comp.volumes)):
             assert f.source
-    # OCI artifacts are placeholders until the build pipeline pins them; plans must refuse to execute meanwhile
-    assert c.components["office"].unpinned and c.components["files"].unpinned
+    # OCI artifacts are placeholders until the build pipeline pins them; plans must refuse to execute meanwhile.
+    # `office` is pinned to the LAB-signed Office Unbound Docs image (2026-11-15); `files` is still a placeholder.
+    assert not c.components["office"].unpinned and c.components["files"].unpinned
 
 
 def test_every_stock_profile_generates_a_plan_without_structural_errors():

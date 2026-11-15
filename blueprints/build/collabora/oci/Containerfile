@@ -1,0 +1,37 @@
+# Office Unbound Docs - runtime image. Build: see build-image.sh. Lab-only until a signed apt snapshot + registry exist (ADR-0008).
+# NOTE: built with --isolation chroot (nspawn forbids mounting proc for the default runtime); apt sandbox user disabled for the same reason.
+# Base pinned by the multi-arch index digest (docker.io/library/ubuntu:24.04, created 2026-11-10); the tag is only a comment.
+FROM docker.io/library/ubuntu@sha256:2198e4c65076e9cb0b3d695219df667c0e3b0072da64ca3c2648aca17dcecaf5
+ARG DEBIAN_FRONTEND=noninteractive
+# runtime libs only (set verified by `ldd` of coolwsd/coolforkit-ns); versions are whatever the noble archive serves
+# on the build day and are recorded by build-image.sh (dpkg -l) - apt is the non-reproducible part of this image.
+RUN apt-get -o APT::Sandbox::User=root update \
+ && apt-get -o APT::Sandbox::User=root install -y --no-install-recommends ca-certificates curl cpio fontconfig fonts-droid-fallback libcap2-bin \
+      libpng16-16t64 libxcb-render0 libxcb-shm0 libxext6 libxrender1 libunwind8 libcurl4t64 libsqlite3-0 openssl \
+ && rm -rf /var/lib/apt/lists/* /var/cache/apt/archives/* \
+ && groupadd -g 10001 cool && useradd -u 10001 -g 10001 -d /opt/ou-docs -M -s /usr/sbin/nologin cool
+# the DESTDIR tree of the source build (artifact ou-docs-cp-26.04.6-1.tar, sha256 in the build results)
+COPY rootfs/ /
+COPY entrypoint.sh /usr/local/bin/ou-docs-entrypoint
+COPY healthcheck.sh /usr/local/bin/ou-docs-healthcheck
+RUN rm -rf /etc/nginx /etc/apache2 \
+ && chmod 0755 /usr/local/bin/ou-docs-entrypoint /usr/local/bin/ou-docs-healthcheck \
+ && setcap cap_fowner,cap_chown,cap_sys_chroot=ep /usr/bin/coolforkit-caps \
+ && mkdir -p /opt/ou-docs/systemplate /opt/ou-docs/work \
+ && coolwsd-systemplate-setup /opt/ou-docs/systemplate /opt/officeunbound-office >/tmp/systemplate.log 2>&1 \
+ && rm -f /tmp/systemplate.log \
+ && chown -R cool:cool /opt/ou-docs /etc/coolwsd \
+ && (chmod 600 /etc/coolwsd/proof_key 2>/dev/null || true)
+LABEL org.opencontainers.image.title="Office Unbound Docs" \
+      org.opencontainers.image.description="Collabora Online cp-26.04.6-1 built from source by Office Unbound (MPL-2.0)" \
+      org.opencontainers.image.version="26.04.6-ou1" \
+      org.opencontainers.image.licenses="MPL-2.0" \
+      org.opencontainers.image.source="https://github.com/CollaboraOnline/online.mirror" \
+      org.opencontainers.image.revision="febe91b27107ff458ddb8dcdf8c0c6d521483033"
+USER 10001:10001
+ENV HOME=/opt/ou-docs/work
+EXPOSE 9980
+# writable paths at runtime (the rootfs can be --read-only): /opt/ou-docs/work (child roots, cache), /tmp
+VOLUME ["/opt/ou-docs/work"]
+HEALTHCHECK --interval=30s --timeout=5s --start-period=60s --retries=3 CMD ["/usr/local/bin/ou-docs-healthcheck"]
+ENTRYPOINT ["/usr/local/bin/ou-docs-entrypoint"]
