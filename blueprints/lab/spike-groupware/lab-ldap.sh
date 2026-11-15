@@ -5,7 +5,7 @@
 #   2. ou-gw1: lab CA of the directory, ldap.conf (TLS_REQCERT demand), ldap_adaptor.cfg (0640 root:gromoxcf), apt python3-ldap3/pymysql/ldap-utils
 #   3. ou-gw1: gw-ldap-sync.py -> /usr/local/sbin; postfix accepts the directory mail domain; reload gromox (restart ONLY if gromox-imap is active)
 set -eu
-ID=ou-id1; GW=ou-gw1; HERE="$(cd "$(dirname "$0")" && pwd)"; KC="$HERE/../spike-identity-files/kc"
+ID=ou-id1; GW=${GW_MACHINE:-ou-gw1}; GWH=${GW_HOST:-gw1.ou-lab.internal}; HERE="$(cd "$(dirname "$0")" && pwd)"; KC="$HERE/../spike-identity-files/kc"
 IDX() { sudo systemd-run -M $ID --quiet --pipe --wait /bin/bash -c "$1"; }
 GWX() { sudo systemd-run -M $GW --quiet --pipe --wait /bin/bash -c "$1"; }
 sudo cp "$KC/ldap-gromox-bind.sh" /var/lib/machines/$ID/root/lab/spike-identity-files/kc/; IDX /root/lab/spike-identity-files/kc/ldap-gromox-bind.sh
@@ -28,7 +28,7 @@ ldap_user_displayname=displayName
 ou_entitlement_group=cn=mail-users,ou=groups,dc=ou-lab,dc=internal
 CFG
 ); chown root:gromoxcf /etc/gromox/ldap_adaptor.cfg
-postconf -e "virtual_mailbox_domains=gw1.ou-lab.internal, ou-lab.internal" && postfix reload'
+postconf -e "virtual_mailbox_domains='"$GWH"', ou-lab.internal" && postfix reload'
 GWX 'cat > /usr/local/sbin/gw-ldap-sync.py; chmod 755 /usr/local/sbin/gw-ldap-sync.py' < "$HERE/gw-ldap-sync.py"
 # gromox reads ldap_adaptor.cfg at start: coordinate with other operators (gromox-imap must be active)
 [ "$(sudo systemctl -M $GW is-active gromox-imap)" = active ] || { echo "gromox-imap inactive: restart gromox-http/zcore/imap later"; exit 0; }

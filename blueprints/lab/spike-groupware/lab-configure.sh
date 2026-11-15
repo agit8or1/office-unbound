@@ -3,10 +3,10 @@
 # Runs INSIDE ou-gw1 as root. No admin-api: domain/users are created with SQL + gromox-mkprivate/mkpublic.
 # Idempotent-ish: re-running skips things that exist. Secrets go to /root/lab-creds.env (0600), never stdout.
 set -eu
-HOSTN=gw1.ou-lab.internal
+HOSTN=${GW_HOST:-gw1.ou-lab.internal}   # override for additional nodes (lab-sso.sh)
 DOM=$HOSTN                      # mail domain == lab hostname (test domain, no public DNS)
-USERS="alice bob carol dave erin frank grace"
-SHARED="support"
+USERS="${GW_USERS-alice bob carol dave erin frank grace}"
+SHARED="${GW_SHARED-support}"
 CREDS=/root/lab-creds.env
 export DEBIAN_FRONTEND=noninteractive
 
@@ -96,9 +96,9 @@ mkuser() { # local status
 }
 install -d -o gromox -g gromox -m 0770 /var/lib/gromox/user /var/lib/gromox/domain /var/lib/gromox/domain/$DOM
 for u in $USERS; do mkuser $u 0; done
-mkuser $SHARED 4
+[ -z "$SHARED" ] || mkuser $SHARED 4
 # Shared mailbox ACL (admin-api normally does this via MAPI): grant alice+bob rightsAll(1531) on root(1), IPM subtree(9), inbox(13), calendar(15)
-for f in 1 9 13 15; do for g in alice bob; do
+[ -z "$SHARED" ] || for f in 1 9 13 15; do for g in alice bob; do
   sqlite3 /var/lib/gromox/user/$SHARED@$DOM/exmdb/exchange.sqlite3 "INSERT OR REPLACE INTO permissions (folder_id,username,permission) VALUES ($f,'$g@$DOM',1531)"; done; done
 [ -f /var/lib/gromox/domain/$DOM/exmdb/exchange.sqlite3 ] || { install -d -o gromox -g gromox /var/lib/gromox/domain/$DOM/exmdb; gromox-mkpublic $DOM; }
 chown -R gromox:gromox /var/lib/gromox; chmod -R g+rwX /var/lib/gromox
