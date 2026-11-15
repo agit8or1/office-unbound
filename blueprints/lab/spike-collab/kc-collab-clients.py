@@ -11,7 +11,10 @@ ctx = ssl.create_default_context(cafile=os.environ["KC_CA"])
 MAS_ULID = "01HQW90Z35CMXFJWQPHC3BGZGQ"
 CLIENTS = {
     "ou-matrix": dict(name="Office Unbound Matrix (MAS upstream)", redirectUris=[f"https://mas.ou-lab.internal/upstream/callback/{MAS_ULID}"],
-                      rootUrl="https://mas.ou-lab.internal"),
+                      rootUrl="https://mas.ou-lab.internal",
+                      # lab: Keycloak (ou-id1, not modified) cannot resolve mas.ou-lab.internal, so the back-channel URL uses the machine IP (cert has an IP SAN); production uses DNS
+                      attributes={"backchannel.logout.url": f"https://192.168.186.245/upstream/backchannel-logout/{MAS_ULID}",
+                                  "backchannel.logout.session.required": "true", "backchannel.logout.revoke.offline.tokens": "true"}),
     "ou-meet": dict(name="Office Unbound Jitsi token service", redirectUris=["https://meet-auth.ou-lab.internal/callback"],
                     rootUrl="https://meet-auth.ou-lab.internal"),
 }
@@ -39,7 +42,7 @@ for name, c in CLIENTS.items():
     rep = {"clientId": name, "name": c["name"], "enabled": True, "publicClient": False, "protocol": "openid-connect",
            "standardFlowEnabled": True, "directAccessGrantsEnabled": False, "implicitFlowEnabled": False, "serviceAccountsEnabled": False,
            "clientAuthenticatorType": "client-secret", "redirectUris": c["redirectUris"], "webOrigins": [], "rootUrl": c["rootUrl"],
-           "attributes": {"pkce.code.challenge.method": "S256", "post.logout.redirect.uris": "+"}}
+           "attributes": {"pkce.code.challenge.method": "S256", "post.logout.redirect.uris": "+", **c.get("attributes", {})}}
     cl = call("GET", f"{A}/clients?clientId={name}", T)
     if cl:
         call("PUT", f"{A}/clients/{cl[0]['id']}", T, {**cl[0], **rep})

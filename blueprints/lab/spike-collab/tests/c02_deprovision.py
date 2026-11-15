@@ -133,6 +133,7 @@ try:
     rep.check("B: re-login still impossible (LDAP+KC+MAS all locked)", not relog)
 finally:
     state["stop"] = True
+    H = L.kc_admin_headers()  # admin token (5 min) may have expired during the long polls
     # ---------- C: restore
     for c in cleanup:
         if c == "ldap":

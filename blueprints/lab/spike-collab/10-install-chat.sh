@@ -108,7 +108,7 @@ c['account'] = {'password_registration_enabled': False, 'password_change_allowed
 c['upstream_oauth2'] = {'providers': [{
   'id': ulid, 'human_name': 'Office Unbound SSO', 'issuer': 'https://auth.ou-lab.internal/realms/ou-lab',
   'client_id': 'ou-matrix', 'client_secret_file': '/etc/mas/kc-ou-matrix-client-secret',
-  'token_endpoint_auth_method': 'client_secret_basic', 'scope': 'openid profile email', 'pkce_method': 'always',
+  'token_endpoint_auth_method': 'client_secret_basic', 'scope': 'openid profile email', 'pkce_method': 'always', 'on_backchannel_logout': 'logout_all',
   'claims_imports': {
     'localpart': {'action': 'require', 'template': '{{ user.preferred_username }}'},
     'displayname': {'action': 'force', 'template': '{{ user.name }}'},
@@ -192,9 +192,9 @@ server {
     return 200 '{"m.homeserver":{"base_url":"https://matrix.ou-lab.internal"},"org.matrix.msc2965.authentication":{"issuer":"https://mas.ou-lab.internal/","account":"https://mas.ou-lab.internal/account/"}}'; }
 }
 server {
-  listen 443 ssl; server_name mas.ou-lab.internal;
+  listen 443 ssl; server_name mas.ou-lab.internal 192.168.186.245;
   location /api/admin/ { allow 192.168.186.0/24; deny all; proxy_pass http://127.0.0.1:8080; proxy_set_header Host $host; proxy_set_header X-Forwarded-For $remote_addr; proxy_set_header X-Forwarded-Proto https; }
-  location / { proxy_pass http://127.0.0.1:8080; proxy_set_header Host $host; proxy_set_header X-Forwarded-For $remote_addr; proxy_set_header X-Forwarded-Proto https; }
+  location / { proxy_pass http://127.0.0.1:8080; proxy_set_header Host mas.ou-lab.internal; proxy_set_header X-Forwarded-For $remote_addr; proxy_set_header X-Forwarded-Proto https; }
 }
 EOF
 rm -f /etc/nginx/sites-enabled/default; ln -sf /etc/nginx/sites-available/ou-chat /etc/nginx/sites-enabled/ou-chat

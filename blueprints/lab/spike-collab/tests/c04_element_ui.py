@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""C04 Element Web UI smoke (headless Chromium): bob signs in via Element -> MAS -> Keycloak, creates a room, posts a message,
+"""C04 Element Web UI smoke (headless Chromium): the UI user signs in via Element -> MAS -> Keycloak, creates a room, posts a message,
 and the message is visible in the timeline. Screenshots go to $OU_SHOTDIR."""
 import os
 import sys
@@ -13,6 +13,7 @@ import collab_lib as L
 
 SHOTS = os.environ.get("OU_SHOTDIR", "/tmp/claude-1000/-home-administrator/a1d917f8-7438-424e-a57a-793b46deb95e/scratchpad/chat-r")
 rep = L.Report("C04 Element Web UI: sign in (OIDC via MAS+Keycloak), create room, send message")
+UI_USER = os.environ.get("OU_UI_USER", "carol")  # a user without existing cross-signing keys (bob has them from earlier logins)
 name = "ui-spike-" + uuid.uuid4().hex[:6]
 text = "hello from element ui " + uuid.uuid4().hex[:6]
 with sync_playwright() as p:
@@ -27,9 +28,9 @@ with sync_playwright() as p:
         pg.wait_for_timeout(1000)
         u = pg.url
         if u.startswith(L.KC) and pg.query_selector("input[name=username]"):
-            L.kc_login(pg, "bob", L.password("bob"))
+            L.kc_login(pg, UI_USER, L.password(UI_USER))
         elif u.startswith(L.MAS):
-            for sel in ("button:has-text('Continue')", "a:has-text('Office Unbound SSO')"):
+            for sel in ("button:has-text('Create Account')", "button:has-text('Continue')", "a:has-text('Office Unbound SSO')"):
                 e = pg.query_selector(sel)
                 if e:
                     e.click()
@@ -42,7 +43,7 @@ with sync_playwright() as p:
                 e = pg.query_selector(sel)
                 if e and e.is_visible():
                     e.click()
-            if pg.query_selector("[aria-label='Add'], [aria-label='Start chat'], [data-testid='room-list']") or "Welcome" in pg.inner_text("body")[:200]:
+            if pg.query_selector("[aria-label='Add'], [aria-label='Start chat'], [data-testid='room-list']") or "Welcome" in pg.inner_text("body")[:200] or "Confirm your digital identity" in pg.inner_text("body"):
                 logged = True
                 break
     pg.screenshot(path=SHOTS + "/element-after-login.png")
