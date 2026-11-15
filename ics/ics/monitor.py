@@ -29,7 +29,7 @@ HIGH_RISK_UNITS = {"mariadb"}   # restarting the datastore interrupts every serv
 UNIT_RE = r"^[a-z0-9][a-z0-9_.@-]{0,62}$"
 MAX_VERIFY_TIMEOUT = 45
 NON_SERVICE_CAUSES = ("auth", "config")   # a restart cannot fix a rejected login or a bad check configuration (review M1)
-_last_retention = 0.0
+_last_retention: float | None = None   # None = never run (monotonic() counts from host boot: 0.0 would block retention on a freshly booted host)
 
 
 def runbook_risk(runbook: str, unit: str | None) -> str:
@@ -513,7 +513,7 @@ def renotify(db: Session, rt: Runtime) -> int:
 
 def retention(rt: Runtime) -> int:
     global _last_retention
-    if time.monotonic() - _last_retention < 600:
+    if _last_retention is not None and time.monotonic() - _last_retention < 600:
         return 0
     _last_retention = time.monotonic()
     with rt.session() as db:

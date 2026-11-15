@@ -7,3 +7,25 @@ useDefault = true
 description = "fake passwords/tokens in unit-test fixtures (in-process mocks and test databases, no real credentials)"
 targetRules = ["generic-api-key"]
 paths = ['''^ics/tests/.*\.py$''', '''^ics/frontend/src/.*\.test\.ts$''']
+
+[[allowlists]]
+description = "prose false positive in a status doc: 'Untested: ssh host keys, growpart/disk layout' (no credential; flagged by generic-api-key)"
+targetRules = ["generic-api-key"]
+regexTarget = "line"
+regexes = ['''Untested: ssh host keys, growpart/disk layout''']
+paths = ['''^docs/status/guest-bootstrap-results\.md$''']
+condition = "AND"
+
+[[allowlists]]
+description = "public OpenPGP key fingerprints (40 hex) — published on purpose (repo signing key, upstream apt keys)"
+targetRules = ["generic-api-key"]
+regexTarget = "line"
+regexes = ['''(?i)\b(key|[A-Z_]*KEY_FPR)=[0-9A-F]{40}\b''']
+
+[[allowlists]]
+description = "shell comment, not a credential"
+targetRules = ["generic-api-key"]
+regexTarget = "line"
+regexes = ['''# \$1 label, \$2 token -> ''']
+paths = ['''^blueprints/lab/tests/webmail_sso_keyrotation\.sh$''']
+condition = "AND"
