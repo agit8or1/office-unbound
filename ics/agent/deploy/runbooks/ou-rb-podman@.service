@@ -16,9 +16,11 @@ RuntimeDirectoryMode=0755
 RuntimeDirectoryPreserve=yes
 UMask=0022
 TimeoutStartSec=900
-PrivateTmp=true
-ProtectKernelModules=true
-ProtectKernelTunables=true
+# Sandboxing: only ProtectControlGroups (a mount-namespace option); NO seccomp-based options (LockPersonality, RestrictRealtime, ProtectKernelModules,
+# ProtectKernelTunables) and NO PrivateTmp. Bisected on the real Debian 12 VM (systemd 252, kernel 6.1; docs/status/first-real-deployment.md):
+#  * any seccomp option stacked with a mount-namespace option makes rootless podman fail with "newuidmap: write to uid_map failed: Operation not
+#    permitted" (each group alone is fine);
+#  * PrivateTmp makes `podman pull` succeed but leaves the image unusable afterwards ("inspecting image: open /var/tmp/<n>: no such file"), because
+#    the private /var/tmp is discarded when the unit exits.
+# The unit runs as the unprivileged service user, so the dropped options only restricted things it cannot do anyway.
 ProtectControlGroups=true
-LockPersonality=true
-RestrictRealtime=true

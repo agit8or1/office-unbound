@@ -128,6 +128,8 @@ class VmConfigSpec:
     nameserver: str | None = None
     searchdomain: str | None = None
     cicustom: str | None = None                            # "user=<storage>:snippets/<file>"; refused unless the endpoint allows it
+    ciupgrade: bool | None = None                          # cloud-init first-boot package upgrade (PVE default is on)
+    smbios_serial: str | None = None                       # per-VM bootstrap proof secret, delivered through the hypervisor (SMBIOS serial); [A-Za-z0-9_-]{16,128}
     description: str | None = None
 
 

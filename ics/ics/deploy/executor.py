@@ -16,7 +16,7 @@ from dataclasses import dataclass, field
 
 from sqlalchemy import text
 
-from ..providers.base import NicSpec, ProviderError, ProviderTimeout, ScopeViolation, TaskRef, VmCloneSpec, VmConfigSpec, VmRef
+from ..providers.base import IpConfig, NicSpec, ProviderError, ProviderTimeout, ScopeViolation, TaskRef, VmCloneSpec, VmConfigSpec, VmRef
 from . import state
 from .ports import Cancelled, DeployError, ExecEnv, StepFailed
 
@@ -193,11 +193,16 @@ def h_provider_task(ctx: StepCtx) -> dict:
     if op == "configure_vm":
         ci = p.get("cloud_init") or {}
         new = p.get("new_disks")  # change steps list only the disks to add; create adds every non-root disk
+        # first-contact material for the guest (only public data + the per-VM proof secret derived from the ICS key); fakes without it skip it
+        boot = getattr(ctx.env.agent, "bootstrap_config", None)
+        bc = boot(vm) if (boot and ci.get("agent_enrollment")) else {}
         spec = VmConfigSpec(cores=p["cores"], memory_mb=p["memory_mb"],
                             nics=tuple(NicSpec(i, n["bridge"], n.get("vlan")) for i, n in enumerate(p["nics"])),
                             new_disks=tuple((_disk_key(i), d["storage"], d["size_gb"]) for i, d in enumerate(p["disks"])
                                             if i > 0 and (new is None or d["name"] in new)),
                             cloudinit_storage=p["disks"][0]["storage"] if ci else None,
+                            ciuser=bc.get("ciuser"), sshkeys=tuple(bc.get("sshkeys", ())), smbios_serial=bc.get("smbios_serial"),
+                            ipconfigs=(IpConfig(0, "dhcp"),) if bc else (), ciupgrade=False if bc else None,
                             description=f"Office Unbound deployment {ctx.slug}: {ci.get('hostname', vm)}" if ci else None)
         _poll(ctx, prov.configure_vm(ref, spec), f"configure {vm}")
         return {"configured": True}
@@ -215,6 +220,10 @@ def h_provider_task(ctx: StepCtx) -> dict:
         _poll(ctx, prov.snapshot(ref, p["name"]), f"snapshot {vm}")
         return {"snapshot": p["name"]}
     if op == "resize_disk":
+        cur = prov.disk_size_gb(ref, _disk_key(p["disk_index"])) if hasattr(prov, "disk_size_gb") else None
+        if cur is not None and cur >= p["new_size_gb"]:   # idempotent: a re-run after a crash, or a template that is already big enough
+            ctx.log(f"{vm}/{p['disk']} is already {cur:g} GB (wanted {p['new_size_gb']} GB); not resizing")
+            return {"disk": p["disk"], "size_gb": p["new_size_gb"], "already": True}
         _poll(ctx, prov.resize_disk(ref, _disk_key(p["disk_index"]), p["new_size_gb"]), f"resize {vm}/{p['disk']}")
         return {"disk": p["disk"], "size_gb": p["new_size_gb"]}
     if op == "destroy_vm":
@@ -235,6 +244,14 @@ def h_wait_enroll(ctx: StepCtx) -> dict:
     vm = ctx.step["target"]
     node_id = ctx.env.agent.wait_enrollment(vm, int(ctx.step["params"].get("timeout_seconds", 600)))
     ctx.log(f"agent enrolled as node {node_id}")
+    with ctx.rt.session() as db:   # remembered so that destroy can decommission the node
+        ref = state.provider_ref(db, ctx.deployment_id, vm) or {}
+    ctx.resource("vm", vm, provider_ref={**ref, "agent_node_id": node_id})
+    from .catalog import get_catalog   # every_vm components (the node agent) are installed by the bootstrap itself: mark them present now
+    every = {c.name for c in get_catalog().components.values() if c.placement == "every_vm"}
+    for x in ctx.plan.get("services", []):
+        if x["vm"] == vm and x["component"] in every:
+            ctx.resource("service", x["name"], state="present", actual={"version": x["version"], "package": x["package"], "installed_by": "guest bootstrap"})
     return {"node_id": node_id}
 
 

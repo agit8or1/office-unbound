@@ -226,7 +226,10 @@ class PveSim:
     def _res_vm(self, vm):
         c = vm["cfg"]
         run = vm["status"] == "running"
-        d = {"id": f"{vm['kind']}/{vm['vmid']}", "type": vm["kind"], "vmid": vm["vmid"], "node": vm["node"], "name": c.get("name"),
+        lag = vm.get("res_lag", 0)   # real PVE 9.2: /cluster/resources is a cache; a fresh clone shows up WITHOUT its name for a few seconds
+        if lag:
+            vm["res_lag"] = lag - 1
+        d = {"id": f"{vm['kind']}/{vm['vmid']}", "type": vm["kind"], "vmid": vm["vmid"], "node": vm["node"], "name": None if lag else c.get("name"),
              "status": vm.get("cached_status", vm["status"]), "maxcpu": c.get("cores", 1), "cpu": 0.03 if run else 0, "maxmem": c.get("memory", 512) << 20,
              "mem": (c.get("memory", 512) << 20) // 4 if run else 0, "maxdisk": self._vm_disk(vm), "disk": 0,
              "uptime": 5000 if run else 0, "netin": 1000, "netout": 500, "template": 1 if c.get("template") else 0}
@@ -513,11 +516,13 @@ class PveSim:
 
         def done():
             self.vms[newid]["lock"] = None
+            self.vms[newid]["res_lag"] = getattr(self, "clone_res_lag", 0)
         return self._task(node, "qmclone" if kind == "qemu" else "vzclone", str(src["vmid"]), tid, done)  # PVE 9: source vmid, not the new one
 
     _CFG_PRIV = [(r"cores|sockets|vcpus|cpu", "VM.Config.CPU"), (r"memory|balloon", "VM.Config.Memory"),
                  (r"net\d+", "VM.Config.Network"), (r"(scsi|virtio|sata|ide)\d+|rootfs", "VM.Config.Disk"),
-                 (r"ciuser|cipassword|sshkeys|ipconfig\d+|nameserver|searchdomain|citype", "VM.Config.Cloudinit"),
+                 (r"ciuser|cipassword|sshkeys|ipconfig\d+|nameserver|searchdomain|citype|ciupgrade", "VM.Config.Cloudinit"),
+                 (r"smbios1", "VM.Config.HWType"),
                  (r"name|description|tags|onboot", "VM.Config.Options")]
 
     def r_set_config(self, tid, q, f, node, kind, vmid):
@@ -549,6 +554,9 @@ class PveSim:
                     sz = v.split(":", 1)[1].split(",")[0]
                     v = f"{st}:vm-{vm['vmid']}-disk-{k}" + f",size={sz}G"
                 elif v.endswith("cloudinit"):
+                    if any(isinstance(x, str) and "cloudinit" in x for kk, x in vm["cfg"].items() if re.match(r"^(ide|sata|scsi)\d+$", kk)):
+                        # real PVE: a template made from a cloud image already carries its drive; asking for another one fails
+                        raise HTTPErr(500, f"lvcreate '{st}/vm-{vm['vmid']}-cloudinit' error: Logical Volume \"vm-{vm['vmid']}-cloudinit\" already exists")
                     v = f"{st}:vm-{vm['vmid']}-cloudinit,media=cdrom"
             vm["cfg"][k] = _num(v)
         return None

@@ -286,7 +286,7 @@ def _event(rt, dep_id, kind, msg, job_id=None, details=None):
 def _run(rt, db, plan_row, dep, rev, steps: list[dict], plan: dict, *, working: str, done: str) -> dict:
     jid = _job_id(db, plan_row)
     did = str(dep.id)
-    env = _env_factory(rt, {"slug": dep.slug, "id": did})
+    env = _env_factory(rt, {"slug": dep.slug, "id": did, "created_by": str(plan_row.requested_by), "plan": plan})
     _set_status(rt, did, working, rev.id, "applying", jid)
     _event(rt, did, "job_started", f"{rev.kind} started", jid)
     try:
@@ -355,6 +355,10 @@ def exec_destroy(rt, db, m: DeploymentDestroy, plan_row, known) -> dict:
     did = str(dep.id)
     res = _run(rt, db, plan_row, dep, rev, plan["steps"], plan, working="destroying", done="destroyed")
     with rt.session() as d2:
+        for r in d2.execute(text("SELECT provider_ref FROM deployment_resources WHERE deployment_id = :d AND kind = 'vm'"), {"d": did}).all():
+            nid = (r.provider_ref or {}).get("agent_node_id")   # the guest is gone: its node record stays for the audit trail but is no longer active
+            if nid:
+                d2.execute(text("UPDATE nodes SET status = 'decommissioned' WHERE CAST(id AS text) = :i"), {"i": nid})
         d2.execute(text("UPDATE deployment_resources SET state = 'removed', updated_at = now() WHERE deployment_id = :d"), {"d": did})
         for c in plan["checks"]:
             d2.execute(text("UPDATE checks SET enabled = false WHERE name = :n"), {"n": c["name"]})

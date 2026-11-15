@@ -284,7 +284,7 @@ def test_steps_form_a_valid_dependency_order():
     for s in p["steps"]:
         assert all(pos[d] < s["seq"] for d in s["depends_on"]), s["key"]
     # chain per VM and component ordering across VMs
-    assert pos["vm.clone:acme-prod-id"] < pos["vm.configure:acme-prod-id"] < pos["vm.start:acme-prod-id"] < pos["agent.enroll:acme-prod-id"]
+    assert pos["vm.clone:acme-prod-id"] < pos["vm.configure:acme-prod-id"] < pos["vm.resize:acme-prod-id"] < pos["vm.start:acme-prod-id"] < pos["agent.enroll:acme-prod-id"]
     assert pos["health.verify:acme-prod-id:identity"] < pos["comp.install:acme-prod-groupware:groupware"]      # groupware needs identity healthy
     assert pos["health.verify:acme-prod-files:files"] < pos["comp.install:acme-prod-files:office"]
     assert pos["health.verify:acme-prod-groupware:groupware"] < pos["comp.install:acme-prod-id:edge"]           # edge routes to what exists
@@ -292,7 +292,8 @@ def test_steps_form_a_valid_dependency_order():
     assert kinds == {"provider_task", "wait_agent_enrollment", "agent_runbook", "register_checks", "verify_health"}
     inst = next(s for s in p["steps"] if s["key"] == "comp.install:acme-prod-files:files")
     assert [r["runbook"] for r in inst["params"]["runbooks"]] == ["podman.pull_verified", "podman.deploy_unit"]
-    assert inst["params"]["runbooks"][0]["params"]["digest"] == DIGEST
+    assert inst["params"]["runbooks"][0]["params"]["image"].endswith("@" + DIGEST)   # the exact shape the node agent accepts
+    assert inst["params"]["runbooks"][1]["params"]["type"] == "container" and inst["params"]["runbooks"][1]["params"]["component"] == "files"
     inst = next(s for s in p["steps"] if s["key"] == "comp.install:acme-prod-groupware:groupware")
     assert {r["runbook"] for r in inst["params"]["runbooks"]} == {"pkg.install_pinned"}
 

@@ -170,7 +170,13 @@ class ProxmoxReadClient:
 
     def inventory(self) -> dict:
         """Full read-only snapshot. A node that fails is recorded with an error, not fatal."""
-        out: dict[str, Any] = {"version": self.version(), "cluster_status": self.cluster_status(), "nodes": []}
+        out: dict[str, Any] = {"version": self.version(), "nodes": []}
+        try:
+            out["cluster_status"] = self.cluster_status()
+        except ProxmoxHTTPError as e:   # real cluster (pve06 token): Sys.Audit is granted on /nodes/<node>, not on /, so /cluster/status is 403
+            if e.status != 403:
+                raise
+            out["cluster_status"], out["cluster_status_unavailable"] = [], "permission"
         for n in self.nodes():
             name = n["node"]
             entry: dict[str, Any] = {"node": name, "status": n.get("status", "unknown"), "info": n}

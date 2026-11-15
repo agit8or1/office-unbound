@@ -82,6 +82,15 @@ class Settings:
     metrics_interval_seconds: int = 60
     metrics_retention_days: int = 30
     inventory_stale_seconds: int = 900
+    # guest bootstrap (ICS-driven first boot, guest/sshboot.py) and the image supply chain pushed into every guest
+    guest_agent_dir: str | None = None           # directory with ou_agent/ and deploy/ (the agent bundle source); default: <repo>/ics/agent
+    guest_image_registries: tuple[str, ...] = ()           # host[:port] registries the guests' agents may pull from (signed images only)
+    guest_insecure_registries: tuple[str, ...] = ()        # subset of the above that is reached over plain HTTP (lab); signatures still required
+    guest_image_signing_pubkey_file: str | None = None     # PEM of the ONE cosign-format ECDSA P-256 public key images must be signed with
+    guest_image_signing_key_sha256: str | None = None      # operator-confirmed pin: sha256 of that key's DER SubjectPublicKeyInfo (checked at render time)
+    guest_mgmt_sources: tuple[str, ...] = ()               # CIDRs allowed to reach guest agents; default: this host's source address towards the guest
+    guest_bootstrap_timeout_seconds: int = 1500
+    guest_keep_bootstrap_ssh: bool = False       # DEBUG ONLY: do not seal the bootstrap SSH access after enrollment (the guest's own timer still seals it after bootstrap_seal_seconds)
     trusted_proxy: str | None = None             # exact IP of a local reverse proxy whose X-Forwarded-For is honoured (e.g. 127.0.0.1); None = ignore XFF
 
 
@@ -94,6 +103,10 @@ def _trusted_proxy(v: str | None) -> str | None:
     if not ip.is_loopback:
         raise RuntimeError("ICS_TRUSTED_PROXY must be a loopback address (local reverse proxy only)")
     return str(ip)
+
+
+def _csv(v: str | None) -> tuple[str, ...]:
+    return tuple(x.strip() for x in (v or "").split(",") if x.strip())
 
 
 def load_settings() -> Settings:
@@ -116,6 +129,15 @@ def load_settings() -> Settings:
             login_max_failures=int(env.get("ICS_LOGIN_MAX_FAILURES", 5)),
             allow_loopback_endpoints=b("ICS_ALLOW_LOOPBACK_ENDPOINTS", False),
             trusted_proxy=_trusted_proxy(env.get("ICS_TRUSTED_PROXY")),
+            job_timeout_seconds=int(env.get("ICS_JOB_TIMEOUT_SECONDS", 180)),
+            guest_agent_dir=env.get("ICS_GUEST_AGENT_DIR") or None,
+            guest_image_registries=_csv(env.get("ICS_GUEST_IMAGE_REGISTRIES")),
+            guest_insecure_registries=_csv(env.get("ICS_GUEST_INSECURE_REGISTRIES")),
+            guest_image_signing_pubkey_file=env.get("ICS_GUEST_IMAGE_SIGNING_PUBKEY_FILE") or None,
+            guest_image_signing_key_sha256=env.get("ICS_GUEST_IMAGE_SIGNING_KEY_SHA256") or None,
+            guest_mgmt_sources=_csv(env.get("ICS_GUEST_MGMT_SOURCES")),
+            guest_bootstrap_timeout_seconds=int(env.get("ICS_GUEST_BOOTSTRAP_TIMEOUT_SECONDS", 1500)),
+            guest_keep_bootstrap_ssh=b("ICS_GUEST_KEEP_BOOTSTRAP_SSH", False),
         )
     except KeyError as e:  # pragma: no cover
         raise RuntimeError(f"missing required config {e}; see README (config)") from None

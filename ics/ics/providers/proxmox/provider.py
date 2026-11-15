@@ -7,6 +7,7 @@ re-checks scope: pool / storage / bridge(+VLAN) allowlists and the ownership tag
 """
 from __future__ import annotations
 
+import base64
 import dataclasses
 import ipaddress
 import re
@@ -34,6 +35,7 @@ _NEWDISK = re.compile(r"^(scsi|virtio|sata)\d{1,2}$")
 _CIUSER = re.compile(r"^[a-z_][a-z0-9_-]{0,31}$")
 _SSHKEY = re.compile(r"^(ssh-ed25519|ssh-rsa|ecdsa-sha2-nistp(256|384|521)|sk-ssh-ed25519@openssh\.com) [A-Za-z0-9+/=]{20,2000}( [\x21-\x7e ]{0,100})?$")
 _CICUSTOM = re.compile(r"^(user|network|meta|vendor)=([A-Za-z0-9._-]{1,40}):snippets/[A-Za-z0-9._-]{1,100}$")
+_SMBIOS_SERIAL = re.compile(r"^[A-Za-z0-9_-]{16,128}$")
 _DOMAIN = re.compile(r"^[A-Za-z0-9]([A-Za-z0-9.-]{0,251}[A-Za-z0-9])?$")
 _KIND_PATH = {"vm": "qemu", "lxc": "lxc"}
 
@@ -732,18 +734,26 @@ class ProxmoxMutations(ProxmoxProvider):
             raise ScopeViolation("finalize_clone needs the clone task (qmclone of the recorded template) started by this credential")
         if self.task_status(task).state != "ok":
             raise ProviderError("task_not_done", "the clone task has not completed successfully")
-        r = next((x for x in self._resources() if x.get("vmid") == task.vmid), None)
+        # /cluster/resources is a cache (pvestatd): right after a clone the new guest can be missing, without pool, or without name (real PVE 9.2:
+        # "guest 137 is named None"). Wait briefly for pool membership; the NAME and TAGS come from the authoritative live config of the guest.
+        r = None
+        for i in range(8):
+            r = next((x for x in self._resources() if x.get("vmid") == task.vmid), None)
+            if r is not None and r.get("pool") is not None:
+                break
+            self._sleep(2.0)
         if r is None or r.get("pool") not in self.scope.pools or r.get("template"):
             raise ScopeViolation("cloned guest is not in an allowed pool")
         if not self.scope.node_ok(r.get("node")):
             raise ScopeViolation(f"cloned guest is on node {r.get('node')!r}, which is not an authorized node of this endpoint")
-        if r.get("name") != task.name:
-            raise ScopeViolation(f"guest {task.vmid} is named {r.get('name')!r}, not the {task.name!r} this clone created; refusing to tag it")
-        mine = [t for t in tags_of(r.get("tags")) if t == OWNED_TAG or t.startswith(DEP_PREFIX)]
+        cfg = self._get(f"/nodes/{_seg(r['node'])}/qemu/{int(task.vmid)}/config", self._w)
+        if cfg.get("name") != task.name:
+            raise ScopeViolation(f"guest {task.vmid} is named {cfg.get('name')!r}, not the {task.name!r} this clone created; refusing to tag it")
+        mine = [t for t in tags_of(cfg.get("tags")) if t == OWNED_TAG or t.startswith(DEP_PREFIX)]
         foreign = [t for t in mine if t not in (OWNED_TAG, DEP_PREFIX + task.deployment_id.lower())]
         if foreign:
             raise ScopeViolation(f"guest {task.vmid} already carries ownership tags of another deployment ({', '.join(foreign)}); refusing")
-        keep = [t for t in tags_of(r.get("tags")) if t != OWNED_TAG and not t.startswith(DEP_PREFIX)]
+        keep = [t for t in tags_of(cfg.get("tags")) if t != OWNED_TAG and not t.startswith(DEP_PREFIX)]
         tags = ";".join(keep + [OWNED_TAG, DEP_PREFIX + task.deployment_id.lower()])
         node = r["node"]
         up = self._do("put", f"/nodes/{_seg(node)}/qemu/{int(task.vmid)}/config", {"tags": tags})
@@ -774,7 +784,11 @@ class ProxmoxMutations(ProxmoxProvider):
             d[key] = f"{st}:{size}"
         if spec.cloudinit_storage:
             self._need_storage(spec.cloudinit_storage)
-            d["ide2"] = f"{spec.cloudinit_storage}:cloudinit"
+            # a template made from a cloud image usually carries its cloud-init drive already (real cluster: ide2 vm-<id>-cloudinit after a clone):
+            # asking PVE to create another one fails with "Logical Volume ... already exists", so only add a drive when the guest has none
+            has_drive = any(isinstance(v, str) and re.match(r"^(ide|sata|scsi)\d+$", k) and "cloudinit" in v for k, v in self._cfg(ref).items())
+            if not has_drive:
+                d["ide2"] = f"{spec.cloudinit_storage}:cloudinit"
         if spec.ciuser is not None:
             if not _CIUSER.match(spec.ciuser):
                 raise ProviderError("invalid_request", "invalid cloud-init user name")
@@ -805,6 +819,13 @@ class ProxmoxMutations(ProxmoxProvider):
             if not _DOMAIN.match(spec.searchdomain):
                 raise ProviderError("invalid_request", "invalid search domain")
             d["searchdomain"] = spec.searchdomain
+        if spec.ciupgrade is not None:
+            d["ciupgrade"] = int(spec.ciupgrade)
+        if spec.smbios_serial is not None:
+            if not _SMBIOS_SERIAL.match(spec.smbios_serial):
+                raise ProviderError("invalid_request", "invalid SMBIOS serial")
+            uuid = _UUID.search(str(self._cfg(ref).get("smbios1", "")))   # keep the guest's own SMBIOS uuid
+            d["smbios1"] = (f"uuid={uuid.group(1)}," if uuid else "") + "base64=1,serial=" + base64.b64encode(spec.smbios_serial.encode()).decode()
         if spec.cicustom:
             if not self.scope.allow_cicustom:
                 raise ScopeViolation("cicustom snippets are not enabled for this endpoint")
@@ -819,6 +840,23 @@ class ProxmoxMutations(ProxmoxProvider):
             raise ProviderError("invalid_request", "nothing to configure")
         up = self._do("put", f"/nodes/{_seg(ref.node)}/{_KIND_PATH[ref.kind]}/{int(ref.vmid)}/config", d)
         return self._task(ref.node, up, ref.vmid, "config", ref.deployment_id)
+
+    def guest_mac(self, ref: VmRef) -> str:
+        """MAC of net0 of an owned guest (read-only; the ICS derives the guest's IPv6 link-local address from it for first contact)."""
+        require_job_execution()
+        self._guest(ref)
+        m = re.search(r"(?:virtio|e1000|vmxnet3|rtl8139)=([0-9A-Fa-f:]{17})", str(self._cfg(ref).get("net0", "")))
+        if not m:
+            raise ProviderError("pve_error", "the guest has no net0 MAC address")
+        return m.group(1).lower()
+
+    def disk_size_gb(self, ref: VmRef, disk: str) -> float | None:
+        """Current size of a guest disk in GB (read-only; used to make resize idempotent)."""
+        require_job_execution()
+        self._guest(ref)
+        cur = self._cfg(ref).get(disk)
+        m = re.search(r"size=(\d+)([KMGT]?)", cur) if isinstance(cur, str) else None
+        return int(m.group(1)) * {"": 1 / (1 << 30), "K": 1 / (1 << 20), "M": 1 / (1 << 10), "G": 1, "T": 1024}[m.group(2)] if m else None
 
     def resize_disk(self, ref: VmRef, disk: str, new_size_gb: int) -> TaskRef:
         require_job_execution()

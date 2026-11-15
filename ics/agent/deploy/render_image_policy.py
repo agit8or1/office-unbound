@@ -1,6 +1,6 @@
 #!/usr/bin/python3
 """Render the containers/image signature policy and the registries.d snippet from the root-owned agent.json.
-usage: render_image_policy.py /etc/ou-agent/agent.json /etc/ou-agent/image-signing.pub policy|registries
+usage: render_image_policy.py /etc/ou-agent/agent.json /etc/ou-agent/image-signing.pub policy|registries|pullonly
 Policy: default REJECT for every transport/registry; only the allowlisted registries are accepted, and only with a sigstore signature
 (cosign-format ECDSA P-256 key pair) that verifies against the ONE pinned public key. podman.pull_verified passes this file explicitly
 with --signature-policy, so neither the service user's ~/.config/containers/policy.json nor /etc/containers/policy.json is consulted."""
@@ -12,6 +12,12 @@ import sys
 def policy(registries, keypath):
     req = [{"type": "sigstoreSigned", "keyPath": keypath, "signedIdentity": {"type": "matchRepository"}}]
     return {"default": [{"type": "reject"}], "transports": {"docker": {r: req for r in sorted(registries)}}}
+
+
+def pullonly(registries):
+    """Used ONLY after the agent verified the signature itself (podman builds without sigstore support, e.g. Debian 12): accept the allowlisted
+    registries, reject everything else. The runbook always pulls by digest, so the content cannot differ from what was verified."""
+    return {"default": [{"type": "reject"}], "transports": {"docker": {r: [{"type": "insecureAcceptAnything"}] for r in sorted(registries)}}}
 
 
 def registries_d(registries):
@@ -32,4 +38,9 @@ def registries_of(cfg):
 if __name__ == "__main__":
     cfg = json.load(open(sys.argv[1]))
     regs = registries_of(cfg)
-    print(json.dumps(policy(regs, sys.argv[2]), indent=2) if sys.argv[3] == "policy" else registries_d(regs), end="\n" if sys.argv[3] == "policy" else "")
+    if sys.argv[3] == "policy":
+        print(json.dumps(policy(regs, sys.argv[2]), indent=2))
+    elif sys.argv[3] == "pullonly":
+        print(json.dumps(pullonly(regs), indent=2))
+    else:
+        print(registries_d(regs), end="")
