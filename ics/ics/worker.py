@@ -49,6 +49,7 @@ class Worker(threading.Thread):
         self.job_stall_seconds = rt.settings.job_timeout_seconds + 30.0
         rt.progress_hook = self._job_progress  # long deployment jobs renew their lease and report progress here
         self.monitor_stall_seconds = float(rt.settings.monitor_stall_seconds)
+        self._next_vault = 0.0
 
     def _job_progress(self) -> None:
         self.progress["jobs"] = time.monotonic()
@@ -57,7 +58,6 @@ class Worker(threading.Thread):
         now = time.monotonic()
         return (now - self.progress["jobs"] <= self.job_stall_seconds
                 and (not self.rt.settings.monitor_enabled or now - self.progress["monitor"] <= self.monitor_stall_seconds))
-        self._next_vault = 0.0
 
     def _beat(self) -> None:
         """Own timer thread, so the heartbeat keeps ticking while a long job runs (old M8) but stops when a loop is stalled."""
