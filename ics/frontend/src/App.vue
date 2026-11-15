@@ -24,7 +24,7 @@ const pages: { id: string; label: string; min: Role; comp: unknown }[] = [
   { id: 'jobs', label: 'Jobs', min: 'viewer', comp: Jobs },
   { id: 'inventory', label: 'Inventory', min: 'viewer', comp: Inventory },
   { id: 'preview', label: 'Plan preview', min: 'operator', comp: Preview },
-  { id: 'users', label: 'Users', min: 'admin', comp: Users },
+  { id: 'users', label: 'Users & roles', min: 'viewer', comp: Users },
   { id: 'audit', label: 'Audit', min: 'approver', comp: Audit },
 ]
 const nav = computed(() => pages.filter((p) => hasRole(p.min)))
