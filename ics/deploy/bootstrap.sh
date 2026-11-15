@@ -133,8 +133,9 @@ if [ ${#MISSING[@]} -gt 0 ]; then
   # a fresh cloud image may still be running its first-boot apt job: wait for the dpkg lock (found in the Debian 12 dry run)
   # keep nginx/postgres from auto-starting with default (port 80) configuration during dpkg; we start them explicitly below
   if [ ! -e /usr/sbin/policy-rc.d ]; then printf '#!/bin/sh\nexit 101\n' > /usr/sbin/policy-rc.d; chmod 755 /usr/sbin/policy-rc.d; : > "$TMP.rc"; fi
-  for i in $(seq 1 120); do pgrep -x 'apt|apt-get|dpkg|unattended-upgr' >/dev/null || break; [ "$i" != 1 ] || log "another apt/dpkg job is running (first boot?): waiting for it to finish (up to 10 min)"; sleep 5; done
-  apt-get -o DPkg::Lock::Timeout=600 -qq update
+  for i in $(seq 1 120); do pgrep -x 'apt|apt-get|dpkg' >/dev/null || break; [ "$i" != 1 ] || log "another apt/dpkg job is running (first boot?): waiting for it to finish (up to 10 min)"; sleep 5; done
+  # the lists lock has no timeout option: retry a few times (the unattended-upgrades helper takes it briefly between steps)
+  for i in 1 2 3 4 5 6 7 8 9 10; do apt-get -o DPkg::Lock::Timeout=600 -qq update && break; [ "$i" != 10 ] || die "apt-get update failed"; sleep 10; done
   DEBIAN_FRONTEND=noninteractive apt-get -o DPkg::Lock::Timeout=600 -qq install -y --no-install-recommends "${MISSING[@]}" >/dev/null
   rm -f /usr/sbin/policy-rc.d "$TMP.rc"
   changed "apt packages: ${MISSING[*]}"
