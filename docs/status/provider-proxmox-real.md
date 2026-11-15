@@ -30,3 +30,17 @@ Owner ran the ACL changes on pve06; effective token permissions (`pveum user tok
 - Template **VM 131 `ou-debian12-template`** (Debian 12 genericcloud, image SHA-512 verified on the node) in the pool — clone source.
 - Probe: **missing for provisioning: none; unnecessary: none.**
 Remaining owner items: rotate the token (secret was pasted in chat); later a VLAN-aware bridge or SDN zone for tenant isolation; thin-pool overcommit (15.17 TiB provisioned / 10.91 TiB physical, autoextend off).
+
+## First real mutation test (lead, 2026-11-15 ~19:23 UTC) — owner authorized test VMs
+Harness: agent A's provider (branch worktree-agent-a31f4b7a5376f1798) inside an explicit `job_execution()` context; scope = pool officeunbound-pve06, storage PVE06-Storage, bridge vmbr0, protected VM 126.
+| Check | Result |
+|---|---|
+| Clone into unauthorized pool | refused by ICS (ScopeViolation) before any API call |
+| Clone onto unauthorized storage `ha-zfs` | refused by ICS |
+| Power-off / snapshot of the ICS VM 126 | refused by ICS (protected) |
+| Clone to unauthorized node pve05 | refused — **but only by Proxmox** ("storage not available on node"); **GAP: ICS has no node allowlist** → assigned to integration (EndpointScope.nodes, deny-by-default) |
+| Full clone of template 131 | OK, new VM 136 in 6 s, in the pool |
+| Ownership tagging after clone | **BUG**: `finalize_clone()` requires UPID id == new vmid, but real PVE 9.2 qmclone UPIDs carry the **source** vmid (`qmclone:131:officeunbound@pam!ics`); simulator modelled it wrong → assigned to integration with regression test |
+| Untagged guest guard | worked as designed: provider refused to configure *or destroy* the untagged VM 136 |
+| Cleanup | lead deleted VM 136 via direct API after 7 explicit safety checks (name prefix, pool, untagged, not template, stopped, own clone task of 131 exists, not ICS); task OK; guests back to [126, 131] |
+Remaining verbs (configure, resize, start, snapshot, stop, destroy via provider) to be re-run after the integration fixes land.
