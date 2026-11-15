@@ -59,7 +59,8 @@ def _new_enrollment(rt: Runtime) -> tuple[str, str, datetime]:
     return token, hash_token(token), datetime.now(timezone.utc) + timedelta(seconds=rt.settings.enrollment_ttl_seconds)
 
 
-def create_invite(db: Session, rt: Runtime, username: str, role: str, *, created_by=None, actor: str = "cli", commit: bool = True) -> str:
+def create_invite(db: Session, rt: Runtime, username: str, role: str, *, created_by=None, actor: str = "cli", commit: bool = True,
+                  extra: dict | None = None) -> str:
     """Creates an account in the 'invited' state (no password, no TOTP, cannot log in). Returns the user id.
     Credentials are never chosen or seen by the creator; the enrollment token is issued separately on the host (CLI)."""
     if role not in ROLES:
@@ -70,7 +71,7 @@ def create_invite(db: Session, rt: Runtime, username: str, role: str, *, created
         "VALUES (:u, :r, false, :cb, :cb, now()) RETURNING id"),
         {"u": username, "r": role, "cb": str(created_by) if created_by else None}).scalar()
     audit.append(db, "user.invite", actor_id=created_by, actor_name=actor, resource="user", resource_id=str(uid),
-                 details={"username": username, "role": role})
+                 details={"username": username, "role": role, **(extra or {})})
     if commit:
         db.commit()
     return str(uid)

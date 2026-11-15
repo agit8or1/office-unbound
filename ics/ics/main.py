@@ -17,6 +17,7 @@ from . import audit, auth, identity
 from .actions import CATALOG, ActionType, PlanError, create_plan, decide_plan
 from .auth import ROLES, User, client_ip, cookie_name, get_db, require
 from .blueprint import preview
+from . import userdir
 from .config import Settings
 from .runtime import Runtime
 from .worker import Worker
@@ -242,11 +243,7 @@ def create_app(settings: Settings | None = None, runtime: Runtime | None = None)
             raise HTTPException(409, "could not create user (duplicate username?)") from e
         return {"username": body.username, "role": body.role, "invite": True}
 
-    @app.get(f"{API}/users")
-    def list_users(user: User = Depends(require("admin")), db: Session = Depends(get_db)):
-        rows = db.execute(text("SELECT u.id, u.username, u.role, u.enrolled, u.disabled, u.created_at, cu.username AS created_by_username "
-                               "FROM users u LEFT JOIN users cu ON cu.id = u.created_by ORDER BY u.username")).all()
-        return [_row(r) for r in rows]
+    userdir.register(app, rt, API)  # GET users, users/{id}, invitations, access-policy (read-only)
 
     # ---- plans / jobs ----
     @app.get(f"{API}/actions")
