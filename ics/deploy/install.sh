@@ -7,7 +7,7 @@ SRC="$(cd "$(dirname "$0")/.." && pwd)"
 DST=/opt/office-unbound/ics
 getent passwd ics >/dev/null || useradd --system --no-create-home --home-dir /nonexistent --shell /usr/sbin/nologin ics
 install -d -o root -g root -m 0755 /opt/office-unbound "$DST"
-rsync -a --delete --exclude .venv --exclude __pycache__ --exclude .pytest_cache --exclude tests "$SRC"/ "$DST"/
+rsync -a --delete --exclude .venv --exclude __pycache__ --exclude .pytest_cache --exclude tests --exclude node_modules "$SRC"/ "$DST"/
 [ -x "$DST/.venv/bin/python" ] || python3 -m venv "$DST/.venv"
 "$DST/.venv/bin/pip" install -q --require-hashes -r "$DST/requirements.lock"
 chown -R root:root "$DST"; chmod -R go-w "$DST"

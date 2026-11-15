@@ -4,7 +4,11 @@ from datetime import datetime, timezone
 from uuid import UUID
 
 import pyotp
+from pathlib import Path
+
 from fastapi import Depends, FastAPI, HTTPException, Request, Response
+from fastapi.responses import RedirectResponse
+from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel, Field, ValidationError
 from sqlalchemy import text
 from sqlalchemy.orm import Session
@@ -124,6 +128,19 @@ class SecurityHeadersAndLimits:
 
 class _TooBig(Exception):
     pass
+
+
+STATIC_DIR = Path(__file__).parent / "static"  # built operator console (frontend/ -> npm run build)
+# The API's default-src 'none' would block the UI; static files get a narrow same-origin policy instead (no inline script/style, no eval).
+UI_CSP = ("default-src 'none'; script-src 'self'; style-src 'self'; img-src 'self' data:; connect-src 'self'; "
+          "frame-ancestors 'none'; base-uri 'none'; form-action 'none'")
+
+
+class UIStaticFiles(StaticFiles):
+    async def get_response(self, path, scope):
+        resp = await super().get_response(path, scope)
+        resp.headers["Content-Security-Policy"] = UI_CSP
+        return resp
 
 
 def create_app(settings: Settings | None = None, runtime: Runtime | None = None) -> FastAPI:
@@ -311,5 +328,12 @@ def create_app(settings: Settings | None = None, runtime: Runtime | None = None)
     @app.get(f"{API}/audit/verify")
     def verify(user: User = Depends(require("approver")), db: Session = Depends(get_db)):
         return audit.verify_chain(db)
+
+    if STATIC_DIR.is_dir():
+        @app.get("/", include_in_schema=False)
+        def ui_root():
+            return RedirectResponse("/ui/")
+
+        app.mount("/ui", UIStaticFiles(directory=STATIC_DIR, html=True), name="ui")
 
     return app
