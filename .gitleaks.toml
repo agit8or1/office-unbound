@@ -1,0 +1,9 @@
+title = "office-unbound gitleaks config"
+
+[extend]
+useDefault = true
+
+[[allowlists]]
+description = "fake mailbox passwords for the in-process IMAP/EWS mocks in unit tests (no real credentials)"
+targetRules = ["generic-api-key"]
+paths = ['''^ics/tests/test_(monitor|checks|vault_audit)\.py$''']
