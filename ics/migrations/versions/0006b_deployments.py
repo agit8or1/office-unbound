@@ -2,7 +2,7 @@
 from alembic import context, op
 
 revision = "0006b"
-down_revision = "0005"
+down_revision = "0006d"
 
 DDL = """
 CREATE TABLE deployments (
