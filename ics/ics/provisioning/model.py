@@ -7,7 +7,7 @@ from typing import Literal
 from pydantic import BaseModel, ConfigDict, Field, field_validator, model_validator
 
 PRESETS = ("monitoring", "deploy", "custom", "full_admin")
-CAPABILITIES = ("monitor", "deploy", "storage", "template_clone", "network", "backup", "custom")
+CAPABILITIES = ("monitor", "deploy", "storage", "template_clone", "network", "backup", "custom", "node_audit")
 _NAME = r"^[A-Za-z0-9][A-Za-z0-9_.-]{0,62}$"
 _NODE = r"^[A-Za-z0-9][A-Za-z0-9.-]{0,62}$"
 _PATH = r"^/[A-Za-z0-9/._:@+-]{0,200}$"
@@ -85,6 +85,12 @@ class Policy(BaseModel):
     guest_agent: bool = False
     acknowledge_full_admin: bool = False
     approve_elevated: list[str] = Field(default_factory=list, description="elevated privileges the approver explicitly accepts, e.g. ['Sys.Modify']")
+    scope_mode: Literal["single_node", "whole_cluster"] | None = Field(
+        default=None, description="single_node: Proxmox itself is configured to reach only the listed node(s) (default exactly one); whole_cluster: every node. "
+                                  "None = legacy policy (derived: nodes listed -> single_node semantics without the extra checks)")
+    scope_risk_overrides: list[str] = Field(
+        default_factory=list, max_length=50,
+        description="single_node only, explicit high-risk exceptions: 'migrate' (allow VM.Migrate) and 'shared_storage:<name>' (allow a shared / multi-node storage)")
 
     @field_validator("role_names")
     @classmethod
@@ -94,8 +100,31 @@ class Policy(BaseModel):
                 raise ValueError("role_names keys must be capabilities; values plain role names")
         return v
 
+    @field_validator("scope_risk_overrides")
+    @classmethod
+    def _ov(cls, v):
+        for x in v:
+            if x != "migrate" and not re.fullmatch(r"shared_storage:[A-Za-z0-9][A-Za-z0-9_.-]{0,62}", x):
+                raise ValueError("scope_risk_overrides entries are 'migrate' or 'shared_storage:<name>'")
+        return sorted(set(v))
+
+    def mode(self) -> str:
+        """The effective scope mode. Legacy policies (no explicit mode) keep their behaviour: nodes listed -> `nodes` (ICS allowlist + node ACLs, no extra checks)."""
+        return self.scope_mode or ("nodes" if self.scope.nodes else "whole_cluster")
+
     @model_validator(mode="after")
     def _shape(self):
+        if self.scope_mode == "single_node":
+            if self.preset == "full_admin":
+                raise ValueError("full cluster administration cannot be limited to one node (it is granted on '/'); choose scope_mode=whole_cluster")
+            if not self.scope.nodes:
+                raise ValueError("single_node scope needs at least one node (normally exactly one)")
+            if self.allow_cicustom:
+                raise ValueError("cloud-init snippets need Sys.Modify on '/', which reaches every node: not available in single_node scope")
+            if self.allow_migrate and "migrate" not in self.scope_risk_overrides:
+                raise ValueError("VM.Migrate lets guests leave the selected node(s): not granted in single_node scope unless the 'migrate' risk override is set")
+        elif self.scope_risk_overrides:
+            raise ValueError("scope_risk_overrides only apply to scope_mode=single_node")
         if self.preset == "full_admin" and not self.acknowledge_full_admin:
             raise ValueError("full cluster administration is high-risk: set acknowledge_full_admin=true to confirm you accept its consequences")
         if self.preset != "full_admin" and self.acknowledge_full_admin:

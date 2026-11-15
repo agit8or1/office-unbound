@@ -32,7 +32,7 @@ CATEGORY_OF = {
 # actions that change infrastructure (blocked for monitoring_only, gated by customer approval for customer-owned infra)
 # provider.provision.package and provider.credential.import are decided in classify(): they are monitoring-compatible unless the policy /
 # token set goes beyond the inventory (monitor) role. Mode A actions use ADMIN credentials on the customer's cluster: always mutating.
-MUTATING_PREFIXES = ("deployment.", "guest.", "storage.", "network.", "provider.provision.apply", "provider.permissions.", "provider.token.", "backup.")
+MUTATING_PREFIXES = ("deployment.", "guest.", "storage.", "network.", "provider.provision.apply", "provider.permissions.", "provider.token.", "provider.scope.", "backup.")
 READ_ONLY = ("provider.provision.plan_preview",)
 EXPANDING_ENDPOINT_FIELDS = {"allowed_pools", "allowed_nodes", "allowed_storage", "allowed_networks", "allowed_templates", "provision_token_id",
                              "provision_token_secret", "allow_cicustom"}
@@ -65,9 +65,12 @@ def classify(action: str, p) -> tuple[bool, str | None]:
     if action == "provider.credential.import":
         mut = bool(getattr(p, "provision_token_id", None))
         cat = "expand_permissions" if mut else None
+    if action.startswith("provider.scope."):
+        mut = True     # a scope change always changes who may do what on the customer's cluster
+        cat = "expand_permissions" if getattr(p, "direction", "widen") == "widen" else None
     if action == "provider.provision.package":
         from ..providers.proxmox import provisioning as pp   # lazy: tenancy must not import providers at module load
-        mut = set(pp.capabilities(p.policy)) != {"monitor"}
+        mut = (set(pp.capabilities(p.policy)) - {"node_audit"}) != {"monitor"}
         cat = "expand_permissions" if mut else None
     return mut, cat
 

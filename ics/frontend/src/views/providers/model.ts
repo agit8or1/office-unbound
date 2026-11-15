@@ -19,7 +19,9 @@ export interface Policy {
   provider: 'proxmox'; preset: Preset; capabilities: Capability[]; scope: Scope; realm: 'pve'
   service_user: string; token_base: string; role_prefix: string; custom_grants: Grant[]
   allow_cicustom: boolean; allow_migrate: boolean; guest_agent: boolean; acknowledge_full_admin: boolean; approve_elevated: string[]
+  scope_mode?: ScopeMode | null; scope_risk_overrides?: string[]
 }
+export type ScopeMode = 'single_node' | 'whole_cluster'
 
 export const emptyScope = (): Scope => ({
   nodes: [], storages: [], pools: [], networks: [], template_vmids: [], vmid_ranges: [], guest_types: ['qemu'], backup_storages: [], protected_vmids: [],
@@ -142,12 +144,15 @@ export const hasUnmanaged = (d: Discovery) => d.nodes.filter((n) => !n.managed).
 
 export const DEFAULT_POOL = 'office-unbound'
 /** Suggested scope for the Express path. Shown pre-filled but clearly marked "suggested"; the Review step lists the exact outcome. */
-export function suggestScope(d: Discovery | null, preset: Preset): Scope {
+export function suggestScope(d: Discovery | null, preset: Preset, mode: ScopeMode = 'whole_cluster'): Scope {
   const s = emptyScope()
   if (!d) return s
-  s.nodes = d.nodes.filter((n) => n.status === 'online' && n.managed).map((n) => n.name)
-  if (preset === 'monitoring') { s.storages = mergeStorage(d.storage).map((x) => x.name); return s }
-  const imgs = mergeStorage(d.storage).filter((x) => x.content.includes('images') && x.active && x.total).sort((a, b) => ((b.total ?? 0) - (b.used ?? 0)) - ((a.total ?? 0) - (a.used ?? 0)))
+  const online = d.nodes.filter((n) => n.status === 'online' && n.managed).map((n) => n.name)
+  // one node only: exactly one node (the first that is online and visible), and only storage that cannot reach any other node
+  s.nodes = mode === 'single_node' ? online.slice(0, 1) : online
+  const usable = (x: MergedStorage) => mode !== 'single_node' || !x.content.some((c) => c === 'images' || c === 'rootdir') || storageLocality(x, s.nodes).local
+  if (preset === 'monitoring') { s.storages = mergeStorage(d.storage).filter(usable).map((x) => x.name); return s }
+  const imgs = mergeStorage(d.storage).filter((x) => x.content.includes('images') && x.active && x.total && usable(x)).sort((a, b) => ((b.total ?? 0) - (b.used ?? 0)) - ((a.total ?? 0) - (a.used ?? 0)))
   if (imgs[0]) s.storages = [imgs[0].name]
   const br = bridgesOf(d)
   if (br[0]) s.networks = [br[0].name]
@@ -185,6 +190,7 @@ export interface WizardModel {
   serviceUser: string; tokenBase: string; rolePrefix: string; customGrants: Grant[]
   allowCicustom: boolean; allowMigrate: boolean; guestAgent: boolean
   acknowledgeFullAdmin: boolean; approveElevated: string[]
+  scopeMode: ScopeMode; riskOverrides: string[]
   adminKind: 'password' | 'token'; adminUser: string; adminTokenId: string
   preview: PlanPreviewOut | null; previewKey: string | null
   packageId: string | null; endpointId: string | null
@@ -195,7 +201,7 @@ export const newModel = (): WizardModel => ({
   method: 'token', pveMajor: 9, tokenId: '', provisionTokenId: '', probe: null, probedKey: null, discovery: null, customerId: null,
   preset: 'deploy', capabilities: [], scope: emptyScope(), scopeSuggested: false,
   serviceUser: 'ics-svc', tokenBase: 'ics', rolePrefix: 'OfficeUnbound', customGrants: [], allowCicustom: false, allowMigrate: false, guestAgent: false,
-  acknowledgeFullAdmin: false, approveElevated: [], adminKind: 'password', adminUser: 'root@pam', adminTokenId: '',
+  acknowledgeFullAdmin: false, approveElevated: [], scopeMode: 'single_node', riskOverrides: [], adminKind: 'password', adminUser: 'root@pam', adminTokenId: '',
   preview: null, previewKey: null, packageId: null, endpointId: null, packageTokens: {}, packageUser: '', riskAck: false,
 })
 
@@ -264,12 +270,17 @@ export function validateConnect(m: WizardModel, s: SecretBag): Errors {
 // ---------------------------------------------------------------------------------------------------- policy
 export function buildPolicy(m: WizardModel): Policy {
   const full = m.preset === 'full_admin'
+  // full cluster administration is granted on "/", so it is always a whole-cluster scope
+  const mode: ScopeMode = full ? 'whole_cluster' : m.scopeMode
+  const single = mode === 'single_node'
+  const overrides = single ? [...new Set(m.riskOverrides)].sort() : []
   return {
     provider: 'proxmox', preset: m.preset, capabilities: m.preset === 'custom' ? [...m.capabilities] : [],
-    scope: { ...m.scope, nodes: [...m.scope.nodes], storages: [...m.scope.storages], pools: [...m.scope.pools], networks: [...m.scope.networks] },
+    scope_mode: mode, scope_risk_overrides: overrides,
+    scope: { ...m.scope, nodes: single ? [...m.scope.nodes] : [], storages: [...m.scope.storages], pools: [...m.scope.pools], networks: [...m.scope.networks] },
     realm: 'pve', service_user: m.serviceUser, token_base: m.tokenBase, role_prefix: m.rolePrefix,
     custom_grants: m.preset === 'custom' && m.capabilities.includes('custom') ? m.customGrants.filter((g) => g.path && g.privileges.length) : [],
-    allow_cicustom: m.allowCicustom, allow_migrate: m.allowMigrate, guest_agent: m.guestAgent,
+    allow_cicustom: single ? false : m.allowCicustom, allow_migrate: single ? overrides.includes('migrate') && m.allowMigrate : m.allowMigrate, guest_agent: m.guestAgent,
     acknowledge_full_admin: full && m.acknowledgeFullAdmin, approve_elevated: [...m.approveElevated],
   }
 }
@@ -289,6 +300,11 @@ export function validateScope(m: WizardModel): Errors {
     return e
   }
   if (m.preset === 'custom' && !m.capabilities.length) e.capabilities = 'Choose at least one kind of permission.'
+  if (m.scopeMode === 'single_node' && !s.nodes.length) e.nodes = 'Choose the node Office Unbound may use.'
+  if (m.scopeMode === 'single_node' && m.discovery) {
+    const bad = blockedStorages(m)
+    if (bad.length) e.storages = `${bad.map((b) => b.name).join(', ')} can place disks on other nodes. Pick a storage that exists only on the chosen node, or accept the high-risk exception under Advanced.`
+  }
   if (!(s.nodes.length || s.pools.length || s.storages.length || s.template_vmids.length)) e.scope = 'Choose at least one node, pool, storage or template. Nothing is allowed by default.'
   const wantsDeploy = m.preset === 'deploy' || (m.preset === 'custom' && (m.capabilities.includes('deploy') || m.capabilities.includes('template_clone')))
   if (wantsDeploy && !s.pools.length) e.pools = 'Deployment needs a pool to work in. Pick an existing one or name a new one.'
@@ -466,7 +482,8 @@ export function policyFromView(v: PermissionsView): Policy | null {
   const user = (v.service_user ?? 'ics-svc@pve').split('@')[0] ?? 'ics-svc'
   return {
     provider: 'proxmox', preset: p, capabilities: p === 'custom' ? caps : [], realm: 'pve', service_user: user, token_base: 'ics', role_prefix: 'OfficeUnbound', custom_grants: [],
-    allow_cicustom: false, allow_migrate: false, guest_agent: false, acknowledge_full_admin: p === 'full_admin', approve_elevated: [],
+    allow_cicustom: false, allow_migrate: !!(v.scope_risk_overrides ?? []).includes('migrate'), guest_agent: false, acknowledge_full_admin: p === 'full_admin', approve_elevated: [],
+    scope_mode: (v.scope_mode === 'single_node' || v.scope_mode === 'whole_cluster' ? v.scope_mode : null), scope_risk_overrides: [...(v.scope_risk_overrides ?? [])],
     scope: { ...emptyScope(), ...sc, guest_types: (sc.guest_types as Scope['guest_types']) ?? ['qemu'] },
   }
 }
@@ -479,10 +496,12 @@ export interface PermissionsView {
   last_verification?: { ok?: boolean; [k: string]: unknown } | null; last_verified_at?: string | null; last_drift?: DriftReport | null; last_drift_at?: string | null
   grants?: { path: string; capability: string; role: string; privileges: string[]; propagate: boolean; tokens: string[]; enforced_by: 'proxmox' | 'ics'; note: string }[]
   custom_grants?: unknown[]; ics_enforced?: EnforcementNote[]
-  enforcement?: EnforcementNote[]; scope?: Partial<Scope>; never_granted?: string[]; managed_objects?: { user?: string; roles?: string[]; tokens?: string[]; pools?: string[]; acl?: unknown[]; assumed?: string }
+  enforcement?: EnforcementNote[]; scope?: Partial<Scope>; scope_mode?: ScopeMode | 'nodes' | null; scope_risk_overrides?: string[]; scope_enforcement?: EnforcementNote[]; never_granted?: string[]; managed_objects?: { user?: string; roles?: string[]; tokens?: string[]; pools?: string[]; acl?: unknown[]; assumed?: string }
 }
-export interface KindDrift { ok: boolean; missing: { path: string; privileges: string[] }[]; unexpected: { path: string; privileges: string[] }[]; forbidden: { path: string; privileges: string[] }[]; suggestion: string[]; unauthorized_exposure?: { path: string; privileges: string[] }[] }
-export interface DriftReport { ok: boolean; error?: string; error_code?: string; kinds?: Record<string, KindDrift>; checked_at?: string }
+export interface KindDrift { ok: boolean; missing: { path: string; privileges: string[] }[]; unexpected: { path: string; privileges: string[] }[]; forbidden: { path: string; privileges: string[] }[]; suggestion: string[]; unauthorized_exposure?: { path: string; privileges: string[] }[]
+  scope_reach?: { path: string; privileges: string[]; reaches: string; enforced_by: string }[] }
+export interface IcsScopeCheck { ok: boolean; enforced_by: 'ics'; nodes: { policy: string[]; endpoint: string[] }; storages: { policy: string[]; endpoint: string[] }; note: string }
+export interface DriftReport { ok: boolean; error?: string; error_code?: string; kinds?: Record<string, KindDrift>; checked_at?: string; ics_scope?: IcsScopeCheck }
 export interface DriftItem { kind: string; type: 'missing' | 'unexpected' | 'forbidden' | 'exposed'; path: string; privileges: string[]; text: string; suggestion: string }
 export function driftItems(r: DriftReport | null | undefined): DriftItem[] {
   if (!r?.kinds) return []
@@ -493,6 +512,7 @@ export function driftItems(r: DriftReport | null | undefined): DriftItem[] {
     for (const x of d.unexpected ?? []) out.push({ kind: kindName(k), type: 'unexpected', path: x.path, privileges: x.privileges, text: 'Present but not part of the approved policy', suggestion: `Remove ${x.privileges.join(', ')} on ${x.path}` })
     for (const x of d.forbidden ?? []) out.push({ kind: kindName(k), type: 'forbidden', path: x.path, privileges: x.privileges, text: 'Forbidden privilege present', suggestion: `Remove ${x.privileges.join(', ')} on ${x.path} immediately` })
     for (const x of d.unauthorized_exposure ?? []) out.push({ kind: kindName(k), type: 'exposed', path: x.path, privileges: x.privileges, text: 'Reaches a resource outside the approved scope', suggestion: `Remove access on ${x.path}` })
+    for (const x of d.scope_reach ?? []) if (!out.some((o) => o.kind === kindName(k) && o.path === x.path && o.type === 'exposed')) out.push({ kind: kindName(k), type: 'exposed', path: x.path, privileges: x.privileges, text: `Reaches ${x.reaches}, beyond the single-node scope`, suggestion: `Remove ${x.privileges.join(', ')} on ${x.path} in Proxmox` })
   }
   return out
 }
@@ -654,3 +674,85 @@ export function fmtBytes(n: number | null | undefined): string {
   return `${x.toFixed(x >= 100 || i === 0 ? 0 : 1)} ${u[i]}`
 }
 export const gbOf = (bytes: number | null) => (bytes === null ? 0 : bytes / 1024 ** 3)
+
+
+// ---------------------------------------------------------------------------------------------------- scope mode (one node or the whole cluster)
+export const SCOPE_MODES: { id: ScopeMode; title: string; badge: string; blurb: string; can: string[]; cannot: string[] }[] = [
+  { id: 'single_node', title: 'Connect one node only (recommended for security)', badge: 'Recommended',
+    blurb: 'Proxmox itself is set up so this integration can see and use one server of the cluster and nothing else. Other nodes stay out of reach even if Office Unbound were compromised, as far as Proxmox can enforce it.',
+    can: ['See and use the one node you choose', 'Use storage that exists only on that node'],
+    cannot: ['See or use other nodes', 'Place disks on shared storage', 'Move VMs to other nodes'] },
+  { id: 'whole_cluster', title: 'Connect the whole cluster', badge: 'Wider access',
+    blurb: 'Office Unbound can see every node, including nodes that join later, and may use shared storage you select. Choose this when you want to spread VMs across nodes.',
+    can: ['See every node and its capacity', 'Use shared storage when you select it', 'Move VMs between nodes (optional)'],
+    cannot: ['Change Proxmox users, roles or permissions (never granted)'] },
+]
+export const SINGLE_NODE_NOTES = [
+  'Proxmox pools and the classic bridge zone are cluster-wide names. Proxmox cannot say "only on node X" for them, so keeping new VMs on the chosen node also relies on node-local storage (Proxmox) and the Office Unbound node allowlist.',
+  'You can change the scope later. Widening needs approval; narrowing is refused if it would leave managed VMs outside the new scope.',
+]
+export type MergedStorage = DiscStorage & { nodes: string[] }
+/** Can a VM disk on this storage end up on a node outside `selected`? Shared storage or storage that exists on other nodes can. */
+export function storageLocality(s: { shared: boolean; nodes: string[] }, selected: string[]): { local: boolean; reason: string } {
+  if (s.shared) return { local: false, reason: 'Shared between nodes: disks could be placed from other nodes.' }
+  const other = s.nodes.filter((n) => !selected.includes(n))
+  if (other.length) return { local: false, reason: `Also exists on ${other.join(', ')}: disks could be placed there.` }
+  return { local: true, reason: `Only exists on ${selected.join(', ')}.` }
+}
+const holdsDisks = (s: DiscStorage) => s.content.some((c) => c === 'images' || c === 'rootdir')
+export function blockedStorages(m: Pick<WizardModel, 'discovery' | 'scope' | 'riskOverrides'>): { name: string; reason: string }[] {
+  if (!m.discovery) return []
+  return mergeStorage(m.discovery.storage).filter((s) => m.scope.storages.includes(s.name) && holdsDisks(s) && !m.riskOverrides.includes(`shared_storage:${s.name}`))
+    .map((s) => ({ name: s.name, ...storageLocality(s, m.scope.nodes) })).filter((x) => !x.local)
+}
+/** Storage the picker may offer in single-node mode: only node-local ones (others are listed, disabled, with the reason). */
+export function storageChoices(d: Discovery | null, mode: ScopeMode, selected: string[], overrides: string[]) {
+  return (d ? mergeStorage(d.storage) : []).map((s) => {
+    const loc = mode === 'single_node' && holdsDisks(s) ? storageLocality(s, selected) : { local: true, reason: '' }
+    const overridden = overrides.includes(`shared_storage:${s.name}`)
+    return { ...s, selectable: loc.local || overridden, reason: loc.reason, overridden }
+  })
+}
+
+// ---------------------------------------------------------------------------------------------------- scope change (provider.scope.change)
+export interface ScopeSummary { mode: string; nodes: string[]; storages: string[]; migrate: boolean; overrides: string[] }
+export interface AclRow { path: string; role: string; propagate: boolean; subjects: string[]; enforced_by: 'proxmox' | 'ics' }
+export interface ScopeChangeOut {
+  direction: 'widen' | 'narrow' | 'same'; risk: 'normal' | 'high'; blocked: string[]; detach: number[]
+  old_scope: ScopeSummary; new_scope: ScopeSummary
+  diff: { acl_add: AclRow[]; acl_remove: AclRow[]; roles: { capability: string; role: string; change: string; added?: string[]; removed?: string[] }[]
+    ics_allowlist: { nodes: { before: string[]; after: string[] }; storages: { before: string[]; after: string[] } } }
+  impact: { capacity: { node: string; cpus: number | null; mem_gib: number | null; before: boolean; after: boolean; change: 'added' | 'removed' | 'kept' | 'outside' }[]
+    managed_guests_outside: { vmid: number; name: string | null; node: string | null; deployment: string | null; why: string[] }[]
+    visibility: { nodes_visible_before: string[]; nodes_visible_after: string[] }; notes: string[] }
+  enforcement_before: EnforcementNote[]; enforcement_after: EnforcementNote[]
+}
+export interface ScopePreviewOut { preview_id: string; plan_hash: string; risk: 'normal' | 'high'; direction: ScopeChangeOut['direction']; blocked: string[]; scope: ScopeChangeOut }
+export interface ScopeTarget { mode: ScopeMode; nodes: string[]; storages?: string[]; risk_overrides: string[]; detach_orphans: boolean }
+export const DIRECTION_TEXT = {
+  widen: { title: 'This widens access', text: 'Proxmox will let this integration reach more than before. It is a high-risk change: it needs the extra approvals set for this customer.' },
+  narrow: { title: 'This narrows access', text: 'Proxmox will let this integration reach less than before. Normal risk, unless managed VMs have to be detached.' },
+  same: { title: 'No change in reach', text: 'The permissions stay the same.' },
+} as const
+export function scopeTargetValid(t: ScopeTarget): string | null {
+  if (t.mode === 'single_node' && !t.nodes.length) return 'Choose at least one node.'
+  return null
+}
+export function scopeTargetOf(view: PermissionsView, mode: ScopeMode, nodes: string[], storages: string[], overrides: string[], detach: boolean): ScopeTarget {
+  void view
+  return { mode, nodes: mode === 'single_node' ? [...nodes] : [], storages: [...storages], risk_overrides: mode === 'single_node' ? [...overrides] : [], detach_orphans: detach }
+}
+export function scopePreviewParams(endpointId: string, t: ScopeTarget, c: Creds) {
+  return { purpose: 'scope_change' as const, endpoint_id: endpointId, scope_target: t, ...c }
+}
+export function scopeChangeParams(endpointId: string, p: ScopePreviewOut, execution: 'mode_a' | 'confirm_package', c: Creds, packageId?: string) {
+  return { endpoint_id: endpointId, preview_id: p.preview_id, plan_hash: p.plan_hash, direction: p.direction, detach: p.scope.detach.length > 0, execution, ...(packageId ? { package_id: packageId } : {}), ...(execution === 'mode_a' ? c : {}) }
+}
+export function scopePackageParams(endpointId: string, p: ScopePreviewOut) {
+  return { endpoint_id: endpointId, preview_id: p.preview_id, plan_hash: p.plan_hash, direction: p.direction, detach: p.scope.detach.length > 0 }
+}
+export const scopePreviewOf = (job: JobRow): ScopePreviewOut | null => {
+  const r = job.result as Partial<ScopePreviewOut> | null
+  return r && r.preview_id && r.plan_hash && r.scope ? (r as ScopePreviewOut) : null
+}
+export const SCOPE_MODE_LABEL: Record<string, string> = { single_node: 'One node only', whole_cluster: 'Whole cluster', nodes: 'Selected nodes (older setup)' }

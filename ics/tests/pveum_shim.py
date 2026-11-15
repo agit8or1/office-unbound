@@ -68,6 +68,8 @@ def main():
         call("DELETE", f"/access/users/{pos[3]}/token/{pos[4]}", {}, auth)
     elif (a, b) == ("role", "add"):
         call("POST", "/access/roles", {"roleid": pos[2], "privs": kv["privs"]}, auth)
+    elif (a, b) == ("role", "modify"):
+        call("PUT", f"/access/roles/{pos[2]}", {"privs": kv["privs"]}, auth)
     elif (a, b) == ("role", "delete"):
         call("DELETE", f"/access/roles/{pos[2]}", {}, auth)
     elif (a, b) in (("acl", "modify"), ("acl", "delete")):
