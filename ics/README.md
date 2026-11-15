@@ -133,6 +133,10 @@ Credentials are never broad: the stack uses `cn=svc-ics` (LDAP: write under `ou=
 API additions: `GET identity/stacks|users|reconcile` (viewer), `POST identity/enrollments/{plan_id}/reveal` (operator), `POST identity/enroll`. Plan risk tier `normal` (migration 0005): approval by one approver who is not the requester.
 Lab proof: `scripts/lab_user_lifecycle.py {setup|lifecycle|cleanup|all}`.
 
+## Infrastructure (ADR-0009; details and status in `docs/status/provider-proxmox.md`)
+`GET endpoints[/{id}]`, `GET infra/summary|clusters|nodes|storage|networks|guests|templates|metrics`, `POST setup/probe` (admin; `stage:'tls'` or full), `GET setup/state` (viewer).
+Endpoint settings are typed plans: `endpoint.register|update|remove|disable|enable`. Provider code: `ics/providers/` (mutations only inside job execution), collectors: `ics/inventory/`. Tests use the stateful Proxmox simulator `tests/pve_sim.py` (a test double).
+
 ## Not implemented yet
 - Any Proxmox mutation / deployment execution (only read-only inventory and dry-run preview exist); no mutation token handling.
 - Separate privileged executor process (ADR-0001); the worker is an in-process thread (abandoned timed-out job threads cannot be killed, only prevented from committing).

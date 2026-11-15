@@ -18,7 +18,7 @@ Pick: node `<NODE>`, storage `<STORAGE>`, an isolated bridge/VLAN `<BRIDGE>` tha
 pveum pool add ou-lab --comment "Office Unbound lab - isolated"
 pveum user add ics-lab@pve --comment "Office Unbound ICS lab provisioner"
 pveum user token add ics-lab@pve lab --privsep 1
-pveum role add OULabProvisioner --privs "VM.Allocate VM.Clone VM.Audit VM.PowerMgmt VM.Config.CDROM VM.Config.CPU VM.Config.Cloudinit VM.Config.Disk VM.Config.HWType VM.Config.Memory VM.Config.Network VM.Config.Options"
+pveum role add OULabProvisioner --privs "VM.Allocate VM.Clone VM.Audit VM.PowerMgmt VM.Config.CDROM VM.Config.CPU VM.Config.Cloudinit VM.Config.Disk VM.Config.HWType VM.Config.Memory VM.Config.Network VM.Config.Options VM.Snapshot VM.Snapshot.Rollback VM.Migrate Pool.Audit"
 for p in --users\ ics-lab@pve "--tokens ics-lab@pve!lab"; do
   pveum acl modify /pool/ou-lab $p --roles OULabProvisioner
   pveum acl modify /storage/<STORAGE> $p --roles PVEDatastoreUser
@@ -35,3 +35,7 @@ sudo install -m 0600 /dev/stdin /etc/office-unbound/bootstrap/pve-inventory.toke
 ```
 Also record, in `docs/status/authorized-endpoints.md`: API URL (`https://<host>:8006`), token id, node/storage/bridge names, and the TLS fingerprint obtained **out of band** on the node:
 `openssl x509 -in /etc/pve/local/pve-ssl.pem -noout -fingerprint -sha256`
+
+## 4. Privilege analysis update (agent A, 2026-11-15; see provider-proxmox.md)
+The role above gained VM.Snapshot, VM.Snapshot.Rollback, VM.Migrate (snapshot/rollback/migrate verbs) and Pool.Audit (pool membership; optional). Do NOT grant VM.Console/VM.Backup (unused).
+Never grant the provisioning token any mutating privilege on the ICS's own VM; the ICS also refuses to mutate it by NIC MAC / SMBIOS UUID. Each bridge a NIC may attach to needs SDN.Use (`pveum acl modify /sdn/zones/localnetwork/<bridge> --tokens '<token>' --roles PVESDNUser`).

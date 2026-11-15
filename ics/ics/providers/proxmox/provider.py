@@ -186,7 +186,7 @@ class ProxmoxProvider:
         res = ProbeResult(ok=False, tls={"trust": self.trust, "ok": False})
         main = self._inv or self._prov_ro
         try:
-            v = main._get("/version")
+            v = main.version()
         except ProxmoxError as e:
             pe = map_error(e, "connection")
             res.errors.append(pe.message)
