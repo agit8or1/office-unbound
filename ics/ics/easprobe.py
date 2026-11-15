@@ -116,12 +116,14 @@ def parse_provision(http_status: int, data: bytes) -> ProvisionResult:
 class EasClient:
     def __init__(self, cfg: idprobe.ProbeConfig, mail: str, password: str, device_id: str, device_type: str = "OUProbe", version: str = "16.1"):
         self.cfg, self.mail, self.password, self.dev, self.dtype, self.ver = cfg, mail, password, device_id, device_type, version
+        self.policy_key: str | None = None      # what a real device sends as X-MS-PolicyKey once provisioned
 
     def _post(self, cmd: str, body: bytes):
         url = f"https://{self.cfg.mail_host}/Microsoft-Server-ActiveSync"
         params = {"Cmd": cmd, "User": self.mail, "DeviceId": self.dev, "DeviceType": self.dtype}
         return idprobe._http(self.cfg, url, self.cfg.mail_ca_pem, "POST", params=params, content=body, auth=(self.mail, self.password),
-                             headers={"MS-ASProtocolVersion": self.ver, "Content-Type": "application/vnd.ms-sync.wbxml", "User-Agent": "OU-EAS-probe/1"})
+                             headers={"MS-ASProtocolVersion": self.ver, "Content-Type": "application/vnd.ms-sync.wbxml", "User-Agent": "OU-EAS-probe/1",
+                                                                                                    **({"X-MS-PolicyKey": self.policy_key} if self.policy_key else {})})
 
     def provision(self, **kw) -> ProvisionResult | None:
         r = self._post("Provision", provision_request(**kw))
@@ -132,6 +134,26 @@ class EasClient:
         except (ValueError, IndexError):
             return ProvisionResult(r.status_code)
 
-    def foldersync(self) -> int | None:
+    def provision_device(self) -> ProvisionResult | None:
+        """The normal two-phase provisioning of a device: request the policy, acknowledge it with the temporary key, remember the final key."""
+        self.policy_key = None
+        p1 = self.provision()
+        if p1 is None or p1.status != 1 or not p1.policy_key:
+            return p1
+        p2 = self.provision(policy_key=p1.policy_key, with_policy_ack=True)
+        if p2 is not None and p2.policy_key:
+            self.policy_key = p2.policy_key
+        return p2
+
+    def foldersync(self) -> tuple[int, int | None] | None:
+        """(HTTP status, FolderHierarchy Status). Status 142 / HTTP 449 = the device must provision again (what a pending wipe causes)."""
         r = self._post("FolderSync", foldersync_request())
-        return None if r is None else r.status_code
+        if r is None:
+            return None
+        st = None
+        if r.status_code == 200:
+            try:
+                st = next((int(t) for cp, tag, t in decode(r.content) if cp == CP_FOLDERHIERARCHY and tag == 0x0C and t and t.isdigit()), None)
+            except (ValueError, IndexError):
+                pass
+        return r.status_code, st

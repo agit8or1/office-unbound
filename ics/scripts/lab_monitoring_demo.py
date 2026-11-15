@@ -21,7 +21,7 @@ import time
 import httpx
 import pyotp
 
-BASE = "http://127.0.0.1:8088/api/v1"
+BASE = os.environ.get("OU_DEMO_BASE", "http://127.0.0.1:8088/api/v1")   # a development ICS instance can be targeted (OU_DEMO_BASE + OU_DEMO_ICS_ENV)
 CA = open("/etc/office-unbound/lab/gw1-ca.crt").read()
 ICS_PY = "/opt/office-unbound/ics/.venv/bin/python"
 # Lab demo account passwords + TOTP secrets (never printed). Review M5: not in /tmp; override with OU_DEMO_CREDS.
@@ -63,6 +63,10 @@ class Api:
 
 
 def cli(*args):
+    if os.environ.get("OU_DEMO_ICS_ENV"):   # development instance: its own env file, code from this checkout, current user (never the production service account)
+        root = os.path.join(os.path.dirname(os.path.abspath(__file__)), "..")
+        return subprocess.run([sys.executable, "-m", "ics.cli", *args], cwd=root, capture_output=True, text=True,
+                              env={**os.environ, "ICS_ENV_FILE": os.environ["OU_DEMO_ICS_ENV"]})
     return subprocess.run(["sudo", "-u", "ics", ICS_PY, "-m", "ics.cli", *args], cwd="/opt/office-unbound/ics", capture_output=True, text=True)
 
 

@@ -23,6 +23,7 @@ import pymysql
 USER_RE = re.compile(r"^[A-Za-z0-9._%+-]{1,64}@[A-Za-z0-9.-]{1,190}$")
 DEV_RE = re.compile(r"^[A-Za-z0-9]{1,64}$")
 ACK = {4, 8, 32, 64}
+POLICY_OK = 1   # grommunio-sync reports "policy deployed" (status 1) after phase 2 of a normal provisioning; it must be answered 201 or sync drops the policy key
 CFG = json.load(open("/etc/ou-rb/wipe-api.json"))
 
 
@@ -95,7 +96,7 @@ class H(BaseHTTPRequestHandler):
             ts = int(body.get("time", time.time()))
         except (ValueError, KeyError, TypeError):
             return self._send(400, {"message": "bad request"})
-        if status not in ACK or not devs:
+        if status not in ACK | {POLICY_OK} or not devs:
             return self._send(403, {"message": "only device acknowledgements are accepted here"})
         c = db()
         try:
@@ -108,6 +109,13 @@ class H(BaseHTTPRequestHandler):
             for d in devs:
                 cur.execute("SELECT id, status FROM user_devices WHERE user_id=%s AND device_id=%s FOR UPDATE", (row[0], d))
                 dev = cur.fetchone()
+                if status == POLICY_OK:                 # never overwrites a requested/delivered wipe
+                    if dev is None:
+                        cur.execute("INSERT INTO user_devices (user_id, device_id, status) VALUES (%s, %s, 1)", (row[0], d))
+                    elif int(dev[1]) < 2:
+                        cur.execute("UPDATE user_devices SET status=1 WHERE id=%s", (dev[0],))
+                    done += 1
+                    continue
                 if dev is None or int(dev[1]) < 2:      # no wipe was requested for this device
                     continue
                 cur.execute("UPDATE user_devices SET status=%s WHERE id=%s", (status, dev[0]))

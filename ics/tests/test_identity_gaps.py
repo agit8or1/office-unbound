@@ -198,5 +198,19 @@ def test_new_runbooks_are_registered_with_fixed_template_units():
 def test_wipe_api_only_accepts_device_acknowledgements():
     """The HTTP surface of ou-wipe-api can never CREATE a wipe request (status 2/16): only the root helper writes those."""
     src = open(os.path.join(DEPLOY, "ou-wipe-api")).read()
-    assert "ACK = {4, 8, 32, 64}" in src and "status not in ACK" in src
+    assert "ACK = {4, 8, 32, 64}" in src and "status not in ACK | {POLICY_OK}" in src
     assert "if dev is None or int(dev[1]) < 2" in src                         # an ack for a device without a pending wipe is refused
+
+
+def test_wipe_happens_before_the_canary_credential_replaces_the_password(env, rt, world, monkeypatch):
+    """A device must still authenticate with the user's real credential: the wipe request (and wait) precede the canary rotation and the lock."""
+    from .test_identity import patch_probes
+    add_stack(rt, probe_client_id="probe")
+    patch_probes(monkeypatch, world)
+    create_user(env)
+    world.passwords["alice"] = "users-own-password"
+    world.devices["alice"] = {"phone1": 0}
+    job = env.run(env.plan("idm.user.disable", {"stack": "acme", "uid": "alice", "verify_timeout_seconds": 5, "wipe_devices": True, "wipe_wait_seconds": 5,
+                                                "rotate_credentials": True}))
+    assert job["status"] == "succeeded", job.get("error")
+    assert world.pw_at_wipe == "users-own-password" and world.passwords["alice"] != "users-own-password"

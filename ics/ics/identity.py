@@ -923,6 +923,8 @@ def exec_disable(rt: Runtime, db, m: UserDisable, plan, known: list[str]) -> dic
     sessions: dict = {}
     try:
         mail, uid = u.mail, m.uid
+        # 0. device wipe FIRST: devices must still authenticate with the user's real credential (the canary below replaces it) and the account must not be locked
+        wipe = _wipe_devices(rt, stack, uid, m.wipe_wait_seconds, known, steps) if m.wipe_devices else None
         # 1. optional canary credential: lets VERIFY present a VALID credential before and after the revocation (a refusal is then a real signal)
         if m.rotate_credentials and pc is not None:
             t = time.monotonic()
@@ -945,14 +947,13 @@ def exec_disable(rt: Runtime, db, m: UserDisable, plan, known: list[str]) -> dic
                 sessions["imap"] = idprobe.imap_open(pc, mail, canary)
                 baseline["imap_open_session"] = bool(sessions["imap"] and idprobe.imap_session_alive(sessions["imap"]))
             _step(steps, "verify.baseline", t, accepted_before_revocation={k: v for k, v in baseline.items()})
-        # 1b. things that need the account to be fully alive: device wipe delivery, OpenCloud app-token revocation (OpenCloud cannot resolve a locked user)
-        wipe = _wipe_devices(rt, stack, uid, m.wipe_wait_seconds, known, steps) if m.wipe_devices else None
+        # 1b. OpenCloud app-token revocation (OpenCloud cannot resolve a locked user)
         oc_tokens = None
         if stack.cfg.get("files_node_id"):
             t = time.monotonic()
             oc_tokens = agent_user(rt, stack.cfg["files_node_id"], "opencloud.revoke_app_tokens", uid, known)
             _step(steps, "opencloud.revoke_app_tokens", t, resolved=oc_tokens.get("resolved"), listed=oc_tokens.get("listed"), revoked=oc_tokens.get("revoked"),
-                  remaining=oc_tokens.get("remaining"), ok=oc_tokens.get("ok"))
+                  remaining=oc_tokens.get("remaining"), ok=oc_tokens.get("ok"), error=oc_tokens.get("error"))
         # 2. revocation, timed from the moment the account is locked
         t = time.monotonic()
         t_lock = time.monotonic()

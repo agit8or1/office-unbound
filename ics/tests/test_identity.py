@@ -62,6 +62,7 @@ class World:
         self.devices: dict = {}             # uid -> {device_id: wipe status}
         self.picks_up_after: int | None = None   # wipe is "delivered" after this many gromox.devices polls (None: never)
         self.polls = 0
+        self.pw_at_wipe = None
         self.kicked: list = []
         self.revoke_ok = True
         self.passwords: dict = {}
@@ -159,6 +160,7 @@ def world(monkeypatch):
         if action in ("gromox.wipe_devices", "gromox.devices"):
             devs = w.devices.get(uid, {})
             if action == "gromox.wipe_devices":
+                w.pw_at_wipe = w.passwords.get(uid)
                 w.polls = 0
                 for d in devs:
                     devs[d] = max(devs[d], 2)
