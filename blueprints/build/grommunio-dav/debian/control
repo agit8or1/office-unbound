@@ -8,7 +8,7 @@ Rules-Requires-Root: no
 
 Package: ou-grommunio-dav
 Architecture: all
-Depends: ${misc:Depends}, ou-mapi-header-php, ou-gromox-php-mapi, php-fpm, php-sqlite3, php-xml, php-mbstring, php-curl
+Depends: ${misc:Depends}, php-cli, ou-mapi-header-php, ou-gromox-php-mapi, php-fpm, php-sqlite3, php-xml, php-mbstring, php-curl
 Conflicts: grommunio-dav
 Replaces: grommunio-dav
 Provides: grommunio-dav

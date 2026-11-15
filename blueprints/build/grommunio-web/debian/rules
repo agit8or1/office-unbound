@@ -21,9 +21,12 @@ override_dh_auto_install:
 	cp -f debian/branding/grommunio-logo.svg debian/branding/grommunio_icon.svg \
 	  debian/branding/grommunio_icon_192.png debian/branding/grommunio_icon_512.png \
 	  debian/branding/favicon.ico debian/branding/grommunio.ico $(APP)/client/resources/images/
+	# the upstream build precompressed the old logos (.gz/.br): drop them or gzip_static would serve the old artwork
+	for f in grommunio-logo.svg grommunio_icon.svg favicon.ico grommunio.ico; do rm -f $(APP)/client/resources/images/$$f.gz $(APP)/client/resources/images/$$f.br; done
 	rm -f $(APP)/config.php $(APP)/debug.php
 	install -D -m0644 deploy/config.php.dist $(PKG)/etc/grommunio-web/config.php
 	ln -s /etc/grommunio-web/config.php $(APP)/config.php
+	install -D -m0644 debian/ou-grommunio-web.sysusers $(PKG)/usr/lib/sysusers.d/ou-grommunio-web.conf
 	install -d $(PKG)/usr/share/doc/ou-grommunio-web/examples
 	install -m0644 build/grommunio-web.conf build/grommunio-web-upstream.conf build/pool-grommunio-web.conf \
 	  $(PKG)/usr/share/doc/ou-grommunio-web/examples/
@@ -32,4 +35,4 @@ override_dh_auto_install:
 	install -D -m0644 build/grommunio-web-session-cleanup.timer $(PKG)/usr/lib/systemd/system/grommunio-web-session-cleanup.timer
 
 override_dh_installsystemd:
-	dh_installsystemd --no-enable --no-start --name=grommunio-web-session-cleanup grommunio-web-session-cleanup.timer
+	dh_installsystemd --no-enable --no-start

@@ -5,7 +5,7 @@
 #   repo.sh record-test <component> <suite-name> pass|fail <logfile>   record a test result for every package of the component
 #   repo.sh promote <from> <to> <component> [--approved-by NAME]       dev->staging->stable; ONLY if all tests passed
 #   repo.sh index <suite>                   regenerate + sign metadata of a suite
-#   repo.sh serve|unserve                   serve the repo read-only on the oulab zone bridge address ONLY (never the LAN)
+#   repo.sh serve|unserve                   serve the repo read-only to the oulab zone only, from a zone member (never the LAN)
 # Channels are separate suites with separate pools; the same .deb (same sha256) may exist in several channels.
 set -euo pipefail
 HERE=$(cd "$(dirname "$0")" && pwd)
@@ -40,16 +40,16 @@ keygen() {
 index() {
   s=$1; cd "$REPO"
   mkdir -p "pool/$s" "dists/$s/main/binary-$ARCH" "dists/$s/main/source"
-  apt-ftparchive packages "pool/$s" > "dists/$s/main/binary-$ARCH/Packages"
+  apt-ftparchive packages "pool/$s" 2>/dev/null > "dists/$s/main/binary-$ARCH/Packages"
   gzip -9nc "dists/$s/main/binary-$ARCH/Packages" > "dists/$s/main/binary-$ARCH/Packages.gz"
-  apt-ftparchive sources "pool/$s" > "dists/$s/main/source/Sources"
+  apt-ftparchive sources "pool/$s" 2>/dev/null > "dists/$s/main/source/Sources"
   gzip -9nc "dists/$s/main/source/Sources" > "dists/$s/main/source/Sources.gz"
   apt-ftparchive \
     -o APT::FTPArchive::Release::Origin="Office Unbound" -o APT::FTPArchive::Release::Label="Office Unbound ($s)" \
     -o APT::FTPArchive::Release::Suite="$s" -o APT::FTPArchive::Release::Codename="$s" \
     -o APT::FTPArchive::Release::Architectures="$ARCH" -o APT::FTPArchive::Release::Components="main" \
     -o APT::FTPArchive::Release::Description="Office Unbound lab channel $s (Debian 12)" \
-    release "dists/$s" > "dists/$s/Release.new"
+    release "dists/$s" 2>/dev/null > "dists/$s/Release.new"
   mv "dists/$s/Release.new" "dists/$s/Release"
   F=$(fpr); [ -n "$F" ] || { echo "no release key: run keygen"; exit 1; }
   sg --local-user "$F" --pinentry-mode loopback --passphrase '' --clearsign < "dists/$s/Release" > "dists/$s/InRelease.new"
@@ -64,7 +64,7 @@ pkgfiles() {  # <component> -> deb/dsc/tarball files built (no dbgsym)
 }
 
 publish() {
-  c=$1; d="$REPO/pool/dev/$c"; mkdir -p "$d"
+  c=$1; d="$REPO/pool/dev/$c"; rm -rf "$d"; mkdir -p "$d"   # a rebuilt component replaces its previous files
   for f in $(pkgfiles "$c"); do cp -p "$f" "$d/"; done
   index dev
 }
@@ -99,21 +99,21 @@ promote() {
       [ "$ok" = pass ] || { echo "REFUSED: $(basename "$f") has no passing '$t' test record (got '${ok:-none}')"; exit 3; }
     done
   done
-  mkdir -p "$REPO/pool/$to/$c"; cp -p "$src"/* "$REPO/pool/$to/$c/"
+  rm -rf "$REPO/pool/$to/$c"; mkdir -p "$REPO/pool/$to/$c"; cp -p "$src"/* "$REPO/pool/$to/$c/"
   echo "{\"component\":\"$c\",\"from\":\"$from\",\"to\":\"$to\",\"approved_by\":\"$approver\",\"at\":\"$(date -u +%FT%TZ)\",\"files\":\"$(cd "$src" && sha256sum ./* | sha256sum | cut -c1-16)\"}" >> "$REC/promotions/log.jsonl"
   index "$to"
 }
 
 serve() {
-  ip=$(ip -4 -o addr show | awk '/vz-oulab/ && !/169\.254/ {split($4,a,"/"); print a[1]; exit}')
-  [ -n "$ip" ] || { echo "cannot find the oulab zone bridge address"; exit 1; }
-  sudo systemctl stop ou-pkgrepo.service 2>/dev/null || true
-  sudo systemd-run --unit=ou-pkgrepo --description="Office Unbound lab package repo (zone only)" \
-    -p DynamicUser=yes -p ProtectSystem=strict -p ProtectHome=yes -p PrivateTmp=yes -p NoNewPrivileges=yes -p ReadOnlyPaths="$REPO" \
-    /usr/bin/python3 -m http.server 8077 --bind "$ip" --directory "$REPO" >/dev/null
-  echo "serving $REPO on http://$ip:8077/ (bound to the oulab zone bridge only)"
+  # The ICS host firewall (nspawn zone rules) drops zone -> host traffic, so the repo is served from a zone member:
+  # a copy of the public tree is pushed to the builder machine and served on its zone address only (never the LAN).
+  . "$BUILD/tools.env"
+  tar -C "$REPO" -c . | sudo systemd-run -M "$BUILDER" --wait --pipe -q /bin/bash -c 'rm -rf /srv/ou-repo; mkdir -p /srv/ou-repo; tar -C /srv/ou-repo -x'
+  ip=$(sudo systemd-run -M "$BUILDER" --wait --pipe -q /bin/bash -c "ip -4 -o addr show host0 | awk '{split(\$4,a,\"/\"); print a[1]; exit}'")
+  sudo systemd-run -M "$BUILDER" --wait --pipe -q /bin/bash -c "systemctl stop ou-pkgrepo.service 2>/dev/null; systemd-run --unit=ou-pkgrepo -p DynamicUser=yes -p ProtectSystem=strict -p NoNewPrivileges=yes -q /usr/bin/python3 -m http.server 8077 --bind $ip --directory /srv/ou-repo"
+  echo "serving the repo on http://$ip:8077/ (zone oulab, from $BUILDER); apt line: deb [signed-by=/usr/share/keyrings/ou-release-lab.gpg] http://$ip:8077 <channel> main"
 }
-unserve() { sudo systemctl stop ou-pkgrepo.service; }
+unserve() { . "$BUILD/tools.env"; sudo systemd-run -M "$BUILDER" --wait --pipe -q /bin/bash -c 'systemctl stop ou-pkgrepo.service'; }
 
 case "${1:-}" in
   keygen) keygen ;;

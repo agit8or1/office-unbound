@@ -15,11 +15,11 @@ override_dh_auto_install:
 	# upstream sudoers also grants a vendor update command; ship only what the API needs
 	rm -f $(PKG)/etc/sudoers.d/grommunio-sudo
 	install -D -m0440 debian/ou-admin-api.sudoers $(PKG)/etc/sudoers.d/ou-admin-api
+	install -D -m0644 debian/ou-admin-api.sysusers $(PKG)/usr/lib/sysusers.d/ou-admin-api.conf
 	install -D -m0644 debian/ou-pythonpath.conf $(PKG)/usr/lib/systemd/system/grommunio-admin-api.service.d/ou-pythonpath.conf
 
 override_dh_installsystemd:
-	dh_installsystemd --no-enable --no-start --name=grommunio-admin-api grommunio-admin-api.service
-	dh_installsystemd --no-enable --no-start --name=grommunio-admin-api grommunio-admin-api.socket
+	dh_installsystemd --no-enable --no-start
 
 override_dh_shlibdeps:
 	dh_shlibdeps -Xsite-packages

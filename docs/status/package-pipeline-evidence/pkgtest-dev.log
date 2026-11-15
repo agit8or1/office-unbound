@@ -1,0 +1,97 @@
+== pkgtest 2026-11-15T20:43:42Z suite=dev packages=ou-gromox ou-gromox-php-mapi ou-mapi-header-php ou-grommunio-sync ou-grommunio-dav ou-grommunio-web ou-admin-api key=5D2750D022E0218361518491CE58A8B691F84C1B
+base ready
+repo reachable over http: 200
+== 1. add only our signed repo, install
+gpg: Warning: using insecure memory!
+gpg: directory '/root/.gnupg' created
+gpg: keybox '/root/.gnupg/pubring.kbx' created
+gpg: /root/.gnupg/trustdb.gpg: trustdb created
+gpg: Warning: using insecure memory!
+Get:9 http://deb.debian.org/debian-security bookworm-security/main Translation-en [233 kB]
+Fetched 716 kB in 1s (836 kB/s)
+Reading package lists...
+--- sources in use:
+    deb http://deb.debian.org/debian bookworm main
+    deb http://deb.debian.org/debian bookworm-updates main
+    deb http://deb.debian.org/debian-security bookworm-security main
+    deb [signed-by=/usr/share/keyrings/ou-release-lab.gpg] http://127.0.0.1:8077 dev main
+ou-gromox:
+  Installed: (none)
+  Candidate: 3.13-ou1
+  Version table:
+     3.13-ou1 500
+        500 http://127.0.0.1:8077 dev/main amd64 Packages
+Processing triggers for libc-bin (2.36-9+deb12u14) ...
+Processing triggers for php8.2-cli (8.2.35-1~deb12u1) ...
+Processing triggers for php8.2-phpdbg (8.2.35-1~deb12u1) ...
+Processing triggers for php8.2-fpm (8.2.35-1~deb12u1) ...
+Package: ou-gromox Status: install ok installed Version: 3.13-ou1 
+Package: ou-gromox-php-mapi Status: install ok installed Version: 3.13-ou1 
+Package: ou-mapi-header-php Status: install ok installed Version: 2.4-ou1 
+Package: ou-grommunio-sync Status: install ok installed Version: 2.7-ou1 
+Package: ou-grommunio-dav Status: install ok installed Version: 1.9-ou1 
+Package: ou-grommunio-web Status: install ok installed Version: 5.2-ou1 
+Package: ou-admin-api Status: install ok installed Version: 1.21-ou1 
+== 2. signature enforcement (file:// copies of the same repo, tampered)
+PASS  baseline: untouched repo copy verifies and updates
+PASS  tampered InRelease (signed text modified) REFUSED (rc=100): Err:1 file:/tmp/tamper/tampered-inrelease/repo dev InRelease W: GPG error: file:/tmp/tamper/tampered-inrelease/repo dev InRelease: The following signatures were invalid: BADSIG CE58A8B691F84C1B Office Unbound Lab Release Signing <
+PASS  tampered Release with original Release.gpg REFUSED (rc=100): W: GPG error: file:/tmp/tamper/tampered-release-gpg/repo dev Release: The following signatures were invalid: BADSIG CE58A8B691F84C1B Office Unbound Lab Release Signing <release@officeunbound.com> E: The repository 'file:/tmp/tampe
+PASS  unsigned repository (Release only) REFUSED (rc=100): E: The repository 'file:/tmp/tamper/unsigned/repo dev Release' is not signed. 
+gpg: Warning: using insecure memory!
+gpg: checking the trustdb
+gpg: marginals needed: 3  completes needed: 1  trust model: pgp
+gpg: depth: 0  valid:   1  signed:   0  trust: 0-, 0q, 0n, 0m, 0f, 1u
+gpg: next trustdb check due at 2026-11-16
+gpg: Warning: using insecure memory!
+gpg: Warning: using insecure memory!
+PASS  repository signed by a different (attacker) key REFUSED (rc=100): Err:1 file:/tmp/tamper/wrong-key/repo dev InRelease W: GPG error: file:/tmp/tamper/wrong-key/repo dev InRelease: The following signatures couldn't be verified because the public key is not available: NO_PUBKEY 8E0FCE4BF92DFD2C 
+PASS  Packages index modified after signing REFUSED (rc=100): Err:2 file:/tmp/tamper/tampered-packages/repo dev/main amd64 Packages E: Failed to fetch file:/tmp/tamper/tampered-packages/repo/dists/dev/main/binary-amd64/Packages.gz  Hash Sum mismatch 
+PASS  package file modified after signing (ou-libhx) REFUSED (rc=100): Err:1 file:/tmp/tamper/tampered-deb/repo dev/main amd64 ou-libhx amd64 4.28-ou1 E: Failed to fetch file:/tmp/tamper/tampered-deb/repo/pool/dev/libhx/ou-libhx_4.28-ou1_amd64.deb  Hash Sum mismatch 
+PASS  deb not listed in the signed index is not installable (rc=100)
+RESULT tamper: pass=8 fail=0
+== 3. installed content / patch verification
+PASS  admin-api: user-cap checks removed from orm/users.py
+PASS  admin-api: licence portal call-home removed
+PASS  admin-api: default licence reports users=0 (unlimited), product 'Office Unbound'
+PASS  web: manifest says Office Unbound Web
+PASS  web: default title rebranded
+PASS  web: logo replaced
+PASS  web: no stale precompressed upstream logo
+INFO  web: .po catalogues still mentioning 'grommunio Web': 0 (not shipped as .po? grommunio_web.mo )
+PASS  conffile registered: /etc/grommunio-sync/config.php
+PASS  conffile registered: /etc/grommunio-dav/config.php
+PASS  conffile registered: /etc/grommunio-web/config.php
+RESULT verify: pass=10 fail=0
+== 4. smoke test
+grep: /etc/hosts: No such file or directory
+gromox user created by package postinst
+dbop: Creating altnames
+dbop: Creating disabled_plugins
+--- gromox units shipped:
+    gromox-cleaner.service static
+    gromox-delivery-queue.service disabled
+    gromox-delivery.service disabled
+    gromox-event.service disabled
+    gromox-http.service disabled
+    gromox-imap.service disabled
+    gromox-istore.service disabled
+    gromox-midb.service disabled
+    gromox-pop3.service disabled
+    gromox-snapshot.service static
+    gromox-timer.service disabled
+    gromox-zcore.service disabled
+    gromox-cleaner.timer disabled
+    gromox-snapshot.timer disabled
+PASS  service gromox-event active
+PASS  service gromox-timer active
+PASS  service gromox-midb active
+PASS  service gromox-zcore active
+PASS  service gromox-http active
+PASS  service gromox-delivery active
+PASS  service gromox-imap active
+IMAP greeting: * OK [CAPABILITY IMAP4rev1 XLIST SPECIAL-USE UNSELECT UIDPLU
+IMAP login+select INBOX: OK [b'0']
+PASS  IMAP login and SELECT INBOX
+PASS  EWS GetFolder inbox: HTTP 200, NoError=True
+RESULT smoke: pass=9 fail=0
+== done rc=0

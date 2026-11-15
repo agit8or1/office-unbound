@@ -1,0 +1,7 @@
+component=libhx
+repo=https://github.com/jengelh/libhx
+tag=v4.28
+commit=37aba2e4c56fc1253623797a6e72259ef7ecc79b
+source_date_epoch=1757507752
+signature=signed by pinned key id AEB6941A2F9C9944 (signature NOT cryptographically verified: public key not available from an authorized endpoint)
+orig_sha256=949ea5f8b5dd8d674c62f261e598492957d186e7568fd21870290cf8a7f02072

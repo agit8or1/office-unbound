@@ -8,7 +8,7 @@ Rules-Requires-Root: no
 
 Package: ou-grommunio-web
 Architecture: all
-Depends: ${misc:Depends}, ou-mapi-header-php, ou-gromox-php-mapi, php-fpm, php-gd, php-intl, php-mbstring, php-xml, php-curl, php-zip, php-sqlite3, php-redis
+Depends: ${misc:Depends}, php-cli, ou-mapi-header-php, ou-gromox-php-mapi, php-fpm, php-gd, php-intl, php-mbstring, php-xml, php-curl, php-zip, php-sqlite3, php-redis
 Recommends: nginx
 Conflicts: grommunio-web
 Replaces: grommunio-web

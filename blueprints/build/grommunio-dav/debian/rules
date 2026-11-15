@@ -8,9 +8,10 @@ override_dh_auto_build:
 override_dh_auto_test:
 override_dh_auto_install:
 	mkdir -p $(APP)
-	tar --exclude=./debian --exclude=./build --exclude=./doc --exclude=./tests --exclude=./config.php -cf - . | tar -C $(APP) -xf -
+	tar --exclude=./debian --exclude=./build --exclude=./doc --exclude=./tests --exclude=./config.php --exclude='./.[a-z]*' -cf - . | tar -C $(APP) -xf -
 	install -D -m0644 config.php $(PKG)/etc/grommunio-dav/config.php
 	ln -s /etc/grommunio-dav/config.php $(APP)/config.php
+	install -D -m0644 debian/ou-grommunio-dav.sysusers $(PKG)/usr/lib/sysusers.d/ou-grommunio-dav.conf
 	install -d $(PKG)/usr/share/doc/ou-grommunio-dav/examples
 	install -m0644 build/grommunio-dav.conf build/grommunio-dav-upstream.conf build/pool-grommunio-dav.conf \
 	  $(PKG)/usr/share/doc/ou-grommunio-dav/examples/

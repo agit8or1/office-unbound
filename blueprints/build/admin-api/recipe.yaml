@@ -14,9 +14,12 @@ verification:
 # builder step with network, before the network-less compile: python dependencies from PyPI, hash-pinned
 # (requirements.lock, `pip install --require-hashes`), installed into a private tree (--target), never the system python.
 prefetch: |
+  # C extensions (mysqlclient, systemd-python) are compiled from sdists by pip in random /tmp dirs: strip those paths and build ids
+  export TMPDIR=/tmp CFLAGS="-O2 -g0 -ffile-prefix-map=/tmp=/build-tmp -fdebug-prefix-map=/tmp=/build-tmp" LDFLAGS="-Wl,--build-id=none" SOURCE_DATE_EPOCH=$SOURCE_DATE_EPOCH PYTHONHASHSEED=0
   python3 -m venv /tmp/ou-pip && /tmp/ou-pip/bin/pip install --quiet --upgrade "pip==23.0.1"
   /tmp/ou-pip/bin/pip install --quiet --require-hashes --no-deps --target "$PWD/debian/pylib" -r "$PWD/debian/requirements.lock"
 packages: [ou-admin-api]
+bundles_lock_packages: true
 licenses: [AGPL-3.0-only, AGPL-3.0-or-later]
 inventory_match: "admin-api"
 patches:

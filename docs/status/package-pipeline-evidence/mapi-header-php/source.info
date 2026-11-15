@@ -1,0 +1,7 @@
+component=mapi-header-php
+repo=https://github.com/grommunio/mapi-header-php
+tag=2.4
+commit=99cf86a3a05dd52f5fffa74db347fac0a1969986
+source_date_epoch=1791629147
+signature=none
+orig_sha256=b4eb222c1abb908695c6f59f73658993db7de7dc628d7771f04011eec1b833d2

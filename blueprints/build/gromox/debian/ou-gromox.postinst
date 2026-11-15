@@ -1,0 +1,7 @@
+#!/bin/sh
+set -e
+# create users/groups gromox, gromoxcf from the upstream sysusers.d snippet before tmpfiles.d dirs are created (idempotent)
+if [ "$1" = configure ] && [ -x "$(command -v systemd-sysusers)" ]; then
+    systemd-sysusers sysusers-gromox.conf >/dev/null 2>&1 || true
+fi
+#DEBHELPER#

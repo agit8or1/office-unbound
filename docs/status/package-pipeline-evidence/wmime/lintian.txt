@@ -1,0 +1,11 @@
+A future release will drop --no-tag-display-limit; please use '--tag-display-limit 0' instead.
+running with root privileges is not recommended!
+W: ou-wmime: copyright-without-copyright-notice
+W: ou-wmime-dev: copyright-without-copyright-notice
+W: ou-wmime: debian-changelog-line-too-long [usr/share/doc/ou-wmime/changelog.Debian.gz:3]
+W: ou-wmime-dev: debian-changelog-line-too-long [usr/share/doc/ou-wmime-dev/changelog.Debian.gz:3]
+W: ou-wmime: package-name-doesnt-match-sonames libwmime3
+I: ou-wmime-dev: extended-description-is-probably-too-short
+I: ou-wmime: hardening-no-bindnow [usr/lib/x86_64-linux-gnu/libwmime.so.3.0.0]
+I: ou-wmime: no-symbols-control-file usr/lib/x86_64-linux-gnu/libwmime.so.3.0.0
+I: ou-wmime: spelling-error-in-binary protocolL protocol [usr/lib/x86_64-linux-gnu/libwmime.so.3.0.0]

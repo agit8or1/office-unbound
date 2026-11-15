@@ -1,0 +1,479 @@
+{
+ "SPDXID": "SPDXRef-DOCUMENT",
+ "creationInfo": {
+  "created": "2026-10-29T15:39:55Z",
+  "creators": [
+   "Organization: Office Unbound",
+   "Tool: ou-sbom-1 (blueprints/build/lib/sbom.py)"
+  ]
+ },
+ "dataLicense": "CC0-1.0",
+ "documentNamespace": "https://officeunbound.com/spdx/b9f857b4-4b68-56f3-93bc-db721c08dd62",
+ "name": "ou-gromox-3.13-ou1",
+ "packages": [
+  {
+   "SPDXID": "SPDXRef-Package",
+   "checksums": [
+    {
+     "algorithm": "SHA256",
+     "checksumValue": "60965d116491892974aa0b9b90e4350db60672855468a548f87e317cb2c3ad28"
+    }
+   ],
+   "copyrightText": "NOASSERTION",
+   "downloadLocation": "NOASSERTION",
+   "externalRefs": [
+    {
+     "referenceCategory": "PACKAGE-MANAGER",
+     "referenceLocator": "pkg:deb/officeunbound/ou-gromox@3.13-ou1?arch=amd64&distro=debian-12",
+     "referenceType": "purl"
+    }
+   ],
+   "filesAnalyzed": false,
+   "licenseComments": "declared source licences (SPDX ids / exception texts): AGPL-3.0-only, AGPL-3.0-or-later, GPL-2.0-only, GPL-2.0-or-later, GPL-3.0-only, GPL-3.0-or-later, linking exception, licensing exception, CC-BY-SA-4.0, MIT, BSD-2-Clause, BSD-3-Clause, ICU",
+   "licenseDeclared": "NOASSERTION",
+   "name": "ou-gromox",
+   "supplier": "Organization: Office Unbound",
+   "versionInfo": "3.13-ou1"
+  },
+  {
+   "SPDXID": "SPDXRef-Source",
+   "checksums": [
+    {
+     "algorithm": "SHA256",
+     "checksumValue": "e379eda15e3c8d6bf501aa50bb9d5431a59253c2d6924b390b5410d4df8cda0a"
+    }
+   ],
+   "comment": "checksum is of the deterministic git-archive orig tarball; commit pinned in recipe",
+   "copyrightText": "NOASSERTION",
+   "downloadLocation": "git+https://github.com/grommunio/gromox@8b620206f91b4766c48537b54575fe65e131abab",
+   "externalRefs": [
+    {
+     "referenceCategory": "PACKAGE-MANAGER",
+     "referenceLocator": "pkg:github/grommunio/gromox@8b620206f91b4766c48537b54575fe65e131abab",
+     "referenceType": "purl"
+    }
+   ],
+   "filesAnalyzed": false,
+   "licenseDeclared": "NOASSERTION",
+   "name": "ou-gromox-upstream",
+   "versionInfo": "gromox-3.13"
+  },
+  {
+   "SPDXID": "SPDXRef-Dep-1",
+   "comment": "runtime Depends; version = what the builder had installed",
+   "copyrightText": "NOASSERTION",
+   "downloadLocation": "NOASSERTION",
+   "externalRefs": [
+    {
+     "referenceCategory": "PACKAGE-MANAGER",
+     "referenceLocator": "pkg:deb/debian/libc6@2.36-9+deb12u14?arch=amd64&distro=debian-12",
+     "referenceType": "purl"
+    }
+   ],
+   "filesAnalyzed": false,
+   "licenseDeclared": "NOASSERTION",
+   "name": "libc6",
+   "versionInfo": "2.36-9+deb12u14"
+  },
+  {
+   "SPDXID": "SPDXRef-Dep-2",
+   "comment": "runtime Depends; version = what the builder had installed",
+   "copyrightText": "NOASSERTION",
+   "downloadLocation": "NOASSERTION",
+   "externalRefs": [
+    {
+     "referenceCategory": "PACKAGE-MANAGER",
+     "referenceLocator": "pkg:deb/debian/libcrypt1@1:4.4.33-2?arch=amd64&distro=debian-12",
+     "referenceType": "purl"
+    }
+   ],
+   "filesAnalyzed": false,
+   "licenseDeclared": "NOASSERTION",
+   "name": "libcrypt1",
+   "versionInfo": "1:4.4.33-2"
+  },
+  {
+   "SPDXID": "SPDXRef-Dep-3",
+   "comment": "runtime Depends; version = what the builder had installed",
+   "copyrightText": "NOASSERTION",
+   "downloadLocation": "NOASSERTION",
+   "externalRefs": [
+    {
+     "referenceCategory": "PACKAGE-MANAGER",
+     "referenceLocator": "pkg:deb/debian/libcurl4@7.88.1-10+deb12u15?arch=amd64&distro=debian-12",
+     "referenceType": "purl"
+    }
+   ],
+   "filesAnalyzed": false,
+   "licenseDeclared": "NOASSERTION",
+   "name": "libcurl4",
+   "versionInfo": "7.88.1-10+deb12u15"
+  },
+  {
+   "SPDXID": "SPDXRef-Dep-4",
+   "comment": "runtime Depends; version = what the builder had installed",
+   "copyrightText": "NOASSERTION",
+   "downloadLocation": "NOASSERTION",
+   "externalRefs": [
+    {
+     "referenceCategory": "PACKAGE-MANAGER",
+     "referenceLocator": "pkg:deb/debian/libfmt9@9.1.0+ds1-2?arch=amd64&distro=debian-12",
+     "referenceType": "purl"
+    }
+   ],
+   "filesAnalyzed": false,
+   "licenseDeclared": "NOASSERTION",
+   "name": "libfmt9",
+   "versionInfo": "9.1.0+ds1-2"
+  },
+  {
+   "SPDXID": "SPDXRef-Dep-5",
+   "comment": "runtime Depends; version = what the builder had installed",
+   "copyrightText": "NOASSERTION",
+   "downloadLocation": "NOASSERTION",
+   "externalRefs": [
+    {
+     "referenceCategory": "PACKAGE-MANAGER",
+     "referenceLocator": "pkg:deb/debian/libgcc-s1@12.2.0-14+deb12u1?arch=amd64&distro=debian-12",
+     "referenceType": "purl"
+    }
+   ],
+   "filesAnalyzed": false,
+   "licenseDeclared": "NOASSERTION",
+   "name": "libgcc-s1",
+   "versionInfo": "12.2.0-14+deb12u1"
+  },
+  {
+   "SPDXID": "SPDXRef-Dep-6",
+   "comment": "runtime Depends; version = what the builder had installed",
+   "copyrightText": "NOASSERTION",
+   "downloadLocation": "NOASSERTION",
+   "externalRefs": [
+    {
+     "referenceCategory": "PACKAGE-MANAGER",
+     "referenceLocator": "pkg:deb/debian/libgssapi-krb5-2@1.20.1-2+deb12u5?arch=amd64&distro=debian-12",
+     "referenceType": "purl"
+    }
+   ],
+   "filesAnalyzed": false,
+   "licenseDeclared": "NOASSERTION",
+   "name": "libgssapi-krb5-2",
+   "versionInfo": "1.20.1-2+deb12u5"
+  },
+  {
+   "SPDXID": "SPDXRef-Dep-7",
+   "comment": "runtime Depends; version = what the builder had installed",
+   "copyrightText": "NOASSERTION",
+   "downloadLocation": "NOASSERTION",
+   "externalRefs": [
+    {
+     "referenceCategory": "PACKAGE-MANAGER",
+     "referenceLocator": "pkg:deb/debian/libjsoncpp25@1.9.5-4?arch=amd64&distro=debian-12",
+     "referenceType": "purl"
+    }
+   ],
+   "filesAnalyzed": false,
+   "licenseDeclared": "NOASSERTION",
+   "name": "libjsoncpp25",
+   "versionInfo": "1.9.5-4"
+  },
+  {
+   "SPDXID": "SPDXRef-Dep-8",
+   "comment": "runtime Depends; version = what the builder had installed",
+   "copyrightText": "NOASSERTION",
+   "downloadLocation": "NOASSERTION",
+   "externalRefs": [
+    {
+     "referenceCategory": "PACKAGE-MANAGER",
+     "referenceLocator": "pkg:deb/debian/libldap-2.5-0@2.5.13+dfsg-5?arch=amd64&distro=debian-12",
+     "referenceType": "purl"
+    }
+   ],
+   "filesAnalyzed": false,
+   "licenseDeclared": "NOASSERTION",
+   "name": "libldap-2.5-0",
+   "versionInfo": "2.5.13+dfsg-5"
+  },
+  {
+   "SPDXID": "SPDXRef-Dep-9",
+   "comment": "runtime Depends; version = what the builder had installed",
+   "copyrightText": "NOASSERTION",
+   "downloadLocation": "NOASSERTION",
+   "externalRefs": [
+    {
+     "referenceCategory": "PACKAGE-MANAGER",
+     "referenceLocator": "pkg:deb/debian/libmariadb3@1:10.11.19-0+deb12u1?arch=amd64&distro=debian-12",
+     "referenceType": "purl"
+    }
+   ],
+   "filesAnalyzed": false,
+   "licenseDeclared": "NOASSERTION",
+   "name": "libmariadb3",
+   "versionInfo": "1:10.11.19-0+deb12u1"
+  },
+  {
+   "SPDXID": "SPDXRef-Dep-10",
+   "comment": "runtime Depends; version = what the builder had installed",
+   "copyrightText": "NOASSERTION",
+   "downloadLocation": "NOASSERTION",
+   "externalRefs": [
+    {
+     "referenceCategory": "PACKAGE-MANAGER",
+     "referenceLocator": "pkg:deb/debian/libpam0g@1.5.2-6+deb12u2?arch=amd64&distro=debian-12",
+     "referenceType": "purl"
+    }
+   ],
+   "filesAnalyzed": false,
+   "licenseDeclared": "NOASSERTION",
+   "name": "libpam0g",
+   "versionInfo": "1.5.2-6+deb12u2"
+  },
+  {
+   "SPDXID": "SPDXRef-Dep-11",
+   "comment": "runtime Depends; version = what the builder had installed",
+   "copyrightText": "NOASSERTION",
+   "downloadLocation": "NOASSERTION",
+   "externalRefs": [
+    {
+     "referenceCategory": "PACKAGE-MANAGER",
+     "referenceLocator": "pkg:deb/debian/libsqlite3-0@3.40.1-2+deb12u2?arch=amd64&distro=debian-12",
+     "referenceType": "purl"
+    }
+   ],
+   "filesAnalyzed": false,
+   "licenseDeclared": "NOASSERTION",
+   "name": "libsqlite3-0",
+   "versionInfo": "3.40.1-2+deb12u2"
+  },
+  {
+   "SPDXID": "SPDXRef-Dep-12",
+   "comment": "runtime Depends; version = what the builder had installed",
+   "copyrightText": "NOASSERTION",
+   "downloadLocation": "NOASSERTION",
+   "externalRefs": [
+    {
+     "referenceCategory": "PACKAGE-MANAGER",
+     "referenceLocator": "pkg:deb/debian/libssl3@3.0.22-1~deb12u2?arch=amd64&distro=debian-12",
+     "referenceType": "purl"
+    }
+   ],
+   "filesAnalyzed": false,
+   "licenseDeclared": "NOASSERTION",
+   "name": "libssl3",
+   "versionInfo": "3.0.22-1~deb12u2"
+  },
+  {
+   "SPDXID": "SPDXRef-Dep-13",
+   "comment": "runtime Depends; version = what the builder had installed",
+   "copyrightText": "NOASSERTION",
+   "downloadLocation": "NOASSERTION",
+   "externalRefs": [
+    {
+     "referenceCategory": "PACKAGE-MANAGER",
+     "referenceLocator": "pkg:deb/debian/libstdc++6@12.2.0-14+deb12u1?arch=amd64&distro=debian-12",
+     "referenceType": "purl"
+    }
+   ],
+   "filesAnalyzed": false,
+   "licenseDeclared": "NOASSERTION",
+   "name": "libstdc++6",
+   "versionInfo": "12.2.0-14+deb12u1"
+  },
+  {
+   "SPDXID": "SPDXRef-Dep-14",
+   "comment": "runtime Depends; version = what the builder had installed",
+   "copyrightText": "NOASSERTION",
+   "downloadLocation": "NOASSERTION",
+   "externalRefs": [
+    {
+     "referenceCategory": "PACKAGE-MANAGER",
+     "referenceLocator": "pkg:deb/debian/libtinyxml2-9@9.0.0+dfsg-3.1?arch=amd64&distro=debian-12",
+     "referenceType": "purl"
+    }
+   ],
+   "filesAnalyzed": false,
+   "licenseDeclared": "NOASSERTION",
+   "name": "libtinyxml2-9",
+   "versionInfo": "9.0.0+dfsg-3.1"
+  },
+  {
+   "SPDXID": "SPDXRef-Dep-15",
+   "comment": "runtime Depends; version = what the builder had installed",
+   "copyrightText": "NOASSERTION",
+   "downloadLocation": "NOASSERTION",
+   "externalRefs": [
+    {
+     "referenceCategory": "PACKAGE-MANAGER",
+     "referenceLocator": "pkg:deb/debian/libxml2@2.9.14+dfsg-1.3~deb12u6?arch=amd64&distro=debian-12",
+     "referenceType": "purl"
+    }
+   ],
+   "filesAnalyzed": false,
+   "licenseDeclared": "NOASSERTION",
+   "name": "libxml2",
+   "versionInfo": "2.9.14+dfsg-1.3~deb12u6"
+  },
+  {
+   "SPDXID": "SPDXRef-Dep-16",
+   "comment": "runtime Depends; version = what the builder had installed",
+   "copyrightText": "NOASSERTION",
+   "downloadLocation": "NOASSERTION",
+   "externalRefs": [
+    {
+     "referenceCategory": "PACKAGE-MANAGER",
+     "referenceLocator": "pkg:deb/debian/libzstd1@1.5.4+dfsg2-5?arch=amd64&distro=debian-12",
+     "referenceType": "purl"
+    }
+   ],
+   "filesAnalyzed": false,
+   "licenseDeclared": "NOASSERTION",
+   "name": "libzstd1",
+   "versionInfo": "1.5.4+dfsg2-5"
+  },
+  {
+   "SPDXID": "SPDXRef-Dep-17",
+   "comment": "runtime Depends; version = what the builder had installed",
+   "copyrightText": "NOASSERTION",
+   "downloadLocation": "NOASSERTION",
+   "filesAnalyzed": false,
+   "licenseDeclared": "NOASSERTION",
+   "name": "ou-libhx",
+   "versionInfo": "4.28-ou1"
+  },
+  {
+   "SPDXID": "SPDXRef-Dep-18",
+   "comment": "runtime Depends; version = what the builder had installed",
+   "copyrightText": "NOASSERTION",
+   "downloadLocation": "NOASSERTION",
+   "filesAnalyzed": false,
+   "licenseDeclared": "NOASSERTION",
+   "name": "ou-wmime",
+   "versionInfo": "1.2.0-ou1"
+  },
+  {
+   "SPDXID": "SPDXRef-Dep-19",
+   "comment": "runtime Depends; version = what the builder had installed",
+   "copyrightText": "NOASSERTION",
+   "downloadLocation": "NOASSERTION",
+   "externalRefs": [
+    {
+     "referenceCategory": "PACKAGE-MANAGER",
+     "referenceLocator": "pkg:deb/debian/zlib1g@1:1.2.13.dfsg-1?arch=amd64&distro=debian-12",
+     "referenceType": "purl"
+    }
+   ],
+   "filesAnalyzed": false,
+   "licenseDeclared": "NOASSERTION",
+   "name": "zlib1g",
+   "versionInfo": "1:1.2.13.dfsg-1"
+  }
+ ],
+ "relationships": [
+  {
+   "relatedSpdxElement": "SPDXRef-Package",
+   "relationshipType": "DESCRIBES",
+   "spdxElementId": "SPDXRef-DOCUMENT"
+  },
+  {
+   "relatedSpdxElement": "SPDXRef-Source",
+   "relationshipType": "GENERATED_FROM",
+   "spdxElementId": "SPDXRef-Package"
+  },
+  {
+   "relatedSpdxElement": "SPDXRef-Dep-1",
+   "relationshipType": "DEPENDS_ON",
+   "spdxElementId": "SPDXRef-Package"
+  },
+  {
+   "relatedSpdxElement": "SPDXRef-Dep-2",
+   "relationshipType": "DEPENDS_ON",
+   "spdxElementId": "SPDXRef-Package"
+  },
+  {
+   "relatedSpdxElement": "SPDXRef-Dep-3",
+   "relationshipType": "DEPENDS_ON",
+   "spdxElementId": "SPDXRef-Package"
+  },
+  {
+   "relatedSpdxElement": "SPDXRef-Dep-4",
+   "relationshipType": "DEPENDS_ON",
+   "spdxElementId": "SPDXRef-Package"
+  },
+  {
+   "relatedSpdxElement": "SPDXRef-Dep-5",
+   "relationshipType": "DEPENDS_ON",
+   "spdxElementId": "SPDXRef-Package"
+  },
+  {
+   "relatedSpdxElement": "SPDXRef-Dep-6",
+   "relationshipType": "DEPENDS_ON",
+   "spdxElementId": "SPDXRef-Package"
+  },
+  {
+   "relatedSpdxElement": "SPDXRef-Dep-7",
+   "relationshipType": "DEPENDS_ON",
+   "spdxElementId": "SPDXRef-Package"
+  },
+  {
+   "relatedSpdxElement": "SPDXRef-Dep-8",
+   "relationshipType": "DEPENDS_ON",
+   "spdxElementId": "SPDXRef-Package"
+  },
+  {
+   "relatedSpdxElement": "SPDXRef-Dep-9",
+   "relationshipType": "DEPENDS_ON",
+   "spdxElementId": "SPDXRef-Package"
+  },
+  {
+   "relatedSpdxElement": "SPDXRef-Dep-10",
+   "relationshipType": "DEPENDS_ON",
+   "spdxElementId": "SPDXRef-Package"
+  },
+  {
+   "relatedSpdxElement": "SPDXRef-Dep-11",
+   "relationshipType": "DEPENDS_ON",
+   "spdxElementId": "SPDXRef-Package"
+  },
+  {
+   "relatedSpdxElement": "SPDXRef-Dep-12",
+   "relationshipType": "DEPENDS_ON",
+   "spdxElementId": "SPDXRef-Package"
+  },
+  {
+   "relatedSpdxElement": "SPDXRef-Dep-13",
+   "relationshipType": "DEPENDS_ON",
+   "spdxElementId": "SPDXRef-Package"
+  },
+  {
+   "relatedSpdxElement": "SPDXRef-Dep-14",
+   "relationshipType": "DEPENDS_ON",
+   "spdxElementId": "SPDXRef-Package"
+  },
+  {
+   "relatedSpdxElement": "SPDXRef-Dep-15",
+   "relationshipType": "DEPENDS_ON",
+   "spdxElementId": "SPDXRef-Package"
+  },
+  {
+   "relatedSpdxElement": "SPDXRef-Dep-16",
+   "relationshipType": "DEPENDS_ON",
+   "spdxElementId": "SPDXRef-Package"
+  },
+  {
+   "relatedSpdxElement": "SPDXRef-Dep-17",
+   "relationshipType": "DEPENDS_ON",
+   "spdxElementId": "SPDXRef-Package"
+  },
+  {
+   "relatedSpdxElement": "SPDXRef-Dep-18",
+   "relationshipType": "DEPENDS_ON",
+   "spdxElementId": "SPDXRef-Package"
+  },
+  {
+   "relatedSpdxElement": "SPDXRef-Dep-19",
+   "relationshipType": "DEPENDS_ON",
+   "spdxElementId": "SPDXRef-Package"
+  }
+ ],
+ "spdxVersion": "SPDX-2.3"
+}

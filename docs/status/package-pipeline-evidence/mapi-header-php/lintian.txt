@@ -1,0 +1,4 @@
+A future release will drop --no-tag-display-limit; please use '--tag-display-limit 0' instead.
+running with root privileges is not recommended!
+W: ou-mapi-header-php: copyright-without-copyright-notice
+W: ou-mapi-header-php: debian-changelog-line-too-long [usr/share/doc/ou-mapi-header-php/changelog.Debian.gz:3]

@@ -35,7 +35,8 @@ install_pkgs() {
 smoke() {
   DOM=pkgtest.ou-lab.internal; U=smoke1; PW=$(openssl rand -hex 8); DBPASS=$(openssl rand -hex 12)
   apt-get install -y -q --no-install-recommends mariadb-server python3 sqlite3 openssl >/dev/null 2>&1
-  systemd-sysusers /usr/lib/sysusers.d/*gromox*.conf 2>&1 | tail -1; systemd-tmpfiles --create 2>&1 | tail -1
+  grep -q "$DOM" /etc/hosts || echo "127.0.1.1 $(hostname) $DOM" >> /etc/hosts
+  getent passwd gromox >/dev/null && echo 'gromox user created by package postinst' || echo 'MISSING gromox user'
   install -d -o gromox -g gromox -m 0770 /var/lib/gromox /var/lib/gromox/user /var/lib/gromox/domain /var/lib/gromox/queue /var/lib/gromox/queue/mess /var/lib/gromox/queue/save /var/lib/gromox/queue/cache /var/log/gromox
   install -d -o root -g gromoxcf -m 0750 /etc/gromox
   systemctl enable --now mariadb >/dev/null 2>&1
@@ -109,6 +110,28 @@ PY
   echo "$out"; PASS=$((PASS+$(echo "$out" | grep -c '^PASS'))); FAIL=$((FAIL+$(echo "$out" | grep -c '^FAIL')))
 }
 
+# ---------------- patch / content verification of the installed packages ----------------
+verify() {
+  A=/usr/share/grommunio-admin-api
+  if [ -d $A ]; then
+    [ "$(grep -c 'License user limit' $A/orm/users.py)" = 0 ] && ok "admin-api: user-cap checks removed from orm/users.py" || no "admin-api: user cap still present"
+    ! grep -q 'portal.grommunio.com' $A/endpoints/system/misc.py && ok "admin-api: licence portal call-home removed" || no "admin-api: portal URL still present"
+    out=$(cd $A && PYTHONPATH=/usr/lib/ou-admin-api/site-packages python3 -c "import tools.license as l; print(l.getLicense().users, l.getLicense().product)" 2>&1 | tail -1)
+    [ "$out" = "0 Office Unbound" ] && ok "admin-api: default licence reports users=0 (unlimited), product 'Office Unbound'" || echo "INFO  admin-api python import check: $out"
+  fi
+  W=/usr/share/grommunio-web
+  if [ -d $W ]; then
+    grep -q "Office Unbound Web" $W/manifest.webmanifest && ok "web: manifest says Office Unbound Web" || no "web: manifest not rebranded"
+    grep -q 'WEBAPP_TITLE", "Office Unbound Web"' /etc/grommunio-web/config.php && ok "web: default title rebranded" || no "web: title not rebranded"
+    grep -q "Office Unbound" $W/client/resources/images/grommunio-logo.svg && ok "web: logo replaced" || no "web: logo not replaced"
+    [ ! -e $W/client/resources/images/grommunio-logo.svg.gz ] && ok "web: no stale precompressed upstream logo" || no "web: stale .gz logo"
+    n=$(grep -rl "grommunio Web" $W/server/language/*/LC_MESSAGES/*.po 2>/dev/null | wc -l)
+    echo "INFO  web: .po catalogues still mentioning 'grommunio Web': $n (not shipped as .po? $(ls $W/server/language/en_GB/LC_MESSAGES 2>/dev/null | tr '\n' ' '))"
+  fi
+  for f in /etc/grommunio-sync/config.php /etc/grommunio-dav/config.php /etc/grommunio-web/config.php; do [ -e "$f" ] && grep -qx "$f" <(dpkg-query -W -f='${Conffiles}\n' 'ou-*' | awk '{print $1}') && ok "conffile registered: $f"; done
+  echo "RESULT verify: pass=$PASS fail=$FAIL"
+}
+
 # ---------------- signature enforcement ----------------
 apt_with() { # <dir> <args...>: apt using only the sources in <dir>/sources.list
   d=$1; shift
@@ -165,7 +188,7 @@ PY
   [ -n "$deb" ] || deb=$(ls "$d"/repo/pool/$SUITE/*/*.deb | head -1)
   printf 'X' >> "$deb"
   pk=$(basename "$deb" | cut -d_ -f1)
-  expect_fail "package file modified after signing ($pk)" "$d" install --download-only -y "$pk"
+  expect_fail "package file modified after signing ($pk)" "$d" install --download-only --reinstall -y "$pk"
   d=$(mkcase rogue-deb)
   cp "$deb" "$d/repo/pool/$SUITE/rogue_1.0_amd64.deb" 2>/dev/null
   apt_with "$d" update >/dev/null 2>&1
@@ -178,6 +201,7 @@ cmd=${1:-}; shift || true
 case "$cmd" in
   setup) setup "$@" ;;
   install) install_pkgs "$@" ;;
+  verify) verify ;;
   smoke) smoke; echo "RESULT smoke: pass=$PASS fail=$FAIL" ;;
   tamper) tamper "$@" ;;
   *) echo "usage: $0 setup|install|smoke|tamper" ;;

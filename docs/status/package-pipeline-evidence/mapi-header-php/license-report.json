@@ -1,0 +1,14 @@
+{
+ "bundled_licences": {},
+ "bundled_packages": 0,
+ "component": "mapi-header-php",
+ "files_scanned": 49,
+ "in_inventory": true,
+ "problems": [],
+ "result": "PASS",
+ "spdx_found": {
+  "AGPL-3.0-only": 35,
+  "file:AGPL-3.0-only": 1
+ },
+ "warnings": []
+}

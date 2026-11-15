@@ -18,5 +18,8 @@ We build and ship our own distributions of: gromox (+libHX, wmime), groupware we
 ## Upstream tracking
 Weekly upstream release check per component; security-relevant commits flagged (Collabora: DoS fixes have no CVE → read commit logs). Owner per component recorded in the inventory.
 
+## Implementation status (2026-11-15)
+Built and exercised for the groupware stack (libHX, wmime, Gromox, mapi-header-php, sync, dav, web, admin-api): recipes, Debian 12 builder `ou-pkg1`, SBOM + licence + vulnerability scan, signed apt repo with dev/staging/stable and test-gated promotion, fresh-install and signature-enforcement tests. Details, observations and open work: `docs/status/package-pipeline-results.md`; code: `blueprints/build/`.
+
 ## Not yet built
-Recipes, builder machine, signing key ceremony, apt repo hosting. First recipe target: gromox (from the lab build script).
+Collabora recipe (script exists, not yet a recipe/.deb), offline signing key ceremony (the lab key is on the ICS host), dedicated builder host, ICS-driven approval/promotion, customer channel pinning and upgrade/rollback jobs, admin-web, libexmdbpp, grommunio-index.

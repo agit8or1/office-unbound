@@ -9,7 +9,7 @@ Rules-Requires-Root: no
 
 Package: ou-admin-api
 Architecture: any
-Depends: ${shlibs:Depends}, ${misc:Depends}, python3 (>= 3.11), uwsgi-plugin-python3, uwsgi-core, sudo
+Depends: ${shlibs:Depends}, ${misc:Depends}, python3 (>= 3.11), libmariadb3, libsystemd0, uwsgi-plugin-python3, uwsgi-core, sudo
 Recommends: nginx, redis-server
 Conflicts: grommunio-admin-api
 Replaces: grommunio-admin-api

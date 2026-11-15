@@ -86,6 +86,12 @@ def lock_pkgs(srcdir):
 
 srcdir = os.path.join(state, "src", recipe["src_name"])
 bundled = lock_pkgs(srcdir)
+pyl = os.path.join(bdir, comp, "debian", "requirements.lock")
+if os.path.exists(pyl):   # hash-locked PyPI packages shipped in the package (admin-api)
+    for l in open(pyl):
+        m = re.match(r"^([A-Za-z0-9_.-]+)==([^\s\\]+)", l)
+        if m:
+            bundled.append(("pypi", m.group(1).lower(), m.group(2), None))
 debs = sorted(f for f in os.listdir(art) if f.endswith(".deb") and "-dbgsym_" not in f)
 syft = None
 index = []

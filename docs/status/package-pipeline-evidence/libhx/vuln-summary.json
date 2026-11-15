@@ -1,0 +1,16 @@
+[
+ {
+  "sbom": "ou-libhx-dev_4.28-ou1.spdx.json",
+  "packages_scanned": 2,
+  "vulnerable_packages": 0,
+  "osv_scanner": "2.7.1",
+  "advisories": []
+ },
+ {
+  "sbom": "ou-libhx_4.28-ou1.spdx.json",
+  "packages_scanned": 3,
+  "vulnerable_packages": 0,
+  "osv_scanner": "2.7.1",
+  "advisories": []
+ }
+]

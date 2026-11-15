@@ -24,21 +24,23 @@ sudo machinectl clone "$BUILDER_BASE" "$TESTER"
 printf '[Exec]\nBoot=yes\nPrivateUsers=pick\n[Network]\nZone=oulab\n' | sudo tee "/etc/systemd/nspawn/$TESTER.nspawn" >/dev/null
 sudo machinectl start "$TESTER"; sudo systemctl set-property "systemd-nspawn@$TESTER.service" MemoryMax="$TESTER_MEM"
 sleep 10
-"$BUILD/repo/repo.sh" serve
-IP=$(ip -4 -o addr show | awk '/vz-oulab/ && !/169\.254/ {split($4,a,"/"); print a[1]; exit}')
 inm "apt-get update -q >/dev/null 2>&1; apt-get install -y -q --no-install-recommends gnupg ca-certificates curl python3 >/dev/null 2>&1; echo base ready"
 # ship public key + guest script (tester never sees the private key)
 tar -C "$BUILD/keys" -c ou-release-lab.pub.asc | sudo systemd-run -M "$TESTER" --wait --pipe -q /bin/bash -c 'tar -C /tmp -x'
 tar -C "$HERE" -c pkgtest-guest.sh | sudo systemd-run -M "$TESTER" --wait --pipe -q /bin/bash -c 'tar -C /root -x'
+# the repo (public data only) is copied into the tester and served there on 127.0.0.1: real HTTP transport, nothing listens
+# on the LAN or the zone (the ICS host firewall does not accept zone -> host 8077 either; see package-pipeline-results.md)
+tar -C "$STATE/repo" -c . | sudo systemd-run -M "$TESTER" --wait --pipe -q /bin/bash -c 'rm -rf /tmp/ou-repo-good; mkdir -p /tmp/ou-repo-good; tar -C /tmp/ou-repo-good -x'
+inm "systemd-run --unit=ou-repo-http -q /usr/bin/python3 -m http.server 8077 --bind 127.0.0.1 --directory /tmp/ou-repo-good; sleep 2; curl -fsS -o /dev/null -w 'repo reachable over http: %{http_code}\n' http://127.0.0.1:8077/dists/$SUITE/InRelease"
 echo "== 1. add only our signed repo, install"
-inm "bash /root/pkgtest-guest.sh setup http://$IP:8077 $SUITE $FPR"
+inm "bash /root/pkgtest-guest.sh setup http://127.0.0.1:8077 $SUITE $FPR"
 inm "bash /root/pkgtest-guest.sh install $PKGS"
 echo "== 2. signature enforcement (file:// copies of the same repo, tampered)"
-tar -C "$STATE/repo" -c . | sudo systemd-run -M "$TESTER" --wait --pipe -q /bin/bash -c 'rm -rf /tmp/ou-repo-good; mkdir -p /tmp/ou-repo-good; tar -C /tmp/ou-repo-good -x'
 rc=0
 inm "bash /root/pkgtest-guest.sh tamper $SUITE" || rc=1
-echo "== 3. smoke test"
+echo "== 3. installed content / patch verification"
+inm "bash /root/pkgtest-guest.sh verify" || rc=1
+echo "== 4. smoke test"
 inm "bash /root/pkgtest-guest.sh smoke" || rc=1
 echo "== done rc=$rc"
-"$BUILD/repo/repo.sh" unserve || true
 exit $rc

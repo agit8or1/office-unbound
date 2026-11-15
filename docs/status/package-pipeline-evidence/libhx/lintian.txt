@@ -1,0 +1,11 @@
+A future release will drop --no-tag-display-limit; please use '--tag-display-limit 0' instead.
+running with root privileges is not recommended!
+W: ou-libhx: copyright-without-copyright-notice
+W: ou-libhx-dev: copyright-without-copyright-notice
+W: ou-libhx: debian-changelog-line-too-long [usr/share/doc/ou-libhx/changelog.Debian.gz:3]
+W: ou-libhx-dev: debian-changelog-line-too-long [usr/share/doc/ou-libhx-dev/changelog.Debian.gz:3]
+W: ou-libhx: package-name-doesnt-match-sonames libHX32
+I: ou-libhx source: debian-watch-file-is-missing
+I: ou-libhx-dev: extended-description-is-probably-too-short
+I: ou-libhx: hardening-no-bindnow [usr/lib/x86_64-linux-gnu/libHX.so.32.9.0]
+I: ou-libhx: no-symbols-control-file usr/lib/x86_64-linux-gnu/libHX.so.32.9.0

@@ -1,0 +1,1290 @@
+{
+ "SPDXID": "SPDXRef-DOCUMENT",
+ "creationInfo": {
+  "created": "2026-08-31T12:44:14Z",
+  "creators": [
+   "Organization: Office Unbound",
+   "Tool: ou-sbom-1 (blueprints/build/lib/sbom.py)"
+  ]
+ },
+ "dataLicense": "CC0-1.0",
+ "documentNamespace": "https://officeunbound.com/spdx/6f99afe3-b2c2-5c9a-bf2c-0403ef7de7f2",
+ "name": "ou-admin-api-1.21-ou1",
+ "packages": [
+  {
+   "SPDXID": "SPDXRef-Package",
+   "checksums": [
+    {
+     "algorithm": "SHA256",
+     "checksumValue": "3b9fafb1ffa60acfb1952042af1bb5708f8d79c97c2e79307dcd492fc23e7e0d"
+    }
+   ],
+   "copyrightText": "NOASSERTION",
+   "downloadLocation": "NOASSERTION",
+   "externalRefs": [
+    {
+     "referenceCategory": "PACKAGE-MANAGER",
+     "referenceLocator": "pkg:deb/officeunbound/ou-admin-api@1.21-ou1?arch=amd64&distro=debian-12",
+     "referenceType": "purl"
+    }
+   ],
+   "filesAnalyzed": false,
+   "licenseComments": "declared source licences (SPDX ids / exception texts): AGPL-3.0-only, AGPL-3.0-or-later",
+   "licenseDeclared": "NOASSERTION",
+   "name": "ou-admin-api",
+   "supplier": "Organization: Office Unbound",
+   "versionInfo": "1.21-ou1"
+  },
+  {
+   "SPDXID": "SPDXRef-Source",
+   "checksums": [
+    {
+     "algorithm": "SHA256",
+     "checksumValue": "bb714bf510f471cf1838781244ad21ab8e02eff972c21e49c26ba759cfe034f8"
+    }
+   ],
+   "comment": "checksum is of the deterministic git-archive orig tarball; commit pinned in recipe",
+   "copyrightText": "NOASSERTION",
+   "downloadLocation": "git+https://github.com/grommunio/admin-api@49b16fc13f04b1bb1486c3e7d29f581bd2a7de15",
+   "externalRefs": [
+    {
+     "referenceCategory": "PACKAGE-MANAGER",
+     "referenceLocator": "pkg:github/grommunio/admin-api@49b16fc13f04b1bb1486c3e7d29f581bd2a7de15",
+     "referenceType": "purl"
+    }
+   ],
+   "filesAnalyzed": false,
+   "licenseDeclared": "NOASSERTION",
+   "name": "ou-admin-api-upstream",
+   "versionInfo": "1.21"
+  },
+  {
+   "SPDXID": "SPDXRef-Patch-0001-remove-user-cap.patch",
+   "checksums": [
+    {
+     "algorithm": "SHA256",
+     "checksumValue": "ed30a761495dfcec000838b0c87eb7ad0eafbadeb60d854f4eca1f851444f43a"
+    }
+   ],
+   "copyrightText": "NOASSERTION",
+   "downloadLocation": "NOASSERTION",
+   "filesAnalyzed": false,
+   "licenseDeclared": "NOASSERTION",
+   "name": "0001-remove-user-cap.patch"
+  },
+  {
+   "SPDXID": "SPDXRef-Patch-0002-no-licence-portal-callhome.patch",
+   "checksums": [
+    {
+     "algorithm": "SHA256",
+     "checksumValue": "30604125825ba76401efac420a88704791ac26c388fb63d21f3ca63abcb3dcc2"
+    }
+   ],
+   "copyrightText": "NOASSERTION",
+   "downloadLocation": "NOASSERTION",
+   "filesAnalyzed": false,
+   "licenseDeclared": "NOASSERTION",
+   "name": "0002-no-licence-portal-callhome.patch"
+  },
+  {
+   "SPDXID": "SPDXRef-Patch-0003-branding-product-strings.patch",
+   "checksums": [
+    {
+     "algorithm": "SHA256",
+     "checksumValue": "e53fa8beda094150514f0d0140866eaf8b3f7be8deb6010fb3bc24b961afde90"
+    }
+   ],
+   "copyrightText": "NOASSERTION",
+   "downloadLocation": "NOASSERTION",
+   "filesAnalyzed": false,
+   "licenseDeclared": "NOASSERTION",
+   "name": "0003-branding-product-strings.patch"
+  },
+  {
+   "SPDXID": "SPDXRef-Dep-1",
+   "comment": "runtime Depends; version = what the builder had installed",
+   "copyrightText": "NOASSERTION",
+   "downloadLocation": "NOASSERTION",
+   "externalRefs": [
+    {
+     "referenceCategory": "PACKAGE-MANAGER",
+     "referenceLocator": "pkg:deb/debian/libmariadb3@1:10.11.19-0+deb12u1?arch=amd64&distro=debian-12",
+     "referenceType": "purl"
+    }
+   ],
+   "filesAnalyzed": false,
+   "licenseDeclared": "NOASSERTION",
+   "name": "libmariadb3",
+   "versionInfo": "1:10.11.19-0+deb12u1"
+  },
+  {
+   "SPDXID": "SPDXRef-Dep-2",
+   "comment": "runtime Depends; version = what the builder had installed",
+   "copyrightText": "NOASSERTION",
+   "downloadLocation": "NOASSERTION",
+   "externalRefs": [
+    {
+     "referenceCategory": "PACKAGE-MANAGER",
+     "referenceLocator": "pkg:deb/debian/libsystemd0@252.39-1~deb12u2?arch=amd64&distro=debian-12",
+     "referenceType": "purl"
+    }
+   ],
+   "filesAnalyzed": false,
+   "licenseDeclared": "NOASSERTION",
+   "name": "libsystemd0",
+   "versionInfo": "252.39-1~deb12u2"
+  },
+  {
+   "SPDXID": "SPDXRef-Dep-3",
+   "comment": "runtime Depends; version = what the builder had installed",
+   "copyrightText": "NOASSERTION",
+   "downloadLocation": "NOASSERTION",
+   "externalRefs": [
+    {
+     "referenceCategory": "PACKAGE-MANAGER",
+     "referenceLocator": "pkg:deb/debian/python3@3.11.2-1+b1?arch=amd64&distro=debian-12",
+     "referenceType": "purl"
+    }
+   ],
+   "filesAnalyzed": false,
+   "licenseDeclared": "NOASSERTION",
+   "name": "python3",
+   "versionInfo": "3.11.2-1+b1"
+  },
+  {
+   "SPDXID": "SPDXRef-Dep-4",
+   "comment": "runtime Depends (virtual/our package or not in builder)",
+   "copyrightText": "NOASSERTION",
+   "downloadLocation": "NOASSERTION",
+   "filesAnalyzed": false,
+   "licenseDeclared": "NOASSERTION",
+   "name": "sudo"
+  },
+  {
+   "SPDXID": "SPDXRef-Dep-5",
+   "comment": "runtime Depends (virtual/our package or not in builder)",
+   "copyrightText": "NOASSERTION",
+   "downloadLocation": "NOASSERTION",
+   "filesAnalyzed": false,
+   "licenseDeclared": "NOASSERTION",
+   "name": "uwsgi-core"
+  },
+  {
+   "SPDXID": "SPDXRef-Dep-6",
+   "comment": "runtime Depends (virtual/our package or not in builder)",
+   "copyrightText": "NOASSERTION",
+   "downloadLocation": "NOASSERTION",
+   "filesAnalyzed": false,
+   "licenseDeclared": "NOASSERTION",
+   "name": "uwsgi-plugin-python3"
+  },
+  {
+   "SPDXID": "SPDXRef-Bundled-0",
+   "copyrightText": "NOASSERTION",
+   "downloadLocation": "NOASSERTION",
+   "externalRefs": [
+    {
+     "referenceCategory": "PACKAGE-MANAGER",
+     "referenceLocator": "pkg:pypi/argcomplete@3.7.2",
+     "referenceType": "purl"
+    }
+   ],
+   "filesAnalyzed": false,
+   "licenseDeclared": "NOASSERTION",
+   "name": "argcomplete",
+   "versionInfo": "3.7.2"
+  },
+  {
+   "SPDXID": "SPDXRef-Bundled-1",
+   "copyrightText": "NOASSERTION",
+   "downloadLocation": "NOASSERTION",
+   "externalRefs": [
+    {
+     "referenceCategory": "PACKAGE-MANAGER",
+     "referenceLocator": "pkg:pypi/async-timeout@5.0.1",
+     "referenceType": "purl"
+    }
+   ],
+   "filesAnalyzed": false,
+   "licenseDeclared": "NOASSERTION",
+   "name": "async-timeout",
+   "versionInfo": "5.0.1"
+  },
+  {
+   "SPDXID": "SPDXRef-Bundled-2",
+   "copyrightText": "NOASSERTION",
+   "downloadLocation": "NOASSERTION",
+   "externalRefs": [
+    {
+     "referenceCategory": "PACKAGE-MANAGER",
+     "referenceLocator": "pkg:pypi/attrs@26.1.0",
+     "referenceType": "purl"
+    }
+   ],
+   "filesAnalyzed": false,
+   "licenseDeclared": "NOASSERTION",
+   "name": "attrs",
+   "versionInfo": "26.1.0"
+  },
+  {
+   "SPDXID": "SPDXRef-Bundled-3",
+   "copyrightText": "NOASSERTION",
+   "downloadLocation": "NOASSERTION",
+   "externalRefs": [
+    {
+     "referenceCategory": "PACKAGE-MANAGER",
+     "referenceLocator": "pkg:pypi/blinker@1.9.0",
+     "referenceType": "purl"
+    }
+   ],
+   "filesAnalyzed": false,
+   "licenseDeclared": "NOASSERTION",
+   "name": "blinker",
+   "versionInfo": "1.9.0"
+  },
+  {
+   "SPDXID": "SPDXRef-Bundled-4",
+   "copyrightText": "NOASSERTION",
+   "downloadLocation": "NOASSERTION",
+   "externalRefs": [
+    {
+     "referenceCategory": "PACKAGE-MANAGER",
+     "referenceLocator": "pkg:pypi/certifi@2026.10.23",
+     "referenceType": "purl"
+    }
+   ],
+   "filesAnalyzed": false,
+   "licenseDeclared": "NOASSERTION",
+   "name": "certifi",
+   "versionInfo": "2026.10.23"
+  },
+  {
+   "SPDXID": "SPDXRef-Bundled-5",
+   "copyrightText": "NOASSERTION",
+   "downloadLocation": "NOASSERTION",
+   "externalRefs": [
+    {
+     "referenceCategory": "PACKAGE-MANAGER",
+     "referenceLocator": "pkg:pypi/cffi@2.1.1",
+     "referenceType": "purl"
+    }
+   ],
+   "filesAnalyzed": false,
+   "licenseDeclared": "NOASSERTION",
+   "name": "cffi",
+   "versionInfo": "2.1.1"
+  },
+  {
+   "SPDXID": "SPDXRef-Bundled-6",
+   "copyrightText": "NOASSERTION",
+   "downloadLocation": "NOASSERTION",
+   "externalRefs": [
+    {
+     "referenceCategory": "PACKAGE-MANAGER",
+     "referenceLocator": "pkg:pypi/charset-normalizer@3.5.2",
+     "referenceType": "purl"
+    }
+   ],
+   "filesAnalyzed": false,
+   "licenseDeclared": "NOASSERTION",
+   "name": "charset-normalizer",
+   "versionInfo": "3.5.2"
+  },
+  {
+   "SPDXID": "SPDXRef-Bundled-7",
+   "copyrightText": "NOASSERTION",
+   "downloadLocation": "NOASSERTION",
+   "externalRefs": [
+    {
+     "referenceCategory": "PACKAGE-MANAGER",
+     "referenceLocator": "pkg:pypi/click@8.5.1",
+     "referenceType": "purl"
+    }
+   ],
+   "filesAnalyzed": false,
+   "licenseDeclared": "NOASSERTION",
+   "name": "click",
+   "versionInfo": "8.5.1"
+  },
+  {
+   "SPDXID": "SPDXRef-Bundled-8",
+   "copyrightText": "NOASSERTION",
+   "downloadLocation": "NOASSERTION",
+   "externalRefs": [
+    {
+     "referenceCategory": "PACKAGE-MANAGER",
+     "referenceLocator": "pkg:pypi/cryptography@50.0.2",
+     "referenceType": "purl"
+    }
+   ],
+   "filesAnalyzed": false,
+   "licenseDeclared": "NOASSERTION",
+   "name": "cryptography",
+   "versionInfo": "50.0.2"
+  },
+  {
+   "SPDXID": "SPDXRef-Bundled-9",
+   "copyrightText": "NOASSERTION",
+   "downloadLocation": "NOASSERTION",
+   "externalRefs": [
+    {
+     "referenceCategory": "PACKAGE-MANAGER",
+     "referenceLocator": "pkg:pypi/dnspython@2.9.2",
+     "referenceType": "purl"
+    }
+   ],
+   "filesAnalyzed": false,
+   "licenseDeclared": "NOASSERTION",
+   "name": "dnspython",
+   "versionInfo": "2.9.2"
+  },
+  {
+   "SPDXID": "SPDXRef-Bundled-10",
+   "copyrightText": "NOASSERTION",
+   "downloadLocation": "NOASSERTION",
+   "externalRefs": [
+    {
+     "referenceCategory": "PACKAGE-MANAGER",
+     "referenceLocator": "pkg:pypi/flask@3.1.3",
+     "referenceType": "purl"
+    }
+   ],
+   "filesAnalyzed": false,
+   "licenseDeclared": "NOASSERTION",
+   "name": "flask",
+   "versionInfo": "3.1.3"
+  },
+  {
+   "SPDXID": "SPDXRef-Bundled-11",
+   "copyrightText": "NOASSERTION",
+   "downloadLocation": "NOASSERTION",
+   "externalRefs": [
+    {
+     "referenceCategory": "PACKAGE-MANAGER",
+     "referenceLocator": "pkg:pypi/idna@3.20",
+     "referenceType": "purl"
+    }
+   ],
+   "filesAnalyzed": false,
+   "licenseDeclared": "NOASSERTION",
+   "name": "idna",
+   "versionInfo": "3.20"
+  },
+  {
+   "SPDXID": "SPDXRef-Bundled-12",
+   "copyrightText": "NOASSERTION",
+   "downloadLocation": "NOASSERTION",
+   "externalRefs": [
+    {
+     "referenceCategory": "PACKAGE-MANAGER",
+     "referenceLocator": "pkg:pypi/isodate@0.7.2",
+     "referenceType": "purl"
+    }
+   ],
+   "filesAnalyzed": false,
+   "licenseDeclared": "NOASSERTION",
+   "name": "isodate",
+   "versionInfo": "0.7.2"
+  },
+  {
+   "SPDXID": "SPDXRef-Bundled-13",
+   "copyrightText": "NOASSERTION",
+   "downloadLocation": "NOASSERTION",
+   "externalRefs": [
+    {
+     "referenceCategory": "PACKAGE-MANAGER",
+     "referenceLocator": "pkg:pypi/itsdangerous@2.2.0",
+     "referenceType": "purl"
+    }
+   ],
+   "filesAnalyzed": false,
+   "licenseDeclared": "NOASSERTION",
+   "name": "itsdangerous",
+   "versionInfo": "2.2.0"
+  },
+  {
+   "SPDXID": "SPDXRef-Bundled-14",
+   "copyrightText": "NOASSERTION",
+   "downloadLocation": "NOASSERTION",
+   "externalRefs": [
+    {
+     "referenceCategory": "PACKAGE-MANAGER",
+     "referenceLocator": "pkg:pypi/jinja2@3.1.6",
+     "referenceType": "purl"
+    }
+   ],
+   "filesAnalyzed": false,
+   "licenseDeclared": "NOASSERTION",
+   "name": "jinja2",
+   "versionInfo": "3.1.6"
+  },
+  {
+   "SPDXID": "SPDXRef-Bundled-15",
+   "copyrightText": "NOASSERTION",
+   "downloadLocation": "NOASSERTION",
+   "externalRefs": [
+    {
+     "referenceCategory": "PACKAGE-MANAGER",
+     "referenceLocator": "pkg:pypi/jsonschema@4.26.0",
+     "referenceType": "purl"
+    }
+   ],
+   "filesAnalyzed": false,
+   "licenseDeclared": "NOASSERTION",
+   "name": "jsonschema",
+   "versionInfo": "4.26.0"
+  },
+  {
+   "SPDXID": "SPDXRef-Bundled-16",
+   "copyrightText": "NOASSERTION",
+   "downloadLocation": "NOASSERTION",
+   "externalRefs": [
+    {
+     "referenceCategory": "PACKAGE-MANAGER",
+     "referenceLocator": "pkg:pypi/jsonschema-path@0.3.4",
+     "referenceType": "purl"
+    }
+   ],
+   "filesAnalyzed": false,
+   "licenseDeclared": "NOASSERTION",
+   "name": "jsonschema-path",
+   "versionInfo": "0.3.4"
+  },
+  {
+   "SPDXID": "SPDXRef-Bundled-17",
+   "copyrightText": "NOASSERTION",
+   "downloadLocation": "NOASSERTION",
+   "externalRefs": [
+    {
+     "referenceCategory": "PACKAGE-MANAGER",
+     "referenceLocator": "pkg:pypi/jsonschema-specifications@2025.9.1",
+     "referenceType": "purl"
+    }
+   ],
+   "filesAnalyzed": false,
+   "licenseDeclared": "NOASSERTION",
+   "name": "jsonschema-specifications",
+   "versionInfo": "2025.9.1"
+  },
+  {
+   "SPDXID": "SPDXRef-Bundled-18",
+   "copyrightText": "NOASSERTION",
+   "downloadLocation": "NOASSERTION",
+   "externalRefs": [
+    {
+     "referenceCategory": "PACKAGE-MANAGER",
+     "referenceLocator": "pkg:pypi/lazy-object-proxy@1.13.0",
+     "referenceType": "purl"
+    }
+   ],
+   "filesAnalyzed": false,
+   "licenseDeclared": "NOASSERTION",
+   "name": "lazy-object-proxy",
+   "versionInfo": "1.13.0"
+  },
+  {
+   "SPDXID": "SPDXRef-Bundled-19",
+   "copyrightText": "NOASSERTION",
+   "downloadLocation": "NOASSERTION",
+   "externalRefs": [
+    {
+     "referenceCategory": "PACKAGE-MANAGER",
+     "referenceLocator": "pkg:pypi/ldap3@2.9.1",
+     "referenceType": "purl"
+    }
+   ],
+   "filesAnalyzed": false,
+   "licenseDeclared": "NOASSERTION",
+   "name": "ldap3",
+   "versionInfo": "2.9.1"
+  },
+  {
+   "SPDXID": "SPDXRef-Bundled-20",
+   "copyrightText": "NOASSERTION",
+   "downloadLocation": "NOASSERTION",
+   "externalRefs": [
+    {
+     "referenceCategory": "PACKAGE-MANAGER",
+     "referenceLocator": "pkg:pypi/legacycrypt@0.3",
+     "referenceType": "purl"
+    }
+   ],
+   "filesAnalyzed": false,
+   "licenseDeclared": "NOASSERTION",
+   "name": "legacycrypt",
+   "versionInfo": "0.3"
+  },
+  {
+   "SPDXID": "SPDXRef-Bundled-21",
+   "copyrightText": "NOASSERTION",
+   "downloadLocation": "NOASSERTION",
+   "externalRefs": [
+    {
+     "referenceCategory": "PACKAGE-MANAGER",
+     "referenceLocator": "pkg:pypi/markupsafe@3.0.4",
+     "referenceType": "purl"
+    }
+   ],
+   "filesAnalyzed": false,
+   "licenseDeclared": "NOASSERTION",
+   "name": "markupsafe",
+   "versionInfo": "3.0.4"
+  },
+  {
+   "SPDXID": "SPDXRef-Bundled-22",
+   "copyrightText": "NOASSERTION",
+   "downloadLocation": "NOASSERTION",
+   "externalRefs": [
+    {
+     "referenceCategory": "PACKAGE-MANAGER",
+     "referenceLocator": "pkg:pypi/mattermostdriver@7.3.2",
+     "referenceType": "purl"
+    }
+   ],
+   "filesAnalyzed": false,
+   "licenseDeclared": "NOASSERTION",
+   "name": "mattermostdriver",
+   "versionInfo": "7.3.2"
+  },
+  {
+   "SPDXID": "SPDXRef-Bundled-23",
+   "copyrightText": "NOASSERTION",
+   "downloadLocation": "NOASSERTION",
+   "externalRefs": [
+    {
+     "referenceCategory": "PACKAGE-MANAGER",
+     "referenceLocator": "pkg:pypi/more-itertools@11.2.1",
+     "referenceType": "purl"
+    }
+   ],
+   "filesAnalyzed": false,
+   "licenseDeclared": "NOASSERTION",
+   "name": "more-itertools",
+   "versionInfo": "11.2.1"
+  },
+  {
+   "SPDXID": "SPDXRef-Bundled-24",
+   "copyrightText": "NOASSERTION",
+   "downloadLocation": "NOASSERTION",
+   "externalRefs": [
+    {
+     "referenceCategory": "PACKAGE-MANAGER",
+     "referenceLocator": "pkg:pypi/multidict@7.2.1",
+     "referenceType": "purl"
+    }
+   ],
+   "filesAnalyzed": false,
+   "licenseDeclared": "NOASSERTION",
+   "name": "multidict",
+   "versionInfo": "7.2.1"
+  },
+  {
+   "SPDXID": "SPDXRef-Bundled-25",
+   "copyrightText": "NOASSERTION",
+   "downloadLocation": "NOASSERTION",
+   "externalRefs": [
+    {
+     "referenceCategory": "PACKAGE-MANAGER",
+     "referenceLocator": "pkg:pypi/mysqlclient@2.3.1",
+     "referenceType": "purl"
+    }
+   ],
+   "filesAnalyzed": false,
+   "licenseDeclared": "NOASSERTION",
+   "name": "mysqlclient",
+   "versionInfo": "2.3.1"
+  },
+  {
+   "SPDXID": "SPDXRef-Bundled-26",
+   "copyrightText": "NOASSERTION",
+   "downloadLocation": "NOASSERTION",
+   "externalRefs": [
+    {
+     "referenceCategory": "PACKAGE-MANAGER",
+     "referenceLocator": "pkg:pypi/openapi-core@0.19.0",
+     "referenceType": "purl"
+    }
+   ],
+   "filesAnalyzed": false,
+   "licenseDeclared": "NOASSERTION",
+   "name": "openapi-core",
+   "versionInfo": "0.19.0"
+  },
+  {
+   "SPDXID": "SPDXRef-Bundled-27",
+   "copyrightText": "NOASSERTION",
+   "downloadLocation": "NOASSERTION",
+   "externalRefs": [
+    {
+     "referenceCategory": "PACKAGE-MANAGER",
+     "referenceLocator": "pkg:pypi/openapi-schema-validator@0.6.3",
+     "referenceType": "purl"
+    }
+   ],
+   "filesAnalyzed": false,
+   "licenseDeclared": "NOASSERTION",
+   "name": "openapi-schema-validator",
+   "versionInfo": "0.6.3"
+  },
+  {
+   "SPDXID": "SPDXRef-Bundled-28",
+   "copyrightText": "NOASSERTION",
+   "downloadLocation": "NOASSERTION",
+   "externalRefs": [
+    {
+     "referenceCategory": "PACKAGE-MANAGER",
+     "referenceLocator": "pkg:pypi/openapi-spec-validator@0.7.2",
+     "referenceType": "purl"
+    }
+   ],
+   "filesAnalyzed": false,
+   "licenseDeclared": "NOASSERTION",
+   "name": "openapi-spec-validator",
+   "versionInfo": "0.7.2"
+  },
+  {
+   "SPDXID": "SPDXRef-Bundled-29",
+   "copyrightText": "NOASSERTION",
+   "downloadLocation": "NOASSERTION",
+   "externalRefs": [
+    {
+     "referenceCategory": "PACKAGE-MANAGER",
+     "referenceLocator": "pkg:pypi/parse@1.22.4",
+     "referenceType": "purl"
+    }
+   ],
+   "filesAnalyzed": false,
+   "licenseDeclared": "NOASSERTION",
+   "name": "parse",
+   "versionInfo": "1.22.4"
+  },
+  {
+   "SPDXID": "SPDXRef-Bundled-30",
+   "copyrightText": "NOASSERTION",
+   "downloadLocation": "NOASSERTION",
+   "externalRefs": [
+    {
+     "referenceCategory": "PACKAGE-MANAGER",
+     "referenceLocator": "pkg:pypi/pathable@0.4.4",
+     "referenceType": "purl"
+    }
+   ],
+   "filesAnalyzed": false,
+   "licenseDeclared": "NOASSERTION",
+   "name": "pathable",
+   "versionInfo": "0.4.4"
+  },
+  {
+   "SPDXID": "SPDXRef-Bundled-31",
+   "copyrightText": "NOASSERTION",
+   "downloadLocation": "NOASSERTION",
+   "externalRefs": [
+    {
+     "referenceCategory": "PACKAGE-MANAGER",
+     "referenceLocator": "pkg:pypi/psutil@7.2.2",
+     "referenceType": "purl"
+    }
+   ],
+   "filesAnalyzed": false,
+   "licenseDeclared": "NOASSERTION",
+   "name": "psutil",
+   "versionInfo": "7.2.2"
+  },
+  {
+   "SPDXID": "SPDXRef-Bundled-32",
+   "copyrightText": "NOASSERTION",
+   "downloadLocation": "NOASSERTION",
+   "externalRefs": [
+    {
+     "referenceCategory": "PACKAGE-MANAGER",
+     "referenceLocator": "pkg:pypi/pyasn1@0.6.5",
+     "referenceType": "purl"
+    }
+   ],
+   "filesAnalyzed": false,
+   "licenseDeclared": "NOASSERTION",
+   "name": "pyasn1",
+   "versionInfo": "0.6.5"
+  },
+  {
+   "SPDXID": "SPDXRef-Bundled-33",
+   "copyrightText": "NOASSERTION",
+   "downloadLocation": "NOASSERTION",
+   "externalRefs": [
+    {
+     "referenceCategory": "PACKAGE-MANAGER",
+     "referenceLocator": "pkg:pypi/pycparser@3.12",
+     "referenceType": "purl"
+    }
+   ],
+   "filesAnalyzed": false,
+   "licenseDeclared": "NOASSERTION",
+   "name": "pycparser",
+   "versionInfo": "3.12"
+  },
+  {
+   "SPDXID": "SPDXRef-Bundled-34",
+   "copyrightText": "NOASSERTION",
+   "downloadLocation": "NOASSERTION",
+   "externalRefs": [
+    {
+     "referenceCategory": "PACKAGE-MANAGER",
+     "referenceLocator": "pkg:pypi/pyjwt@2.15.1",
+     "referenceType": "purl"
+    }
+   ],
+   "filesAnalyzed": false,
+   "licenseDeclared": "NOASSERTION",
+   "name": "pyjwt",
+   "versionInfo": "2.15.1"
+  },
+  {
+   "SPDXID": "SPDXRef-Bundled-35",
+   "copyrightText": "NOASSERTION",
+   "downloadLocation": "NOASSERTION",
+   "externalRefs": [
+    {
+     "referenceCategory": "PACKAGE-MANAGER",
+     "referenceLocator": "pkg:pypi/pyyaml@6.0.3",
+     "referenceType": "purl"
+    }
+   ],
+   "filesAnalyzed": false,
+   "licenseDeclared": "NOASSERTION",
+   "name": "pyyaml",
+   "versionInfo": "6.0.3"
+  },
+  {
+   "SPDXID": "SPDXRef-Bundled-36",
+   "copyrightText": "NOASSERTION",
+   "downloadLocation": "NOASSERTION",
+   "externalRefs": [
+    {
+     "referenceCategory": "PACKAGE-MANAGER",
+     "referenceLocator": "pkg:pypi/redis@8.1.0",
+     "referenceType": "purl"
+    }
+   ],
+   "filesAnalyzed": false,
+   "licenseDeclared": "NOASSERTION",
+   "name": "redis",
+   "versionInfo": "8.1.0"
+  },
+  {
+   "SPDXID": "SPDXRef-Bundled-37",
+   "copyrightText": "NOASSERTION",
+   "downloadLocation": "NOASSERTION",
+   "externalRefs": [
+    {
+     "referenceCategory": "PACKAGE-MANAGER",
+     "referenceLocator": "pkg:pypi/referencing@0.36.2",
+     "referenceType": "purl"
+    }
+   ],
+   "filesAnalyzed": false,
+   "licenseDeclared": "NOASSERTION",
+   "name": "referencing",
+   "versionInfo": "0.36.2"
+  },
+  {
+   "SPDXID": "SPDXRef-Bundled-38",
+   "copyrightText": "NOASSERTION",
+   "downloadLocation": "NOASSERTION",
+   "externalRefs": [
+    {
+     "referenceCategory": "PACKAGE-MANAGER",
+     "referenceLocator": "pkg:pypi/requests@2.34.2",
+     "referenceType": "purl"
+    }
+   ],
+   "filesAnalyzed": false,
+   "licenseDeclared": "NOASSERTION",
+   "name": "requests",
+   "versionInfo": "2.34.2"
+  },
+  {
+   "SPDXID": "SPDXRef-Bundled-39",
+   "copyrightText": "NOASSERTION",
+   "downloadLocation": "NOASSERTION",
+   "externalRefs": [
+    {
+     "referenceCategory": "PACKAGE-MANAGER",
+     "referenceLocator": "pkg:pypi/requests-unixsocket@0.4.1",
+     "referenceType": "purl"
+    }
+   ],
+   "filesAnalyzed": false,
+   "licenseDeclared": "NOASSERTION",
+   "name": "requests-unixsocket",
+   "versionInfo": "0.4.1"
+  },
+  {
+   "SPDXID": "SPDXRef-Bundled-40",
+   "copyrightText": "NOASSERTION",
+   "downloadLocation": "NOASSERTION",
+   "externalRefs": [
+    {
+     "referenceCategory": "PACKAGE-MANAGER",
+     "referenceLocator": "pkg:pypi/rfc3339-validator@0.1.4",
+     "referenceType": "purl"
+    }
+   ],
+   "filesAnalyzed": false,
+   "licenseDeclared": "NOASSERTION",
+   "name": "rfc3339-validator",
+   "versionInfo": "0.1.4"
+  },
+  {
+   "SPDXID": "SPDXRef-Bundled-41",
+   "copyrightText": "NOASSERTION",
+   "downloadLocation": "NOASSERTION",
+   "externalRefs": [
+    {
+     "referenceCategory": "PACKAGE-MANAGER",
+     "referenceLocator": "pkg:pypi/rpds-py@2026.9.1",
+     "referenceType": "purl"
+    }
+   ],
+   "filesAnalyzed": false,
+   "licenseDeclared": "NOASSERTION",
+   "name": "rpds-py",
+   "versionInfo": "2026.9.1"
+  },
+  {
+   "SPDXID": "SPDXRef-Bundled-42",
+   "copyrightText": "NOASSERTION",
+   "downloadLocation": "NOASSERTION",
+   "externalRefs": [
+    {
+     "referenceCategory": "PACKAGE-MANAGER",
+     "referenceLocator": "pkg:pypi/six@1.17.0",
+     "referenceType": "purl"
+    }
+   ],
+   "filesAnalyzed": false,
+   "licenseDeclared": "NOASSERTION",
+   "name": "six",
+   "versionInfo": "1.17.0"
+  },
+  {
+   "SPDXID": "SPDXRef-Bundled-43",
+   "copyrightText": "NOASSERTION",
+   "downloadLocation": "NOASSERTION",
+   "externalRefs": [
+    {
+     "referenceCategory": "PACKAGE-MANAGER",
+     "referenceLocator": "pkg:pypi/sqlalchemy@2.1.8",
+     "referenceType": "purl"
+    }
+   ],
+   "filesAnalyzed": false,
+   "licenseDeclared": "NOASSERTION",
+   "name": "sqlalchemy",
+   "versionInfo": "2.1.8"
+  },
+  {
+   "SPDXID": "SPDXRef-Bundled-44",
+   "copyrightText": "NOASSERTION",
+   "downloadLocation": "NOASSERTION",
+   "externalRefs": [
+    {
+     "referenceCategory": "PACKAGE-MANAGER",
+     "referenceLocator": "pkg:pypi/systemd-python@235",
+     "referenceType": "purl"
+    }
+   ],
+   "filesAnalyzed": false,
+   "licenseDeclared": "NOASSERTION",
+   "name": "systemd-python",
+   "versionInfo": "235"
+  },
+  {
+   "SPDXID": "SPDXRef-Bundled-45",
+   "copyrightText": "NOASSERTION",
+   "downloadLocation": "NOASSERTION",
+   "externalRefs": [
+    {
+     "referenceCategory": "PACKAGE-MANAGER",
+     "referenceLocator": "pkg:pypi/termcolor@3.3.0",
+     "referenceType": "purl"
+    }
+   ],
+   "filesAnalyzed": false,
+   "licenseDeclared": "NOASSERTION",
+   "name": "termcolor",
+   "versionInfo": "3.3.0"
+  },
+  {
+   "SPDXID": "SPDXRef-Bundled-46",
+   "copyrightText": "NOASSERTION",
+   "downloadLocation": "NOASSERTION",
+   "externalRefs": [
+    {
+     "referenceCategory": "PACKAGE-MANAGER",
+     "referenceLocator": "pkg:pypi/typing_extensions@4.16.0",
+     "referenceType": "purl"
+    }
+   ],
+   "filesAnalyzed": false,
+   "licenseDeclared": "NOASSERTION",
+   "name": "typing_extensions",
+   "versionInfo": "4.16.0"
+  },
+  {
+   "SPDXID": "SPDXRef-Bundled-47",
+   "copyrightText": "NOASSERTION",
+   "downloadLocation": "NOASSERTION",
+   "externalRefs": [
+    {
+     "referenceCategory": "PACKAGE-MANAGER",
+     "referenceLocator": "pkg:pypi/urllib3@2.8.0",
+     "referenceType": "purl"
+    }
+   ],
+   "filesAnalyzed": false,
+   "licenseDeclared": "NOASSERTION",
+   "name": "urllib3",
+   "versionInfo": "2.8.0"
+  },
+  {
+   "SPDXID": "SPDXRef-Bundled-48",
+   "copyrightText": "NOASSERTION",
+   "downloadLocation": "NOASSERTION",
+   "externalRefs": [
+    {
+     "referenceCategory": "PACKAGE-MANAGER",
+     "referenceLocator": "pkg:pypi/websockets@17.4",
+     "referenceType": "purl"
+    }
+   ],
+   "filesAnalyzed": false,
+   "licenseDeclared": "NOASSERTION",
+   "name": "websockets",
+   "versionInfo": "17.4"
+  },
+  {
+   "SPDXID": "SPDXRef-Bundled-49",
+   "copyrightText": "NOASSERTION",
+   "downloadLocation": "NOASSERTION",
+   "externalRefs": [
+    {
+     "referenceCategory": "PACKAGE-MANAGER",
+     "referenceLocator": "pkg:pypi/werkzeug@3.1.9",
+     "referenceType": "purl"
+    }
+   ],
+   "filesAnalyzed": false,
+   "licenseDeclared": "NOASSERTION",
+   "name": "werkzeug",
+   "versionInfo": "3.1.9"
+  }
+ ],
+ "relationships": [
+  {
+   "relatedSpdxElement": "SPDXRef-Package",
+   "relationshipType": "DESCRIBES",
+   "spdxElementId": "SPDXRef-DOCUMENT"
+  },
+  {
+   "relatedSpdxElement": "SPDXRef-Source",
+   "relationshipType": "GENERATED_FROM",
+   "spdxElementId": "SPDXRef-Package"
+  },
+  {
+   "relatedSpdxElement": "SPDXRef-Source",
+   "relationshipType": "PATCH_APPLIED",
+   "spdxElementId": "SPDXRef-Patch-0001-remove-user-cap.patch"
+  },
+  {
+   "relatedSpdxElement": "SPDXRef-Source",
+   "relationshipType": "PATCH_APPLIED",
+   "spdxElementId": "SPDXRef-Patch-0002-no-licence-portal-callhome.patch"
+  },
+  {
+   "relatedSpdxElement": "SPDXRef-Source",
+   "relationshipType": "PATCH_APPLIED",
+   "spdxElementId": "SPDXRef-Patch-0003-branding-product-strings.patch"
+  },
+  {
+   "relatedSpdxElement": "SPDXRef-Dep-1",
+   "relationshipType": "DEPENDS_ON",
+   "spdxElementId": "SPDXRef-Package"
+  },
+  {
+   "relatedSpdxElement": "SPDXRef-Dep-2",
+   "relationshipType": "DEPENDS_ON",
+   "spdxElementId": "SPDXRef-Package"
+  },
+  {
+   "relatedSpdxElement": "SPDXRef-Dep-3",
+   "relationshipType": "DEPENDS_ON",
+   "spdxElementId": "SPDXRef-Package"
+  },
+  {
+   "relatedSpdxElement": "SPDXRef-Dep-4",
+   "relationshipType": "DEPENDS_ON",
+   "spdxElementId": "SPDXRef-Package"
+  },
+  {
+   "relatedSpdxElement": "SPDXRef-Dep-5",
+   "relationshipType": "DEPENDS_ON",
+   "spdxElementId": "SPDXRef-Package"
+  },
+  {
+   "relatedSpdxElement": "SPDXRef-Dep-6",
+   "relationshipType": "DEPENDS_ON",
+   "spdxElementId": "SPDXRef-Package"
+  },
+  {
+   "relatedSpdxElement": "SPDXRef-Bundled-0",
+   "relationshipType": "CONTAINS",
+   "spdxElementId": "SPDXRef-Package"
+  },
+  {
+   "relatedSpdxElement": "SPDXRef-Bundled-1",
+   "relationshipType": "CONTAINS",
+   "spdxElementId": "SPDXRef-Package"
+  },
+  {
+   "relatedSpdxElement": "SPDXRef-Bundled-2",
+   "relationshipType": "CONTAINS",
+   "spdxElementId": "SPDXRef-Package"
+  },
+  {
+   "relatedSpdxElement": "SPDXRef-Bundled-3",
+   "relationshipType": "CONTAINS",
+   "spdxElementId": "SPDXRef-Package"
+  },
+  {
+   "relatedSpdxElement": "SPDXRef-Bundled-4",
+   "relationshipType": "CONTAINS",
+   "spdxElementId": "SPDXRef-Package"
+  },
+  {
+   "relatedSpdxElement": "SPDXRef-Bundled-5",
+   "relationshipType": "CONTAINS",
+   "spdxElementId": "SPDXRef-Package"
+  },
+  {
+   "relatedSpdxElement": "SPDXRef-Bundled-6",
+   "relationshipType": "CONTAINS",
+   "spdxElementId": "SPDXRef-Package"
+  },
+  {
+   "relatedSpdxElement": "SPDXRef-Bundled-7",
+   "relationshipType": "CONTAINS",
+   "spdxElementId": "SPDXRef-Package"
+  },
+  {
+   "relatedSpdxElement": "SPDXRef-Bundled-8",
+   "relationshipType": "CONTAINS",
+   "spdxElementId": "SPDXRef-Package"
+  },
+  {
+   "relatedSpdxElement": "SPDXRef-Bundled-9",
+   "relationshipType": "CONTAINS",
+   "spdxElementId": "SPDXRef-Package"
+  },
+  {
+   "relatedSpdxElement": "SPDXRef-Bundled-10",
+   "relationshipType": "CONTAINS",
+   "spdxElementId": "SPDXRef-Package"
+  },
+  {
+   "relatedSpdxElement": "SPDXRef-Bundled-11",
+   "relationshipType": "CONTAINS",
+   "spdxElementId": "SPDXRef-Package"
+  },
+  {
+   "relatedSpdxElement": "SPDXRef-Bundled-12",
+   "relationshipType": "CONTAINS",
+   "spdxElementId": "SPDXRef-Package"
+  },
+  {
+   "relatedSpdxElement": "SPDXRef-Bundled-13",
+   "relationshipType": "CONTAINS",
+   "spdxElementId": "SPDXRef-Package"
+  },
+  {
+   "relatedSpdxElement": "SPDXRef-Bundled-14",
+   "relationshipType": "CONTAINS",
+   "spdxElementId": "SPDXRef-Package"
+  },
+  {
+   "relatedSpdxElement": "SPDXRef-Bundled-15",
+   "relationshipType": "CONTAINS",
+   "spdxElementId": "SPDXRef-Package"
+  },
+  {
+   "relatedSpdxElement": "SPDXRef-Bundled-16",
+   "relationshipType": "CONTAINS",
+   "spdxElementId": "SPDXRef-Package"
+  },
+  {
+   "relatedSpdxElement": "SPDXRef-Bundled-17",
+   "relationshipType": "CONTAINS",
+   "spdxElementId": "SPDXRef-Package"
+  },
+  {
+   "relatedSpdxElement": "SPDXRef-Bundled-18",
+   "relationshipType": "CONTAINS",
+   "spdxElementId": "SPDXRef-Package"
+  },
+  {
+   "relatedSpdxElement": "SPDXRef-Bundled-19",
+   "relationshipType": "CONTAINS",
+   "spdxElementId": "SPDXRef-Package"
+  },
+  {
+   "relatedSpdxElement": "SPDXRef-Bundled-20",
+   "relationshipType": "CONTAINS",
+   "spdxElementId": "SPDXRef-Package"
+  },
+  {
+   "relatedSpdxElement": "SPDXRef-Bundled-21",
+   "relationshipType": "CONTAINS",
+   "spdxElementId": "SPDXRef-Package"
+  },
+  {
+   "relatedSpdxElement": "SPDXRef-Bundled-22",
+   "relationshipType": "CONTAINS",
+   "spdxElementId": "SPDXRef-Package"
+  },
+  {
+   "relatedSpdxElement": "SPDXRef-Bundled-23",
+   "relationshipType": "CONTAINS",
+   "spdxElementId": "SPDXRef-Package"
+  },
+  {
+   "relatedSpdxElement": "SPDXRef-Bundled-24",
+   "relationshipType": "CONTAINS",
+   "spdxElementId": "SPDXRef-Package"
+  },
+  {
+   "relatedSpdxElement": "SPDXRef-Bundled-25",
+   "relationshipType": "CONTAINS",
+   "spdxElementId": "SPDXRef-Package"
+  },
+  {
+   "relatedSpdxElement": "SPDXRef-Bundled-26",
+   "relationshipType": "CONTAINS",
+   "spdxElementId": "SPDXRef-Package"
+  },
+  {
+   "relatedSpdxElement": "SPDXRef-Bundled-27",
+   "relationshipType": "CONTAINS",
+   "spdxElementId": "SPDXRef-Package"
+  },
+  {
+   "relatedSpdxElement": "SPDXRef-Bundled-28",
+   "relationshipType": "CONTAINS",
+   "spdxElementId": "SPDXRef-Package"
+  },
+  {
+   "relatedSpdxElement": "SPDXRef-Bundled-29",
+   "relationshipType": "CONTAINS",
+   "spdxElementId": "SPDXRef-Package"
+  },
+  {
+   "relatedSpdxElement": "SPDXRef-Bundled-30",
+   "relationshipType": "CONTAINS",
+   "spdxElementId": "SPDXRef-Package"
+  },
+  {
+   "relatedSpdxElement": "SPDXRef-Bundled-31",
+   "relationshipType": "CONTAINS",
+   "spdxElementId": "SPDXRef-Package"
+  },
+  {
+   "relatedSpdxElement": "SPDXRef-Bundled-32",
+   "relationshipType": "CONTAINS",
+   "spdxElementId": "SPDXRef-Package"
+  },
+  {
+   "relatedSpdxElement": "SPDXRef-Bundled-33",
+   "relationshipType": "CONTAINS",
+   "spdxElementId": "SPDXRef-Package"
+  },
+  {
+   "relatedSpdxElement": "SPDXRef-Bundled-34",
+   "relationshipType": "CONTAINS",
+   "spdxElementId": "SPDXRef-Package"
+  },
+  {
+   "relatedSpdxElement": "SPDXRef-Bundled-35",
+   "relationshipType": "CONTAINS",
+   "spdxElementId": "SPDXRef-Package"
+  },
+  {
+   "relatedSpdxElement": "SPDXRef-Bundled-36",
+   "relationshipType": "CONTAINS",
+   "spdxElementId": "SPDXRef-Package"
+  },
+  {
+   "relatedSpdxElement": "SPDXRef-Bundled-37",
+   "relationshipType": "CONTAINS",
+   "spdxElementId": "SPDXRef-Package"
+  },
+  {
+   "relatedSpdxElement": "SPDXRef-Bundled-38",
+   "relationshipType": "CONTAINS",
+   "spdxElementId": "SPDXRef-Package"
+  },
+  {
+   "relatedSpdxElement": "SPDXRef-Bundled-39",
+   "relationshipType": "CONTAINS",
+   "spdxElementId": "SPDXRef-Package"
+  },
+  {
+   "relatedSpdxElement": "SPDXRef-Bundled-40",
+   "relationshipType": "CONTAINS",
+   "spdxElementId": "SPDXRef-Package"
+  },
+  {
+   "relatedSpdxElement": "SPDXRef-Bundled-41",
+   "relationshipType": "CONTAINS",
+   "spdxElementId": "SPDXRef-Package"
+  },
+  {
+   "relatedSpdxElement": "SPDXRef-Bundled-42",
+   "relationshipType": "CONTAINS",
+   "spdxElementId": "SPDXRef-Package"
+  },
+  {
+   "relatedSpdxElement": "SPDXRef-Bundled-43",
+   "relationshipType": "CONTAINS",
+   "spdxElementId": "SPDXRef-Package"
+  },
+  {
+   "relatedSpdxElement": "SPDXRef-Bundled-44",
+   "relationshipType": "CONTAINS",
+   "spdxElementId": "SPDXRef-Package"
+  },
+  {
+   "relatedSpdxElement": "SPDXRef-Bundled-45",
+   "relationshipType": "CONTAINS",
+   "spdxElementId": "SPDXRef-Package"
+  },
+  {
+   "relatedSpdxElement": "SPDXRef-Bundled-46",
+   "relationshipType": "CONTAINS",
+   "spdxElementId": "SPDXRef-Package"
+  },
+  {
+   "relatedSpdxElement": "SPDXRef-Bundled-47",
+   "relationshipType": "CONTAINS",
+   "spdxElementId": "SPDXRef-Package"
+  },
+  {
+   "relatedSpdxElement": "SPDXRef-Bundled-48",
+   "relationshipType": "CONTAINS",
+   "spdxElementId": "SPDXRef-Package"
+  },
+  {
+   "relatedSpdxElement": "SPDXRef-Bundled-49",
+   "relationshipType": "CONTAINS",
+   "spdxElementId": "SPDXRef-Package"
+  }
+ ],
+ "spdxVersion": "SPDX-2.3"
+}
