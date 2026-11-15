@@ -409,6 +409,9 @@ def sync_attempts(db: Session) -> int:
 # ---- scheduler --------------------------------------------------------------------------------
 
 def _run_one(rt: Runtime, row, password: str | None) -> checks.Outcome:
+    if row.kind == "backup":   # backup product: evaluated from the recorded runs/verifications, no network
+        from .backups import ops as backups_ops
+        return backups_ops.evaluate(rt, row.config)
     return checks.run_check(row.kind, row.config, password, rt.settings.allow_loopback_endpoints)
 
 

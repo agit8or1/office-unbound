@@ -22,6 +22,11 @@ USER_RUNBOOKS = {
     "gromox.user_state": ("ou-rb-gromox-state", "gromox-state"),      # read-only: SQL status + mailbox lock state
     "opencloud.check_user": ("ou-rb-opencloud-check", "opencloud-check"),  # can OpenCloud still resolve this user (1 s app token probe)
 }
+# Backup product (ADR-0010): fixed runbooks; the root helper /usr/local/sbin/ou-backup does the work and re-validates. config: {"tiers": [...]}.
+BACKUP_RESULT_DIR = "/run/ou-rb-backup"
+BACKUP_RUNBOOKS = ("backup.run", "backup.verify", "backup.prune")
+BACKUP_TIERS = ("files", "identity", "groupware", "ics")
+SNAPSHOT_RE = re.compile(r"^[0-9a-f]{8,64}$")
 UID_RE = re.compile(r"^[a-z][a-z0-9._-]{1,31}$")
 RESULT_DIR = "/run/ou-rb"
 MAX_RESULT = 24576
@@ -31,8 +36,12 @@ _ENV = {"PATH": "/usr/bin:/bin", "LANG": "C"}
 def validate_config(cfg: dict) -> dict:
     """Shape of /etc/ou-agent/agent.json: {"listen": {"address","port"}, "runbooks": {name: {"units":[...]} | {"paths":[...]}}}"""
     rb = cfg.get("runbooks")
-    if not isinstance(rb, dict) or set(rb) - set(RUNBOOKS) - set(USER_RUNBOOKS) - set(guestspec.GUEST_RUNBOOKS):
-        raise ValueError("runbooks must be a subset of " + ", ".join(RUNBOOKS + tuple(USER_RUNBOOKS) + guestspec.GUEST_RUNBOOKS))
+    if not isinstance(rb, dict) or set(rb) - set(RUNBOOKS) - set(USER_RUNBOOKS) - set(guestspec.GUEST_RUNBOOKS) - set(BACKUP_RUNBOOKS):
+        raise ValueError("runbooks must be a subset of " + ", ".join(RUNBOOKS + tuple(USER_RUNBOOKS) + guestspec.GUEST_RUNBOOKS + BACKUP_RUNBOOKS))
+    for name in BACKUP_RUNBOOKS:
+        if name in rb and (set(rb[name]) != {"tiers"} or not isinstance(rb[name]["tiers"], list) or not rb[name]["tiers"]
+                           or not set(rb[name]["tiers"]) <= set(BACKUP_TIERS)):
+            raise ValueError(f"{name} takes exactly {{\"tiers\": [subset of {', '.join(BACKUP_TIERS)}]}}")
     for name in guestspec.GUEST_RUNBOOKS:
         if name in rb:
             guestspec.validate_runbook_config(name, rb[name])
@@ -55,6 +64,8 @@ def capabilities(cfg: dict) -> dict:
     for k, v in rb.items():
         if k in USER_RUNBOOKS:
             out[k] = {"enabled": True}
+        elif k in BACKUP_RUNBOOKS:
+            out[k] = {"tiers": sorted(v["tiers"])}
         elif k in guestspec.GUEST_RUNBOOKS:
             out[k] = {key: sorted(val) if isinstance(val, list) else val for key, val in v.items()}
         elif k.startswith("service"):
@@ -71,6 +82,8 @@ def check_allowed(cfg: dict, action: str, params: dict) -> dict:
         raise Reject("not_allowed", "action is not an allowlisted runbook")
     if action in guestspec.GUEST_RUNBOOKS:
         return guestspec.CHECKS[action](params, spec)   # typed, closed-shape validation; nothing is spooled before this passes
+    if action in BACKUP_RUNBOOKS:
+        return check_backup(action, params, spec)
     if action in USER_RUNBOOKS:
         if set(params) != {"user"} or not isinstance(params["user"], str) or not UID_RE.match(params["user"]):
             raise Reject("bad_params", "params must be exactly {user} (lowercase uid)")
@@ -86,6 +99,33 @@ def check_allowed(cfg: dict, action: str, params: dict) -> dict:
     if params["path"] not in spec.get("paths", []):
         raise Reject("not_allowed", "path is not allowlisted")
     return {"path": params["path"]}
+
+
+def check_backup(action: str, p: dict, spec: dict) -> dict:
+    """Closed shapes; no free text anywhere: tier (enum, must be enabled in agent.json), level (enum), small ints, a hex snapshot id."""
+    def exact(keys, req=None):
+        if not isinstance(p, dict) or set(p) - set(keys) or set(req if req is not None else keys) - set(p):
+            raise Reject("bad_params", "unexpected or missing parameters")
+    if action == "backup.run":
+        exact(("tier",))
+    elif action == "backup.verify":
+        exact(("tier", "level", "percent", "snapshot"), ("tier", "level"))
+        if p["level"] not in ("check", "restore"):
+            raise Reject("bad_params", "level must be check or restore")
+        if "percent" in p and (type(p["percent"]) is not int or not 1 <= p["percent"] <= 100):
+            raise Reject("bad_params", "percent must be 1..100")
+        if "snapshot" in p and not (isinstance(p["snapshot"], str) and SNAPSHOT_RE.match(p["snapshot"])):
+            raise Reject("bad_params", "snapshot must be a hex id")
+    else:
+        exact(("tier", "last", "daily", "weekly", "monthly"))
+        for k, hi in (("last", 100), ("daily", 366), ("weekly", 260), ("monthly", 240)):
+            if type(p[k]) is not int or not 0 <= p[k] <= hi:
+                raise Reject("bad_params", f"{k} out of range")
+        if p["last"] + p["daily"] + p["weekly"] + p["monthly"] < 1:
+            raise Reject("bad_params", "retention keeps nothing")
+    if not isinstance(p["tier"], str) or p["tier"] not in spec["tiers"]:
+        raise Reject("not_allowed", "tier is not enabled for this runbook on this node")
+    return dict(p)
 
 
 def _systemctl(*args: str, timeout: int = 60) -> subprocess.CompletedProcess:
@@ -158,8 +198,41 @@ def _guest_runbook(action: str, params: dict) -> dict:
             pass
 
 
+def _backup_runbook(action: str, params: dict) -> dict:
+    """Spool the validated params, start ou-rb-backup@<rid>.service (polkit allows exactly that template), read the helper's result file.
+    The result is data from the root helper (counts, durations, canary comparison): never a credential."""
+    rid = "r" + secrets.token_hex(8)
+    spool = os.path.join(SPOOL_DIR, rid + ".json")
+    fd = os.open(spool, os.O_WRONLY | os.O_CREAT | os.O_EXCL, 0o644)
+    os.fchmod(fd, 0o644)
+    with os.fdopen(fd, "w") as f:
+        json.dump({"action": action, "params": params}, f)
+    try:
+        r = _systemctl("start", "--wait", f"ou-rb-backup@{rid}.service", timeout=3600)
+        path = os.path.join(BACKUP_RESULT_DIR, rid + ".json")
+        try:
+            if os.stat(path).st_size > 4 * MAX_RESULT:
+                raise ValueError("result too large")
+            with open(path) as f:
+                data = json.load(f)
+            if data.get("rid") != rid:
+                raise ValueError("foreign result")
+        except (OSError, ValueError):
+            raise RuntimeError("backup helper produced no result") from None
+        out = {"returncode": r.returncode}
+        out.update({k: data[k] for k in ("result", "error") if k in data})
+        return out
+    finally:
+        try:
+            os.unlink(spool)
+        except OSError:
+            pass
+
+
 def execute(action: str, params: dict) -> dict:
     """Run an already allowlisted runbook. Returns a small JSON-safe dict."""
+    if action in BACKUP_RUNBOOKS:
+        return _backup_runbook(action, params)
     if action in guestspec.GUEST_RUNBOOKS:
         return _guest_runbook(action, params)
     if action in USER_RUNBOOKS:

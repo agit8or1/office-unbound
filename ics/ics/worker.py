@@ -5,6 +5,7 @@ import time
 from sqlalchemy import text
 
 from . import identity, monitor
+from .backups import ops as backups_ops
 from .inventory import collector
 from .actions import claim_job, reap_expired, run_job
 from .runtime import Runtime
@@ -19,12 +20,12 @@ def heartbeat(rt: Runtime, name: str = "inproc") -> None:
         db.commit()
 
 
-def run_once(rt: Runtime, beat: bool = True) -> bool:
+def run_once(rt: Runtime, beat: bool = True, backup_lane: bool = False) -> bool:
     """Heartbeat (unless the Worker's own watchdog owns it), then claim and run at most one job. Returns True if a job ran."""
     if beat:
         heartbeat(rt)
     reap_expired(rt)
-    job = claim_job(rt)
+    job = claim_job(rt, backup_lane)
     if job is None:
         return False
     run_job(rt, job)
@@ -74,6 +75,18 @@ class Worker(threading.Thread):
                 log.exception("job loop error")
             self._stop_evt.wait(self.interval)
 
+    def _backup_loop(self) -> None:
+        """backup.* jobs on their own lane + the backup scheduler (due backups / repository checks / restore verifications / prune)."""
+        while not self._stop_evt.is_set():
+            try:
+                if self.rt.settings.backup_scheduler_enabled:
+                    backups_ops.tick(self.rt)
+                while run_once(self.rt, beat=False, backup_lane=True):
+                    pass
+            except Exception:  # noqa: BLE001
+                log.exception("backup loop error")
+            self._stop_evt.wait(self.interval)
+
     def _monitor_loop(self) -> None:
         while not self._stop_evt.is_set():
             try:
@@ -100,6 +113,7 @@ class Worker(threading.Thread):
         if self.rt.settings.monitor_enabled:
             threading.Thread(target=self._monitor_loop, daemon=True, name="ics-monitor").start()
             threading.Thread(target=self._inventory_loop, daemon=True, name="ics-inventory").start()
+        threading.Thread(target=self._backup_loop, daemon=True, name="ics-backup").start()
         self._job_loop()
 
     def stop(self) -> None:

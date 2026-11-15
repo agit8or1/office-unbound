@@ -50,6 +50,8 @@ class Settings:
     max_body_bytes: int = 256 * 1024
     job_timeout_seconds: int = 180               # >= agent deadline (90) + max verify (45) + one check timeout (30) + slack (review L3)
     job_lease_slack_seconds: int = 60
+    backup_job_timeout_seconds: int = 3600      # backup.* jobs run on their own lane (a restore verification takes minutes; it must not block remediation)
+    backup_scheduler_enabled: bool = True
     pve_request_deadline_seconds: float = 30.0
     pve_max_response_bytes: int = 16 * 1024 * 1024
     snapshot_retention: int = 50

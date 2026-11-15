@@ -3,6 +3,13 @@
 set -euo pipefail; umask 077
 KUID="$1"; KGID="$2"; . /root/ou-env
 W=/root/ou-idrs; rm -rf "$W"; mkdir "$W"; tar -xf /root/identity.tar -C "$W"; cd "$W"; sha256sum -c --quiet SHA256SUMS
+# scratch reset (backup product verification into an existing machine): remove what a previous restore created so this run starts from the same state
+if [ "${OU_RESET:-0}" = 1 ]; then
+  systemctl stop keycloak 2>/dev/null || true
+  for i in $(seq 1 60); do sudo -u postgres psql -qAtc 'select 1' >/dev/null 2>&1 && break; sleep 1; done   # a freshly booted scratch machine: wait for PostgreSQL
+  sudo -u postgres psql -q -c 'DROP DATABASE IF EXISTS keycloak' >/dev/null
+  sudo -u postgres psql -q -c 'DROP ROLE IF EXISTS keycloak' >/dev/null
+fi
 # service account with the original numeric ids BEFORE packages allocate system ids
 getent group keycloak >/dev/null || groupadd -r -g "$KGID" keycloak
 id keycloak >/dev/null 2>&1 || useradd -r -u "$KUID" -g "$KGID" -d /opt/keycloak -s /usr/sbin/nologin keycloak

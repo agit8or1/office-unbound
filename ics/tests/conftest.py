@@ -70,7 +70,7 @@ def rt(base_settings, owner_engine):
     with owner_engine.connect() as c:
         c.execute(text("TRUNCATE users, sessions, login_attempts, audit_events, endpoints, plans, jobs, "
                        "worker_heartbeat, inventory_snapshots, plan_approvals, nodes, agent_requests, checks, check_results, incidents, "
-                       "maintenance_windows, alert_channels, notifications, remediation_attempts, idm_stacks, idm_users, idm_enrollments, idm_reconcile_runs RESTART IDENTITY CASCADE"))
+                       "maintenance_windows, alert_channels, notifications, remediation_attempts, idm_stacks, idm_users, idm_enrollments, idm_reconcile_runs, backup_policies, backup_runs, backup_verifications RESTART IDENTITY CASCADE"))
     r = Runtime(base_settings)
     yield r
     r.engine.dispose()

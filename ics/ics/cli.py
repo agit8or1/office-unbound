@@ -5,6 +5,7 @@ it talks to the database directly, is never rate limited, and never prints a pas
 and are never returned by the HTTP API.
 """
 import argparse
+import json
 import sys
 
 from sqlalchemy import text
@@ -27,6 +28,11 @@ def main(argv=None) -> int:
     du = sub.add_parser("disable-user", help="BREAK-GLASS (host root): disable an operator account and end its sessions; audited")
     du.add_argument("--username", required=True)
     du.add_argument("--reason", required=True, help="why the normal approval workflow could not be used (recorded in the audit log)")
+    ns = sub.add_parser("backup-node-secret", help="BREAK-GLASS (host root): print the policy's restic repository password as JSON for `ou-backup --direct provision <tier>`; audited, never logged")
+    ns.add_argument("--policy", required=True)
+    ra = sub.add_parser("backup-recovery-ack", help="record that the offline recovery key was exported (fingerprint only, never the key); audited")
+    ra.add_argument("--policy", required=True)
+    ra.add_argument("--fingerprint", required=True, help="16 hex characters printed by `ou-backup --direct recovery-key`")
     args = ap.parse_args(argv)
     rt = Runtime()
     with rt.session() as db:
@@ -71,6 +77,18 @@ def main(argv=None) -> int:
                          details={"username": args.username, "role": row.role, "sessions_revoked": n, "reason": args.reason.strip()[:500]})
             db.commit()
             print(f"disabled {args.username} (role {row.role}); revoked {n} session(s); recorded in audit log")
+            return 0
+        if args.cmd in ("backup-node-secret", "backup-recovery-ack"):
+            from .backups import ops as backup_ops
+            try:
+                if args.cmd == "backup-node-secret":
+                    print(json.dumps(backup_ops.node_secret(rt, db, args.policy)))
+                else:
+                    backup_ops.recovery_ack(db, args.policy, args.fingerprint)
+                    print("recorded; the key itself is not stored anywhere in ICS")
+            except (KeyError, backup_ops.BackupError) as e:
+                print(e.args[0] if e.args else e, file=sys.stderr)
+                return 1
             return 0
         res = audit.verify_chain(db)
     print(res)
