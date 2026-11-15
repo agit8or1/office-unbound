@@ -18,8 +18,9 @@ from pydantic import BaseModel, ConfigDict, Field, SecretStr, field_validator, m
 from sqlalchemy import text
 from sqlalchemy.orm import Session
 
-from . import agentclient, alerts, audit, auth, checks as checkmod, endpoint_actions, identity, monitor
+from . import agentclient, alerts, audit, auth, checks as checkmod, endpoint_actions, identity, monitor, removal
 from .deploy import ops as deploy_ops
+from .deploy import ports as deploy_ports
 from .deploy.ports import DeployError
 from .identity import IdentityError
 from .agentclient import AgentError
@@ -64,6 +65,12 @@ class ActionType(StrEnum):
     deployment_create = "deployment.create"
     deployment_change = "deployment.change"
     deployment_destroy = "deployment.destroy"
+    check_delete = "check.delete"
+    alert_channel_delete = "alert_channel.delete"
+    node_decommission = "node.decommission"
+    maintenance_cancel = "maintenance.cancel"
+    maintenance_delete = "maintenance.delete"
+    plan_archive = "plan.archive"
 
 
 class EndpointRegister(endpoint_actions.ScopeLists):
@@ -349,6 +356,13 @@ CATALOG: dict[ActionType, dict] = {
     ActionType.deployment_create: {"model": deploy_ops.DeploymentCreate, "risk": "high", "secrets": ()},
     ActionType.deployment_change: {"model": deploy_ops.DeploymentChange, "risk": "normal", "secrets": ()},
     ActionType.deployment_destroy: {"model": deploy_ops.DeploymentDestroy, "risk": "high", "secrets": ()},
+    # removals (removal.py): audited, guarded at plan time AND at execution
+    ActionType.check_delete: {"model": removal.CheckDelete, "risk": "normal", "secrets": ()},
+    ActionType.alert_channel_delete: {"model": removal.ChannelDelete, "risk": removal.channel_risk, "secrets": ()},
+    ActionType.node_decommission: {"model": removal.NodeDecommission, "risk": "high", "secrets": ()},
+    ActionType.maintenance_cancel: {"model": removal.MaintenanceTarget, "risk": "normal", "secrets": ()},
+    ActionType.maintenance_delete: {"model": removal.MaintenanceTarget, "risk": "normal", "secrets": ()},
+    ActionType.plan_archive: {"model": removal.PlanArchive, "risk": "low", "secrets": ()},
 }
 _IDM = {a for a in ActionType if a.value.startswith("idm.")}
 _DEPLOY = {a for a in ActionType if a.value.startswith("deployment.")}
@@ -469,6 +483,8 @@ def _pre_ack(db, rt, p: IncidentAck):
 
 def _pre_runbook(db, rt, p: RunbookExecute):
     node = _need(db, "nodes", p.node_id, "node")
+    if node.status == "decommissioned":
+        raise PlanError(409, "node is decommissioned")
     cap = node.capabilities.get(p.runbook)
     if cap is None or (p.unit and p.unit not in cap.get("units", [])) or (p.path and p.path not in cap.get("paths", [])):
         raise PlanError(422, "runbook/unit/path is not on that node's agent allowlist")
@@ -479,7 +495,10 @@ def _pre_runbook(db, rt, p: RunbookExecute):
 _PRECHECK = {ActionType.node_enroll: _pre_node_enroll, ActionType.check_create: _pre_check_create,
              ActionType.check_set_enabled: _pre_check_set_enabled, ActionType.check_bind_remediation: _pre_check_bind,
              ActionType.maintenance_create: _pre_maintenance, ActionType.alert_channel_create: _pre_channel_create,
-             ActionType.alert_channel_test: _pre_channel_test, ActionType.incident_ack: _pre_ack, ActionType.runbook_execute: _pre_runbook}
+             ActionType.alert_channel_test: _pre_channel_test, ActionType.incident_ack: _pre_ack, ActionType.runbook_execute: _pre_runbook,
+             ActionType.check_delete: removal.pre_check_delete, ActionType.alert_channel_delete: removal.pre_channel_delete,
+             ActionType.node_decommission: removal.pre_node_decommission, ActionType.maintenance_cancel: removal.pre_maintenance_cancel,
+             ActionType.maintenance_delete: removal.pre_maintenance_delete, ActionType.plan_archive: removal.pre_plan_archive}
 
 
 _USER_TARGET_ACTIONS = {ActionType.user_set_role, ActionType.user_revoke_invite, ActionType.user_disable, ActionType.user_enable,
@@ -490,6 +509,12 @@ _SELF_TARGET = {a.value for a in _USER_TARGET_ACTIONS}  # the target user may ne
 def _active_admins_except(db: Session, username: str) -> int:
     return db.execute(text("SELECT count(*) FROM users WHERE role = 'admin' AND enrolled AND NOT disabled AND username <> :u"),
                       {"u": username}).scalar()
+
+
+def _lock_admins(db: Session) -> None:
+    """Review 3 M1: serialise every execution that can shrink the admin set. All active admins are row-locked in a stable order, so two
+    concurrent/approved plans cannot both pass the 'another active admin remains' check."""
+    db.execute(text("SELECT id FROM users WHERE role = 'admin' AND enrolled AND NOT disabled ORDER BY id FOR UPDATE")).all()
 
 
 def _user_precheck(db: Session, user, action: ActionType, p, risk: str) -> str:
@@ -507,6 +532,8 @@ def _user_precheck(db: Session, user, action: ActionType, p, risk: str) -> str:
     elif action == ActionType.user_revoke_invite:
         if t.enrolled or t.disabled:
             raise PlanError(409, "only a pending invitation can be revoked")
+        if t.role in PRIVILEGED:  # review 3 L5: a privileged account in host-CLI recovery is not 'enrolled'; revoking it needs a second person
+            risk = "high"
     elif action == ActionType.user_disable:
         if not t.enrolled:
             raise PlanError(409, "account has not completed enrollment; revoke the invitation instead")
@@ -750,6 +777,7 @@ def reap_expired(rt: Runtime) -> int:
             db.execute(text("UPDATE jobs SET status = 'failed', finished_at = now(), error = CAST(:e AS jsonb) WHERE id = :i"),
                        {"e": json.dumps(err), "i": r.id})
             db.execute(text("UPDATE plans SET secret_enc = NULL WHERE id = :i"), {"i": r.plan_id})
+            db.execute(text("DELETE FROM deployment_locks WHERE job_id = :i"), {"i": r.id})  # the abandoned executor is fenced out (review 3 H1)
             audit.append(db, "job.failed", actor_name="worker", resource="job", resource_id=str(r.id),
                          details={"action": r.action, "error": err})
             n += 1
@@ -790,6 +818,9 @@ def run_job(rt: Runtime, job: dict) -> None:
     known: list[str] = []
     box: dict = {}
     cancelled, lock = threading.Event(), threading.Lock()
+    deploy = str(job["action"]).startswith("deployment.")
+    if deploy:
+        deploy_ports.STOP_EVENTS[str(job["id"])] = cancelled  # set => the executor thread is fenced (lease.Lease.check)
 
     def work() -> None:
         try:
@@ -813,7 +844,16 @@ def run_job(rt: Runtime, job: dict) -> None:
 
     t = threading.Thread(target=work, daemon=True, name=f"ics-job-{job['id']}")
     t.start()
-    t.join(rt.settings.job_timeout_seconds)
+    if deploy:  # review 3 H1: no fixed wall clock; the executor renews its own lease per heartbeat and enforces per-step deadlines
+        while t.is_alive():
+            t.join(1.0)
+            if t.is_alive() and not _still_running(rt, job["id"]):  # reaped / failed elsewhere: fence the thread, do not touch the job
+                cancelled.set()
+                deploy_ports.STOP_EVENTS.pop(str(job["id"]), None)
+                return
+        deploy_ports.STOP_EVENTS.pop(str(job["id"]), None)
+    else:
+        t.join(rt.settings.job_timeout_seconds)
     with lock:
         if t.is_alive() and "result" not in box:
             cancelled.set()
@@ -837,6 +877,14 @@ def run_job(rt: Runtime, job: dict) -> None:
         except Exception:  # noqa: BLE001
             log.exception("job finalize failed (attempt %d)", attempt + 1)
             time.sleep(0.5 * (attempt + 1))
+
+
+def _still_running(rt: Runtime, job_id) -> bool:
+    try:
+        with rt.session() as db:
+            return db.execute(text("SELECT status FROM jobs WHERE id = :i"), {"i": str(job_id)}).scalar() == "running"
+    except Exception:  # noqa: BLE001  (transient DB error: keep waiting)
+        return True
 
 
 def _client_for(rt: Runtime, ep, known: list[str]) -> ProxmoxReadClient:
@@ -891,9 +939,12 @@ def _exec_user_create(rt: Runtime, db: Session, m: UserCreate, plan, known: list
 
 
 def _exec_user_set_role(rt: Runtime, db: Session, m: UserSetRole, plan, known: list[str]) -> dict:
-    old = db.execute(text("SELECT role FROM users WHERE username = :u FOR UPDATE"), {"u": m.username}).first()
+    _lock_admins(db)
+    old = db.execute(text("SELECT role, enrolled, disabled FROM users WHERE username = :u FOR UPDATE"), {"u": m.username}).first()
     if old is None:
         raise PlanIntegrityError("user not found")
+    if old.role == "admin" and old.enrolled and not old.disabled and m.role != "admin" and _active_admins_except(db, m.username) == 0:
+        raise PlanIntegrityError("refusing to demote the last active admin")
     r = db.execute(text("UPDATE users SET role = :r, role_set_by = :by, role_set_at = now() WHERE username = :u RETURNING id"),
                    {"r": m.role, "by": str(plan.requested_by), "u": m.username}).first()
     audit.append(db, "user.role_set", actor_name="worker", resource="user", resource_id=str(r.id),
@@ -921,6 +972,7 @@ def _exec_user_revoke_invite(rt, db, m: UserTarget, plan, known) -> dict:
 
 
 def _exec_user_disable(rt, db, m: UserDisable, plan, known) -> dict:
+    _lock_admins(db)
     t = _lock_target(db, m.username)
     if not t.enrolled or t.disabled:
         raise PlanIntegrityError("account cannot be disabled in its current state")
@@ -1024,6 +1076,9 @@ def _exec_maintenance(rt, db, m: MaintenanceCreate, plan, known) -> dict:
         "INSERT INTO maintenance_windows (name, check_id, starts_at, ends_at, reason, created_by) "
         "VALUES (:n, :c, now(), now() + make_interval(mins => :d), :r, :u) RETURNING id"),
         {"n": m.name, "c": str(m.check_id) if m.check_id else None, "d": m.duration_minutes, "r": m.reason, "u": str(plan.requested_by)}).scalar()
+    # review 3 L2: only a window someone OTHER than the requester approved may later lower a deployment change's approval tier
+    if db.execute(text("SELECT 1 FROM plan_approvals WHERE plan_id = :p AND approver_id <> :u"), {"p": str(plan.id), "u": str(plan.requested_by)}).first():
+        db.execute(text("UPDATE maintenance_windows SET independently_approved = true WHERE id = :i"), {"i": wid})
     audit.append(db, "maintenance.created", actor_name="worker", resource="maintenance", resource_id=str(wid),
                  details={"name": m.name, "check_id": str(m.check_id) if m.check_id else None, "minutes": m.duration_minutes, "reason": m.reason})
     who = db.execute(text("SELECT username FROM users WHERE id = :u"), {"u": str(plan.requested_by)}).scalar()
@@ -1076,8 +1131,8 @@ def _exec_runbook(rt: Runtime, db: Session, m: RunbookExecute, plan, known: list
     if m.attempt_id is not None and (why := _stale_remediation(db, {"attempt_id": m.attempt_id})):
         raise PlanIntegrityError(why)
     node = db.execute(text("SELECT * FROM nodes WHERE id = :i"), {"i": str(m.node_id)}).first()
-    if node is None:
-        raise PlanIntegrityError("node not found")
+    if node is None or node.status == "decommissioned":
+        raise PlanIntegrityError("node not found or decommissioned")
     jid = str(db.execute(text("SELECT id FROM jobs WHERE plan_id = :p"), {"p": str(plan.id)}).scalar())
     priv = agentclient.load_signing_key(rt.settings.signing_key_file)
     params = {"unit": m.unit} if m.unit else {"path": m.path}
@@ -1134,6 +1189,9 @@ _EXEC = {ActionType.endpoint_register: endpoint_actions.exec_register, ActionTyp
          ActionType.check_set_enabled: _exec_check_set_enabled, ActionType.check_bind_remediation: _exec_check_bind,
          ActionType.maintenance_create: _exec_maintenance, ActionType.alert_channel_create: _exec_channel_create,
          ActionType.alert_channel_test: _exec_channel_test, ActionType.incident_ack: _exec_ack, ActionType.runbook_execute: _exec_runbook,
+         ActionType.check_delete: removal.exec_check_delete, ActionType.alert_channel_delete: removal.exec_channel_delete,
+         ActionType.node_decommission: removal.exec_node_decommission, ActionType.maintenance_cancel: removal.exec_maintenance_cancel,
+         ActionType.maintenance_delete: removal.exec_maintenance_delete, ActionType.plan_archive: removal.exec_plan_archive,
          **{ActionType(k): v for k, v in identity.EXECUTORS.items()},
          **{ActionType(k): v for k, v in deploy_ops.EXECUTORS.items()},
          **{ActionType(k): v for k, v in endpoint_actions.EXECUTORS.items()}}

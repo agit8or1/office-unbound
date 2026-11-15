@@ -13,10 +13,11 @@ from sqlalchemy import text
 
 from .. import audit
 from . import executor, state
+from .lease import Lease, guard_env
 from .catalog import get_catalog
 from .envs import real_env_factory
 from .plan import PlanInput, VmLayout, canon, capacity_from_inventory, generate_plan, plan_hash
-from .ports import Cancelled, DeployError, ExecEnv, StepFailed
+from .ports import STOP_EVENTS, Cancelled, DeployError, ExecEnv, Fenced, StepFailed
 
 log = logging.getLogger("ics.deploy.ops")
 SLUG = r"^[a-z0-9][a-z0-9-]{1,30}$"
@@ -67,6 +68,8 @@ class DeploymentDestroy(BaseModel):
     model_config = ConfigDict(extra="forbid")
     deployment_id: str = Field(pattern=SLUG)
     confirm: str = Field(description="must equal deployment_id")
+    plan_hash: str = Field(pattern=r"^[0-9a-f]{64}$", description="plan_hash returned by POST /deployments/{slug}/destroy/preview "
+                                                                  "(binds the approval to the applied revision and its exact resource list)")
 
     @model_validator(mode="after")
     def _c(self):
@@ -116,12 +119,19 @@ def _applied_plan(db, dep) -> dict:
     return r.plan
 
 
+def _busy(db, dep_id: str) -> bool:
+    """True while an executor holds a live lease on the deployment (review 3 H1)."""
+    return db.execute(text("SELECT 1 FROM deployment_locks WHERE deployment_id = :d AND lease_expires_at > now()"), {"d": dep_id}).first() is not None
+
+
 def plan_change(db, slug: str, changes: ChangeSet) -> tuple[object, PlanInput, dict, dict, dict]:
     """(deployment, new_spec, old_plan, new_plan, diff) without side effects."""
     dep = _dep(db, slug)
     if dep is None:
         raise KeyError("deployment not found")
-    if dep.status != "active":
+    if _busy(db, str(dep.id)):
+        raise LookupError("an executor is currently running on this deployment; wait for it to finish")
+    if dep.status not in ("active", "changing"):  # 'changing' with no live executor = an interrupted change (re-plan against the applied revision)
         raise LookupError(f"deployment is {dep.status}; only active deployments can be changed")
     old = _applied_plan(db, dep)
     new_spec = changes.apply(PlanInput.model_validate(dep.desired_spec))
@@ -162,6 +172,8 @@ def _pre_create(db, p: DeploymentCreate) -> dict:
     dep = _dep(db, spec.deployment_id)
     if dep is not None and dep.status not in ("planned", "failed", "provisioning"):
         raise LookupError(f"deployment {spec.deployment_id!r} already exists ({dep.status})")
+    if dep is not None and _busy(db, str(dep.id)):
+        raise LookupError(f"an executor is currently running on deployment {spec.deployment_id!r}; wait for it to finish")
     if dep is None:
         did = str(db.execute(text(
             "INSERT INTO deployments (slug, customer_id, profile, profile_version, endpoint_id, status, desired_spec) "
@@ -179,13 +191,18 @@ def _pre_create(db, p: DeploymentCreate) -> dict:
     return {"risk": "high", "deployment": spec.deployment_id, "plan_hash": plan["plan_hash"], "consumption": plan["consumption"]}
 
 
-def _upsert_revision(db, did: str, rev: int, kind: str, plan: dict, spec: PlanInput, diff: dict | None, risk: str) -> None:
+def _upsert_revision(db, did: str, rev: int, kind: str, plan: dict, spec: PlanInput, diff: dict | None, risk: str,
+                     base_revision: int | None = None) -> None:
+    # review 3 M5: base revision + diff hash are stored with the proposal; an applied/superseded row is never rewritten
     db.execute(text(
-        "INSERT INTO deployment_revisions (deployment_id, revision, kind, plan_hash, spec_hash, spec, plan, diff, risk) "
-        "VALUES (:d, :r, :k, :h, :sh, CAST(:s AS jsonb), CAST(:p AS jsonb), CAST(:df AS jsonb), :rk) "
-        "ON CONFLICT (deployment_id, plan_hash) DO UPDATE SET diff = EXCLUDED.diff, risk = EXCLUDED.risk, status = 'proposed'"),
+        "INSERT INTO deployment_revisions (deployment_id, revision, kind, plan_hash, spec_hash, spec, plan, diff, risk, base_revision, diff_hash) "
+        "VALUES (:d, :r, :k, :h, :sh, CAST(:s AS jsonb), CAST(:p AS jsonb), CAST(:df AS jsonb), :rk, :br, :dh) "
+        "ON CONFLICT (deployment_id, plan_hash) DO UPDATE SET diff = EXCLUDED.diff, risk = EXCLUDED.risk, status = 'proposed', "
+        "base_revision = EXCLUDED.base_revision, diff_hash = EXCLUDED.diff_hash "
+        "WHERE deployment_revisions.status IN ('proposed','failed')"),
         {"d": did, "r": rev, "k": kind, "h": plan["plan_hash"], "sh": hashlib.sha256(canon(spec.model_dump(mode="json")).encode()).hexdigest(),
-         "s": canon(spec.model_dump(mode="json")), "p": canon(plan), "df": canon(diff) if diff is not None else None, "rk": risk})
+         "s": canon(spec.model_dump(mode="json")), "p": canon(plan), "df": canon(diff) if diff is not None else None, "rk": risk, "br": base_revision,
+         "dh": hashlib.sha256(canon(diff).encode()).hexdigest() if diff is not None else None})
 
 
 def _pre_change(db, rt, p: DeploymentChange) -> dict:
@@ -201,13 +218,17 @@ def _pre_change(db, rt, p: DeploymentChange) -> dict:
             raise ValueError("this change has disruptive steps (" + ", ".join(diff["disruptive_steps"][:4]) + "); set maintenance='window' with an active "
                              "maintenance_window_id, or maintenance='override' (high risk)")
         if p.maintenance == "window":
-            w = db.execute(text("SELECT 1 FROM maintenance_windows WHERE id = :i AND ends_at > now()"), {"i": str(p.maintenance_window_id)}).first()
+            w = db.execute(text("SELECT independently_approved FROM maintenance_windows WHERE id = :i AND ends_at > now()"),
+                           {"i": str(p.maintenance_window_id)}).first()
             if w is None:
                 raise LookupError("maintenance window not found or already ended")
+            if not w.independently_approved:  # review 3 L2: a window the requester minted alone cannot lower the approval tier
+                raise LookupError("this maintenance window was not approved by anyone other than its requester; use maintenance='override' "
+                                  "(high risk, two approvers) or a window approved by a second person")
         else:
             risk = "high"
     rev = db.execute(text("SELECT COALESCE(max(revision), 0) + 1 FROM deployment_revisions WHERE deployment_id = :d"), {"d": str(dep.id)}).scalar()
-    _upsert_revision(db, str(dep.id), rev, "change", new, new_spec, diff, risk)
+    _upsert_revision(db, str(dep.id), rev, "change", new, new_spec, diff, risk, base_revision=dep.current_revision)
     state.add_event(db, str(dep.id), "change_planned", f"change planned: +{len(diff['added'])} ~{len(diff['changed'])} -{len(diff['removed'])}",
                     None, {"plan_hash": new["plan_hash"], "risk": risk})
     return {"risk": risk, "deployment": p.deployment_id, "plan_hash": new["plan_hash"], "diff_summary": {
@@ -215,21 +236,53 @@ def _pre_change(db, rt, p: DeploymentChange) -> dict:
         "downtime_seconds": diff["downtime_seconds"], "snapshot_required": diff["snapshot_required"], "risk_reasons": diff["risk_reasons"]}}
 
 
+def build_destroy_plan(db, dep) -> dict:
+    """Review 3 M2: the destroy plan comes from the APPLIED revision (never a proposed/failed one) plus every VM the deployment actually
+    owns (a provider reference and not yet removed), and is bound to the applied revision number. Same function for preview, precheck
+    and the re-check at execution, so an approved destroy can only run against exactly the resource list the approvers saw."""
+    applied = db.execute(text("SELECT plan FROM deployment_revisions WHERE deployment_id = :d AND status = 'applied' AND kind IN ('create','change') "
+                              "AND revision = :r"), {"d": str(dep.id), "r": dep.current_revision}).first()
+    names = {v["name"] for v in applied.plan["vms"]} if applied else set()
+    checks = [c["name"] for c in applied.plan["checks"]] if applied else []
+    for r in db.execute(text("SELECT logical_name FROM deployment_resources WHERE deployment_id = :d AND kind = 'vm' AND provider_ref IS NOT NULL "
+                             "AND state <> 'removed'"), {"d": str(dep.id)}):
+        names.add(r.logical_name)
+    if not names:
+        raise LookupError("deployment has no VMs to destroy")
+    plan = {"kind": "destroy", "plan_version": applied.plan.get("plan_version") if applied else None, "base_revision": dep.current_revision,
+            "vms": [{"name": n} for n in sorted(names)], "checks": [{"name": n} for n in sorted(checks)],
+            "steps": state.destroy_steps({"vms": [{"name": n} for n in sorted(names)]}), "errors": [], "warnings": []}
+    plan["plan_hash"] = plan_hash(plan)
+    return plan
+
+
+def destroy_preview(db, slug: str) -> dict:
+    dep = _dep(db, slug)
+    if dep is None:
+        raise KeyError("deployment not found")
+    if dep.status in ("destroyed", "planned"):
+        raise LookupError(f"deployment is {dep.status}")
+    if _busy(db, str(dep.id)):
+        raise LookupError("an executor is currently running on this deployment; wait for it to finish")
+    plan = build_destroy_plan(db, dep)
+    return {"deployment_id": slug, "from_revision": dep.current_revision, "plan": plan, "plan_hash": plan["plan_hash"],
+            "vms": [v["name"] for v in plan["vms"]]}
+
+
 def _pre_destroy(db, p: DeploymentDestroy) -> dict:
     dep = _dep(db, p.deployment_id)
     if dep is None:
         raise KeyError("deployment not found")
-    if dep.status in ("destroyed", "destroying", "changing", "provisioning"):
+    if dep.status in ("destroyed", "planned"):
         raise LookupError(f"deployment is {dep.status}")
-    r = db.execute(text("SELECT plan FROM deployment_revisions WHERE deployment_id = :d AND kind IN ('create','change') "
-                        "ORDER BY revision DESC, id DESC LIMIT 1"), {"d": str(dep.id)}).first()
-    if r is None:
-        raise LookupError("deployment has no plan to destroy")
+    if _busy(db, str(dep.id)):
+        raise LookupError("an executor is currently running on this deployment; wait for it to finish")
+    destroy_plan = build_destroy_plan(db, dep)
+    if destroy_plan["plan_hash"] != p.plan_hash:
+        raise LookupError("the destroy plan changed since it was previewed (applied revision or resources differ); preview again")
     rev = db.execute(text("SELECT COALESCE(max(revision), 0) + 1 FROM deployment_revisions WHERE deployment_id = :d"), {"d": str(dep.id)}).scalar()
-    destroy_plan = {**{k: r.plan[k] for k in ("vms", "checks", "plan_version")}, "kind": "destroy", "steps": state.destroy_steps(r.plan),
-                    "errors": [], "warnings": []}
-    destroy_plan["plan_hash"] = plan_hash(destroy_plan)
-    _upsert_revision(db, str(dep.id), rev, "destroy", destroy_plan, PlanInput.model_validate(dep.desired_spec), None, "high")
+    _upsert_revision(db, str(dep.id), rev, "destroy", destroy_plan, PlanInput.model_validate(dep.desired_spec), None, "high",
+                     base_revision=dep.current_revision)
     state.add_event(db, str(dep.id), "destroy_planned", "destroy planned", None, {"plan_hash": destroy_plan["plan_hash"]})
     return {"risk": "high", "deployment": p.deployment_id, "vms": [v["name"] for v in destroy_plan["vms"]], "plan_hash": destroy_plan["plan_hash"]}
 
@@ -283,20 +336,42 @@ def _event(rt, dep_id, kind, msg, job_id=None, details=None):
         db.commit()
 
 
-def _run(rt, db, plan_row, dep, rev, steps: list[dict], plan: dict, *, working: str, done: str) -> dict:
+def _run(rt, db, plan_row, dep, rev, steps: list[dict], plan: dict, *, working: str, done: str, base_revision: int | None = None,
+         verify: Callable[[ExecEnv], None] | None = None) -> dict:
+    """Run under the deployment's execution lock (lease + fencing token, review 3 H1). `verify` runs while the lock is still held."""
     jid = _job_id(db, plan_row)
     did = str(dep.id)
-    env = _env_factory(rt, {"slug": dep.slug, "id": did})
-    _set_status(rt, did, working, rev.id, "applying", jid)
-    _event(rt, did, "job_started", f"{rev.kind} started", jid)
+    lease = Lease(rt, did, jid, STOP_EVENTS.get(jid))
+    lease.acquire()  # DeployError if another executor holds a live lease; nothing is changed in that case
     try:
-        res = executor.run_steps(rt, job_id=jid, deployment_id=did, slug=dep.slug, revision=rev.revision, plan=plan, steps=steps, env=env,
-                                 created_by=str(plan_row.requested_by))
-    except (StepFailed, Cancelled) as e:
-        _set_status(rt, did, "active" if rev.kind == "change" else "failed", rev.id, "failed", jid)
-        _event(rt, did, "job_failed", str(e)[:300], jid)
-        raise
-    return {**res, "job_id": jid}
+        if base_revision is not None:  # review 3 M5: re-checked UNDER the lock
+            cur = rt_current_revision(rt, did)
+            if cur != base_revision:
+                raise DeployError(f"the deployment changed since this change was planned (applied revision {cur}, planned against "
+                                  f"{base_revision}); preview the change again")
+        env = guard_env(_env_factory(rt, {"slug": dep.slug, "id": did}), lease)
+        _set_status(rt, did, working, rev.id, "applying", jid)
+        _event(rt, did, "job_started", f"{rev.kind} started", jid)
+        try:
+            res = executor.run_steps(rt, job_id=jid, deployment_id=did, slug=dep.slug, revision=rev.revision, plan=plan, steps=steps, env=env,
+                                     created_by=str(plan_row.requested_by), plan_hash=rev.plan_hash, lease=lease,
+                                     step_deadline=float(rt.settings.deployment_step_deadline_seconds))
+            if verify is not None:
+                verify(env)
+        except Fenced:
+            raise  # not ours any more: touch nothing
+        except (StepFailed, Cancelled, DeployError) as e:
+            _set_status(rt, did, "active" if rev.kind == "change" else "failed", rev.id, "failed", jid)
+            _event(rt, did, "job_failed", str(e)[:300], jid)
+            raise
+        return {**res, "job_id": jid}
+    finally:
+        lease.release()
+
+
+def rt_current_revision(rt, did: str) -> int:
+    with rt.session() as d2:
+        return d2.execute(text("SELECT current_revision FROM deployments WHERE id = :i"), {"i": did}).scalar()
 
 
 def exec_create(rt, db, m: DeploymentCreate, plan_row, known) -> dict:
@@ -321,18 +396,23 @@ def exec_change(rt, db, m: DeploymentChange, plan_row, known) -> dict:
     diff = rev.diff
     if dep.status not in ("active", "changing"):
         raise DeployError(f"deployment is {dep.status}")
+    if rev.base_revision is None or dep.current_revision != rev.base_revision:  # review 3 M5 (re-checked again under the lock)
+        raise DeployError(f"the deployment changed since this change was planned (applied revision {dep.current_revision}, planned against "
+                          f"{rev.base_revision}); preview the change again")
+    if rev.diff_hash != hashlib.sha256(canon(diff).encode()).hexdigest():
+        raise DeployError("stored diff does not match its hash; refusing to execute")
     if m.maintenance == "window":
-        w = db.execute(text("SELECT 1 FROM maintenance_windows WHERE id = :i AND starts_at <= now() AND ends_at > now()"),
+        w = db.execute(text("SELECT 1 FROM maintenance_windows WHERE id = :i AND starts_at <= now() AND ends_at > now() AND independently_approved"),
                        {"i": str(m.maintenance_window_id)}).first()
         if w is None:
-            raise DeployError("the maintenance window is not active now; disruptive steps were not started")
+            raise DeployError("the maintenance window is not active now (or was not independently approved); disruptive steps were not started")
     did = str(dep.id)
     with rt.session() as d2:
         state.sync_resources(d2, did, new)
         for c in diff["changed"]:
             state.set_resource(d2, did, c["kind"], c["name"], state="changing")
         d2.commit()
-    res = _run(rt, db, plan_row, dep, rev, diff["steps"], new, working="changing", done="active")
+    res = _run(rt, db, plan_row, dep, rev, diff["steps"], new, working="changing", done="active", base_revision=rev.base_revision)
     with rt.session() as d2:
         for c in diff["changed"]:
             state.set_resource(d2, did, c["kind"], c["name"], state="present")
@@ -350,20 +430,39 @@ def exec_change(rt, db, m: DeploymentChange, plan_row, known) -> dict:
 
 
 def exec_destroy(rt, db, m: DeploymentDestroy, plan_row, known) -> dict:
-    dep, rev = _load_revision(db, m.deployment_id, "destroy", None)
+    dep, rev = _load_revision(db, m.deployment_id, "destroy", m.plan_hash)
     plan = _verify_integrity(rev)
     did = str(dep.id)
-    res = _run(rt, db, plan_row, dep, rev, plan["steps"], plan, working="destroying", done="destroyed")
+    if build_destroy_plan(db, dep)["plan_hash"] != rev.plan_hash:  # review 3 M2: same applied revision + resource list as approved
+        raise DeployError("the deployment's applied revision or resources changed since this destroy was approved; preview and approve again")
+    with rt.session() as d2:
+        refs = {r.logical_name: r.provider_ref for r in d2.execute(text(
+            "SELECT logical_name, provider_ref FROM deployment_resources WHERE deployment_id = :d AND kind = 'vm'"), {"d": did})}
+    names = [v["name"] for v in plan["vms"]]
+
+    def verify_gone(env: ExecEnv) -> None:
+        guests = env.provider.discover().guests
+        tag = f"ou-deployment-{dep.slug}"
+        left = [n for n in names if refs.get(n) and refs[n].get("vmid") is not None
+                and any(int(g.vmid) == int(refs[n]["vmid"]) and tag in g.tags for g in guests)]
+        if left:
+            with rt.session() as d3:  # the surviving VMs stay tracked (not 'removed')
+                for n in left:
+                    state.set_resource(d3, did, "vm", n, state="failed")
+                d3.commit()
+            raise DeployError("destroy is incomplete: VMs still exist: " + ", ".join(left) + "; the deployment was NOT marked destroyed")
+
+    res = _run(rt, db, plan_row, dep, rev, plan["steps"], plan, working="destroying", done="destroyed", verify=verify_gone)
     with rt.session() as d2:
         d2.execute(text("UPDATE deployment_resources SET state = 'removed', updated_at = now() WHERE deployment_id = :d"), {"d": did})
-        for c in plan["checks"]:
-            d2.execute(text("UPDATE checks SET enabled = false WHERE name = :n"), {"n": c["name"]})
+        for c in plan["checks"]:  # review 3 L4: only checks this deployment created
+            d2.execute(text("UPDATE checks SET enabled = false WHERE name = :n AND deployment_id = :d"), {"n": c["name"], "d": did})
         d2.commit()
     _set_status(rt, did, "destroyed", rev.id, "applied", res["job_id"], current_revision=rev.revision)
     _event(rt, did, "destroyed", "deployment destroyed", res["job_id"])
     audit.append(db, "deployment.destroyed", actor_name="worker", resource="deployment", resource_id=did,
-                 details={"slug": dep.slug, "vms": [v["name"] for v in plan["vms"]]})
-    return {"deployment_id": dep.slug, "destroyed_vms": len(plan["vms"])}
+                 details={"slug": dep.slug, "vms": names, "plan_hash": rev.plan_hash})
+    return {"deployment_id": dep.slug, "destroyed_vms": len(names)}
 
 
 MODELS = {"deployment.create": DeploymentCreate, "deployment.change": DeploymentChange, "deployment.destroy": DeploymentDestroy}

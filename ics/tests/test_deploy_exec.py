@@ -407,6 +407,7 @@ def test_step_retry_then_success_and_hard_failure_with_explanation(client, actor
     # a permanently failing provider: job fails, the failing step explains itself, later steps stay pending
     with rt.session() as db:
         db.execute(text("DELETE FROM deployments"))
+        db.execute(text("DELETE FROM checks"))
         db.commit()
     env.provider.vms.clear()
     env.provider.fail["clone"] = 99
@@ -437,7 +438,7 @@ def test_cancellation_between_steps(client, actors, rt, env):
     j = job(actors[0], jid)
     assert j["status"] == "failed" and "cancelled" in j["error"]["message"]
     st = steps(actors[0], jid)
-    assert st[0]["status"] == "succeeded"                                           # the running step was never interrupted
+    assert st[0]["status"] == "cancelled"                                           # review 3 H1: cancellation is also honoured INSIDE a step
     assert any(s["status"] == "cancelled" for s in st) and not any(s["status"] == "running" for s in st)
     assert len(env.provider.names("clone")) == 1
     assert executor.request_cancel(rt, jid) is False                              # finished jobs cannot be cancelled
@@ -502,7 +503,7 @@ def test_change_apply_with_active_window_runs_snapshot_resize_reboot(client, act
     _active(actors, rt, users=30)
     pv = cprev(actors[0], {"users": 40})
     with rt.session() as db:
-        wid = str(db.execute(text("INSERT INTO maintenance_windows (name, starts_at, ends_at) VALUES ('mw', now() - interval '1 minute', now() + interval '1 hour') "
+        wid = str(db.execute(text("INSERT INTO maintenance_windows (name, starts_at, ends_at, independently_approved) VALUES ('mw', now() - interval '1 minute', now() + interval '1 hour', true) "
                                   "RETURNING id")).scalar())
         db.commit()
     prov = env.provider
@@ -558,7 +559,7 @@ def test_change_can_add_a_component(client, actors, rt, env):
     assert not pv["diff"]["requires_maintenance"]
     r, jid = submit(actors, rt, "deployment.change", {"deployment_id": "prod", "changes": {"optional": {"office": True}}, "plan_hash": pv["plan"]["plan_hash"]},
                     approvals=1)
-    assert job(actors[0], jid)["status"] == "succeeded", job(actors[0], jid)
+    assert job(actors[0], jid)["status"] == "succeeded", job(actors[0], jid)["error"]
     assert "acme-prod-office" in [v["name"] for v in env.provider.vms.values()]
     assert any(r[1] == "podman.deploy_unit" and r[0] == "node-acme-prod-office" for r in env.agent.runbooks)
 
@@ -600,24 +601,26 @@ def test_drift_report_is_report_only(client, actors, rt, env):
 def test_destroy_removes_only_owned_guests(client, actors, rt, env):
     _active(actors, rt)
     prov = env.provider
-    submit(actors, rt, "deployment.destroy", {"deployment_id": "prod", "confirm": "nope"}, expect=422)
-    submit(actors, rt, "deployment.destroy", {"deployment_id": "ghost", "confirm": "ghost"}, expect=404)
+    dh = actors[0][0].post(f"{H}/deployments/prod/destroy/preview", headers=actors[0][1]).json()["plan_hash"]
+    submit(actors, rt, "deployment.destroy", {"deployment_id": "prod", "confirm": "nope", "plan_hash": dh}, expect=422)
+    submit(actors, rt, "deployment.destroy", {"deployment_id": "ghost", "confirm": "ghost", "plan_hash": dh}, expect=404)
+    submit(actors, rt, "deployment.destroy", {"deployment_id": "prod", "confirm": "prod", "plan_hash": "0" * 64}, expect=409)
     # a guest that lost its ownership tag is never destroyed
     victim = next(v for v in prov.vms.values() if v["name"].endswith("-groupware"))
     victim["tags"] = []
-    r, jid = submit(actors, rt, "deployment.destroy", {"deployment_id": "prod", "confirm": "prod"}, approvals=1)
+    r, jid = submit(actors, rt, "deployment.destroy", {"deployment_id": "prod", "confirm": "prod", "plan_hash": dh}, approvals=1)
     assert r["risk"] == "high" and jid is None
     (o, oh), a1, a2 = actors
     jid = a2[0].post(f"{H}/plans/{r['plan_id']}/approve", headers=a2[1]).json()["job_id"]
     assert worker.run_once(rt)
-    assert job(actors[0], jid)["status"] == "succeeded", job(actors[0], jid)
+    assert job(actors[0], jid)["status"] == "succeeded", job(actors[0], jid)["error"]
     assert [v["name"] for v in prov.vms.values()] == [victim["name"]]
     d = o.get(f"{H}/deployments/prod").json()
     assert d["status"] == "destroyed"
     with rt.session() as db:
         assert db.execute(text("SELECT count(*) FROM checks WHERE enabled")).scalar() == 0
         assert db.execute(text("SELECT count(*) FROM audit_events WHERE action = 'deployment.destroyed'")).scalar() == 1
-    submit(actors, rt, "deployment.destroy", {"deployment_id": "prod", "confirm": "prod"}, expect=409)
+    submit(actors, rt, "deployment.destroy", {"deployment_id": "prod", "confirm": "prod", "plan_hash": dh}, expect=409)
 
 
 def test_steps_endpoint_404_and_actions_catalog(client, actors, rt, env):

@@ -278,7 +278,7 @@ def create_app(settings: Settings | None = None, runtime: Runtime | None = None)
         return _decide(plan_id, False, request, user, db)
 
     @app.get(f"{API}/plans")
-    def list_plans(status: str | None = None, limit: int = 200, user: User = Depends(require("viewer")), db: Session = Depends(get_db)):
+    def list_plans(status: str | None = None, limit: int = 200, include_archived: bool = False, user: User = Depends(require("viewer")), db: Session = Depends(get_db)):
         if status is not None and status not in ("pending_approval", "approved", "rejected"):
             raise HTTPException(422, "status must be pending_approval, approved or rejected")
         rows = db.execute(text(
@@ -288,8 +288,8 @@ def create_app(settings: Settings | None = None, runtime: Runtime | None = None)
             "COALESCE((SELECT array_agg(u.username ORDER BY a.at) FROM plan_approvals a JOIN users u ON u.id = a.approver_id "
             "WHERE a.plan_id = p.id), ARRAY[]::text[]) AS approvers "
             "FROM plans p JOIN users ru ON ru.id = p.requested_by LEFT JOIN users du ON du.id = p.decided_by "
-            "WHERE (CAST(:s AS text) IS NULL OR p.status = :s) ORDER BY p.created_at DESC LIMIT :n"),
-            {"s": status, "n": min(max(limit, 1), 500)}).all()
+            "WHERE (CAST(:s AS text) IS NULL OR p.status = :s) AND (:ia OR p.archived_at IS NULL) ORDER BY p.created_at DESC LIMIT :n"),
+            {"s": status, "n": min(max(limit, 1), 500), "ia": include_archived}).all()
         out = []
         for r in rows:
             d = _row(r)

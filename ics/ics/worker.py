@@ -42,7 +42,11 @@ class Worker(threading.Thread):
         now = time.monotonic()
         self.progress = {"jobs": now, "monitor": now}
         self.job_stall_seconds = rt.settings.job_timeout_seconds + 30.0
+        rt.progress_hook = self._job_progress  # long deployment jobs renew their lease and report progress here
         self.monitor_stall_seconds = float(rt.settings.monitor_stall_seconds)
+
+    def _job_progress(self) -> None:
+        self.progress["jobs"] = time.monotonic()
 
     def healthy(self) -> bool:
         now = time.monotonic()

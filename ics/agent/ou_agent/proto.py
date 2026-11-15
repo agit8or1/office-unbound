@@ -81,9 +81,9 @@ def check_envelope(req, *, now: int, node_id: str) -> dict:
         if type(req[k]) is not int:
             raise Reject("bad_format", f"{k} must be an integer")
     for k in ("node_id", "job_id"):
-        if not isinstance(req[k], str) or not UUID_RE.match(req[k]):
+        if not isinstance(req[k], str) or not UUID_RE.fullmatch(req[k]):
             raise Reject("bad_format", f"{k} must be a lowercase uuid")
-    if not isinstance(req["nonce"], str) or not NONCE_RE.match(req["nonce"]):
+    if not isinstance(req["nonce"], str) or not NONCE_RE.fullmatch(req["nonce"]):
         raise Reject("bad_format", "bad nonce")
     if req["node_id"] != node_id:
         raise Reject("wrong_node", "request is for a different node")
