@@ -30,7 +30,7 @@ def _test_env() -> dict:
     env.update({k: v for k, v in os.environ.items() if k.startswith("ICS_TEST_")})
     for k in ("ICS_TEST_DATABASE_URL", "ICS_TEST_OWNER_DATABASE_URL"):
         assert k in env, f"{k} missing (see README: test configuration)"
-        assert env[k].endswith("/ics_test"), "refusing to run tests against a non-test database"
+        assert re.search(r"/ics_test(_[a-z0-9]{1,12})?$", env[k]), "refusing to run tests against a non-test database"
     return env
 
 
