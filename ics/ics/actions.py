@@ -980,11 +980,12 @@ def run_job(rt: Runtime, job: dict) -> None:
                 return
         deploy_ports.STOP_EVENTS.pop(str(job["id"]), None)
     else:
-        t.join(rt.settings.backup_job_timeout_seconds if job["action"].startswith("backup.") else rt.settings.job_timeout_seconds)
+        budget = rt.settings.backup_job_timeout_seconds if job["action"].startswith("backup.") else rt.settings.job_timeout_seconds
+        t.join(budget)
     with lock:
         if t.is_alive() and "result" not in box:
             cancelled.set()
-            error = _error_dict(JobTimeout(f"job exceeded its {budget}s wall-clock budget"), known)
+            error = _error_dict(JobTimeout(f"job exceeded its {rt.settings.backup_job_timeout_seconds if str(job["action"]).startswith("backup.") else rt.settings.job_timeout_seconds}s wall-clock budget"), known)
         elif "error" in box:
             error = _error_dict(box["error"], known)
         else:
