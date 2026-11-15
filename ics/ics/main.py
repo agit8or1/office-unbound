@@ -21,6 +21,9 @@ from . import userdir
 from .config import Settings
 from .deploy.api import register_routes as register_deploy_routes
 from .inventory import api as inventory_api
+from .provisioning import service as prov_service
+from .credentials import api as credentials_api, service as cred_service
+from .tenancy import api as tenancy_api, public as tenancy_public, scope as tscope
 from .runtime import Runtime
 from .worker import Worker
 
@@ -159,6 +162,11 @@ def create_app(settings: Settings | None = None, runtime: Runtime | None = None)
 
     @asynccontextmanager
     async def lifespan(app: FastAPI):
+        try:
+            cred_service.adopt_all(rt)  # idempotent: moves any legacy per-endpoint secret into the credential vault
+        except Exception:  # noqa: BLE001
+            import logging
+            logging.getLogger("ics").exception("credential migration failed; endpoints keep using legacy secrets until it succeeds")
         if worker:
             worker.start()
         yield
@@ -278,7 +286,7 @@ def create_app(settings: Settings | None = None, runtime: Runtime | None = None)
         return _decide(plan_id, False, request, user, db)
 
     @app.get(f"{API}/plans")
-    def list_plans(status: str | None = None, limit: int = 200, user: User = Depends(require("viewer")), db: Session = Depends(get_db)):
+    def list_plans(status: str | None = None, limit: int = 200, include_archived: bool = False, user: User = Depends(require("viewer")), db: Session = Depends(get_db)):
         if status is not None and status not in ("pending_approval", "approved", "rejected"):
             raise HTTPException(422, "status must be pending_approval, approved or rejected")
         rows = db.execute(text(
@@ -288,8 +296,8 @@ def create_app(settings: Settings | None = None, runtime: Runtime | None = None)
             "COALESCE((SELECT array_agg(u.username ORDER BY a.at) FROM plan_approvals a JOIN users u ON u.id = a.approver_id "
             "WHERE a.plan_id = p.id), ARRAY[]::text[]) AS approvers "
             "FROM plans p JOIN users ru ON ru.id = p.requested_by LEFT JOIN users du ON du.id = p.decided_by "
-            "WHERE (CAST(:s AS text) IS NULL OR p.status = :s) ORDER BY p.created_at DESC LIMIT :n"),
-            {"s": status, "n": min(max(limit, 1), 500)}).all()
+            f"WHERE (CAST(:s AS text) IS NULL OR p.status = :s) AND (:ia OR p.archived_at IS NULL) AND {tscope.clause(db, 'p.customer_id')} ORDER BY p.created_at DESC LIMIT :n"),
+            {"s": status, "n": min(max(limit, 1), 500), "ia": include_archived}).all()
         out = []
         for r in rows:
             d = _row(r)
@@ -301,22 +309,26 @@ def create_app(settings: Settings | None = None, runtime: Runtime | None = None)
     def list_jobs(status: str | None = None, limit: int = 200, user: User = Depends(require("viewer")), db: Session = Depends(get_db)):
         if status is not None and status not in ("queued", "running", "succeeded", "failed"):
             raise HTTPException(422, "status must be queued, running, succeeded or failed")
-        rows = db.execute(text("SELECT * FROM jobs WHERE (CAST(:s AS text) IS NULL OR status = :s) ORDER BY created_at DESC LIMIT :n"),
+        rows = db.execute(text("SELECT j.* FROM jobs j JOIN plans p ON p.id = j.plan_id WHERE (CAST(:s AS text) IS NULL OR j.status = :s) "
+                               f"AND {tscope.clause(db, 'p.customer_id')} ORDER BY j.created_at DESC LIMIT :n"),
                           {"s": status, "n": min(max(limit, 1), 500)}).all()
         return [_row(r) for r in rows]
 
     @app.get(f"{API}/jobs/{{job_id}}")
     def get_job(job_id: UUID, user: User = Depends(require("viewer")), db: Session = Depends(get_db)):
-        r = db.execute(text("SELECT * FROM jobs WHERE id = :i"), {"i": str(job_id)}).first()
+        r = db.execute(text("SELECT j.* FROM jobs j JOIN plans p ON p.id = j.plan_id WHERE j.id = :i AND " + tscope.clause(db, "p.customer_id")),
+                       {"i": str(job_id)}).first()
         if r is None:
             raise HTTPException(404, "job not found")
         return _row(r)
 
     # ---- endpoints / inventory (token secret never selected) ----
     inventory_api.mount(app)  # GET /endpoints[/{id}], /infra/*, /setup/*
+    prov_service.mount(app, rt)  # GET /providers/{id}/permissions, /providers/{id}/provisioning/packages/{pkg}
 
     @app.get(f"{API}/endpoints/{{endpoint_id}}/inventory")
     def latest_inventory(endpoint_id: UUID, user: User = Depends(require("viewer")), db: Session = Depends(get_db)):
+        tscope.assert_endpoint(db, user, endpoint_id)
         r = db.execute(text("SELECT id, collected_at, data FROM inventory_snapshots WHERE endpoint_id = :e "
                             "ORDER BY collected_at DESC LIMIT 1"), {"e": str(endpoint_id)}).first()
         if r is None:
@@ -325,6 +337,7 @@ def create_app(settings: Settings | None = None, runtime: Runtime | None = None)
 
     @app.get(f"{API}/endpoints/{{endpoint_id}}/inventory/snapshots")
     def snapshots(endpoint_id: UUID, user: User = Depends(require("viewer")), db: Session = Depends(get_db)):
+        tscope.assert_endpoint(db, user, endpoint_id)
         rows = db.execute(text("SELECT id, collected_at FROM inventory_snapshots WHERE endpoint_id = :e "
                                "ORDER BY collected_at DESC LIMIT 100"), {"e": str(endpoint_id)}).all()
         return [{"snapshot_id": r.id, "collected_at": r.collected_at.isoformat()} for r in rows]
@@ -332,8 +345,7 @@ def create_app(settings: Settings | None = None, runtime: Runtime | None = None)
     @app.get(f"{API}/endpoints/{{endpoint_id}}/inventory/refresh-state")
     def refresh_state(endpoint_id: UUID, user: User = Depends(require("viewer")), db: Session = Depends(get_db)):
         """State of the most recent inventory.refresh job for this endpoint (none|queued|running|succeeded|failed) + last snapshot time."""
-        if db.execute(text("SELECT 1 FROM endpoints WHERE id = :e"), {"e": str(endpoint_id)}).first() is None:
-            raise HTTPException(404, "endpoint not found")
+        tscope.assert_endpoint(db, user, endpoint_id)
         j = db.execute(text(
             "SELECT j.id, j.plan_id, j.status, j.created_at, j.started_at, j.finished_at, j.error FROM jobs j JOIN plans p ON p.id = j.plan_id "
             "WHERE p.action = 'inventory.refresh' AND p.params->>'endpoint_id' = :e ORDER BY j.created_at DESC LIMIT 1"),
@@ -498,6 +510,8 @@ def create_app(settings: Settings | None = None, runtime: Runtime | None = None)
     def list_audit(limit: int = 100, before_seq: int | None = None, user: User = Depends(require("approver")),
                    db: Session = Depends(get_db)):
         """Newest first; pass the smallest `seq` you have as `before_seq` to get the next (older) page."""
+        if user.customer_ids is not None:
+            raise HTTPException(403, "the audit log spans all customers; it needs the all-customers scope")
         rows = db.execute(text("SELECT seq, id, at, action, actor_name, ip, resource, resource_id, details, hash FROM audit_events "
                                "WHERE (CAST(:b AS bigint) IS NULL OR seq < :b) ORDER BY seq DESC LIMIT :n"),
                           {"n": min(max(limit, 1), 500), "b": before_seq}).all()
@@ -506,6 +520,10 @@ def create_app(settings: Settings | None = None, runtime: Runtime | None = None)
     @app.get(f"{API}/audit/verify")
     def verify(user: User = Depends(require("approver")), db: Session = Depends(get_db)):
         return audit.verify_chain(db)
+
+    credentials_api.mount(app)
+    tenancy_api.mount(app)
+    tenancy_public.mount(app)
 
     if STATIC_DIR.is_dir():
         @app.get("/", include_in_schema=False)

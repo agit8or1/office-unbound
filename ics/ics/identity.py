@@ -95,9 +95,13 @@ class StackRegister(BaseModel):
     mail_host: str | None = Field(default=None, pattern=HOST_RE)
     mail_ca_pem: str | None = Field(default=None, max_length=100_000)
     probe_client_id: str | None = Field(default=None, pattern=NAME_RE, description="public Keycloak client with direct grants used ONLY by the VERIFY probes")
+    mas_url: str | None = Field(default=None, description="https://matrix-authentication-service host (admin API); enables the Matrix downstream")
+    mas_client_id: str | None = Field(default=None, pattern=NAME_RE, description="MAS OAuth2 client (client credentials, scope urn:mas:admin) dedicated to the ICS")
+    mas_client_secret: SecretStr | None = None
     reconcile_interval_seconds: int = Field(default=900, ge=0, le=86400, description="0 disables the periodic reconcile")
 
     _s1 = field_validator("ldap_bind_password", "kc_client_secret", mode="before")(lambda cls, v: _secret(v))
+    _s2 = field_validator("mas_client_secret", mode="before")(lambda cls, v: None if v is None else _secret(v))
     _p1 = field_validator("identity_ca_pem", "mail_ca_pem")(lambda cls, v: _pem(v))
 
     @field_validator("ldap_url")
@@ -108,7 +112,7 @@ class StackRegister(BaseModel):
             raise ValueError("ldap_url must be ldaps://host[:port]")
         return v
 
-    @field_validator("kc_url", "files_url")
+    @field_validator("kc_url", "files_url", "mas_url")
     @classmethod
     def _https(cls, v: str | None) -> str | None:
         if v is None:
@@ -133,6 +137,8 @@ class StackRegister(BaseModel):
             raise ValueError("entitlement_group must be in allowed_groups")
         if self.gromox_node_id and not (self.mail_host and self.mail_ca_pem):
             raise ValueError("gromox_node_id needs mail_host and mail_ca_pem")
+        if bool(self.mas_url) != bool(self.mas_client_id) or bool(self.mas_url) != bool(self.mas_client_secret):
+            raise ValueError("mas_url, mas_client_id and mas_client_secret must be given together")
         if self.probe_client_id and not (self.mail_host or self.files_url):
             raise ValueError("probe_client_id needs mail_host and/or files_url")
         return self
@@ -220,6 +226,7 @@ class Stack:
     def __init__(self, row, secrets_: dict):
         self.id, self.name, self.cfg = str(row.id), row.name, dict(row.config)
         self.ldap_pw, self.kc_secret = secrets_["ldap_bind_password"], secrets_["kc_client_secret"]
+        self.mas_secret = secrets_.get("mas_client_secret")
 
     @property
     def mail_domain(self) -> str:
@@ -462,6 +469,90 @@ class Keycloak:
 
     def delete(self, kid: str) -> None:
         self.req("DELETE", f"/users/{kid}")
+
+class Mas:
+    """Matrix Authentication Service admin API (downstream of Keycloak). Client-credentials client dedicated to the ICS.
+    MAS has a single admin scope (`urn:mas:admin`), so the scope itself cannot be narrowed; the narrowing is: its own client id + vault-held secret, the
+    admin API reachable only from the ICS (network), and this class only ever calls the user lookup, lock/unlock/deactivate and session finish endpoints."""
+
+    def __init__(self, rt: Runtime, stack: Stack):
+        c = stack.cfg
+        from urllib.parse import urlparse
+        _guard(rt, urlparse(c["mas_url"]).hostname)
+        self.base, self.client_id, self._secret = c["mas_url"].rstrip("/"), c["mas_client_id"], stack.mas_secret
+        ctx = ssl.create_default_context(cadata=c["identity_ca_pem"])
+        ctx.minimum_version = ssl.TLSVersion.TLSv1_2
+        self.http = httpx.Client(verify=ctx, timeout=httpx.Timeout(10.0), follow_redirects=False, trust_env=False)
+        self._tok, self._exp = None, 0.0
+
+    def close(self) -> None:
+        self.http.close()
+
+    def _token(self) -> str:
+        if self._tok and time.monotonic() < self._exp:
+            return self._tok
+        try:
+            r = self.http.post(f"{self.base}/oauth2/token", auth=(self.client_id, self._secret or ""),
+                               data={"grant_type": "client_credentials", "scope": "urn:mas:admin"})
+        except (httpx.HTTPError, ssl.SSLError, OSError) as e:
+            raise IdentityError(f"MAS unreachable or untrusted: {type(e).__name__}") from None
+        if r.status_code != 200:
+            raise IdentityError(f"MAS admin client login refused (HTTP {r.status_code})")
+        j = r.json()
+        self._tok, self._exp = j["access_token"], time.monotonic() + max(10, int(j.get("expires_in", 60)) - 15)
+        return self._tok
+
+    def req(self, method: str, path: str, ok=(200, 204), **kw):
+        try:
+            r = self.http.request(method, f"{self.base}/api/admin/v1{path}", headers={"Authorization": f"Bearer {self._token()}"}, **kw)
+        except (httpx.HTTPError, ssl.SSLError, OSError) as e:
+            raise IdentityError(f"MAS request failed: {type(e).__name__}") from None
+        if r.status_code not in ok:
+            raise IdentityError(f"MAS {method} {path.split('?')[0].rsplit('/', 1)[-1]} refused: HTTP {r.status_code}")
+        return r
+
+    def probe(self) -> None:
+        self.req("GET", "/users", params={"page[first]": 1})
+
+    def find(self, uid: str) -> dict | None:
+        """-> {"id", "locked", "deactivated"} or None when MAS never saw the user."""
+        r = self.req("GET", f"/users/by-username/{uid}", ok=(200, 404))
+        if r.status_code == 404:
+            return None
+        d = r.json()["data"]
+        a = d.get("attributes", {})
+        return {"id": d["id"], "locked": bool(a.get("locked_at")), "deactivated": bool(a.get("deactivated_at"))}
+
+    def lock(self, mid: str) -> None:
+        self.req("POST", f"/users/{mid}/lock")
+
+    def unlock(self, mid: str) -> None:
+        self.req("POST", f"/users/{mid}/unlock")
+
+    def deactivate(self, mid: str) -> None:
+        self.req("POST", f"/users/{mid}/deactivate")
+
+    KINDS = ("oauth2-sessions", "compat-sessions")
+
+    def active_sessions(self, mid: str) -> list[tuple[str, str]]:
+        out: list[tuple[str, str]] = []
+        for kind in self.KINDS:
+            r = self.req("GET", f"/{kind}", params={"filter[user]": mid, "filter[status]": "active", "page[first]": 100})
+            out += [(kind, x["id"]) for x in r.json().get("data", [])]
+        return out
+
+    def end_sessions(self, mid: str) -> int:
+        n = 0
+        for kind, sid in self.active_sessions(mid):
+            self.req("POST", f"/{kind}/{sid}/finish", ok=(200, 204, 404))
+            n += 1
+        return n
+
+    def state(self, uid: str) -> dict:
+        u = self.find(uid)
+        if u is None:
+            return {"user_present": False}
+        return {"user_present": True, "locked": u["locked"], "deactivated": u["deactivated"], "active_sessions": len(self.active_sessions(u["id"]))}
 
 
 # ---- node agent (gromox / opencloud runbooks) ----------------------------------------------------------------------------------------
@@ -708,9 +799,12 @@ def _gromox(rt, stack, action, uid, known) -> dict | None:
 
 def exec_register(rt: Runtime, db, m: StackRegister, plan, known: list[str]) -> dict:
     sid = uuid.uuid4()
-    cfg = m.model_dump(mode="json", exclude={"ldap_bind_password", "kc_client_secret"})
-    known.extend([m.ldap_bind_password.get_secret_value(), m.kc_client_secret.get_secret_value()])
-    stack = Stack(type("R", (), {"id": sid, "name": m.name, "config": cfg}), {"ldap_bind_password": known[-2], "kc_client_secret": known[-1]})
+    cfg = m.model_dump(mode="json", exclude={"ldap_bind_password", "kc_client_secret", "mas_client_secret"})
+    sec = {"ldap_bind_password": m.ldap_bind_password.get_secret_value(), "kc_client_secret": m.kc_client_secret.get_secret_value()}
+    if m.mas_client_secret:
+        sec["mas_client_secret"] = m.mas_client_secret.get_secret_value()
+    known.extend(sec.values())
+    stack = Stack(type("R", (), {"id": sid, "name": m.name, "config": cfg}), sec)
     d = Directory(rt, stack)  # proves TLS trust + service-account bind before anything is stored
     try:
         if d._search(cfg["ldap_people_dn"], "(objectClass=*)", ["1.1"], d._ldap3.BASE) == []:
@@ -722,7 +816,13 @@ def exec_register(rt: Runtime, db, m: StackRegister, plan, known: list[str]) -> 
         kc.req("GET", "/users/count")  # service account can read users
     finally:
         kc.close()
-    enc = rt.vault.encrypt(json.dumps({"ldap_bind_password": known[-2], "kc_client_secret": known[-1]}).encode(), stack_aad(sid, cfg))
+    if cfg.get("mas_url"):
+        mas = Mas(rt, stack)
+        try:
+            mas.probe()  # client credentials accepted and the admin API answers
+        finally:
+            mas.close()
+    enc = rt.vault.encrypt(json.dumps(sec).encode(), stack_aad(sid, cfg))
     db.execute(text("INSERT INTO idm_stacks (id, name, config, secret_enc, created_by) VALUES (:i, :n, CAST(:c AS jsonb), :s, :u)"),
                {"i": str(sid), "n": m.name, "c": audit.canon(cfg), "s": enc, "u": str(plan.requested_by)})
     audit.append(db, "identity.stack_registered", actor_name="worker", resource="idm_stack", resource_id=str(sid),
@@ -732,7 +832,7 @@ def exec_register(rt: Runtime, db, m: StackRegister, plan, known: list[str]) -> 
 
 def exec_create(rt: Runtime, db, m: UserCreate, plan, known: list[str]) -> dict:
     stack = load_stack(rt, m.stack)
-    known.extend([stack.ldap_pw, stack.kc_secret])
+    known.extend([stack.ldap_pw, stack.kc_secret, *([stack.mas_secret] if stack.mas_secret else [])])
     steps: list = []
     t = time.monotonic()
     d = Directory(rt, stack)
@@ -788,7 +888,7 @@ def exec_create(rt: Runtime, db, m: UserCreate, plan, known: list[str]) -> dict:
 
 def exec_update_groups(rt: Runtime, db, m: UserUpdateGroups, plan, known: list[str]) -> dict:
     stack = load_stack(rt, m.stack)
-    known.extend([stack.ldap_pw, stack.kc_secret])
+    known.extend([stack.ldap_pw, stack.kc_secret, *([stack.mas_secret] if stack.mas_secret else [])])
     u = _users_row(rt, stack.id, m.uid)
     if u is None or u.state != "active":
         raise IdentityError("user is not active")
@@ -857,7 +957,7 @@ def _probe_cfg(rt: Runtime, stack: Stack) -> idprobe.ProbeConfig | None:
 def exec_disable(rt: Runtime, db, m: UserDisable, plan, known: list[str]) -> dict:
     t_job = time.monotonic()
     stack = load_stack(rt, m.stack)
-    known.extend([stack.ldap_pw, stack.kc_secret])
+    known.extend([stack.ldap_pw, stack.kc_secret, *([stack.mas_secret] if stack.mas_secret else [])])
     u = _users_row(rt, stack.id, m.uid)
     if u is None or u.state != "active":
         raise IdentityError("user is not active")
@@ -865,6 +965,7 @@ def exec_disable(rt: Runtime, db, m: UserDisable, plan, known: list[str]) -> dic
     pc = _probe_cfg(rt, stack)
     d = Directory(rt, stack)
     kc = Keycloak(rt, stack)
+    mas = Mas(rt, stack) if stack.cfg.get("mas_url") else None
     baseline: dict = {}
     canary = None
     sessions: dict = {}
@@ -899,6 +1000,13 @@ def exec_disable(rt: Runtime, db, m: UserDisable, plan, known: list[str]) -> dic
         d.lock(uid)
         _step(steps, "ldap.lock", t, at=0.0)
         kcs = _kc_revoke(kc, uid, steps, t_lock)
+        if mas is not None:
+            t = time.monotonic()
+            mu = mas.find(uid)  # None: the user never signed in to Matrix
+            if mu:
+                mas.lock(mu["id"])  # refuses refresh tokens and new logins at once; Synapse stops honouring the access token within ~2 s (lab)
+                ended = mas.end_sessions(mu["id"])
+            _step(steps, "matrix.lock", t, user_known=bool(mu), locked=bool(mu), sessions_ended=ended if mu else 0, at=round(time.monotonic() - t_lock, 1))
         t = time.monotonic()
         g = _gromox(rt, stack, "gromox.sync_user", uid, known)
         gq = None
@@ -932,6 +1040,11 @@ def exec_disable(rt: Runtime, db, m: UserDisable, plan, known: list[str]) -> dic
                 checks["imap_open_session"] = lambda: idprobe.imap_session_alive(sessions["imap"])
         else:
             checks.pop("ldap_bind")
+        if mas is not None:
+            def _matrix_access() -> bool:
+                u2 = mas.find(uid)
+                return bool(u2 and (not u2["locked"] or mas.active_sessions(u2["id"])))  # False = refused (locked and no live session)
+            checks["matrix_access"] = _matrix_access
         if stack.cfg.get("files_node_id"):
             checks["oc_user_resolution"] = lambda: bool(agent_user(rt, stack.cfg["files_node_id"], "opencloud.check_user", uid, known).get("resolved"))
         measured = idprobe.measure(checks, t_lock, timeout)
@@ -945,7 +1058,10 @@ def exec_disable(rt: Runtime, db, m: UserDisable, plan, known: list[str]) -> dic
         if stack.cfg.get("gromox_node_id"):
             gs = _gromox(rt, stack, "gromox.user_state", uid, known)
             st["gromox"] = {"address_status": gs["state"].get("address_status"), "maildir_mode": gs.get("maildir_mode")}
-        ok_states = (st["ldap"]["locked"] and (not kcs["id"] or (st["keycloak"]["online_sessions"] == 0 and st["keycloak"]["offline_sessions"] == 0))
+        if mas is not None:
+            st["matrix"] = mas.state(uid)
+        mx_ok = mas is None or not st["matrix"]["user_present"] or (st["matrix"]["locked"] and st["matrix"]["active_sessions"] == 0)
+        ok_states = (mx_ok and st["ldap"]["locked"] and (not kcs["id"] or (st["keycloak"]["online_sessions"] == 0 and st["keycloak"]["offline_sessions"] == 0))
                      and (not st.get("gromox") or (st["gromox"]["address_status"] == 1)))
         not_revoked = sorted(n for n, o in measured.items() if o["status"] != "refused" or (o["seconds"] or 0) > TARGET_SECONDS)
         verdict = {"mode": "canary_probe" if canary else "state_only", "target_seconds": TARGET_SECONDS, "measured_from": "LDAP lock applied", "lock_applied_epoch": lock_epoch,
@@ -969,17 +1085,20 @@ def exec_disable(rt: Runtime, db, m: UserDisable, plan, known: list[str]) -> dic
                 pass
         d.close()
         kc.close()
+        if mas is not None:
+            mas.close()
 
 
 def exec_enable(rt: Runtime, db, m: UserEnable, plan, known: list[str]) -> dict:
     stack = load_stack(rt, m.stack)
-    known.extend([stack.ldap_pw, stack.kc_secret])
+    known.extend([stack.ldap_pw, stack.kc_secret, *([stack.mas_secret] if stack.mas_secret else [])])
     u = _users_row(rt, stack.id, m.uid)
     if u is None or u.state != "disabled":
         raise IdentityError("user is not disabled")
     steps: list = []
     d = Directory(rt, stack)
     kc = Keycloak(rt, stack)
+    mas = Mas(rt, stack) if stack.cfg.get("mas_url") else None
     try:
         t = time.monotonic()
         d.set_password(m.uid, secrets.token_urlsafe(32))  # the old credential never comes back: the user re-enrolls through a new one-time token
@@ -990,9 +1109,19 @@ def exec_enable(rt: Runtime, db, m: UserEnable, plan, known: list[str]) -> dict:
         if ku:
             kc.set_enabled(ku, True)
         _step(steps, "keycloak.enable", t, user_known=bool(ku))
+        if mas is not None:
+            t = time.monotonic()
+            mu = mas.find(m.uid)
+            if mu and mu["deactivated"]:
+                raise IdentityError("Matrix account is deactivated (irreversible); cannot re-enable it")
+            if mu and mu["locked"]:
+                mas.unlock(mu["id"])
+            _step(steps, "matrix.unlock", t, user_known=bool(mu))
     finally:
         d.close()
         kc.close()
+        if mas is not None:
+            mas.close()
     t = time.monotonic()
     g = _gromox(rt, stack, "gromox.sync_user", m.uid, known)
     if g:
@@ -1012,13 +1141,14 @@ def exec_enable(rt: Runtime, db, m: UserEnable, plan, known: list[str]) -> dict:
 
 def exec_delete(rt: Runtime, db, m: UserDelete, plan, known: list[str]) -> dict:
     stack = load_stack(rt, m.stack)
-    known.extend([stack.ldap_pw, stack.kc_secret])
+    known.extend([stack.ldap_pw, stack.kc_secret, *([stack.mas_secret] if stack.mas_secret else [])])
     u = _users_row(rt, stack.id, m.uid)
     if u is None or u.state != "disabled":
         raise IdentityError("user must be disabled (and verified) before deletion")
     steps: list = []
     d = Directory(rt, stack)
     kc = Keycloak(rt, stack)
+    mas = Mas(rt, stack) if stack.cfg.get("mas_url") else None
     try:
         cur = d.get(m.uid)
         if cur is not None and cur["entry_uuid"] != u.entry_uuid:
@@ -1032,6 +1162,14 @@ def exec_delete(rt: Runtime, db, m: UserDelete, plan, known: list[str]) -> dict:
                 pass
             kc.delete(ku["id"])
         _step(steps, "keycloak.delete", t, user_known=bool(ku))
+        if mas is not None:
+            t = time.monotonic()
+            mu = mas.find(m.uid)
+            if mu:
+                mas.end_sessions(mu["id"])
+                if not mu["deactivated"]:
+                    mas.deactivate(mu["id"])  # irreversible: the Matrix account is closed (rooms/history stay on the homeserver)
+            _step(steps, "matrix.deactivate", t, user_known=bool(mu))
         t = time.monotonic()
         if cur is not None:
             d.delete(m.uid)
@@ -1039,6 +1177,8 @@ def exec_delete(rt: Runtime, db, m: UserDelete, plan, known: list[str]) -> dict:
     finally:
         d.close()
         kc.close()
+        if mas is not None:
+            mas.close()
     t = time.monotonic()
     g = _gromox(rt, stack, "gromox.sync_user", m.uid, known)
     if g:
@@ -1052,10 +1192,10 @@ def exec_delete(rt: Runtime, db, m: UserDelete, plan, known: list[str]) -> dict:
 
 # ---- reconcile (report only) ---------------------------------------------------------------------------------------------------------
 DESTRUCTIVE = {"ldap_exists_deleted", "ldap_missing", "ldap_entryuuid_mismatch", "ldap_not_locked", "kc_enabled", "kc_sessions_remain", "kc_orphan", "gromox_active",
-               "gromox_mailbox_open", "opencloud_resolves"}
+               "gromox_mailbox_open", "opencloud_resolves", "matrix_not_locked", "matrix_sessions_remain", "matrix_active"}
 
 
-def classify(u: dict, ldap: dict | None, kc: dict | None, gx: dict | None, oc: dict | None, cfg: dict) -> list[dict]:
+def classify(u: dict, ldap: dict | None, kc: dict | None, gx: dict | None, oc: dict | None, cfg: dict, mx: dict | None = None) -> list[dict]:
     """Pure comparison of one managed user across the four systems. `kind` in DESTRUCTIVE = access that should be gone is still there
     (or identity swapped); everything else is informational. Never repaired automatically."""
     f: list[dict] = []
@@ -1071,6 +1211,8 @@ def classify(u: dict, ldap: dict | None, kc: dict | None, gx: dict | None, oc: d
             add("kc_orphan", "keycloak", "Keycloak user still present for a deleted user")
         if gx and gx.get("address_status") == 0:
             add("gromox_active", "gromox", "mailbox still active for a deleted user")
+        if mx and mx.get("user_present") and not mx.get("deactivated"):
+            add("matrix_active", "matrix", "Matrix account not deactivated for a deleted user")
         return f
     if ldap is None:
         add("ldap_missing", "ldap", "directory entry is gone but the ICS has it as " + want)
@@ -1086,6 +1228,11 @@ def classify(u: dict, ldap: dict | None, kc: dict | None, gx: dict | None, oc: d
             add("gromox_active", "gromox", "mailbox active for a disabled user")
         if gx and gx.get("address_status") == 1 and gx.get("maildir_mode") not in ("0000", None):
             add("gromox_mailbox_open", "gromox", f"suspended but maildir mode {gx.get('maildir_mode')} (open IMAP sessions could still read it)")
+        if mx and mx.get("user_present"):
+            if not mx.get("locked") and not mx.get("deactivated"):
+                add("matrix_not_locked", "matrix", "Matrix (MAS) account not locked for a disabled user")
+            if mx.get("active_sessions", 0):
+                add("matrix_sessions_remain", "matrix", f"{mx.get('active_sessions')} active Matrix session(s) for a disabled user")
         if oc and oc.get("resolved"):
             add("opencloud_resolves", "opencloud", "OpenCloud still resolves a disabled user")
         return f
@@ -1101,6 +1248,8 @@ def classify(u: dict, ldap: dict | None, kc: dict | None, gx: dict | None, oc: d
             add("gromox_missing", "gromox", "no Gromox user row")
         if gx.get("maildir_mode") == "0000" and mailbox:
             add("gromox_mailbox_locked", "gromox", "mailbox is quarantined (mode 0000) for an active user")
+    if mx and mx.get("user_present") and mx.get("locked"):
+        add("matrix_locked", "matrix", "active in the ICS but locked in Matrix (MAS)")
     if oc is not None and not oc.get("resolved"):
         add("opencloud_invisible", "opencloud", "OpenCloud cannot resolve an active user")
     if sorted(ldap["groups"]) != sorted(u["groups"]):
@@ -1110,7 +1259,7 @@ def classify(u: dict, ldap: dict | None, kc: dict | None, gx: dict | None, oc: d
 
 def reconcile(rt: Runtime, stack_name: str, trigger: str = "periodic", max_users: int = 200) -> dict:
     stack = load_stack(rt, stack_name)
-    known: list[str] = [stack.ldap_pw, stack.kc_secret]
+    known: list[str] = [stack.ldap_pw, stack.kc_secret, *([stack.mas_secret] if stack.mas_secret else [])]
     with rt.session() as d:
         users = [dict(r._mapping) for r in d.execute(text("SELECT * FROM idm_users WHERE stack_id = :s AND state <> 'deleted' ORDER BY uid LIMIT :n"),
                                                      {"s": stack.id, "n": max_users}).all()]
@@ -1118,6 +1267,7 @@ def reconcile(rt: Runtime, stack_name: str, trigger: str = "periodic", max_users
                                                             "AND updated_at > now() - interval '30 days'"), {"s": stack.id}).all()]
     d = Directory(rt, stack)
     kc = Keycloak(rt, stack)
+    mas = Mas(rt, stack) if stack.cfg.get("mas_url") else None
     findings: list[dict] = []
     try:
         people = {p["uid"]: p for p in d.list_people()}
@@ -1136,7 +1286,8 @@ def reconcile(rt: Runtime, stack_name: str, trigger: str = "periodic", max_users
                     gx = {**r["state"], "maildir_mode": r.get("maildir_mode")}
                 if stack.cfg.get("files_node_id") and u["state"] != "deleted":
                     oc = agent_user(rt, stack.cfg["files_node_id"], "opencloud.check_user", u["uid"], known)
-                for x in classify(row, people.get(u["uid"]), kc_state, gx, oc, stack.cfg):
+                mx = mas.state(u["uid"]) if mas is not None else None
+                for x in classify(row, people.get(u["uid"]), kc_state, gx, oc, stack.cfg, mx):
                     findings.append({"uid": u["uid"], **x})
             except (IdentityError, AgentError) as e:
                 findings.append({"uid": u["uid"], "kind": "check_failed", "system": "reconcile", "severity": "warning", "detail": str(e)[:200]})
@@ -1147,6 +1298,8 @@ def reconcile(rt: Runtime, stack_name: str, trigger: str = "periodic", max_users
     finally:
         d.close()
         kc.close()
+        if mas is not None:
+            mas.close()
     crit = sum(1 for f in findings if f["severity"] == "critical")
     res = {"stack": stack.name, "users_checked": len(users) + len(deleted), "findings": findings, "critical": crit,
            "ok": not any(f["severity"] in ("critical", "warning") for f in findings), "trigger": trigger}
@@ -1187,4 +1340,4 @@ MODELS = {"idm.stack.register": StackRegister, "idm.user.create": UserCreate, "i
           "idm.user.disable": UserDisable, "idm.user.enable": UserEnable, "idm.user.delete": UserDelete, "idm.reconcile": Reconcile}
 EXECUTORS = {"idm.stack.register": exec_register, "idm.user.create": exec_create, "idm.user.update_groups": exec_update_groups,
              "idm.user.disable": exec_disable, "idm.user.enable": exec_enable, "idm.user.delete": exec_delete, "idm.reconcile": exec_reconcile}
-SECRETS = {"idm.stack.register": ("ldap_bind_password", "kc_client_secret")}
+SECRETS = {"idm.stack.register": ("ldap_bind_password", "kc_client_secret", "mas_client_secret")}

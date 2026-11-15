@@ -99,13 +99,21 @@ async function lab_token() {            // lab-only direct grant client, used ON
   check('Files tile opens OpenCloud files view with SSO', /files\/spaces\/personal\/bob/.test(decodeURIComponent(p3.url())), p3.url().split('?')[0]);
   await p3.close();
 
-  // 7. Mail / Calendar / Contacts tiles open grommunio-web ----------------------------------------------------------
+  // 7. Mail / Calendar / Contacts tiles: grommunio-web with Keycloak SSO (no second password prompt) and the deep link opens the right view ------------
+  const WANT = { mail: 'mail', calendar: 'calendar', contacts: 'contact' };
   for (const app of ['mail', 'calendar', 'contacts']) {
     const p = await ctx.newPage();
+    const posts = []; p.on('request', r => { if (r.method() === 'POST' && /login-actions\/authenticate/.test(r.url())) posts.push(r.url()); });
     const resp = await p.goto(hrefs[app]);
-    await p.waitForTimeout(1500);
-    const hasLogin = (await p.locator('input[type=password]').count()) > 0 || /grommunio/i.test(await p.title());
-    check(`${app} tile opens the real webmail (HTTP ${resp.status()}, TLS verified)`, resp.ok() && p.url().includes(MAIL_HOST) && hasLogin, p.url() + ' | ' + (await p.title()));
+    let ctxName = '';
+    try {
+      await p.waitForFunction(() => typeof container !== 'undefined' && container.getCurrentContext && container.getCurrentContext(), null, { timeout: 60000 });
+      await p.waitForTimeout(1500);
+      ctxName = await p.evaluate(() => container.getCurrentContext().getName());
+    } catch (_) { /* first-run wizard or no SSO: reported below */ }
+    const pwForm = (await p.locator('input[type=password]').count()) > 0;
+    check(`${app} tile opens the real webmail without a password prompt, in the ${WANT[app]} view (HTTP ${resp.status()}, TLS verified)`,
+      resp.ok() && p.url().includes(MAIL_HOST) && !pwForm && posts.length === 0 && ctxName === WANT[app], p.url() + ' | context=' + ctxName + ' | auth POSTs=' + posts.length);
     await p.close();
   }
 

@@ -57,6 +57,13 @@ class Settings:
     def account_url(self) -> str:
         return self.issuer + "/account"
 
+    def mail_view_url(self, view: str) -> str:
+        """Deep link into grommunio-web (patch blueprints/build/grommunio-web/patches/0001-context-deep-link.patch). With Keycloak SSO on the
+        mail node the user is not asked for a password again. `view` comes from a fixed set (the templates), never from user input."""
+        if view not in ("mail", "calendar", "contacts"):
+            raise ValueError("unknown view")
+        return self.mail_web_url if view == "mail" else f"{self.mail_web_url}?action=context&view={view}"
+
 
 def load() -> Settings:
     base = _env("PORTAL_BASE_URL").rstrip("/")

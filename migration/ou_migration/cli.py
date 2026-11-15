@@ -61,7 +61,11 @@ def main(argv=None):
     a.add_argument("--deep-max-users", type=int)
     a.add_argument("--dns-resolver", action="append", help="DNS server IP (repeatable); default: system resolvers")
     a.add_argument("--no-dns", action="store_true")
+    from .engine import cli as engine_cli
+    engine_cli.add_parsers(sub)
     ns = ap.parse_args(argv)
+    if ns.cmd in ("mail-migrate", "mail-verify"):
+        return engine_cli.run(ns)
     logging.basicConfig(level=logging.INFO, format="%(asctime)s %(name)s %(message)s")
     try:
         res = None if ns.no_dns else dns_check.UdpResolver(ns.dns_resolver)

@@ -236,7 +236,18 @@ def _keyring_fingerprints():
     return pinned, found
 
 
+def _check_sources():
+    """Review 3 M4 (defence in depth): every non-comment line must be a plain `deb [signed-by=<keyring>] <uri> <suite> <components>` and
+    must never carry `trusted=` / other options - a line injected into this root-trusted file cannot bypass signature verification."""
+    for ln in open(os.path.join(APT_DIR, "sources.list")).read().split("\n"):
+        if not ln.strip() or ln.startswith("#"):
+            continue
+        if not re.fullmatch(r"deb \[signed-by=[A-Za-z0-9/._-]+\] [A-Za-z0-9.:/_~-]+ [a-z0-9-]+( [a-z0-9-]+){1,8}", ln):
+            raise Reject("sources_invalid", "apt sources.list contains a line that is not a plain signed-by source")
+
+
 def install_pinned(p, cfg):
+    _check_sources()
     pinned, found = _keyring_fingerprints()
     if not found or not found <= pinned:    # every key in the allowlisted keyring dir must be pinned; an extra/replaced key stops the install
         raise Reject("repo_key_mismatch", "repository keyring does not match the pinned fingerprints")
@@ -262,7 +273,7 @@ DISPATCH = {"podman.pull_verified": pull_verified, "podman.deploy_unit": deploy_
 
 
 def main(argv):
-    if len(argv) != 2 or argv[0] not in ("podman", "pkg") or not RID_RE.match(argv[1]):
+    if len(argv) != 2 or argv[0] not in ("podman", "pkg") or not RID_RE.fullmatch(argv[1]):
         print("usage: guesthelper {podman|pkg} <rid>", file=sys.stderr)
         return 2
     fam, rid = argv

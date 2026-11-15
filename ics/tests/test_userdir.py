@@ -47,7 +47,8 @@ def test_directory_fields_and_ip_visibility(team):
     assert a["status"] == "active" and a["role"] == "admin" and a["privileged"] and a["mfa_enrolled"] and a["active_sessions"] == 1
     assert a["last_login_at"] and a["last_login_ip"]
     v = directory(team, "vw")
-    assert v["adm"]["last_login_at"] and all("last_login_ip" not in u for u in v.values())
+    v = directory(team, "vw")
+    assert v["adm"]["last_login_at"] is None and v["adm"]["mfa_enrolled"] is None and all("last_login_ip" not in u for u in v.values())  # review 3 L8
     assert "sessions" not in team["vw"][0].get(f"{H}/users/{a['id']}").json()
     assert team["adm"][0].get(f"{H}/users/{a['id']}").json()["sessions"]
 
