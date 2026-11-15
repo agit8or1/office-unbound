@@ -35,11 +35,18 @@ do_deps() {
     libpng-dev python3-lxml libpam-dev libzstd-dev libssl-dev libcppunit-dev wget cmake nasm gperf \
     default-jdk-headless ant libkrb5-dev libcups2-dev libfontconfig1-dev libxslt1-dev xsltproc \
     libxml2-utils libxrandr-dev bison flex autoconf automake libtool pkg-config python3-dev \
-    python3-venv meson ninja-build curl ca-certificates fonts-wqy-zenhei fonts-wqy-microhei fonts-droid-fallback fonts-noto-cjk \
+    python3-venv rsync meson ninja-build curl ca-certificates fonts-wqy-zenhei fonts-wqy-microhei fonts-droid-fallback fonts-noto-cjk \
     libpoco-dev- 2>&1 | tail -3
   # meson/ninja (bundled harfbuzz) ignores make's -j and spawns nproc+2 compilers -> OOM in an 8G machine; cap it
   printf '#!/bin/sh\nexec /usr/bin/ninja -j${NINJA_JOBS:-4} "$@"\n' > /usr/local/bin/ninja
   chmod +x /usr/local/bin/ninja
+  # online configure needs node >= 20; noble ships 18 -> pinned official tarball
+  NODE_VER=v22.21.1; NODE_SHA=680d3f30b24a7ff24b98db5e96f294c0070f8f9078df658da1bce1b9c9873c88
+  if ! /usr/local/bin/node --version 2>/dev/null | grep -q "$NODE_VER"; then
+    curl -fsSL -o /tmp/node.tar.xz "https://nodejs.org/dist/$NODE_VER/node-$NODE_VER-linux-x64.tar.xz"
+    echo "$NODE_SHA  /tmp/node.tar.xz" | sha256sum -c -
+    tar -C /usr/local --strip-components=1 -xJf /tmp/node.tar.xz
+  fi
 }
 
 do_fetch() {
@@ -48,17 +55,20 @@ do_fetch() {
   fi
   git -C "$SRC" fetch --depth 1 origin "refs/tags/$TAG:refs/tags/$TAG"
   [ "$(git -C "$SRC" rev-parse "$TAG^{commit}")" = "$COMMIT" ] || { echo "PIN MISMATCH"; exit 1; }
-  git -C "$SRC" checkout -qf "$TAG"
-  git -C "$SRC" clean -fdxq
+  # incremental-friendly: a fresh checkout is cleaned; an existing one at the pin keeps its build products
+  if [ "$(git -C "$SRC" rev-parse HEAD 2>/dev/null)" = "$COMMIT" ]; then
+    echo "already at pinned commit; keeping build products (rm -rf $SRC for a pristine rebuild)"
+  else
+    git -C "$SRC" checkout -qf "$TAG"; git -C "$SRC" clean -fdxq
+  fi
 }
 
 do_patch() {
   cd "$SRC"
   for p in "$HERE"/patches/*.patch; do
+    if git apply --reverse --check "$p" >/dev/null 2>&1; then echo "already applied: $p"; continue; fi
     echo "applying $p"; git apply --whitespace=nowarn "$p"
   done
-  # new binary-free asset files that patches reference are in patches/assets
-  if [ -d "$HERE/patches/assets" ]; then cp -a "$HERE"/patches/assets/. "$SRC"/; fi
 }
 
 do_engine() {
@@ -76,7 +86,7 @@ do_online() {
      --with-lokit-path="$SRC/engine/include" --with-lo-path=/opt/officeunbound-office \
      --with-vendor="$VENDOR" --with-app-name="$BRAND_NAME" --with-info-url="$INFO_URL" \
      --with-max-connections=$MAXCONN --with-max-documents=$MAXDOCS \
-     --disable-branding
+     --enable-branding=CODE   # theme dir patched to Office Unbound (patch 0001)
   make -j"$JOBS"
 }
 
