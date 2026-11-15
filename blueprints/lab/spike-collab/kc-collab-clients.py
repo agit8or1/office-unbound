@@ -1,0 +1,57 @@
+#!/usr/bin/env python3
+"""Register the collaboration-spike OIDC clients in realm ou-lab (idempotent). Run inside ou-id1.
+  ou-matrix : confidential, code+PKCE(S256); MAS upstream provider. Redirect https://mas.ou-lab.internal/upstream/callback/<ULID>
+  ou-meet   : confidential, code+PKCE(S256); Office Unbound Jitsi token service. Redirect https://meet-auth.ou-lab.internal/callback
+Env: KC_URL, KC_CA, KC_REALM, KC_ADMIN_USER, KC_ADMIN_PASSWORD_FILE, SECRET_DIR (secrets written 0600 as kc-<name>-client-secret).
+"""
+import json, os, ssl, urllib.parse, urllib.request
+
+URL, REALM = os.environ["KC_URL"].rstrip("/"), os.environ.get("KC_REALM", "ou-lab")
+ctx = ssl.create_default_context(cafile=os.environ["KC_CA"])
+MAS_ULID = "01HQW90Z35CMXFJWQPHC3BGZGQ"
+CLIENTS = {
+    "ou-matrix": dict(name="Office Unbound Matrix (MAS upstream)", redirectUris=[f"https://mas.ou-lab.internal/upstream/callback/{MAS_ULID}"],
+                      rootUrl="https://mas.ou-lab.internal",
+                      # lab: Keycloak (ou-id1, not modified) cannot resolve mas.ou-lab.internal, so the back-channel URL uses the machine IP (cert has an IP SAN); production uses DNS
+                      attributes={"backchannel.logout.url": f"https://192.168.186.245/upstream/backchannel-logout/{MAS_ULID}",
+                                  "backchannel.logout.session.required": "true", "backchannel.logout.revoke.offline.tokens": "true"}),
+    "ou-meet": dict(name="Office Unbound Jitsi token service", redirectUris=["https://meet-auth.ou-lab.internal/callback"],
+                    rootUrl="https://meet-auth.ou-lab.internal"),
+}
+
+
+def call(method, path, token=None, data=None, form=None):
+    body = urllib.parse.urlencode(form).encode() if form else (json.dumps(data).encode() if data is not None else None)
+    req = urllib.request.Request(URL + path, data=body, method=method)
+    if form:
+        req.add_header("Content-Type", "application/x-www-form-urlencoded")
+    elif data is not None:
+        req.add_header("Content-Type", "application/json")
+    if token:
+        req.add_header("Authorization", "Bearer " + token)
+    with urllib.request.urlopen(req, context=ctx, timeout=20) as r:
+        raw = r.read()
+        return json.loads(raw) if raw else None
+
+
+pw = open(os.environ["KC_ADMIN_PASSWORD_FILE"]).read().strip()
+T = call("POST", "/realms/master/protocol/openid-connect/token", form={
+    "grant_type": "password", "client_id": "admin-cli", "username": os.environ.get("KC_ADMIN_USER", "kcadmin"), "password": pw})["access_token"]
+A = f"/admin/realms/{REALM}"
+for name, c in CLIENTS.items():
+    rep = {"clientId": name, "name": c["name"], "enabled": True, "publicClient": False, "protocol": "openid-connect",
+           "standardFlowEnabled": True, "directAccessGrantsEnabled": False, "implicitFlowEnabled": False, "serviceAccountsEnabled": False,
+           "clientAuthenticatorType": "client-secret", "redirectUris": c["redirectUris"], "webOrigins": [], "rootUrl": c["rootUrl"],
+           "attributes": {"pkce.code.challenge.method": "S256", "post.logout.redirect.uris": "+", **c.get("attributes", {})}}
+    cl = call("GET", f"{A}/clients?clientId={name}", T)
+    if cl:
+        call("PUT", f"{A}/clients/{cl[0]['id']}", T, {**cl[0], **rep})
+        uid = cl[0]["id"]
+    else:
+        call("POST", f"{A}/clients", T, rep)
+        uid = call("GET", f"{A}/clients?clientId={name}", T)[0]["id"]
+    sec = call("GET", f"{A}/clients/{uid}/client-secret", T)["value"]
+    path = os.path.join(os.environ["SECRET_DIR"], f"kc-{name}-client-secret")
+    fd = os.open(path, os.O_WRONLY | os.O_CREAT | os.O_TRUNC, 0o600)
+    os.write(fd, sec.encode()); os.close(fd)
+    print("client", name, "ready, secret ->", path)

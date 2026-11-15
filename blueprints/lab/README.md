@@ -1,6 +1,6 @@
 # Office Unbound lab integration spikes
 
-**Status: identity + files spike (t01-t06, kc/files/office scripts) EXECUTED in nspawn machines on 2026-11-15, results in `docs/status/identity-files-lab-results.md`. Groupware spike (t10-t16, spike-groupware/) remains prepared, not executed.**
+**Collaboration spike (chat+meetings): see spike-collab/README.md, executed 2026-11-15.** **Status: identity + files spike (t01-t06, kc/files/office scripts) EXECUTED in nspawn machines on 2026-11-15, results in `docs/status/identity-files-lab-results.md`. Groupware spike (t10-t16, spike-groupware/) remains prepared, not executed.**
 
 Original preparation note: Nothing in this directory has been run against a VM. No installer, test, or
 CA script (apart from a local openssl dry run of `common/lab-ca.sh`, see "Validation done") has been executed
