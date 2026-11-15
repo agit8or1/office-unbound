@@ -18,6 +18,8 @@ from sqlalchemy import text
 from sqlalchemy.orm import Session
 
 from . import agentclient, alerts, audit, auth, checks as checkmod, identity, monitor
+from .deploy import ops as deploy_ops
+from .deploy.ports import DeployError
 from .identity import IdentityError
 from .agentclient import AgentError
 from .proxmox import ProxmoxError, ProxmoxReadClient, check_destination, normalize_fingerprint
@@ -48,6 +50,9 @@ class ActionType(StrEnum):
     idm_user_enable = "idm.user.enable"
     idm_user_delete = "idm.user.delete"
     idm_reconcile = "idm.reconcile"
+    deployment_create = "deployment.create"
+    deployment_change = "deployment.change"
+    deployment_destroy = "deployment.destroy"
 
 
 class EndpointRegister(BaseModel):
@@ -270,8 +275,13 @@ CATALOG: dict[ActionType, dict] = {
     ActionType.idm_user_enable: {"model": identity.UserEnable, "risk": "normal", "secrets": ()},
     ActionType.idm_user_delete: {"model": identity.UserDelete, "risk": "high", "secrets": ()},
     ActionType.idm_reconcile: {"model": identity.Reconcile, "risk": "low", "secrets": ()},
+    # deployment engine (deploy/ops.py). "risk" is the catalog default; create_plan takes the real tier from the change diff (override => high)
+    ActionType.deployment_create: {"model": deploy_ops.DeploymentCreate, "risk": "high", "secrets": ()},
+    ActionType.deployment_change: {"model": deploy_ops.DeploymentChange, "risk": "normal", "secrets": ()},
+    ActionType.deployment_destroy: {"model": deploy_ops.DeploymentDestroy, "risk": "high", "secrets": ()},
 }
 _IDM = {a for a in ActionType if a.value.startswith("idm.")}
+_DEPLOY = {a for a in ActionType if a.value.startswith("deployment.")}
 
 
 class PlanIntegrityError(Exception):
@@ -416,6 +426,16 @@ def create_plan(db: Session, rt: Runtime, user, action: ActionType, params: dict
         except LookupError as e:
             raise PlanError(409, str(e)) from None
         except (ValueError, IdentityError) as e:
+            raise PlanError(422, str(e)) from None
+    if action in _DEPLOY:
+        try:
+            extra.update(deploy_ops.precheck(db, rt, action.value, p))
+            risk = extra.pop("risk")
+        except KeyError as e:
+            raise PlanError(404, str(e.args[0])) from None
+        except LookupError as e:
+            raise PlanError(409, str(e)) from None
+        except ValueError as e:
             raise PlanError(422, str(e)) from None
     if action == ActionType.inventory_refresh:
         binding = _ep_binding(db, p.endpoint_id)
@@ -581,7 +601,7 @@ def reap_expired(rt: Runtime) -> int:
     return n
 
 
-_SAFE_ERRORS = (ProxmoxError, VaultError, PlanIntegrityError, JobTimeout, AgentError, IdentityError)
+_SAFE_ERRORS = (ProxmoxError, VaultError, PlanIntegrityError, JobTimeout, AgentError, IdentityError, DeployError)
 
 
 def _error_dict(e: BaseException, known: list[str]) -> dict:
@@ -899,4 +919,5 @@ _EXEC = {ActionType.endpoint_register: _exec_register, ActionType.inventory_refr
          ActionType.check_set_enabled: _exec_check_set_enabled, ActionType.check_bind_remediation: _exec_check_bind,
          ActionType.maintenance_create: _exec_maintenance, ActionType.alert_channel_create: _exec_channel_create,
          ActionType.alert_channel_test: _exec_channel_test, ActionType.incident_ack: _exec_ack, ActionType.runbook_execute: _exec_runbook,
-         **{ActionType(k): v for k, v in identity.EXECUTORS.items()}}
+         **{ActionType(k): v for k, v in identity.EXECUTORS.items()},
+         **{ActionType(k): v for k, v in deploy_ops.EXECUTORS.items()}}

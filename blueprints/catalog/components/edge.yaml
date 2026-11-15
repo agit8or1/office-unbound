@@ -1,0 +1,28 @@
+name: edge
+version: 1.0.0
+title: Edge (reverse proxy + TLS)
+description: Public HTTPS entry, TLS termination and routing to the backends of the deployment.
+artifacts:
+  - {name: nginx, kind: package, package: nginx, version: "1.24.0", repo: ubuntu-noble}
+resources:
+  cores:     {base: 1,   per_user: 0,    source: "lab: nginx fronted office/files with negligible load"}
+  memory_mb: {base: 512, per_user: 0.25, source: "assumption (TLS + proxy buffers)"}
+  disk_gb:   {base: 2,   per_user: 0,    source: "assumption"}
+volumes:
+  - {name: certs, path: /etc/ou/tls, size_gb: {base: 1, per_user: 0, source: "certificates and ACME state"}, backup: true}
+ports:
+  - {name: http, port: 80, proto: tcp, exposure: public}
+  - {name: https, port: 443, proto: tcp, exposure: public}
+depends_on: [identity]
+after: [groupware, files, office]      # order-only: routes are added for whichever of these are present
+dns:
+  - {host: auth, type: A, target: vm}
+health_checks:
+  - {name: edge-tls, kind: tcp_tls, port: 443}
+backup:
+  method: config_tar
+  description: "tar of /etc/ou/tls and proxy config"
+  quiesce: online
+  rpo_hours: 24
+  evidence: "planned: not drilled"
+upgrade: {downtime_seconds: 15}

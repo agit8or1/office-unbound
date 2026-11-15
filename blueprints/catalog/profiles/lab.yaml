@@ -1,0 +1,14 @@
+name: lab
+version: 1.0.0
+title: Lab (single VM, all components)
+description: Everything on one VM for evaluation. No redundancy; not for customer data.
+maturity: lab-validated
+max_users: 25
+min_nodes: 1
+ha: false
+tenancy: single
+vms:
+  - {name: all, components: [identity, groupware, files, office, edge]}
+optional_components: [office]
+default_optional: [office]
+backup: {schedule: daily, retention_days: 7, snapshot_before_change: true, offsite: false}
