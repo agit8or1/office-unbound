@@ -137,6 +137,7 @@ def test_rpo_state_and_growth():
     assert pol.rpo_state(now - timedelta(minutes=91), now, 3600)[0] == "critical"
     pts = [(now - timedelta(days=3 - i), 100 + 10 * i) for i in range(4)]
     assert round(pol.growth_per_day(pts), 6) == 10.0 and pol.growth_per_day(pts[:1]) is None and pol.growth_per_day([pts[0], pts[0]]) is None
+    assert pol.growth_per_day([(now, 1), (now + timedelta(minutes=5), 10**9)]) is None     # too short a span to extrapolate
     assert pol.days_until_full(100, 10.0) == 10.0 and pol.days_until_full(100, 0.0) is None and pol.days_until_full(100, None) is None
 
 

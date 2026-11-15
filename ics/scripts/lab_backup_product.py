@@ -141,7 +141,7 @@ def cmd_policies() -> None:
     fp = (ca.stdout.split("=")[1].strip().replace(":", "").lower() if ca else sh("openssl", "x509", "-in", f"{SECRETS}/bkp.crt", "-noout", "-fingerprint", "-sha256").split("=")[1].strip().replace(":", "").lower())
     ip = sh("systemd-run", "-M", BKP, "--wait", "-q", "-P", "--pipe", "/bin/bash", "-c", "ip -4 -o addr show scope global | awk '{print $4}' | cut -d/ -f1 | head -1").strip()
     for tier, t in TIERS.items():
-        p = plan(r, "backup.policy.create", {"name": f"lab-{tier}", "tier": tier, "deployment": "lab stack (ou-lab.internal)", "runner_node_id": node, "schedule": t["sched"],
+        p = plan(r, "backup.policy.create", {"name": f"lab-{tier}", "tier": tier, "deployment": "lab stack ou-lab.internal", "runner_node_id": node, "schedule": t["sched"],
                                               "retention": {"last": 2, "daily": 7, "weekly": 4, "monthly": 6}, "rpo_seconds": t["rpo"], "rto_seconds": t["rto"],
                                               "repo": {"url": f"https://{ip}:8000/{tier}", "ca_sha256": fp},
                                               "verify": {"check_every_seconds": 3600, "check_read_data_percent": 25, "restore_every_seconds": 86400}},

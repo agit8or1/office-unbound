@@ -214,9 +214,13 @@ def rpo_state(last_success: datetime | None, now: datetime, rpo_seconds: int) ->
     return ("ok" if age <= rpo_seconds else "warning" if age <= rpo_seconds * 1.5 else "critical"), age
 
 
+MIN_GROWTH_SPAN = timedelta(hours=6)
+
+
 def growth_per_day(points: list[tuple[datetime, int]]) -> float | None:
-    """Least-squares slope of repository size over time, bytes/day. None with < 2 points or no time spread."""
-    if len(points) < 2:
+    """Least-squares slope of repository size over time, bytes/day. None with < 2 points or less than 6 h between the first and the last
+    sample (extrapolating minutes to days produced absurd rates in the lab run)."""
+    if len(points) < 2 or max(t for t, _ in points) - min(t for t, _ in points) < MIN_GROWTH_SPAN:
         return None
     t0 = points[0][0]
     xs = [(t - t0).total_seconds() / 86400 for t, _ in points]
