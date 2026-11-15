@@ -3,6 +3,7 @@
 # Base pinned by the multi-arch index digest (docker.io/library/ubuntu:24.04, created 2026-11-10); the tag is only a comment.
 FROM docker.io/library/ubuntu@sha256:2198e4c65076e9cb0b3d695219df667c0e3b0072da64ca3c2648aca17dcecaf5
 ARG DEBIAN_FRONTEND=noninteractive
+ARG OU_VERSION=26.04.6-ou2
 # runtime libs only (set verified by `ldd` of coolwsd/coolforkit-ns); versions are whatever the noble archive serves
 # on the build day and are recorded by build-image.sh (dpkg -l) - apt is the non-reproducible part of this image.
 RUN apt-get -o APT::Sandbox::User=root update \
@@ -24,7 +25,7 @@ RUN rm -rf /etc/nginx /etc/apache2 \
  && (chmod 600 /etc/coolwsd/proof_key 2>/dev/null || true)
 LABEL org.opencontainers.image.title="Office Unbound Docs" \
       org.opencontainers.image.description="Collabora Online cp-26.04.6-1 built from source by Office Unbound (MPL-2.0)" \
-      org.opencontainers.image.version="26.04.6-ou1" \
+      org.opencontainers.image.version="$OU_VERSION" \
       org.opencontainers.image.licenses="MPL-2.0" \
       org.opencontainers.image.source="https://github.com/CollaboraOnline/online.mirror" \
       org.opencontainers.image.revision="febe91b27107ff458ddb8dcdf8c0c6d521483033"
