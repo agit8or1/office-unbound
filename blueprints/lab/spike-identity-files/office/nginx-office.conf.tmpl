@@ -1,0 +1,37 @@
+# Reverse proxy for Collabora Online (pattern from Collabora's nginx SDK docs).
+server {
+  listen 80;
+  server_name __OFFICE_HOST__;
+  return 301 https://$host$request_uri;
+}
+server {
+  listen 443 ssl;
+  http2 on;
+  server_name __OFFICE_HOST__;
+  ssl_certificate     /etc/ou-lab/tls/office.crt;
+  ssl_certificate_key /etc/ou-lab/tls/office.key;
+  ssl_protocols TLSv1.2 TLSv1.3;
+
+  location ^~ /browser { proxy_pass http://127.0.0.1:9980; proxy_set_header Host $http_host; }
+  location ^~ /hosting/discovery { proxy_pass http://127.0.0.1:9980; proxy_set_header Host $http_host; }
+  location ^~ /hosting/capabilities { proxy_pass http://127.0.0.1:9980; proxy_set_header Host $http_host; }
+  location ~ ^/cool/(.*)/ws$ {
+    proxy_pass http://127.0.0.1:9980;
+    proxy_set_header Upgrade $http_upgrade;
+    proxy_set_header Connection "Upgrade";
+    proxy_set_header Host $http_host;
+    proxy_read_timeout 36000s;
+  }
+  location ~ ^/(c|l)ool {
+    proxy_pass http://127.0.0.1:9980;
+    proxy_set_header Host $http_host;
+  }
+  location ^~ /cool/adminws {
+    proxy_pass http://127.0.0.1:9980;
+    proxy_set_header Upgrade $http_upgrade;
+    proxy_set_header Connection "Upgrade";
+    proxy_set_header Host $http_host;
+    proxy_read_timeout 36000s;
+  }
+  location = /favicon.ico { proxy_pass http://127.0.0.1:9980; proxy_set_header Host $http_host; }
+}

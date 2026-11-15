@@ -1,0 +1,50 @@
+#cloud-config
+# Lab VM "mail" (grommunio community). Ubuntu 24.04 LTS (noble) cloud image.
+# NO SECRETS here. Replace the ssh key placeholder with the operator PUBLIC key.
+# Network config (static IP 10.99.0.14) is supplied by the hypervisor's cloud-init
+# network-config (e.g. Proxmox ipconfig0), not by this file.
+# Pin the cloud image by checksum when importing it (see README, "Cloud image").
+hostname: mail
+fqdn: mail.ou-lab.internal
+prefer_fqdn_over_hostname: true
+manage_etc_hosts: false
+timezone: UTC
+ssh_pwauth: false
+disable_root: true
+users:
+  - name: labadmin
+    gecos: Lab operator
+    groups: [sudo]
+    sudo: "ALL=(ALL) NOPASSWD:ALL"
+    shell: /bin/bash
+    lock_passwd: true
+    ssh_authorized_keys:
+      - "REPLACE_WITH_OPERATOR_SSH_PUBLIC_KEY"
+package_update: true
+package_upgrade: false
+packages:
+  - curl
+  - ca-certificates
+  - jq
+  - openssl
+  - ufw
+  - tar
+  - chrony
+write_files:
+  - path: /etc/ou-lab/vm-role
+    permissions: "0644"
+    content: |
+      mail
+  - path: /etc/sysctl.d/99-ou-lab.conf
+    permissions: "0644"
+    content: |
+      # IPv6 must stay enabled (grommunio requires it; ::1 is sufficient)
+      net.ipv6.conf.all.disable_ipv6 = 0
+      net.ipv6.conf.default.disable_ipv6 = 0
+runcmd:
+  - [systemctl, enable, --now, chrony]
+  # Pinned lab: no surprise package drift while spikes run.
+  - [systemctl, disable, --now, unattended-upgrades.service]
+  - [sysctl, --system]
+  - [sh, -c, "echo 'lab VM mail initialised by cloud-init; next: copy blueprints/lab here and run the installer' > /etc/motd"]
+final_message: "cloud-init finished for mail after $UPTIME seconds"
