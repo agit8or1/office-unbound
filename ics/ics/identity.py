@@ -48,7 +48,7 @@ class IdentityError(Exception):
 
 
 ACTIONS = ("idm.stack.register", "idm.user.create", "idm.user.update_groups", "idm.user.disable", "idm.user.enable", "idm.user.delete",
-           "idm.reconcile")
+           "idm.user.reset_credentials", "idm.reconcile")
 
 
 # ---- typed parameters --------------------------------------------------------------------------------------------------------------------
@@ -206,6 +206,11 @@ class UserEnable(_UserRef):
 
 class UserDelete(_UserRef):
     reason: str = Field(min_length=3, max_length=200, description="mandatory: why; mailbox data is RETAINED (no purge action exists)")
+
+
+class UserResetCredentials(_UserRef):
+    what: Literal["password", "mfa"] = Field(description="password: issue a fresh one-time enrollment link; mfa: remove the user's authenticator and require a new one at next sign-in")
+    reason: str = Field(default="", max_length=200)
 
 
 class Reconcile(BaseModel):
@@ -469,6 +474,19 @@ class Keycloak:
 
     def delete(self, kid: str) -> None:
         self.req("DELETE", f"/users/{kid}")
+
+    def reset_mfa(self, kid: str) -> int:
+        """Removes every OTP credential and makes the next sign-in enrol a new authenticator (required action CONFIGURE_TOTP). Never sees a secret."""
+        n = 0
+        for c in self.req("GET", f"/users/{kid}/credentials").json():
+            if c.get("type") == "otp":
+                self.req("DELETE", f"/users/{kid}/credentials/{c['id']}")
+                n += 1
+        full = self.req("GET", f"/users/{kid}").json()
+        full["requiredActions"] = sorted(set(full.get("requiredActions") or []) | {"CONFIGURE_TOTP"})
+        self.req("PUT", f"/users/{kid}", json=full)
+        self.logout(kid)
+        return n
 
 class Mas:
     """Matrix Authentication Service admin API (downstream of Keycloak). Client-credentials client dedicated to the ICS.
@@ -757,6 +775,8 @@ def precheck(db, rt: Runtime, action: str, p) -> dict:
         _user_row(db, row.id, p.uid, ("active",))
     elif action == "idm.user.enable":
         _user_row(db, row.id, p.uid, ("disabled",))
+    elif action == "idm.user.reset_credentials":
+        _user_row(db, row.id, p.uid, ("active",))
     elif action == "idm.user.delete":
         _user_row(db, row.id, p.uid, ("disabled",))  # delete only after a verified disable
     return {}
@@ -1139,6 +1159,32 @@ def exec_enable(rt: Runtime, db, m: UserEnable, plan, known: list[str]) -> dict:
             "note": "app tokens issued before the disable become valid again in OpenCloud (no revoke API): see docs"}
 
 
+def exec_reset_credentials(rt: Runtime, db, m: UserResetCredentials, plan, known: list[str]) -> dict:
+    stack = load_stack(rt, m.stack)
+    known.extend([stack.ldap_pw, stack.kc_secret, *([stack.mas_secret] if stack.mas_secret else [])])
+    u = _users_row(rt, stack.id, m.uid)
+    if u is None or u.state != "active":
+        raise IdentityError("user is not active")
+    steps: list = []
+    out: dict = {"uid": m.uid, "what": m.what}
+    if m.what == "mfa":
+        kc = Keycloak(rt, stack)
+        try:
+            t = time.monotonic()
+            ku = kc.find(m.uid)
+            if ku is None:
+                raise IdentityError("user not found in Keycloak (has never signed in); nothing to reset")
+            out["removed_authenticators"] = kc.reset_mfa(ku["id"])
+            _step(steps, "keycloak.reset_mfa", t)
+        finally:
+            kc.close()
+    else:
+        out["enrollment"] = _issue_enrollment(rt, str(u.id), plan.id, plan.requested_by)
+        _step(steps, "enrollment.issued", time.monotonic())
+    _audit(rt, "identity.credentials_reset", resource_id=str(u.id), uid=m.uid, stack=stack.name, what=m.what, reason=m.reason)
+    return {**out, "steps": steps}
+
+
 def exec_delete(rt: Runtime, db, m: UserDelete, plan, known: list[str]) -> dict:
     stack = load_stack(rt, m.stack)
     known.extend([stack.ldap_pw, stack.kc_secret, *([stack.mas_secret] if stack.mas_secret else [])])
@@ -1337,7 +1383,9 @@ def reconcile_due(rt: Runtime) -> int:
 
 
 MODELS = {"idm.stack.register": StackRegister, "idm.user.create": UserCreate, "idm.user.update_groups": UserUpdateGroups,
-          "idm.user.disable": UserDisable, "idm.user.enable": UserEnable, "idm.user.delete": UserDelete, "idm.reconcile": Reconcile}
+          "idm.user.disable": UserDisable, "idm.user.enable": UserEnable, "idm.user.delete": UserDelete,
+          "idm.user.reset_credentials": UserResetCredentials, "idm.reconcile": Reconcile}
 EXECUTORS = {"idm.stack.register": exec_register, "idm.user.create": exec_create, "idm.user.update_groups": exec_update_groups,
-             "idm.user.disable": exec_disable, "idm.user.enable": exec_enable, "idm.user.delete": exec_delete, "idm.reconcile": exec_reconcile}
+             "idm.user.disable": exec_disable, "idm.user.enable": exec_enable, "idm.user.delete": exec_delete,
+             "idm.user.reset_credentials": exec_reset_credentials, "idm.reconcile": exec_reconcile}
 SECRETS = {"idm.stack.register": ("ldap_bind_password", "kc_client_secret", "mas_client_secret")}

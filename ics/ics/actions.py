@@ -64,6 +64,7 @@ class ActionType(StrEnum):
     idm_user_disable = "idm.user.disable"
     idm_user_enable = "idm.user.enable"
     idm_user_delete = "idm.user.delete"
+    idm_user_reset_credentials = "idm.user.reset_credentials"
     idm_reconcile = "idm.reconcile"
     deployment_create = "deployment.create"
     deployment_change = "deployment.change"
@@ -370,6 +371,7 @@ CATALOG: dict[ActionType, dict] = {
     ActionType.idm_user_disable: {"model": identity.UserDisable, "risk": "normal", "secrets": ()},
     ActionType.idm_user_enable: {"model": identity.UserEnable, "risk": "normal", "secrets": ()},
     ActionType.idm_user_delete: {"model": identity.UserDelete, "risk": "high", "secrets": ()},
+    ActionType.idm_user_reset_credentials: {"model": identity.UserResetCredentials, "risk": "normal", "secrets": ()},
     ActionType.idm_reconcile: {"model": identity.Reconcile, "risk": "low", "secrets": ()},
     # deployment engine (deploy/ops.py). "risk" is the catalog default; create_plan takes the real tier from the change diff (override => high)
     ActionType.deployment_create: {"model": deploy_ops.DeploymentCreate, "risk": "high", "secrets": ()},
@@ -405,7 +407,10 @@ def endpoint_binding(base_url: str, token_id: str, fingerprint: str | None, ca_p
 
 def needed_approvals(rt: Runtime, plan) -> int:
     """Distinct ICS approvers required: risk tier + the customer policy's extra approvals for sensitive operations."""
-    return (rt.settings.required_approvals_high if plan.risk == "high" else 1) + (getattr(plan, "extra_approvals", 0) or 0)
+    tier = getattr(plan, "tenant_required", None)  # tenant-admin plans: the customer's own authority supplies the tier approval (tenant_admin.service)
+    if tier is None:
+        tier = rt.settings.required_approvals_high if plan.risk == "high" else 1
+    return tier + (getattr(plan, "extra_approvals", 0) or 0)
 
 
 def trust_binding(base_url: str, token_id: str, fingerprint: str | None, ca_pem: str | None, nodes=None) -> str:
@@ -644,6 +649,9 @@ def create_plan(db: Session, rt: Runtime, user, action: ActionType, params: dict
         extra.update(prov_actions.precheck(db, rt, action.value, p))
     # ---- customer scoping + policy (agent M) ----
     cust = full.get("customer_id") or tscope.customer_of_params(db, full)
+    if action in _IDM and not cust and full.get("stack"):  # identity stacks belong to one customer (0009a): scoped/tenant principals are bound through it
+        r = db.execute(text("SELECT customer_id FROM idm_stacks WHERE name = :n"), {"n": full["stack"]}).first()
+        cust = str(r.customer_id) if r else None
     if action == ActionType.endpoint_register and not cust:
         cust = full["customer_id"] = tscope.DEFAULT_CUSTOMER
     if action in _PROV:

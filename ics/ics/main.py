@@ -24,6 +24,7 @@ from .inventory import api as inventory_api
 from .provisioning import service as prov_service
 from .credentials import api as credentials_api, service as cred_service
 from .tenancy import api as tenancy_api, public as tenancy_public, scope as tscope
+from .tenant_admin import api as tenant_api
 from .runtime import Runtime
 from .worker import Worker
 
@@ -524,6 +525,7 @@ def create_app(settings: Settings | None = None, runtime: Runtime | None = None)
     credentials_api.mount(app)
     tenancy_api.mount(app)
     tenancy_public.mount(app)
+    tenant_api.mount(app)
 
     if STATIC_DIR.is_dir():
         @app.get("/", include_in_schema=False)
