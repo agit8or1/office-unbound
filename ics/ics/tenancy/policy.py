@@ -56,6 +56,11 @@ def classify(action: str, p) -> tuple[bool, str | None]:
     mut = action.startswith(MUTATING_PREFIXES) and action not in READ_ONLY
     if action == "backup.verify" and getattr(p, "level", None) == "restore":
         cat = "remove_storage"
+    # backups only READ the customer's infrastructure and write to the backup repository: running one, checking a repository and managing a policy
+    # change nothing on the customer's stack (no customer approval, allowed for monitoring-only customers). Pruning deletes history for good and a
+    # restore verification materialises the customer's data in a scratch machine: both stay gated like any other mutating action.
+    if action in ("backup.run", "backup.policy.create", "backup.policy.update") or (action == "backup.verify" and getattr(p, "level", None) == "check"):
+        mut = False
     if action == "endpoint.update" and getattr(p, "changed", None) and p.changed() & EXPANDING_ENDPOINT_FIELDS:
         mut, cat = True, "expand_permissions"
     if action == "credential.create" and getattr(p, "purpose", "inventory") != "inventory":

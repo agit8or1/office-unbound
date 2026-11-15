@@ -38,9 +38,17 @@ Verification state machine: `pending -> running -> passed | failed | error` (`fa
 
 Check kind `backup` (aspects `age`, `repo_check`, `restore`, `growth`) is evaluated from recorded runs, so it uses the normal check/incident/alert pipeline (thresholds, flap damping, channels, maintenance windows).
 
+## 5b. Per-customer boundaries (agent AU, 2026-11-15; closes the T20 backup FAIL)
+
+* **Binding**: `backup_policies.customer_id` (migration 0009; NULL = MSP-internal). Plans for a policy carry the policy's customer, so the existing operator scoping applies (404 for foreign and for missing policies alike); the read API filters by scope; at job time the plan's customer must equal the policy's (defence in depth).
+* **Namespace**: profile `c-<32 hex>` derived from the customer id. It is the first path segment of the repository URL, the REST user (rest-server `--private-repos`: a user reaches only `/<user>/...`), the runner config directory `/etc/ou-backup/<profile>/` (own credentials and staging directories) and an entry in the agent's `customers` allowlist. Runbook parameters carry the profile (closed shape); the agent and the root helper re-validate it and the helper refuses configs that cross namespaces or share machines with another profile.
+* **Keys**: repository password per policy, vault AAD includes the customer id; REST credentials per customer and per listener (append-only vs maintenance). Three independent barriers: REST authorisation, repository encryption key, ICS scoping.
+* **Policy classification**: `backup.run`, repository checks and policy management read the customer's stack and write only to the backup repository (not "infrastructure changes": no customer approval, allowed for monitoring-only customers); prune and restore verification stay gated.
+* **ICS controller tier**: `tier=ics` has a restore verification (passive restore into a scratch machine, chain + head event + schema + passive + operator login); the hook is parameterised (`OU_ICS_PREFIX/DB/ROLES/DB_OWNER`) so a dev ICS can be protected and verified without touching the production service.
+
 ## 5. Consequences / not done
 
 * Production runner topology (runner node per site vs per tier) and S3-backed repositories are defined by the interface (`repo.backend`), only `rest` is implemented.
 * Second-copy replication (`restic copy`) is modelled as a state but not implemented.
-* ICS controller tier: scripts and policy support exist; the lab run did not touch the production `ics` service/DB.
+* ICS controller tier: lab-proven against a DEV ICS only; no run against the production controller yet (deliberately).
 * Files-tier online backup is crash-consistent per file (no stop); production needs a filesystem snapshot.

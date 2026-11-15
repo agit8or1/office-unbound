@@ -120,6 +120,7 @@ def load_settings() -> Settings:
             login_max_failures=int(env.get("ICS_LOGIN_MAX_FAILURES", 5)),
             allow_loopback_endpoints=b("ICS_ALLOW_LOOPBACK_ENDPOINTS", False),
             trusted_proxy=_trusted_proxy(env.get("ICS_TRUSTED_PROXY")),
+            backup_scheduler_enabled=b("ICS_BACKUP_SCHEDULER_ENABLED", True),
         )
     except KeyError as e:  # pragma: no cover
         raise RuntimeError(f"missing required config {e}; see README (config)") from None

@@ -629,6 +629,16 @@ def create_plan(db: Session, rt: Runtime, user, action: ActionType, params: dict
             raise PlanError(409, str(e)) from None
         except (ValueError, IdentityError) as e:
             raise PlanError(422, str(e)) from None
+    backup_cust = None
+    if action in _BACKUP and action != ActionType.backup_policy_create:
+        try:
+            backup_cust = backup_ops.policy_customer(db, p.policy)
+        except KeyError:
+            raise PlanError(404, "backup policy not found") from None
+        if getattr(user, "customer_ids", None) is not None and (backup_cust is None or not tscope.allowed(user, backup_cust)):
+            raise PlanError(404, "backup policy not found")   # same answer as a missing policy: existence is not disclosed to a scoped operator
+    if action == ActionType.backup_policy_create and getattr(user, "customer_ids", None) is not None and not (p.customer_id and tscope.allowed(user, p.customer_id)):
+        raise PlanError(404, "not found")
     if action in _BACKUP:
         try:
             extra.update(backup_ops.precheck(db, rt, action.value, p))
@@ -673,6 +683,8 @@ def create_plan(db: Session, rt: Runtime, user, action: ActionType, params: dict
         extra.update(prov_actions.precheck(db, rt, action.value, p))
     # ---- customer scoping + policy (agent M) ----
     cust = full.get("customer_id") or tscope.customer_of_params(db, full)
+    if backup_cust:
+        cust = backup_cust
     if action == ActionType.endpoint_register and not cust:
         cust = full["customer_id"] = tscope.DEFAULT_CUSTOMER
     if action in _PROV:

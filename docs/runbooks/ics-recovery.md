@@ -4,7 +4,7 @@ Customer stacks do **not** depend on the ICS at runtime (mail, files, editing, S
 
 ## What a backup must contain (`ics/deploy/backup/ics-backup.sh`)
 PostgreSQL `ics` (pg_dump -Fc) + roles `ics_owner`/`ics_app`; `/etc/office-unbound/{ics.env, ics-migrate.env, vault.key, audit.key, ics-signing.key, tls/, ics-admin-fw.nft}`; systemd units; nginx site; the **deployed release** (code that matches the DB schema — the venv is rebuilt from `requirements.lock --require-hashes`). Without `vault.key` the stored secrets are unrecoverable; without `audit.key` the audit chain can no longer be verified or extended.
-Backups hold every ICS secret: root-only 0600. **TODO before production:** encrypt to an offline recovery key, copy off-host, schedule, measure RPO.
+Backups hold every ICS secret. The backup product (ADR-0010, policy tier `ics`) stores them only in an **encrypted restic repository** on a separate host, on a schedule with RPO/RTO targets, and keeps an **offline recovery key** (a second restic key) so that the backup is recoverable without the ICS vault (the vault key is itself inside the backup). Set it up once: `ou-backup --direct recovery-key ics /root/recovery-ics.txt`, store the printed file offline, shred it, `ics.cli backup-recovery-ack`. Restore verification runs the passive-restore flow below into a scratch machine on a schedule and checks chain, head event, schema, passive state and an operator login (lab-proven against a dev ICS, docs/status/backup-isolation-results.md). The manual `ics-backup.sh` copy remains for break-glass only; keep its output root-only 0600.
 
 ## Restore (`ics/deploy/backup/ics-restore.sh <backup_dir> <machine>` — drill form; on a real host run `ics-restore-inner.sh` as root)
 1. Checksums verified (MANIFEST + SHA256SUMS).
@@ -25,4 +25,4 @@ Backups hold every ICS secret: root-only 0600. **TODO before production:** encry
 5. Record the recovery in the audit log / incident.
 
 ## Not yet covered
-HA/standby controller; encrypted off-host backups and schedule; automated cut-over; agent behaviour when the ICS is unreachable for long periods (agents are passive: they only act on signed, unexpired ICS requests).
+HA/standby controller; a verification run against the production controller (only the dev ICS was exercised); automated cut-over; agent behaviour when the ICS is unreachable for long periods (agents are passive: they only act on signed, unexpired ICS requests).

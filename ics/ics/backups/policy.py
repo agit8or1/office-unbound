@@ -18,10 +18,22 @@ TIERS = ("files", "identity", "groupware", "ics")
 NAME_RE = r"^[A-Za-z0-9][A-Za-z0-9_.-]{0,62}$"
 LABEL_RE = r"^[A-Za-z0-9][A-Za-z0-9 _.:/-]{0,62}$"
 SNAPSHOT_RE = re.compile(r"^[0-9a-f]{8,64}$")
-REPO_URL_RE = re.compile(r"^https://(?P<host>[A-Za-z0-9]([A-Za-z0-9.-]{0,251}[A-Za-z0-9])?)(:(?P<port>[0-9]{1,5}))?(?P<path>/[A-Za-z0-9_.-]{1,64}/?)$")
+REPO_URL_RE = re.compile(r"^https://(?P<host>[A-Za-z0-9]([A-Za-z0-9.-]{0,251}[A-Za-z0-9])?)(:(?P<port>[0-9]{1,5}))?(?P<path>/[A-Za-z0-9_.-]{1,64}(/[A-Za-z0-9_.-]{1,64})?/?)$")
 SHA256_RE = r"^[0-9a-fA-F]{64}$"
+PROFILE_RE = re.compile(r"^c-[0-9a-f]{32}$")
 MIN_RPO_SECONDS = 300
 VERIFY_LEVELS = ("check", "restore")
+
+
+def customer_profile(customer_id) -> str:
+    """Per-customer namespace on the runner and the repository host: runner config dir /etc/ou-backup/<profile>/, restic REST user and the first
+    path segment of the repository URL (rest-server --private-repos lets user <profile> reach only /<profile>/...). Derived, never chosen by a caller."""
+    from uuid import UUID
+    return "c-" + UUID(str(customer_id)).hex
+
+
+def repo_first_segment(url: str) -> str:
+    return REPO_URL_RE.match(url)["path"].strip("/").split("/")[0]  # type: ignore[index]
 
 
 class Retention(BaseModel):
@@ -65,7 +77,7 @@ class RepoRef(BaseModel):
     @classmethod
     def _url(cls, v: str) -> str:
         m = REPO_URL_RE.match(v)
-        if not m or (m["port"] and not 1 <= int(m["port"]) <= 65535):
+        if not m or (m["port"] and not 1 <= int(m["port"]) <= 65535) or any(seg.startswith(".") for seg in m["path"].strip("/").split("/")):
             raise ValueError("repository url must be https://host[:port]/name (no userinfo, no query)")
         return v
 
@@ -100,6 +112,7 @@ class PolicyCreate(BaseModel):
     repo: RepoRef
     copies_required: int = Field(default=1, ge=1, le=3)
     verify: VerifyPolicy = Field(default_factory=VerifyPolicy)
+    customer_id: str | None = Field(default=None, pattern=r"^[0-9a-fA-F-]{36}$", description="owning customer: binds the policy (operator scope), the repository password (vault AAD), the runner profile and the repository user/path")
     repo_password: SecretStr | None = Field(default=None, description="optional; generated server-side (256 bit) when absent and NEVER returned")
 
     @field_validator("repo_password", mode="before")
@@ -112,6 +125,8 @@ class PolicyCreate(BaseModel):
 
     @model_validator(mode="after")
     def _sane(self) -> Self:
+        if self.customer_id and repo_first_segment(self.repo.url) != customer_profile(self.customer_id):
+            raise ValueError("a customer policy's repository path must start with the customer's own namespace /" + customer_profile(self.customer_id) + "/")
         if self.schedule.every_hours is not None and self.schedule.every_hours * 3600 > self.rpo_seconds:
             raise ValueError("schedule interval is longer than the RPO target: the RPO could never be met")
         if self.schedule.daily_at is not None and 86400 > self.rpo_seconds:
@@ -123,8 +138,11 @@ class PolicyCreate(BaseModel):
 def runbook_params(action: str, p: dict) -> dict:
     """Closed shapes; the agent validates the same shapes again (agent/ou_agent/backupspec.py). Anything else is refused."""
     def exact(keys, required=None):
-        if set(p) - set(keys) or set(required if required is not None else keys) - set(p):
+        keys = (*keys, "customer")
+        if set(p) - set(keys) or set(required if required is not None else keys[:-1]) - set(p):
             raise ValueError("unexpected or missing runbook parameters")
+        if "customer" in p and not (isinstance(p["customer"], str) and PROFILE_RE.match(p["customer"])):
+            raise ValueError("bad customer profile")
     if action == "backup.run":
         exact(("tier",))
     elif action == "backup.verify":
