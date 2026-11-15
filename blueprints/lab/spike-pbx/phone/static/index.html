@@ -1,0 +1,23 @@
+<!doctype html>
+<html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
+<title>Office Unbound Phone</title><link rel="stylesheet" href="/static/phone.css"></head>
+<body>
+<main>
+  <h1>Office Unbound Phone <small id="who"></small></h1>
+  <p class="warn" role="note"><strong>Emergency calls do not work from this phone.</strong> This lab PBX has no outside line: dialling 112 / 911 / 999 reaches nobody. Use a mobile or landline.</p>
+  <p>Status: <b id="status" data-state="init">starting</b></p>
+  <p>My extension: <b id="ext">-</b></p>
+  <form id="dialform" autocomplete="off">
+    <input id="number" inputmode="tel" maxlength="12" placeholder="extension, e.g. 1003" aria-label="Number to call">
+    <button id="call" type="submit" disabled>Call</button>
+    <button id="answer" type="button" hidden>Answer</button>
+    <button id="hangup" type="button" disabled>Hang up</button>
+  </form>
+  <p>Call: <b id="callstate" data-state="idle">idle</b> <span id="peer"></span></p>
+  <audio id="remote" autoplay></audio>
+  <p class="small">Voicemail: dial *97. Echo test: dial 600. Calls are encrypted (WSS + DTLS-SRTP); your SIP credential lives only in this page's memory.</p>
+  <pre id="log" aria-live="polite"></pre>
+</main>
+<script src="/static/jssip-3.13.9.bundle.min.js"></script>
+<script src="/static/phone.js"></script>
+</body></html>

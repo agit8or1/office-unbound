@@ -94,6 +94,25 @@ Licenses below were read from the installed packages / release artifacts in the 
 
 Note (ADR-0007): the Element Commercial License / "ESS Pro" features (LDAP/SCIM, S3 media, HA) are NOT used; everything exercised in the lab is the AGPL source path. Element's AGPL builds carry no user caps in the source we read, but the AGPL s.13 duty (offer source of modified network-served versions) applies to Synapse, MAS and Element Web if we patch them.
 
+## 5b. Telephony spike (PBX + softphone; lab prototype 2026-11-15, `docs/status/telephony-lab-results.md`)
+
+Licenses read from the installed packages' `/usr/share/doc/*/copyright` in `ou-pbx1` and from the npm packages, 2026-11-15.
+
+| Component | Source | Pinned version | License (as found) | Build method (lab) | Restrictions found | Branding | Commercial use / redistribution | Gate |
+|---|---|---|---|---|---|---|---|---|
+| Asterisk (`asterisk`, `asterisk-modules`, `asterisk-config`, `asterisk-core-sounds-en`) | asterisk.org; Ubuntu 24.04 universe (not in Debian 12/13, only sid 22.10.1) | 1:20.6.0~dfsg+~cs6.13.40431414-2build5 (held) | GPL-2.0 (copyright file mix: GPL-2-Asterisk, GPL-2+, LGPL-2.1+, Expat, public-domain; sounds CC-BY-SA/GPL per package, not re-read); bundles pjproject (BSD/GPL-2 mix) | Ubuntu package (lab). Production: own build of Asterisk 22 LTS from pinned source | No per-seat/call limits found; GPL source duty for modified builds; Sangoma offers a commercial alternative licence (not used) | "Asterisk" is a Sangoma trademark: name use in docs only, rebrand if we modify | GPL-2: yes, source offer for modifications | PASS-with-obligations (GPL-2) |
+| baresip (`baresip-core`, test client only) | github.com/baresip/baresip; Ubuntu universe | 1.0.0-4build14 | BSD-3-Clause (some GPL-2/GPL-3+ files listed in debian/copyright: modules not loaded here) | Ubuntu package | None | - | Permitted (BSD) | PASS (lab test tool; not shipped) |
+| libre / librem (baresip deps) | github.com/baresip/re | 1.1.0 / 0.6.0 | BSD-3-Clause (not re-read) | Ubuntu package | - | - | Permitted | PASS (UNVERIFIED copyright read) |
+| JsSIP | github.com/versatica/JsSIP, npm | 3.13.9 (tarball sha512 tJ7pCFj5...HYB/gA== matches registry) | MIT (LICENSE.md) | esbuild 0.25.4 bundle (`blueprints/lab/spike-pbx/phone/bundle-src`), bundle vendored in the repo | None | - | MIT | PASS |
+| debug 4.4.3, ms 2.1.3, events 3.3.0, sdp-transform 2.15.0 (JsSIP deps, bundled) | npm | as listed | MIT (package.json license fields; text in `phone/static/jssip-3.13.9.bundle.LICENSES.txt`) | esbuild | None | - | MIT | PASS |
+| esbuild (build tool, not shipped) | npm | 0.25.4 | MIT (UNVERIFIED: not re-read) | npm | - | - | - | PASS (verify) |
+| libsrtp2, libopus (dep, unused codec), libspandsp, libgsm, libspeex | Ubuntu archive | libsrtp2-1 2.5.0, libopus0 1.4, spandsp 0.0.6, gsm 1.0.22, speex 1.2.1 | BSD-style / permissive (from upstream knowledge; **UNVERIFIED** in the lab; spandsp is LGPL-2.1 + GPL parts per upstream - check before shipping) | Ubuntu packages | codec patents: G.711/GSM expired; Opus not used | - | - | PASS-with-flag (verify spandsp/codec licences) |
+| nginx-light | Ubuntu archive | 1.24.0-2ubuntu7.19 | BSD-2-Clause (upstream; not re-read) | Ubuntu package | None | - | Permitted | PASS |
+| python3-ldap3 | Ubuntu archive | 2.9.1-2 | LGPL-3.0 (upstream; used as a library via import, not modified) | Ubuntu package | LGPL relink/replace duty if shipped bundled | - | Permitted | PASS-with-obligations (LGPL) |
+| Office Unbound PBX provisioner + softphone service (`blueprints/lab/spike-pbx/pbx`, `phone/`) | this repo | n/a | Ours (FastAPI 0.101.0, uvicorn 0.27.1, httpx 0.26.0, PyJWT from Ubuntu archive: MIT/BSD) | Source | - | - | - | PASS |
+
+Note: PSTN/SIP trunks are optional, default off, customer-chosen and $0 to us (ADR-0007); emergency-calling obligations are flagged in the lab results and require legal review before any trunk is offered.
+
 ## 6. Lab-only tooling
 
 | Component | Repository | Pinned version | License (as found in source) | Build method | Runtime/user/connection restrictions | Branding obligations | Commercial use / redistribution | Update source | Fork/patch status | Maintenance owner | Gate |

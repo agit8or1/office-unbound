@@ -50,6 +50,8 @@ class Settings:
     max_body_bytes: int = 256 * 1024
     job_timeout_seconds: int = 180               # >= agent deadline (90) + max verify (45) + one check timeout (30) + slack (review L3)
     job_lease_slack_seconds: int = 60
+    deployment_lease_seconds: int = 60           # review 3 H1: deployments are lease-based (renewed per heartbeat), no fixed job wall clock
+    deployment_step_deadline_seconds: int = 1800  # per step, not per job
     pve_request_deadline_seconds: float = 30.0
     pve_max_response_bytes: int = 16 * 1024 * 1024
     snapshot_retention: int = 50

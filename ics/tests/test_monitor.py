@@ -538,7 +538,7 @@ def test_results_time_series_listing_and_retention(env):
     with env.rt.session() as db:
         db.execute(text("UPDATE check_results SET at = now() - interval '30 days' WHERE id = :i"), {"i": older[0]["id"]})
         db.commit()
-    monitor._last_retention = 0.0
+    monitor._last_retention = None
     assert monitor.retention(env.rt) == 1
     assert len(env.op[0].get(f"{H}/checks/{cid}/results").json()) == 2
 
@@ -587,3 +587,16 @@ def test_auto_mode_low_risk_still_auto_executes(env, fake_agent):
     feed(env, cid, "critical", remediate=True)
     env.run_jobs()
     assert "restart gromox-imap.service" in fake_agent.calls()[0]
+
+
+def test_retention_runs_on_a_freshly_booted_host(env, monkeypatch):
+    """Regression (found by GitHub CI, 2026-11-15): time.monotonic() counts from host boot; with "never run" encoded as 0.0
+    retention silently did nothing for the first 10 minutes after boot. "Never run" must always run."""
+    cid = smtp_check(env, 9)
+    feed(env, cid, "ok")
+    with env.rt.session() as db:
+        db.execute(text("UPDATE check_results SET at = now() - interval '30 days'")); db.commit()
+    monitor._last_retention = None
+    monkeypatch.setattr(monitor.time, "monotonic", lambda: 5.0)     # 5 s after boot
+    assert monitor.retention(env.rt) >= 1
+    assert monitor.retention(env.rt) == 0                            # throttled on the immediate second call

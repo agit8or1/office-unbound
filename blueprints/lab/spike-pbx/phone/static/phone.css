@@ -1,0 +1,9 @@
+:root{color-scheme:light dark;--bg:#fff;--fg:#1a1a1a;--warn:#fff3cd;--warnfg:#5c4400}
+@media (prefers-color-scheme:dark){:root{--bg:#161616;--fg:#e8e8e8;--warn:#4a3a00;--warnfg:#ffe9a6}}
+body{margin:0;background:var(--bg);color:var(--fg);font:16px system-ui,sans-serif}
+main{max-width:34rem;margin:0 auto;padding:1rem 1rem 2rem}
+h1{font-size:1.4rem}h1 small{font-weight:400;font-size:.8rem}
+.warn{background:var(--warn);color:var(--warnfg);padding:.6rem .8rem;border-radius:6px}
+input,button{font:inherit;padding:.5rem .8rem;margin:.2rem .2rem .2rem 0}
+button:disabled{opacity:.5}.small{font-size:.8rem;opacity:.8}
+#log{font-size:.75rem;max-height:10rem;overflow:auto;white-space:pre-wrap}

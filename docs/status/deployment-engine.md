@@ -45,3 +45,17 @@ tampered stored plan refused, unconfigured provider fails cleanly, no secret lea
 - Plans only count capacity on the endpoint's authorized nodes (`allowed_nodes`).
 - Known limits: the create-time root disk resize now exists (step `vm.resize:<vm>`, idempotent); later disk growth uses `resize_disk` on `scsiN` by plan position; a `configure_vm` re-run after a crash in the middle of the call may re-attach an extra disk key.
 - Wizards use the backend shapes directly (`frontend/src/wizards/api.ts` maps them): `PlanInput`, `ChangeSet` (users, tenants, profile, optional, backup retention, allowed nodes; other change types are listed as Planned), `maintenance: window|override`, `job_steps` rows, catalog `name/title`.
+## Where this differs from agent F's UI types (`ics/frontend/src/wizards/api.ts`) - lead to reconcile (adapter in the UI client, or a thin mapper here)
+- `POST /deployments/plan`: mine takes `{customer_id, deployment_id, profile, users, tenants, domain, endpoint (name), pool, storage, bridge, vlan, os_image, allowed_nodes, optional{comp:bool},
+  custom_layout, backup_retention_days}`; F sends `{name, availability, endpoint_id, network{bridge,vlan}, backup{...}, optional_components[]}` (no customer_id/domain/pool).
+- Plan response: mine `steps[{key,kind,target,op,depends_on}]`, `firewall[]` (not `ports`), `checks[]` (not `monitoring`), `consumption.memory_mb`, `capacity{nodes[],storage[]}`, `errors/warnings[{code,message}]`.
+- `deployment.change`: mine `{deployment_id (slug), changes{users,profile,optional,custom_layout,backup_retention_days,allowed_nodes,tenants}, plan_hash, maintenance: window|override, maintenance_window_id}`;
+  F `{deployment_id, change{type,params}, plan_hash, maintenance_window, override}`. Change preview response: mine `{plan, diff{added,changed,removed,capacity_impact,downtime_seconds,snapshot_required,risk normal|high,requires_maintenance,steps}}`.
+- `GET /jobs/{id}/steps`: mine `{seq, step_key, kind, target, op, status, attempts, progress, log_excerpt, error_message, error_explanation}`.
+- Catalog: mine `{profiles:[{name,title,...}]}` / `{components:[...]}`; deployments are addressed by `slug`.
+
+## Security review 3 changes (2026-11-15)
+- Execution is lease based: one `deployment_locks` row per deployment with a fencing token, renewed by a heartbeat; no fixed job wall clock for `deployment.*` (per-step deadline `deployment_step_deadline_seconds`). Every provider/agent/check call and poll loop checks the lease, the job state, the cancel flag and the step deadline, so cancellation also works inside long steps and an abandoned executor stops issuing calls. Re-submitting while an executor is live is refused (409).
+- `deployment.destroy` needs the `plan_hash` from `POST /deployments/{slug}/destroy/preview`; it is built from the applied revision plus owned VMs and marked destroyed only after every VM is verified gone.
+- Step carry-over is keyed by (deployment, revision, plan_hash); change plans carry `base_revision` and refuse to run against a newer applied revision; maintenance windows must be independently approved to lower a disruptive change's tier; VM ownership is VMID + tags + name; deployment checks are owned by the deployment (`checks.deployment_id`).
+See "Remediation" in `security-review-3-2026-11-15.md`.

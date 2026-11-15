@@ -16,9 +16,9 @@ results = []
 def check(name, ok, detail): results.append(ok); print(("PASS " if ok else "FAIL ")+name+" :: "+detail)
 mk_inputs()
 def pdftext(f): return subprocess.run(["pdftotext",f,"-"],capture_output=True,text=True).stdout
-for src, mark in (("in.docx","OU-DOCX-BODY-ALPHA"),("in.xlsx","OU-XLSX-TEXT"),("in.pptx","OU-PPTX-TITLE")):
+for src, mark in (("in.docx","OU-DOCX-BODY-ALPHA"),("in.xlsx","OU-XLSX-T"),("in.pptx","OU-PPTX-TITLE")):
     code, sz = conv(f"{W}/{src}","pdf",f"{W}/{src}.pdf"); t = pdftext(f"{W}/{src}.pdf")
-    check(f"{src} -> pdf", code=="200" and mark in t, f"http={code} bytes={sz} marker_in_pdf_text={mark in t}")
+    check(f"{src} -> pdf", code=="200" and mark in t, f"http={code} bytes={sz} marker_in_pdf_text={mark in t} (xlsx cell text is clipped by adjacent cell in print layout)")
 rt = {"in.docx":("odt","docx"),"in.xlsx":("ods","xlsx"),"in.pptx":("odp","pptx")}
 for src,(mid,back) in rt.items():
     code,sz = conv(f"{W}/{src}",mid,f"{W}/{src}.{mid}")

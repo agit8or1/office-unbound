@@ -6,6 +6,7 @@ execution (see providers.base.job_execution) and refuses endpoints that have no 
 from __future__ import annotations
 
 from ...proxmox import ProxmoxReadClient, ProxmoxWriteClient
+from ...credentials import service as cred_service
 from ...runtime import Runtime
 from ..base import MutationNotAllowed, ProviderError, require_job_execution
 from .provider import EndpointScope, ProxmoxMutations, ProxmoxProvider, SelfIdentity, local_identity, map_error
@@ -39,12 +40,12 @@ def open_read_provider(rt: Runtime, ep, known: list[str] | None = None, *, with_
     token so the permission probe can report on it (never used to mutate)."""
     known = known if known is not None else []
     b = _binding(ep)
-    secret = rt.vault.decrypt(ep.token_secret_enc, f"endpoint-token:{ep.id}:{b}").decode()
+    secret = cred_service.endpoint_secret(rt, ep, "inventory", actor="inventory")
     known.append(secret)
     inv = ProxmoxReadClient(ep.base_url, ep.token_id, secret, **_kw(rt, ep))
     prov = None
     if with_provision_probe and ep.provision_token_id:
-        ps = rt.vault.decrypt(ep.provision_secret_enc, provision_aad(ep, b)).decode()
+        ps = cred_service.endpoint_secret(rt, ep, "provision", actor="permission-probe")
         known.append(ps)
         prov = ProxmoxReadClient(ep.base_url, ep.provision_token_id, ps, **_kw(rt, ep))
     return ProxmoxProvider(inv, scope=scope_of(ep), trust="fingerprint" if ep.fingerprint_sha256 else "ca_bundle",
@@ -55,11 +56,11 @@ def open_read_provider(rt: Runtime, ep, known: list[str] | None = None, *, with_
 def open_mutations(rt: Runtime, ep, known: list[str] | None = None) -> ProxmoxMutations:
     require_job_execution()
     known = known if known is not None else []
-    if not ep.provision_token_id or ep.provision_secret_enc is None:
+    if not ep.provision_token_id or (ep.provision_secret_enc is None and not getattr(ep, "provision_credential_id", None)):
         raise MutationNotAllowed("this endpoint has only an inventory credential; mutations are refused (register a provision credential)")
     if getattr(ep, "enabled", True) is False or getattr(ep, "detached_at", None) is not None:
         raise MutationNotAllowed("this endpoint is disabled or detached")
-    ps = rt.vault.decrypt(ep.provision_secret_enc, provision_aad(ep, _binding(ep))).decode()
+    ps = cred_service.endpoint_secret(rt, ep, "provision", actor="job")
     known.append(ps)
     w = ProxmoxWriteClient(ep.base_url, ep.provision_token_id, ps, **_kw(rt, ep))
     return ProxmoxMutations(w, scope=scope_of(ep), token_id=ep.provision_token_id, allow_simulator=rt.settings.allow_loopback_endpoints,

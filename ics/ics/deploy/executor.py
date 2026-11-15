@@ -5,7 +5,7 @@ error + operator explanation). The executor:
 - resumes after a crash from the last completed step (a step left 'running' is in doubt and is simply re-run: every handler is
   idempotent), and carries over steps already succeeded by an earlier job of the same deployment revision (re-submitting a failed
   deployment.create continues instead of starting over);
-- honours cancellation BETWEEN steps (`jobs.cancel_requested`), never mid-step;
+- honours cancellation between steps AND inside long steps (lease.check() before every provider/agent call and in every poll loop);
 - is the ONLY caller of providers/agents: handlers receive them through ExecEnv.
 
 Every step uses its own short transaction, so progress is durable immediately and never blocks the audit chain."""
@@ -18,7 +18,7 @@ from sqlalchemy import text
 
 from ..providers.base import IpConfig, NicSpec, ProviderError, ProviderTimeout, ScopeViolation, TaskRef, VmCloneSpec, VmConfigSpec, VmRef
 from . import state
-from .ports import Cancelled, DeployError, ExecEnv, StepFailed
+from .ports import Cancelled, DeployError, ExecEnv, Fenced, StepFailed
 
 log = logging.getLogger("ics.deploy.executor")
 LOG_MAX = 2000
@@ -26,25 +26,26 @@ LOG_MAX = 2000
 
 # ---- persistence ---------------------------------------------------------------------------------------------
 
-def seed_steps(rt, job_id: str, deployment_id: str, revision: int, steps: list[dict]) -> None:
-    """Create the job's step rows (idempotent). Steps already succeeded in an earlier job of the same revision are carried over."""
+def seed_steps(rt, job_id: str, deployment_id: str, revision: int, steps: list[dict], plan_hash: str = "") -> None:
+    """Create the job's step rows (idempotent). Steps already succeeded in an earlier job of the same (deployment, revision, plan_hash)
+    are carried over; a different approved plan never reuses another plan's steps (review 3 M3)."""
     with rt.session() as db:
         for s in steps:
             if db.execute(text("SELECT 1 FROM job_steps WHERE job_id = :j AND step_key = :k"), {"j": job_id, "k": s["key"]}).first():
                 continue
             prev = db.execute(text("SELECT result, job_id FROM job_steps WHERE deployment_id = :d AND revision = :r AND step_key = :k "
-                                   "AND status = 'succeeded' AND job_id <> :j ORDER BY id DESC LIMIT 1"),
-                              {"d": deployment_id, "r": revision, "k": s["key"], "j": job_id}).first()
+                                   "AND status = 'succeeded' AND job_id <> :j AND plan_hash = :h ORDER BY id DESC LIMIT 1"),
+                              {"d": deployment_id, "r": revision, "k": s["key"], "j": job_id, "h": plan_hash}).first()
             db.execute(text(
                 "INSERT INTO job_steps (job_id, deployment_id, revision, seq, step_key, kind, target, op, params, depends_on, disruptive, est_seconds, "
-                "status, progress, result, carried_from_job, log_excerpt, finished_at) VALUES "
+                "status, progress, result, carried_from_job, log_excerpt, finished_at, plan_hash) VALUES "
                 "(:j, :d, :r, :q, :k, :kd, :t, :o, CAST(:p AS jsonb), CAST(:dp AS jsonb), :dis, :est, :st, :pg, CAST(:res AS jsonb), :cf, :lg, "
-                "CASE WHEN :st = 'succeeded' THEN now() END)"),
+                "CASE WHEN :st = 'succeeded' THEN now() END, :h)"),
                 {"j": job_id, "d": deployment_id, "r": revision, "q": s["seq"], "k": s["key"], "kd": s["kind"], "t": s["target"], "o": s["op"],
                  "p": json.dumps(s["params"], sort_keys=True), "dp": json.dumps(s["depends_on"]), "dis": s["disruptive"], "est": s["est_seconds"],
                  "st": "succeeded" if prev else "pending", "pg": 100 if prev else 0,
                  "res": json.dumps(prev.result) if prev and prev.result is not None else None,
-                 "cf": str(prev.job_id) if prev else None, "lg": "carried over from an earlier job of this revision" if prev else ""})
+                 "cf": str(prev.job_id) if prev else None, "lg": "carried over from an earlier job of this plan" if prev else "", "h": plan_hash})
         db.commit()
 
 
@@ -83,6 +84,12 @@ class StepCtx:
     step: dict
     outputs: dict
     buf: list[str] = field(default_factory=list)
+    plan_hash: str = ""
+    lease: object = None
+
+    def checkpoint(self) -> None:
+        if self.lease is not None:
+            self.lease.check()
 
     def log(self, msg: str, progress: int | None = None) -> None:
         self.buf.append(msg)
@@ -109,6 +116,7 @@ def _poll(ctx: StepCtx, task: TaskRef, what: str) -> TaskRef:
     env = ctx.env
     t0 = env.clock()
     while True:
+        ctx.checkpoint()
         st = env.provider.task_status(task)
         if st.state == "ok":
             return task
@@ -145,6 +153,34 @@ def _disk_key(index: int) -> str:
     return f"scsi{index}"
 
 
+def _owned_guest(ctx: StepCtx, ref: VmRef, name: str):
+    """Review 3 L3: ownership is by VMID + tags (+ name), never by name alone: a recycled vmid carrying someone else's guest is not ours."""
+    d = ctx.env.provider.discover()
+    tag = f"ou-deployment-{ctx.slug}"
+    return next((g for g in d.guests if int(g["vmid"]) == int(ref.vmid) and g["name"] == name and tag in g["tags"] and "ou-managed" in g["tags"]), None)
+
+
+def _require_owned(ctx: StepCtx, ref: VmRef, name: str):
+    g = _owned_guest(ctx, ref, name)
+    if g is None:
+        raise StepFailed(f"VM {name} (vmid {ref.vmid}) is not a guest of this deployment (tags/name do not match)",
+                         "The recorded VM id no longer belongs to this deployment; nothing was changed. Check the infrastructure.", retryable=False)
+    return g
+
+
+def _intent(ctx: StepCtx, vm: str) -> dict | None:
+    with ctx.rt.session() as db:
+        r = db.execute(text("SELECT actual FROM deployment_resources WHERE deployment_id = :d AND kind = 'vm' AND logical_name = :n"),
+                       {"d": ctx.deployment_id, "n": vm}).first()
+    return ((r.actual or {}).get("clone_intent")) if r else None
+
+
+def _record_intent(ctx: StepCtx, vm: str, intent: dict) -> None:
+    """Durable 'about to clone' marker written before the provider call; the first attempt's marker is kept on retries."""
+    if _intent(ctx, vm) is None:
+        ctx.resource("vm", vm, actual={"clone_intent": intent})
+
+
 def h_provider_task(ctx: StepCtx) -> dict:
     s, p, vm = ctx.step, ctx.step["params"], ctx.step["target"]
     prov, op = ctx.env.provider, s["op"]
@@ -160,16 +196,32 @@ def h_provider_task(ctx: StepCtx) -> dict:
             ctx.log(f"adopted existing tagged guest vmid {g['vmid']} left by an interrupted attempt")
             return {"node": g["node"], "vmid": g["vmid"], "adopted": True}
         d = prov.discover()
-        stray = next((x for x in d.guests if x["name"] == vm), None)
-        if stray is not None:  # same name, no ownership tags: a crash between clone and tagging, or somebody else's guest
-            raise StepFailed(f"a guest named {vm} (vmid {stray['vmid']}) already exists and is not tagged as owned by this deployment",
-                             "ICS never adopts or overwrites an untagged guest. If it is a leftover of an interrupted deployment, remove it in "
-                             f"Proxmox (or tag it ou-managed + ou-deployment-{ctx.slug}), then re-run.", retryable=False)
         tpl = next((t for t in d.templates if t["name"] == p["template"]), None)
+        stray = next((x for x in d.guests if x["name"] == vm), None)
+        if stray is not None:
+            # crash window between the clone and the ownership tag: the clone intent (with the VM ids that existed before) was recorded
+            # BEFORE the provider call, so an untagged guest of that name with a NEW vmid is our own clone. Recover its clone task from the
+            # provider and tag it via finalize_clone; anything else (no intent, vmid already existed, no task) is never adopted.
+            intent = _intent(ctx, vm)
+            recover = getattr(prov, "recover_clone_task", None)
+            task = None
+            if (intent and tpl is not None and int(stray["vmid"]) not in set(intent.get("pre_vmids", [])) and recover is not None
+                    and "ou-managed" not in stray["tags"] and not any(t.startswith("ou-deployment-") for t in stray["tags"])):
+                task = recover(int(tpl["vmid"]), tpl["node"], int(stray["vmid"]), vm, ctx.slug)
+            if task is None:
+                raise StepFailed(f"a guest named {vm} (vmid {stray['vmid']}) already exists and is not tagged as owned by this deployment",
+                                 "ICS never adopts or overwrites an untagged guest. If it is a leftover of an interrupted deployment, remove it in "
+                                 f"Proxmox (or tag it ou-managed + ou-deployment-{ctx.slug}), then re-run.", retryable=False)
+            ctx.resource("vm", vm, state="creating", provider_ref={"node": stray["node"], "vmid": stray["vmid"]})
+            ctx.log(f"recovered the clone task of an interrupted attempt for vmid {stray['vmid']}; it will be tagged next")
+            return {"node": stray["node"], "vmid": stray["vmid"], "recovered": True,
+                    "task": {"node": task.node, "upid": task.upid, "vmid": task.vmid, "kind": task.kind,
+                             "template_vmid": task.template_vmid, "name": task.name}}
         if tpl is None:
             raise StepFailed(f"template {p['template']!r} was not found in the approved pool(s)",
                              "The OS image template is not visible to the provisioning credential; add it to an allowed pool "
                              "(or list its VM id in the endpoint's allowed templates).", retryable=False)
+        _record_intent(ctx, vm, {"pre_vmids": sorted(int(x["vmid"]) for x in d.guests), "template_vmid": int(tpl["vmid"])})
         spec = VmCloneSpec(template_vmid=int(tpl["vmid"]), template_node=tpl["node"], new_vmid=None, name=vm, pool=p["pool"],
                            storage=p["storage"], deployment_id=ctx.slug, target_node=p["node"])
         task = _poll(ctx, prov.clone_vm(spec), f"clone {vm}")
@@ -190,6 +242,11 @@ def h_provider_task(ctx: StepCtx) -> dict:
         task = TaskRef(t["node"], t["upid"], t["vmid"], t["kind"], ctx.slug, t.get("template_vmid"), t.get("name"))
         _poll(ctx, prov.finalize_clone(task), f"tag {vm}")
         return {"tagged": True}
+    if op != "destroy_vm":
+        if ctx.plan.get("kind") == "destroy" and op == "power" and _owned_guest(ctx, ref, vm) is None:
+            ctx.log(f"{vm} (vmid {ref.vmid}) is not a guest of this deployment any more; not touching it")
+            return {"power": p["op"], "skipped": "not owned"}
+        _require_owned(ctx, ref, vm)
     if op == "configure_vm":
         ci = p.get("cloud_init") or {}
         new = p.get("new_disks")  # change steps list only the disks to add; create adds every non-root disk
@@ -208,7 +265,7 @@ def h_provider_task(ctx: StepCtx) -> dict:
         return {"configured": True}
     if op == "power":
         want = p["op"]
-        g = _find_guest(ctx, vm)
+        g = _owned_guest(ctx, ref, vm)
         if g is not None and ((want == "start" and g["status"] == "running") or (want in ("stop", "shutdown") and g["status"] == "stopped")):
             ctx.log(f"{vm} is already {g['status']}")
         else:
@@ -231,9 +288,9 @@ def h_provider_task(ctx: StepCtx) -> dict:
             ref = ctx.vm_ref(vm)
         except StepFailed:
             return {"destroyed": True, "note": "no provider reference; nothing to destroy"}
-        if _find_guest(ctx, vm) is None:
-            ctx.log("guest already gone")
-        else:  # the tag check above is the ownership guard: only ou-managed + ou-deployment-<id> guests are ever destroyed
+        if _owned_guest(ctx, ref, vm) is None:
+            ctx.log("guest already gone (no guest of this deployment has that VM id)")
+        else:  # ownership guard: only the ou-managed + ou-deployment-<id> guest with the RECORDED vmid is ever destroyed
             _poll(ctx, prov.destroy_vm(ref), f"destroy {vm}")
         ctx.resource("vm", vm, state="removed")
         return {"destroyed": True}
@@ -260,7 +317,8 @@ def _node_for(ctx: StepCtx, vm: str) -> str:
     if not r:
         with ctx.rt.session() as db:
             r = db.execute(text("SELECT result FROM job_steps WHERE deployment_id = :d AND step_key = :k AND status = 'succeeded' "
-                                "ORDER BY id DESC LIMIT 1"), {"d": ctx.deployment_id, "k": f"agent.enroll:{vm}"}).scalar()
+                                "AND plan_hash = :h ORDER BY id DESC LIMIT 1"),
+                           {"d": ctx.deployment_id, "k": f"agent.enroll:{vm}", "h": ctx.plan_hash}).scalar()
     if not r:
         raise StepFailed(f"no enrolled agent for {vm}", "The node agent has not enrolled; re-run the deployment.", retryable=False)
     return r["node_id"]
@@ -272,6 +330,7 @@ def h_agent_runbook(ctx: StepCtx) -> dict:
     results = []
     rbs = p["runbooks"]
     for i, rb in enumerate(rbs):
+        ctx.checkpoint()
         ctx.log(f"runbook {rb['runbook']}", progress=int(100 * i / max(1, len(rbs))))
         results.append({"runbook": rb["runbook"], "result": ctx.env.agent.run_runbook(node, rb["runbook"], rb["params"])})
     comp = p["component"]
@@ -295,7 +354,7 @@ def h_register_checks(ctx: StepCtx) -> dict:
         trust = None
         if c["kind"] in ("http", "tcp_tls"):
             trust = ctx.env.agent.tls_trust(node, c["port"])
-        ctx.env.checks.register(ctx.rt, c, host, trust, ctx.created_by)
+        ctx.env.checks.register(ctx.rt, c, host, trust, ctx.created_by, ctx.deployment_id)
         ctx.resource("check", c["name"], state="present")
         names.append(c["name"])
     ctx.log(f"registered {len(names)} check(s)")
@@ -308,6 +367,7 @@ def h_verify_health(ctx: StepCtx) -> dict:
     env = ctx.env
     t0 = env.clock()
     while True:
+        ctx.checkpoint()
         res = env.checks.verify(ctx.rt, names)
         bad = [(n, m) for n, ok, m in res if not ok]
         if not bad:
@@ -329,10 +389,10 @@ HANDLERS = {"provider_task": h_provider_task, "wait_agent_enrollment": h_wait_en
 # ---- the loop --------------------------------------------------------------------------------------------------
 
 def run_steps(rt, *, job_id: str, deployment_id: str, slug: str, revision: int, plan: dict, steps: list[dict], env: ExecEnv,
-              created_by: str) -> dict:
+              created_by: str, plan_hash: str = "", lease=None, step_deadline: float = 1800.0) -> dict:
     """Run `steps` (already ordered) for a job. Raises StepFailed on the first failed step, Cancelled when cancelled between steps.
     Returns {'steps': n, 'carried': k}."""
-    seed_steps(rt, job_id, deployment_id, revision, steps)
+    seed_steps(rt, job_id, deployment_id, revision, steps, plan_hash)
     with rt.session() as db:
         # a step left 'running' by a crashed worker is in doubt: reset it to pending (handlers are idempotent)
         db.execute(text("UPDATE job_steps SET status = 'pending', progress = 0 WHERE job_id = :j AND status = 'running'"), {"j": job_id})
@@ -343,6 +403,8 @@ def run_steps(rt, *, job_id: str, deployment_id: str, slug: str, revision: int, 
     for r in rows:
         if r.status == "succeeded":
             continue
+        if lease is not None:
+            lease.check()  # Fenced / Cancelled (between steps)
         if _cancel_requested(rt, job_id):
             with rt.session() as db:
                 db.execute(text("UPDATE job_steps SET status = 'cancelled', finished_at = now() WHERE job_id = :j AND status IN ('pending','running')"),
@@ -354,13 +416,25 @@ def run_steps(rt, *, job_id: str, deployment_id: str, slug: str, revision: int, 
         if missing:
             raise StepFailed(f"step {r.step_key} cannot run: unfinished dependencies {missing}", "", retryable=False)
         step = {"key": r.step_key, "kind": r.kind, "target": r.target, "op": r.op, "params": r.params}
-        ctx = StepCtx(rt, env, job_id, deployment_id, slug, plan, created_by, r.id, step, outputs)
+        ctx = StepCtx(rt, env, job_id, deployment_id, slug, plan, created_by, r.id, step, outputs, plan_hash=plan_hash, lease=lease)
         attempts = r.attempts
         while True:
             attempts += 1
             _update(rt, r.id, status="running", attempts=attempts, started_at=_now(), error_message=None, error_explanation=None)
+            if lease is not None:
+                lease.begin_step(step_deadline)
             try:
                 res = HANDLERS[r.kind](ctx)
+                ctx.checkpoint()   # a step that overran its deadline (or lost its lease) inside one blocking call does not count as done
+            except Fenced:
+                raise  # lost ownership: write NOTHING more (the job was already failed/reaped by whoever took over)
+            except Cancelled:
+                with rt.session() as db:
+                    db.execute(text("UPDATE job_steps SET status = 'cancelled', finished_at = now() WHERE job_id = :j AND status IN ('pending','running')"),
+                               {"j": job_id})
+                    state.add_event(db, deployment_id, "cancelled", f"job cancelled during step {r.step_key}", job_id)
+                    db.commit()
+                raise
             except StepFailed as e:
                 if e.retryable and attempts - r.attempts < env.max_attempts:
                     ctx.log(f"attempt {attempts} failed: {e.message}; retrying")
@@ -383,6 +457,8 @@ def run_steps(rt, *, job_id: str, deployment_id: str, slug: str, revision: int, 
                 log.exception("step %s crashed with %s", r.step_key, type(e).__name__)
                 _fail(rt, r.id, "internal error; see the server log", "An unexpected error occurred in the ICS.", deployment_id, job_id, r.step_key)
                 raise StepFailed("internal error in step " + r.step_key) from None
+            if lease is not None:
+                lease.end_step()
             _update(rt, r.id, status="succeeded", progress=100, result=json.dumps(res or {}, sort_keys=True), finished_at=_now())
             outputs[r.step_key] = res or {}
             break
@@ -401,4 +477,4 @@ def _fail(rt, row_id, message, explanation, deployment_id, job_id, key) -> None:
         db.commit()
 
 
-__all__ = ["run_steps", "seed_steps", "request_cancel", "StepFailed", "Cancelled", "time"]
+__all__ = ["run_steps", "seed_steps", "request_cancel", "StepFailed", "Cancelled", "Fenced", "time"]

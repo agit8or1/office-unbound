@@ -41,7 +41,7 @@ def _exact(p, keys, required=None):
 
 
 def _s(v, rx, what):
-    if not isinstance(v, str) or not rx.match(v):
+    if not isinstance(v, str) or not rx.fullmatch(v):
         raise Reject("bad_params", f"invalid {what}")
     return v
 
@@ -64,7 +64,7 @@ def parse_image(ref, registries):
         raise Reject("bad_params", "image must be <registry>/<repo>@sha256:<digest>")
     name, _, digest = ref.partition("@")
     reg, _, repo = name.partition("/")
-    if ":" in repo or not REGISTRY_RE.match(reg) or not REPO_RE.match(repo) or not DIGEST_RE.match(digest):
+    if ":" in repo or not REGISTRY_RE.fullmatch(reg) or not REPO_RE.fullmatch(repo) or not DIGEST_RE.fullmatch(digest):
         raise Reject("bad_params", "image must be <registry>/<repo>@sha256:<digest> (digest-pinned, no tag)")
     if reg not in registries:
         raise Reject("not_allowed", "registry is not allowlisted on this node")
@@ -172,12 +172,12 @@ CHECKS = {"podman.pull_verified": check_pull, "podman.deploy_unit": check_deploy
 def validate_runbook_config(name, c):
     if name in ("podman.pull_verified", "podman.deploy_unit"):
         if not isinstance(c, dict) or "registries" not in c or not set(c) <= {"registries", "insecure"} or not isinstance(c["registries"], list) \
-                or not c["registries"] or not all(isinstance(r, str) and REGISTRY_RE.match(r) for r in c["registries"]) \
+                or not c["registries"] or not all(isinstance(r, str) and REGISTRY_RE.fullmatch(r) for r in c["registries"]) \
                 or not isinstance(c.get("insecure", []), list) or not set(c.get("insecure", [])) <= set(c["registries"]):
             raise ValueError(f"{name} takes {{\"registries\": [host[:port], ...], \"insecure\": [subset of registries, optional]}}")
     elif name == "pkg.install_pinned":
         if not isinstance(c, dict) or set(c) != {"packages"} or not isinstance(c["packages"], list) or \
-                not all(isinstance(r, str) and PKGNAME_RE.match(r) for r in c["packages"]):
+                not all(isinstance(r, str) and PKGNAME_RE.fullmatch(r) for r in c["packages"]):
             raise ValueError("pkg.install_pinned takes exactly {\"packages\": [name, ...]}")
     elif c != {"enabled": True}:
         raise ValueError(f"{name} takes exactly {{\"enabled\": true}}")
@@ -202,7 +202,7 @@ def render(s):
     if n["network"]:
         files[n["network"] + ".network"] = f"{hdr}\n[Network]\nNetworkName={n['network']}\nLabel=ou.component={s['component']}\n"
     c = [hdr, "[Unit]", f"Description=Office Unbound {s['component']}/{s['name']}"]
-    c += ["", "[Container]", f"Image={s['image']}", f"ContainerName={n['base']}", "NoNewPrivileges=true", "DropCapability=ALL",
+    c += ["", "[Container]", f"Image={s['image']}", "Pull=never", f"ContainerName={n['base']}", "NoNewPrivileges=true", "DropCapability=ALL",
           f"ReadOnly={'true' if s['read_only'] else 'false'}", f"Label=ou.component={s['component']}", f"Label=ou.unit={s['name']}",
           f"PodmanArgs=--memory={s['memory_mib']}m"]
     c.append("Network=host" if s["type"] == "container-hostnet" else f"Network={n['network']}.network")

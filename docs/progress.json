@@ -5,7 +5,7 @@
   "repository": "https://github.com/agit8or1/office-unbound",
   "updated": "2026-11-15",
   "stage": "pre-alpha (lab)",
-  "summary": "Core platform components are integrated and tested in an isolated lab: own source build of Exchange-compatible groupware, single sign-on, file sync and browser document editing, backup/restore drills, and an infrastructure control server with monitoring and self-healing. Proxmox provisioning, the deployment wizard and the redesigned console are in progress.",
+  "summary": "Core platform components are integrated and tested in an isolated lab: own source build of Exchange-compatible groupware with single sign-on webmail, Keycloak SSO, file sync and browser document editing, backup/restore drills, chat and video meetings, and an infrastructure control server with monitoring, self-healing and a real Proxmox integration (VM lifecycle verified on a live cluster). Guided deployment wizards, provisioning automation and the credential vault are being integrated.",
   "status_values": {
     "planned": "Planned",
     "researching": "Researching",
@@ -115,10 +115,11 @@
         {
           "id": "P1.7",
           "title": "Documents: own unlimited, rebranded Collabora Online source build",
-          "status": "implementing",
+          "status": "integrated_lab",
           "evidence": [
-            "docs/status/docengine-source-eval.md"
-          ]
+            "docs/status/docengine-build-results.md"
+          ],
+          "note": "Own source build, rebranded, no connection/document caps: 30 concurrent documents and 60 sessions verified; edit/save via WOPI verified"
         },
         {
           "id": "P1.8",
@@ -165,10 +166,12 @@
         {
           "id": "P2.1",
           "title": "Provider adapter with Proxmox VE as first provider (discovery, metrics, scoped VM lifecycle)",
-          "status": "implementing",
+          "status": "integrated_lab",
           "evidence": [
-            "docs/adr/0009-infrastructure-orchestration.md"
-          ]
+            "docs/status/provider-proxmox-real.md",
+            "docs/status/provider-proxmox.md"
+          ],
+          "note": "Real PVE 9.2 cluster: scope refusals, clone, tag, configure, resize, start, snapshot, stop, destroy verified"
         },
         {
           "id": "P2.2",
@@ -190,9 +193,9 @@
         {
           "id": "P2.4",
           "title": "Setup, deployment and change wizards backed by approval-gated plans",
-          "status": "implementing",
+          "status": "integrated_lab",
           "evidence": [],
-          "note": "Wizards built; integration into the console in progress"
+          "note": "Setup/deployment/change wizards deployed as the default first-run path; end-to-end deployment run in progress"
         },
         {
           "id": "P2.5",
@@ -233,7 +236,7 @@
           "evidence": [
             "docs/status/portal-results.md"
           ],
-          "note": "SSO launcher, recent files, new documents; webmail still has its own login"
+          "note": "SSO launcher, recent files, new documents; webmail single sign-on proven on a lab node"
         },
         {
           "id": "P3.3",
@@ -296,15 +299,32 @@
     {
       "id": "P6",
       "name": "Chat, meetings and telephony",
-      "status": "researching",
+      "status": "implementing",
       "items": [
         {
           "id": "P6.1",
           "title": "Zero-cost collaboration stack evaluation (Matrix, Jitsi/LiveKit, Asterisk)",
-          "status": "researching",
+          "status": "tested",
           "evidence": [
             "docs/status/collaboration-eval.md"
           ]
+        },
+        {
+          "id": "P6.2",
+          "title": "Chat (Synapse + MAS + Element) and meetings (Jitsi with SSO-issued tokens)",
+          "status": "integrated_lab",
+          "evidence": [
+            "docs/status/collaboration-lab-results.md"
+          ]
+        },
+        {
+          "id": "P6.3",
+          "title": "Business telephony (Asterisk + browser softphone)",
+          "status": "integrated_lab",
+          "evidence": [
+            "docs/status/telephony-lab-results.md"
+          ],
+          "note": "WebRTC + native SIP calls, voicemail to email, LDAP extensions, deprovisioning 0.6 s; no PSTN/E911 yet"
         }
       ]
     },
@@ -325,8 +345,9 @@
         {
           "id": "P7.2",
           "title": "Mail, calendar, contacts and file migration engine",
-          "status": "planned",
-          "evidence": []
+          "status": "integrated_lab",
+          "evidence": [],
+          "note": "IMAP to groupware mail migration verified in lab (incremental, resumable); merge pending"
         }
       ]
     },
@@ -348,7 +369,8 @@
     {
       "id": "A1",
       "title": "ICS deploys the required components into approved lab infrastructure",
-      "status": "implementing"
+      "status": "implementing",
+      "note": "Real VM lifecycle on Proxmox verified; full ICS-driven component deployment in progress"
     },
     {
       "id": "A2",

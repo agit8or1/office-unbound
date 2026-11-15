@@ -30,6 +30,10 @@ class Cancelled(DeployError):
     pass
 
 
+class Fenced(DeployError):
+    """This executor no longer owns the deployment (lease expired / job reaped / newer executor). It must not touch anything."""
+
+
 class ProviderMutations(Protocol):
     """The subset of providers.base.Provider the executor may call (mutations + the read-only discover used for idempotency)."""
 
@@ -59,7 +63,7 @@ class AgentPort(Protocol):
 
 
 class ChecksPort(Protocol):
-    def register(self, rt, check: dict, host: str, trust: dict | None, created_by: str) -> str: ...
+    def register(self, rt, check: dict, host: str, trust: dict | None, created_by: str, deployment_id: str | None = None) -> str: ...
     def verify(self, rt, names: list[str]) -> list[tuple[str, bool, str]]: ...
 
 
@@ -77,7 +81,7 @@ class _Unconfigured:
 class DbChecks:
     """Registers checks in the monitoring tables (same shape as the check.create executor) and runs the real runners."""
 
-    def register(self, rt, check: dict, host: str, trust: dict | None, created_by: str) -> str:
+    def register(self, rt, check: dict, host: str, trust: dict | None, created_by: str, deployment_id: str | None = None) -> str:
         from .. import checks as checkmod  # local import: keeps this module light for the pure planner tests
         kind = check["kind"]
         if kind == "http":
@@ -88,13 +92,17 @@ class DbChecks:
             cfg = {"host": host, "port": check["port"]}
         cfg = checkmod.validate_config(kind, cfg)
         with rt.session() as db:
-            row = db.execute(text("SELECT id FROM checks WHERE name = :n"), {"n": check["name"]}).first()
-            if row:
+            row = db.execute(text("SELECT id, deployment_id FROM checks WHERE name = :n"), {"n": check["name"]}).first()
+            if row:  # review 3 L4: never adopt a check this deployment did not create
+                if deployment_id is None or str(row.deployment_id) != deployment_id:
+                    raise StepFailed(f"a check named {check['name']!r} already exists and does not belong to this deployment",
+                                     "Rename or remove the conflicting check, then re-run the deployment.", retryable=False)
                 return str(row.id)
             cid = str(uuid.uuid4())
-            db.execute(text("INSERT INTO checks (id, name, kind, config, interval_seconds, created_by) "
-                            "VALUES (:i, :n, :k, CAST(:c AS jsonb), :iv, :cb)"),
-                       {"i": cid, "n": check["name"], "k": kind, "c": json.dumps(cfg, sort_keys=True), "iv": check["interval_seconds"], "cb": created_by})
+            db.execute(text("INSERT INTO checks (id, name, kind, config, interval_seconds, created_by, deployment_id) "
+                            "VALUES (:i, :n, :k, CAST(:c AS jsonb), :iv, :cb, :dp)"),
+                       {"i": cid, "n": check["name"], "k": kind, "c": json.dumps(cfg, sort_keys=True), "iv": check["interval_seconds"], "cb": created_by,
+                        "dp": deployment_id})
             db.commit()
             return cid
 
@@ -123,3 +131,7 @@ class ExecEnv:
     task_timeout: float = 900.0
     max_attempts: int = 3
     retry_delay: float = 5.0
+
+
+# job id -> threading.Event set by actions.run_job when it gives up on a deployment executor thread (see lease.Lease)
+STOP_EVENTS: dict = {}

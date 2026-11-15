@@ -1,0 +1,39 @@
+; ============================================================================================================
+; OPTIONAL SIP TRUNK TEMPLATE - DISABLED BY DEFAULT (ADR-0007: PSTN is opt-in, default off, customer-chosen provider).
+; This file is NOT included by pjsip.conf. To enable you must (1) copy to ou/ (2) add the outbound route in extensions
+; (3) get LEGAL REVIEW of emergency calling duties for your jurisdiction (below).
+;
+; !!! EMERGENCY CALLING WARNING !!!
+; A PBX connected to the public telephone network is typically legally required to route emergency calls (911/112/999...)
+; and may have to provide dispatchable location (Kari's Law / RAY BAUM'S Act in the US, EU 112 / E.164 location rules,
+; comparable rules elsewhere). Many SIP trunk providers do NOT carry emergency calls or location data. Until a reviewed
+; emergency profile exists, the shipped dialplan answers 112/911/999/110 with a "not in service" message and logs a
+; WARNING; it NEVER dials out. Do not enable this trunk and advertise the system as a replacement for a regulated phone
+; line without that review. (docs/status/collaboration-eval.md 3.3; no legal conclusion is drawn here.)
+; ============================================================================================================
+; [trunk-provider]
+; type=registration
+; outbound_auth=trunk-provider
+; server_uri=sip:sip.provider.example
+; client_uri=sip:ACCOUNT@sip.provider.example
+; retry_interval=60
+; [trunk-provider]
+; type=auth
+; auth_type=userpass
+; username=ACCOUNT
+; password=<set from the ICS vault, never in git>
+; [trunk-provider]
+; type=aor
+; contact=sip:sip.provider.example
+; [trunk-provider]
+; type=endpoint
+; context=ou-from-trunk
+; disallow=all
+; allow=ulaw,alaw
+; outbound_auth=trunk-provider
+; aors=trunk-provider
+; media_encryption=sdes
+; [trunk-provider]
+; type=identify
+; endpoint=trunk-provider
+; match=<provider ip>

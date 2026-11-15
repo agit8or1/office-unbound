@@ -23,6 +23,9 @@ def main(argv=None) -> int:
     ie.add_argument("--username", required=True)
     ul = sub.add_parser("unlock", help="clear login throttling for a user")
     ul.add_argument("--username", required=True)
+    rw = sub.add_parser("rewrap-master", help="re-wrap every vault-encrypted secret under a NEW master key file (see docs/status/credential-vault.md)")
+    rw.add_argument("--new-key-file", required=True)
+    sub.add_parser("migrate-credentials", help="move legacy per-endpoint secrets into the credential vault (idempotent)")
     sub.add_parser("verify-chain", help="verify the audit hash chain; exit 1 if broken")
     du = sub.add_parser("disable-user", help="BREAK-GLASS (host root): disable an operator account and end its sessions; audited")
     du.add_argument("--username", required=True)
@@ -30,6 +33,27 @@ def main(argv=None) -> int:
     args = ap.parse_args(argv)
     rt = Runtime()
     with rt.session() as db:
+        if args.cmd == "rewrap-master":
+            from .credentials import rewrap
+            from .vault import Vault
+            new = Vault.from_file(args.new_key_file)
+            if new.key == rt.vault.key:
+                print("the new key file is identical to the current key", file=sys.stderr)
+                return 1
+            try:
+                counts = rewrap.rewrap_all(db, rt.vault, new)
+                db.commit()
+            except Exception as e:  # noqa: BLE001  (nothing is committed on failure)
+                db.rollback()
+                print(f"re-wrap failed, nothing was changed: {type(e).__name__}", file=sys.stderr)
+                return 1
+            print("re-wrapped:", counts)
+            print("Now replace the key file ICS_VAULT_KEY_FILE points to with the new key and restart ics. Keep the old key until verified.")
+            return 0
+        if args.cmd == "migrate-credentials":
+            from .credentials import service
+            print("credentials created:", service.adopt_all(rt))
+            return 0
         if args.cmd == "create-admin":
             token = auth.create_account_cli(db, rt, args.username, args.role)
             print("Created", args.username, "with role", args.role)

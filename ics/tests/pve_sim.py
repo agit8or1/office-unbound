@@ -35,6 +35,17 @@ ROLES = {
 }
 
 
+# Every privilege name a PVE 8/9 node accepts in `pveum role add --privs` (the simulator validates role privs against this).
+KNOWN_PRIVS = {"Datastore.Allocate", "Datastore.AllocateSpace", "Datastore.AllocateTemplate", "Datastore.Audit", "Group.Allocate",
+               "Mapping.Audit", "Mapping.Modify", "Mapping.Use", "Permissions.Modify", "Pool.Allocate", "Pool.Audit", "Realm.Allocate",
+               "Realm.AllocateUser", "SDN.Allocate", "SDN.Audit", "SDN.Use", "Sys.Audit", "Sys.Console", "Sys.Incoming", "Sys.Modify",
+               "Sys.PowerMgmt", "Sys.Syslog", "User.Modify", "VM.Allocate", "VM.Audit", "VM.Backup", "VM.Clone", "VM.Config.CDROM",
+               "VM.Config.CPU", "VM.Config.Cloudinit", "VM.Config.Disk", "VM.Config.HWType", "VM.Config.Memory", "VM.Config.Network",
+               "VM.Config.Options", "VM.Console", "VM.GuestAgent.Audit", "VM.GuestAgent.FileRead", "VM.GuestAgent.FileSystemMgmt",
+               "VM.GuestAgent.FileWrite", "VM.GuestAgent.Unrestricted", "VM.Migrate", "VM.Monitor", "VM.PowerMgmt", "VM.Snapshot",
+               "VM.Snapshot.Rollback"}
+
+
 class HTTPErr(Exception):
     def __init__(self, code, reason):
         self.code, self.reason = code, reason
@@ -67,6 +78,13 @@ class PveSim:
         self.gzip = True
         self.seen: list[tuple[str, str]] = []
         self._pid = 1000
+        # --- access control (users / API tokens / ACL entries / tickets); legacy `tokens[tid]["acl"]` lists keep working ---
+        self.builtin_roles = set(ROLES)
+        self.users: dict[str, dict] = {}
+        self.acl_entries: list[dict] = []     # {"path","type":"user"|"token","ugid","roleid","propagate"}
+        self.tickets: dict[str, str] = {}     # ticket -> userid
+        self.changes: list[str] = []          # every REAL state change in the access-control model (idempotency tests)
+        self.write_calls: list[tuple[str, str]] = []   # every non-GET request that reached a route
 
     # ---------------- setup helpers ----------------
     def add_role(self, name, privs):
@@ -75,6 +93,12 @@ class PveSim:
     def add_token(self, tid, secret, acl):
         """acl = [(path, role)]"""
         self.tokens[tid] = {"secret": secret, "acl": list(acl)}
+
+    def add_user(self, userid, password=None, comment="", enable=1, roles=()):
+        """roles = [(path, role)] granted to the user directly (not to tokens)."""
+        self.users[userid] = {"password": password, "comment": comment, "enable": enable, "tokens": {}}
+        for path, role in roles:
+            self.acl_entries.append({"path": path, "type": "user", "ugid": userid, "roleid": role, "propagate": 1})
 
     def add_node(self, name, status="online", cpus=8, mem=32 << 30):
         self.nodes[name] = {"node": name, "status": status, "maxcpu": cpus, "maxmem": mem, "maxdisk": 500 << 30,
@@ -151,6 +175,34 @@ class PveSim:
             self.tokens["officeunbound@pam!ics"]["acl"] += [("/sdn/zones/localnetwork/vmbr0", "PVESDNUser")]
             self.vms[126]["pool"] = "officeunbound-pve06"
 
+    ROOT_PW = "rootpw-sim-only-0123"
+
+    def populate_owner_env(self, ics_vm_in_pool=False, pve_version="9.2.21"):
+        """The owner's real environment (shape only): 6 nodes, ONLY pve06 is to be authorized; storages PVE06-Storage (lvmthin, pve06),
+        ha-zfs (shared, must stay unauthorized) and PBS1 (backup, unauthorized); an existing officeunbound@pam user; template VMs 9612
+        (Ubuntu 24.04) and 131 (Debian 12); the ICS's own VM 126 (protected). root@pam / ROOT_PW is the temporary provisioning identity."""
+        self.version = {"version": pve_version, "release": ".".join(pve_version.split(".")[:2]), "repoid": SIM_MARKER}
+        self.cluster = "agit8or"
+        for n in ("pve01", "pve2", "pve3", "pve04", "pve05", "pve06"):
+            self.add_node(n, cpus=56, mem=251 << 30)
+        self.add_storage("PVE06-Storage", "lvmthin", "images,rootdir", total=11140 << 30, nodes=["pve06"])
+        self.add_storage("ha-zfs", "zfspool", "images,rootdir", shared=True, total=4000 << 30)
+        self.add_storage("PBS1", "pbs", "backup", shared=True, total=20000 << 30)
+        self.bridges = {"vmbr0": {"vlan_aware": 0, "ports": "nic3", "cidr": "192.168.22.17/24"}}
+        self.pools |= {"officeunbound-pve06", "other-team"}
+        self.add_vm(126, "pve06", "office-unbound", status="running", cores=24, memory=16384, bridge="vmbr0", storage="PVE06-Storage",
+                    pool="officeunbound-pve06" if ics_vm_in_pool else None)
+        self.vms[126]["cfg"]["net0"] = "virtio=BC:24:11:E7:F0:24,bridge=vmbr0,firewall=0"
+        self.add_vm(9612, "pve06", "ubuntu-2404-template", template=True, storage="PVE06-Storage", disk_gb=10)
+        self.add_vm(131, "pve06", "debian-12-template", template=True, storage="PVE06-Storage", disk_gb=8)
+        self.add_vm(300, "pve01", "customer-db", status="running", storage="ha-zfs", pool="other-team")
+        self.add_user("root@pam", password=self.ROOT_PW, comment="provisioning (simulator)", roles=[("/", "Administrator")])
+        self.add_user("officeunbound@pam", password=None, comment="pre-existing ICS user", roles=[("/pool/officeunbound-pve06", "PVEAuditor")])
+        self.users["officeunbound@pam"]["tokens"]["ics"] = {"privsep": 1, "comment": "pre-existing", "expire": 0, "secret": "preexisting0123456789"}
+        self.tokens["officeunbound@pam!ics"] = {"secret": "preexisting0123456789", "acl": [], "user": "officeunbound@pam", "privsep": 1}
+        self.acl_entries.append({"path": "/pool/officeunbound-pve06", "type": "token", "ugid": "officeunbound@pam!ics",
+                                 "roleid": "PVEAuditor", "propagate": 1})
+
     def fail(self, method, pattern, status=500, reason="injected failure", count=1):
         self.failures.append({"m": method, "re": re.compile(pattern), "s": status, "r": reason, "n": count})
 
@@ -175,11 +227,39 @@ class PveSim:
             return ["/" + "/".join(parts[:i]) for i in range(len(parts), 0, -1)] + ["/"]
         raise KeyError(kind)
 
-    def privs(self, tid, chain):
+    @staticmethod
+    def _inter(a, b):
+        if "*" in a:
+            return set(b)
+        if "*" in b:
+            return set(a)
+        return set(a) & set(b)
+
+    def _acl_privs(self, typ, ugid, chain):
         out = set()
-        for path, role in self.tokens[tid]["acl"]:
+        for e in self.acl_entries:
+            if e["type"] == typ and e["ugid"] == ugid and e["path"] in chain and (e["path"] == chain[0] or e["propagate"]):
+                out |= self.roles.get(e["roleid"], set())
+        return out
+
+    def _user_ok(self, userid):
+        u = self.users.get(userid)
+        return bool(u and u.get("enable"))
+
+    def privs(self, tid, chain):
+        if "!" not in tid:                                  # a ticket-authenticated user
+            return self._acl_privs("user", tid, chain) if self._user_ok(tid) else set()
+        tok = self.tokens[tid]
+        out = set()
+        for path, role in tok["acl"]:
             if path in chain:
                 out |= self.roles[role]
+        if "user" in tok:                                   # API-created token: real PVE semantics
+            if not self._user_ok(tok["user"]):
+                return out
+            userp = self._acl_privs("user", tok["user"], chain)
+            tokp = self._acl_privs("token", tid, chain)
+            out |= self._inter(tokp, userp) if tok.get("privsep") else userp
         return out
 
     def need(self, tid, kind, ident, priv):
@@ -260,10 +340,16 @@ class PveSim:
                 if f["m"] == method and f["re"].search(rawpath) and f["n"] > 0:
                     f["n"] -= 1
                     raise HTTPErr(f["s"], f["r"])
-            tid = self._auth(auth)
             u = urllib.parse.urlsplit(rawpath)
             path = u.path.removeprefix("/api2/json")
             q = dict(urllib.parse.parse_qsl(u.query))
+            if method == "POST" and path == "/access/ticket":
+                return self.r_ticket(form)
+            tid = self._auth(auth)
+            if method != "GET":
+                self.write_calls.append((method, path))
+                if auth.startswith("TICKET ") and auth.split(" ", 2)[2] != self._csrf(tid):
+                    raise HTTPErr(401, "Invalid CSRF token")
             for m, rx, fn in self._routes():
                 if m == method:
                     mt = rx.fullmatch(path)
@@ -272,6 +358,12 @@ class PveSim:
             raise HTTPErr(501, f"Method '{method} {path}' not implemented")
 
     def _auth(self, auth):
+        if auth and auth.startswith("TICKET "):
+            _, ticket, csrf = (auth.split(" ", 2) + ["", ""])[:3]
+            uid = self.tickets.get(ticket)
+            if not uid or not self._user_ok(uid):
+                raise HTTPErr(401, "invalid ticket")
+            return uid
         m = re.fullmatch(r"PVEAPIToken=([^=]+)=(.+)", auth or "")
         if not m or m.group(1) not in self.tokens or self.tokens[m.group(1)]["secret"] != m.group(2):
             raise HTTPErr(401, "No ticket")
@@ -286,6 +378,18 @@ class PveSim:
             R("GET", r"/nodes", self.r_nodes), R("GET", r"/pools/([^/]+)", self.r_pool), R("GET", r"/storage", self.r_storage_cfg),
             R("GET", r"/cluster/sdn/zones", self.r_zones), R("GET", r"/cluster/sdn/vnets", self.r_vnets),
             R("GET", r"/access/permissions", self.r_permissions),
+            R("GET", r"/access/users", self.r_users), R("POST", r"/access/users", self.r_user_add),
+            R("GET", r"/access/users/([^/]+)", self.r_user_get), R("PUT", r"/access/users/([^/]+)", self.r_user_set),
+            R("DELETE", r"/access/users/([^/]+)", self.r_user_del),
+            R("GET", r"/access/users/([^/]+)/token", self.r_tokens), R("GET", r"/access/users/([^/]+)/token/([^/]+)", self.r_token_get),
+            R("POST", r"/access/users/([^/]+)/token/([^/]+)", self.r_token_add), R("PUT", r"/access/users/([^/]+)/token/([^/]+)", self.r_token_set),
+            R("DELETE", r"/access/users/([^/]+)/token/([^/]+)", self.r_token_del),
+            R("GET", r"/access/roles", self.r_roles), R("POST", r"/access/roles", self.r_role_add),
+            R("GET", r"/access/roles/([^/]+)", self.r_role_get), R("PUT", r"/access/roles/([^/]+)", self.r_role_set),
+            R("DELETE", r"/access/roles/([^/]+)", self.r_role_del),
+            R("GET", r"/access/groups", lambda *a: []),
+            R("GET", r"/access/acl", self.r_acl), R("PUT", r"/access/acl", self.r_acl_set),
+            R("GET", r"/pools", self.r_pools), R("POST", r"/pools", self.r_pool_add), R("DELETE", r"/pools/([^/]+)", self.r_pool_del),
             R("GET", r"/nodes/([^/]+)/" + g, self.r_list_guests),
             R("GET", r"/nodes/([^/]+)/storage/([^/]+)/content", self.r_content),
             R("GET", r"/nodes/([^/]+)/storage", self.r_node_storage), R("GET", r"/nodes/([^/]+)/network", self.r_network),
@@ -412,19 +516,258 @@ class PveSim:
         self.need(tid, "root", None, "SDN.Audit")
         return list(self.sdn_vnets.values())
 
+    def _all_privs(self):
+        return set().union(*(r for r in self.roles.values())) - {"*"}
+
     def r_permissions(self, tid, q, f):
+        who = q.get("userid") or tid
+        if who != tid and not self.can(tid, "path", "/access", "Permissions.Modify", "User.Modify", "Sys.Audit"):
+            raise HTTPErr(403, "Permission check failed (/access, Permissions.Modify)")
+        if ("!" in who and who not in self.tokens) or ("!" not in who and who not in self.users):
+            raise HTTPErr(500, f"no such user '{who}'")
         if "path" in q:
             ps = [q["path"]]
         else:
-            ps = sorted({"/"} | {p for p, _ in self.tokens[tid]["acl"]})
+            paths = {"/"} | {p for p, _ in self.tokens.get(who, {}).get("acl", [])} | {e["path"] for e in self.acl_entries
+                                                                                      if e["ugid"] in (who, who.split("!")[0])}
+            ps = sorted(paths)
         out = {}
         for p in ps:
-            pr = self.privs(tid, self._chain("path", p))
+            pr = self.privs(who, self._chain("path", p))
             if "*" in pr:
-                allp = set().union(*(r for r in self.roles.values())) - {"*"}
-                pr = allp
-            out[p] = {x: 1 for x in sorted(pr)}
+                pr = self._all_privs()
+            if pr or "path" in q:
+                out[p] = {x: 1 for x in sorted(pr)}
         return out
+
+    # ---------------- access control ----------------
+    def _csrf(self, uid):
+        return "csrf-" + uid
+
+    def r_ticket(self, f):
+        uid, pw = f.get("username", ""), f.get("password", "")
+        u = self.users.get(uid)
+        if not u or not u.get("enable") or not u.get("password") or u["password"] != pw:
+            raise HTTPErr(401, "authentication failure")
+        ticket = f"PVE:{uid}:{len(self.tickets):08X}::sim"
+        self.tickets[ticket] = uid
+        return {"ticket": ticket, "CSRFPreventionToken": self._csrf(uid), "username": uid}
+
+    def _read_access(self, tid):
+        if not self.can(tid, "path", "/", "Sys.Audit", "Permissions.Modify", "User.Modify"):
+            raise HTTPErr(403, "Permission check failed (/access, User.Modify)")
+
+    def _need_at(self, tid, path, priv):
+        if not self.can(tid, "path", path, priv):
+            raise HTTPErr(403, f"Permission check failed ({path}, {priv})")
+
+    def _log(self, what):
+        self.changes.append(what)
+
+    @staticmethod
+    def _pub(d):
+        return {k: v for k, v in d.items() if k != "secret"}
+
+    def r_users(self, tid, q, f):
+        self._read_access(tid)
+        return [{"userid": k, "enable": v["enable"], "comment": v["comment"],
+                 "tokens": [{"tokenid": t, **self._pub(d)} for t, d in v["tokens"].items()]} for k, v in self.users.items()]
+
+    def r_user_add(self, tid, q, f):
+        self._need_at(tid, "/access", "User.Modify")
+        uid = f.get("userid", "")
+        if not re.fullmatch(r"[^@\s!]+@[A-Za-z0-9._-]+", uid):
+            raise HTTPErr(400, "Parameter verification failed: userid")
+        if uid in self.users:
+            raise HTTPErr(500, f"User '{uid}' already exists")
+        self.users[uid] = {"password": f.get("password"), "comment": f.get("comment", ""), "enable": int(f.get("enable", 1)), "tokens": {}}
+        self._log(f"user+{uid}")
+
+    def _user(self, uid):
+        if uid not in self.users:
+            raise HTTPErr(500, f"no such user ('{uid}')")
+        return self.users[uid]
+
+    def r_user_get(self, tid, q, f, uid):
+        self._read_access(tid)
+        u = self._user(uid)
+        return {"enable": u["enable"], "comment": u["comment"], "tokens": {t: self._pub(d) for t, d in u["tokens"].items()}}
+
+    def r_user_set(self, tid, q, f, uid):
+        self._need_at(tid, "/access", "User.Modify")
+        u = self._user(uid)
+        for k in ("comment", "enable"):
+            if k in f:
+                u[k] = int(f[k]) if k == "enable" else f[k]
+        self._log(f"user~{uid}")
+
+    def r_user_del(self, tid, q, f, uid):
+        self._need_at(tid, "/access", "User.Modify")
+        self._user(uid)
+        for t in list(self.users[uid]["tokens"]):
+            self._drop_token(uid, t)
+        self.acl_entries = [e for e in self.acl_entries if not (e["type"] == "user" and e["ugid"] == uid)]
+        del self.users[uid]
+        self._log(f"user-{uid}")
+
+    def r_tokens(self, tid, q, f, uid):
+        self._read_access(tid)
+        return [{"tokenid": t, **self._pub(d)} for t, d in self._user(uid)["tokens"].items()]
+
+    def r_token_get(self, tid, q, f, uid, t):
+        self._read_access(tid)
+        d = self._user(uid)["tokens"].get(t)
+        if d is None:
+            raise HTTPErr(500, f"no such token '{t}'")
+        return self._pub(d)
+
+    def r_token_add(self, tid, q, f, uid, t):
+        self._need_at(tid, "/access", "User.Modify")
+        u = self._user(uid)
+        if t in u["tokens"]:
+            raise HTTPErr(500, f"Token already exists: {uid}!{t}")
+        import secrets as _s
+        secret = _s.token_urlsafe(24)
+        ps = int(f.get("privsep", 1))
+        u["tokens"][t] = {"privsep": ps, "comment": f.get("comment", ""), "expire": int(f.get("expire", 0)), "secret": secret}
+        self.tokens[f"{uid}!{t}"] = {"secret": secret, "acl": [], "user": uid, "privsep": ps}
+        self._log(f"token+{uid}!{t}")
+        return {"full-tokenid": f"{uid}!{t}", "info": {"privsep": str(ps), "comment": f.get("comment", "")}, "value": secret}
+
+    def r_token_set(self, tid, q, f, uid, t):
+        self._need_at(tid, "/access", "User.Modify")
+        d = self._user(uid)["tokens"].get(t)
+        if d is None:
+            raise HTTPErr(500, f"no such token '{t}'")
+        if "privsep" in f:
+            d["privsep"] = int(f["privsep"])
+            self.tokens[f"{uid}!{t}"]["privsep"] = d["privsep"]
+        if "comment" in f:
+            d["comment"] = f["comment"]
+        self._log(f"token~{uid}!{t}")
+
+    def _drop_token(self, uid, t):
+        self.users[uid]["tokens"].pop(t, None)
+        self.tokens.pop(f"{uid}!{t}", None)
+        self.acl_entries = [e for e in self.acl_entries if not (e["type"] == "token" and e["ugid"] == f"{uid}!{t}")]
+
+    def r_token_del(self, tid, q, f, uid, t):
+        self._need_at(tid, "/access", "User.Modify")
+        if t not in self._user(uid)["tokens"]:
+            raise HTTPErr(500, f"no such token '{t}'")
+        self._drop_token(uid, t)
+        self._log(f"token-{uid}!{t}")
+
+    def r_roles(self, tid, q, f):
+        return [{"roleid": k, "privs": ",".join(sorted(v)), "special": int(k in self.builtin_roles)} for k, v in self.roles.items()]
+
+    def r_role_get(self, tid, q, f, r):
+        if r not in self.roles:
+            raise HTTPErr(500, f"role '{r}' does not exist")
+        return {p: 1 for p in sorted(self.roles[r])}
+
+    @staticmethod
+    def _privlist(s):
+        return {p for p in re.split(r"[,\s;]+", s or "") if p}
+
+    def _known_priv(self, ps):
+        bad = sorted(p for p in ps if p not in KNOWN_PRIVS and p != "*")
+        if bad:
+            raise HTTPErr(400, f"Parameter verification failed: privs: invalid privilege '{bad[0]}'")
+
+    def r_role_add(self, tid, q, f):
+        self._need_at(tid, "/access", "Permissions.Modify")
+        r = f.get("roleid", "")
+        if not re.fullmatch(r"[A-Za-z0-9._-]{1,64}", r):
+            raise HTTPErr(400, "Parameter verification failed: roleid")
+        if r in self.roles:
+            raise HTTPErr(500, f"role '{r}' already exists")
+        ps = self._privlist(f.get("privs"))
+        self._known_priv(ps)
+        self.roles[r] = ps
+        self._log(f"role+{r}")
+
+    def r_role_set(self, tid, q, f, r):
+        self._need_at(tid, "/access", "Permissions.Modify")
+        if r in self.builtin_roles:
+            raise HTTPErr(500, f"role '{r}' is built-in and cannot be modified")
+        if r not in self.roles:
+            raise HTTPErr(500, f"role '{r}' does not exist")
+        ps = self._privlist(f.get("privs"))
+        self._known_priv(ps)
+        new = (self.roles[r] | ps) if f.get("append") in ("1", 1, True) else ps
+        if new != self.roles[r]:
+            self.roles[r] = new
+            self._log(f"role~{r}")
+
+    def r_role_del(self, tid, q, f, r):
+        self._need_at(tid, "/access", "Permissions.Modify")
+        if r in self.builtin_roles:
+            raise HTTPErr(500, f"role '{r}' is built-in and cannot be deleted")
+        if r not in self.roles:
+            raise HTTPErr(500, f"role '{r}' does not exist")
+        del self.roles[r]
+        self.acl_entries = [e for e in self.acl_entries if e["roleid"] != r]
+        self._log(f"role-{r}")
+
+    def r_acl(self, tid, q, f):
+        self._read_access(tid)
+        out = [{"path": e["path"], "type": e["type"], "ugid": e["ugid"], "roleid": e["roleid"], "propagate": e["propagate"]} for e in self.acl_entries]
+        for t, d in self.tokens.items():
+            out += [{"path": p, "type": "token", "ugid": t, "roleid": r, "propagate": 1} for p, r in d["acl"]]
+        return out
+
+    def r_acl_set(self, tid, q, f):
+        path = f.get("path", "")
+        if not re.fullmatch(r"/[A-Za-z0-9/._:@+-]*", path):
+            raise HTTPErr(400, "Parameter verification failed: path")
+        self._need_at(tid, path, "Permissions.Modify")
+        roles = [x for x in re.split(r"[,\s]+", f.get("roles", "")) if x]
+        subj = ([("user", x) for x in re.split(r"[,\s]+", f.get("users", "")) if x]
+                + [("token", x) for x in re.split(r"[,\s]+", f.get("tokens", "")) if x])
+        if not roles or not subj:
+            raise HTTPErr(400, "Parameter verification failed: need roles and one of users/tokens")
+        for r in roles:
+            if r not in self.roles:
+                raise HTTPErr(500, f"role '{r}' does not exist")
+        for typ, ugid in subj:
+            if typ == "user" and ugid not in self.users:
+                raise HTTPErr(500, f"no such user ('{ugid}')")
+            if typ == "token" and ugid not in self.tokens:
+                raise HTTPErr(500, f"no such token '{ugid}'")
+        prop = int(f.get("propagate", 1))
+        delete = f.get("delete") in ("1", 1, True)
+        for typ, ugid in subj:
+            for r in roles:
+                cur = [e for e in self.acl_entries if (e["path"], e["type"], e["ugid"], e["roleid"]) == (path, typ, ugid, r)]
+                if delete:
+                    if cur:
+                        self.acl_entries.remove(cur[0])
+                        self._log(f"acl-{path}|{ugid}|{r}")
+                elif not cur:
+                    self.acl_entries.append({"path": path, "type": typ, "ugid": ugid, "roleid": r, "propagate": prop})
+                    self._log(f"acl+{path}|{ugid}|{r}")
+                elif cur[0]["propagate"] != prop:
+                    cur[0]["propagate"] = prop
+                    self._log(f"acl~{path}|{ugid}|{r}")
+
+    def r_pools(self, tid, q, f):
+        return [{"poolid": p} for p in sorted(self.pools) if self.can(tid, "pool", p, "Pool.Audit", "Pool.Allocate")]
+
+    def r_pool_add(self, tid, q, f):
+        self._need_at(tid, "/pool", "Pool.Allocate")
+        p = f.get("poolid", "")
+        if p in self.pools:
+            raise HTTPErr(500, f"pool '{p}' already exists")
+        self.pools.add(p)
+        self._log(f"pool+{p}")
+
+    def r_pool_del(self, tid, q, f, p):
+        self._need_at(tid, "/pool", "Pool.Allocate")
+        if any(v["pool"] == p for v in self.vms.values()):
+            raise HTTPErr(500, f"pool '{p}' is not empty")
+        self.pools.discard(p)
+        self._log(f"pool-{p}")
 
     def r_list_guests(self, tid, q, f, node, kind):
         self._node_up(node)
@@ -657,7 +1000,11 @@ class _Handler(http.server.BaseHTTPRequestHandler):
             form = dict(urllib.parse.parse_qsl(self.rfile.read(n).decode()))
         sim: PveSim = self.server.sim
         try:
-            data = sim.handle(self.command, self.path, form, self.headers.get("Authorization"))
+            auth = self.headers.get("Authorization")
+            ck = re.search(r"PVEAuthCookie=([^;]+)", self.headers.get("Cookie") or "")
+            if auth is None and ck:
+                auth = f"TICKET {urllib.parse.unquote(ck.group(1))} {self.headers.get('CSRFPreventionToken') or ''}"
+            data = sim.handle(self.command, self.path, form, auth)
             code, reason, body = 200, "OK", {"data": data}
         except HTTPErr as e:
             code, reason, body = e.code, e.reason, {"data": None, "message": e.reason}
