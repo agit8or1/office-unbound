@@ -7,7 +7,7 @@ import hashlib
 import re
 from dataclasses import dataclass
 
-from .imapx import ImapError, Session, quote
+from .imapx import DEFAULT_MAX_LITERAL, ImapError, Session, TooLarge, UnsafeName, check_atom, quote
 
 PRESERVED_FLAGS = {"\\seen": "\\Seen", "\\flagged": "\\Flagged", "\\answered": "\\Answered", "\\draft": "\\Draft"}
 HDR_FIELDS = "MESSAGE-ID DATE FROM TO SUBJECT"
@@ -32,14 +32,27 @@ class MsgMeta:
         return [PRESERVED_FLAGS[f.lower()] for f in self.flags if f.lower() in PRESERVED_FLAGS]
 
 
+_DATE_RE = re.compile(r'\s*(\d{1,2})-([A-Za-z]{3})-(\d{4}) (\d\d):(\d\d):(\d\d) ([+-])(\d\d)(\d\d)\s*')
+
+
 def internaldate_epoch(s: str) -> int:
-    m = re.match(r'\s*(\d{1,2})-(\w{3})-(\d{4}) (\d\d):(\d\d):(\d\d) ([+-])(\d\d)(\d\d)', s)
+    m = _DATE_RE.match(s or "")
     if not m:
         return 0
     d, mon, y, H, M, S, sg, oh, om = m.groups()
-    off = dt.timedelta(hours=int(oh), minutes=int(om)) * (1 if sg == "+" else -1)
-    t = dt.datetime(int(y), _MONTHS[mon.title()], int(d), int(H), int(M), int(S), tzinfo=dt.timezone(off))
-    return int(t.timestamp())
+    try:
+        off = dt.timedelta(hours=int(oh), minutes=int(om)) * (1 if sg == "+" else -1)
+        t = dt.datetime(int(y), _MONTHS[mon.title()], int(d), int(H), int(M), int(S), tzinfo=dt.timezone(off))
+        return int(t.timestamp())
+    except (KeyError, ValueError, OverflowError):   # impossible date from a hostile/broken source: no crash loop
+        return 0
+
+
+def safe_internaldate(s):
+    """Canonical INTERNALDATE for the target APPEND, or None. Never forwards the source string verbatim."""
+    if not s or not _DATE_RE.fullmatch(s.strip()) or not internaldate_epoch(s):
+        return None
+    return s.strip()
 
 
 def fingerprint(m: MsgMeta, mode: str = "strict") -> str:
@@ -179,13 +192,21 @@ class Mailbox:
             out.extend(self.s.run(f))
         return sorted(out, key=lambda m: m.uid)
 
-    def fetch_body(self, uid) -> bytes:
+    def fetch_body(self, uid, max_bytes=None) -> bytes:
+        """Body of one message. ``max_bytes`` is a hard cap enforced on the {N} literal BEFORE it is read into memory."""
         def f(imap):
-            typ, data = imap.uid("FETCH", str(uid), "(BODY.PEEK[])")
+            old = getattr(imap, "max_literal", DEFAULT_MAX_LITERAL)
+            if max_bytes is not None:
+                imap.max_literal = max_bytes
+            try:
+                typ, data = imap.uid("FETCH", str(uid), "(UID BODY.PEEK[])")
+            finally:
+                imap.max_literal = old
             if typ != "OK":
                 raise ImapError("UID FETCH body failed")
             for line, lit in parse_fetch(data):
-                if lit is not None:
+                u = _UID.search(line)
+                if lit is not None and u and int(u.group(1)) == int(uid):
                     return bytes(lit)
             raise ImapError("message body missing in FETCH response")
 
@@ -214,6 +235,7 @@ class Mailbox:
 
     def append(self, wire_name, flags, internaldate, data: bytes):
         fl = "(" + " ".join(flags) + ")"
+        internaldate = safe_internaldate(internaldate)
         date = f'"{internaldate}"' if internaldate else None
 
         def f(imap):

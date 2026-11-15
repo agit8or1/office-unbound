@@ -30,7 +30,12 @@ log = logging.getLogger("ou_migration.engine.imap")
 READ_COMMANDS = {"CAPABILITY", "LOGIN", "AUTHENTICATE", "LIST", "EXAMINE", "STATUS", "UID", "NOOP", "LOGOUT", "STARTTLS"}
 WRITE_COMMANDS = READ_COMMANDS | {"CREATE", "APPEND"}
 UID_SUBCOMMANDS = {"FETCH", "SEARCH"}
-_UNSAFE_FETCH = re.compile(r"\bBODY\[|\bRFC822(?:\.TEXT)?(?![\w.])", re.I)
+_UNSAFE_FETCH = re.compile(r"\bBODY\[|\bBINARY\[|\bRFC822(?:\.TEXT)?(?![\w.])", re.I)
+# Any byte that could end or start an IMAP command line (CR, LF, NUL) or that is a control character.
+_BAD_ATOM = re.compile(r"[\x00-\x1f\x7f]")
+_BAD_ATOM_B = re.compile(rb"[\x00-\x1f\x7f]")
+DEFAULT_MAX_LITERAL = 1 * 1024 * 1024          # any literal that is not a message body (LIST names, header batches)
+DEFAULT_MAX_RESPONSE = 32 * 1024 * 1024        # all literals of one command together
 
 
 class ImapError(Exception):
@@ -47,6 +52,14 @@ class Transient(ImapError):
 
 class Fatal(ImapError):
     pass
+
+
+class TooLarge(ImapError):
+    """A server literal/response exceeded the configured cap. The connection was dropped before the data was read."""
+
+
+class UnsafeName(ImapError):
+    """A mailbox name / atom contains CR, LF, NUL or another control character and can never be put on the wire."""
 
 
 class GuardViolation(Fatal):
@@ -104,11 +117,31 @@ class XOAuth2Auth:
 
 
 # ---------------------------------------------------------------- guarded imaplib
+def check_atom(value, what="argument"):
+    """Reject anything that could split a command line. Applied to every mailbox name and to every command argument."""
+    if isinstance(value, bytes):
+        bad = _BAD_ATOM_B.search(value)
+    else:
+        value_s = str(value)
+        bad = _BAD_ATOM.search(value_s) or (None if value_s.isascii() else True)   # wire names are mUTF-7 (ASCII)
+    if bad:
+        raise UnsafeName(f"{what} contains a control character (CR/LF/NUL are never sent)")
+    return value
+
+
 class _Guard:
     allowed = READ_COMMANDS
+    max_literal = DEFAULT_MAX_LITERAL
+    max_response = DEFAULT_MAX_RESPONSE
+    _rx_total = 0
 
     def _command(self, name, *args):  # imaplib funnels every command through here
         n = name.upper()
+        check_atom(name, "command")
+        for a in args:
+            if isinstance(a, (str, bytes)):
+                check_atom(a)
+        self._rx_total = 0
         if n not in self.allowed:
             raise GuardViolation(f"command {n} is not permitted on this connection")
         if n == "UID":
@@ -118,6 +151,17 @@ class _Guard:
             if sub == "FETCH" and _UNSAFE_FETCH.search(" ".join(str(a) for a in args[1:])):
                 raise GuardViolation("FETCH must use BODY.PEEK (read-only access)")
         return super()._command(name, *args)
+
+    def read(self, size):
+        """Every ``{N}`` literal passes through here BEFORE its bytes are read: enforce the caps first."""
+        self._rx_total += size
+        if size > self.max_literal or self._rx_total > self.max_response:
+            try:
+                self.shutdown()
+            except Exception:
+                pass
+            raise TooLarge(f"server literal of {size} bytes exceeds the limit ({min(self.max_literal, self.max_response)})")
+        return super().read(size)
 
 
 class _SourceSSL(_Guard, imaplib.IMAP4_SSL):
@@ -278,6 +322,9 @@ class Session:
                 return fn(self.imap)
             except Fatal:
                 raise
+            except TooLarge:
+                self.close()   # the stream is desynchronised; the next operation reconnects
+                raise
             except imaplib.IMAP4.abort as e:  # connection dropped / BYE / server abort
                 err = Transient(f"{self.ep.label}: connection lost")
             except ssl.SSLCertVerificationError as e:
@@ -342,4 +389,5 @@ def _scrub(txt):
 
 
 def quote(name: str) -> str:
+    check_atom(name, "mailbox name")
     return '"' + name.replace("\\", "\\\\").replace('"', '\\"') + '"'
