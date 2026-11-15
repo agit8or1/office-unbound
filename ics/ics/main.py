@@ -1,6 +1,7 @@
 import hashlib
 from contextlib import asynccontextmanager
 from datetime import datetime, timezone
+from typing import Literal
 from uuid import UUID
 
 import pyotp
@@ -16,6 +17,7 @@ from sqlalchemy.orm import Session
 from . import audit, auth, identity
 from .actions import CATALOG, ActionType, PlanError, create_plan, decide_plan
 from .auth import ROLES, User, client_ip, cookie_name, get_db, require
+from .backups import ops as backup_ops
 from .blueprint import preview
 from . import userdir
 from .config import Settings
@@ -506,6 +508,22 @@ def create_app(settings: Settings | None = None, runtime: Runtime | None = None)
             "SELECT r.id, s.name AS stack, r.at, r.trigger, r.ok, r.findings FROM idm_reconcile_runs r JOIN idm_stacks s ON s.id = r.stack_id "
             "WHERE (CAST(:s AS text) IS NULL OR s.name = :s) ORDER BY r.at DESC LIMIT :n"), {"s": stack, "n": min(max(limit, 1), 100)}).all()
         return [{**_row(r), "id": r.id} for r in rows]
+
+    # ---- backup product (mutations are typed plans backup.*; these are read-only views; ADR-0010) ----
+    @app.get(f"{API}/backups/policies")
+    def backup_policies(user: User = Depends(require("viewer")), db: Session = Depends(get_db)):
+        """Policies with the four distinct states (backup_success, replication, recovery_readiness, verified_restore); no secrets."""
+        return backup_ops.list_policies(db)
+
+    @app.get(f"{API}/backups/runs")
+    def backup_runs(policy: str | None = None, kind: Literal["backup", "prune"] | None = None, limit: int = 50,
+                    user: User = Depends(require("viewer")), db: Session = Depends(get_db)):
+        return backup_ops.list_runs(db, policy, kind, limit)
+
+    @app.get(f"{API}/backups/verifications")
+    def backup_verifications(policy: str | None = None, level: Literal["check", "restore"] | None = None, limit: int = 50,
+                             user: User = Depends(require("viewer")), db: Session = Depends(get_db)):
+        return backup_ops.list_verifications(db, policy, level, limit)
 
     # ---- audit ----
     @app.get(f"{API}/audit")

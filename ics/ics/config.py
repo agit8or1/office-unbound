@@ -52,6 +52,8 @@ class Settings:
     job_lease_slack_seconds: int = 60
     deployment_lease_seconds: int = 60           # review 3 H1: deployments are lease-based (renewed per heartbeat), no fixed job wall clock
     deployment_step_deadline_seconds: int = 1800  # per step, not per job
+    backup_job_timeout_seconds: int = 3600      # backup.* jobs run on their own lane (a restore verification takes minutes; it must not block remediation)
+    backup_scheduler_enabled: bool = True
     pve_request_deadline_seconds: float = 30.0
     pve_max_response_bytes: int = 16 * 1024 * 1024
     snapshot_retention: int = 50

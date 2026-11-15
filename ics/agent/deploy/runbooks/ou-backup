@@ -1,0 +1,470 @@
+#!/usr/bin/python3
+"""ou-backup: the fixed backup runner behind the node-agent runbooks backup.run / backup.verify / backup.prune (ADR-0010).
+
+Two entry points, both root-only:
+  ou-backup <rid>                      started by ou-rb-backup@<rid>.service; reads the agent's spool file {action, params}, RE-VALIDATES it
+                                       (the agent already did; this helper never trusts the spool), writes /run/ou-rb-backup/<rid>.json
+  ou-backup --direct <cmd> <tier> ...  operator/provisioning use on the node console: init | provision | recovery-key | run | check | restore | prune
+
+Nothing here accepts a command line, a path or a repository from the caller. Everything that could differ per node (which machine is the source,
+which repository, which credentials, which scratch machine, which scripts) comes from the root-owned /etc/ou-backup/<tier>.json. Secrets: the
+repository password and the REST credentials live in root-only files; they reach restic through its environment / a password file, never argv,
+never a log line (all captured output is scrubbed of the known secrets before it leaves this process).
+Hooks = the existing tier backup scripts (online-consistent, read-only against the source): files-backup.sh, id-backup.sh, gw-backup.sh, ics-backup.sh.
+"""
+import hashlib
+import json
+import os
+import re
+import secrets
+import shutil
+import stat
+import subprocess
+import sys
+import time
+
+CONFIG_DIR = "/etc/ou-backup"
+SPOOL_DIR = "/run/ou-agent-spool"
+RUN_DIR = "/run/ou-rb-backup"
+TIERS = ("files", "identity", "groupware", "ics")
+SNAP_RE = re.compile(r"^[0-9a-f]{8,64}$")
+RID_RE = re.compile(r"^r[0-9a-f]{16}$")
+ENV = {"PATH": "/usr/local/bin:/usr/bin:/bin", "LANG": "C.UTF-8"}
+BACKUP_SCRIPT = {"files": "files-backup.sh", "identity": "id-backup.sh", "groupware": "gw-backup.sh", "ics": "ics-backup.sh"}
+RESTORE_SCRIPT = {"files": ["files-restore.sh"], "identity": ["id-restore.sh"], "groupware": ["gw-restore.sh", "restore"]}
+SERVICES = {"files": ["opencloud", "opencloud-collaboration", "nginx"], "identity": ["slapd", "postgresql", "keycloak"],
+            "groupware": ["mariadb", "gromox-http", "gromox-imap", "nginx", "postfix"]}
+ARCHIVE = {"files": "files.tar", "identity": "identity.tar", "groupware": "groupware.tar", "ics": "ics-backup.tar"}
+
+
+class Fail(Exception):
+    """Message is safe to return to the ICS (no secrets)."""
+
+
+def now() -> float:
+    return time.time()
+
+
+def load_cfg(tier: str) -> dict:
+    if tier not in TIERS:
+        raise Fail("unknown tier")
+    p = os.path.join(CONFIG_DIR, tier + ".json")
+    try:
+        st = os.stat(p)
+    except OSError:
+        raise Fail(f"tier {tier} is not configured on this node") from None
+    if st.st_uid != 0 or st.st_mode & (stat.S_IWGRP | stat.S_IWOTH):
+        raise Fail("tier config must be root-owned and not group/world-writable")
+    cfg = json.load(open(p))
+    for k in ("machine", "repo_url", "cacert", "creds_dir", "scripts_dir", "stage_dir", "restic", "restic_sha256"):
+        if k not in cfg:
+            raise Fail(f"tier config lacks {k}")
+    return cfg
+
+
+def secret_file(cfg: dict, name: str) -> str:
+    p = os.path.join(cfg["creds_dir"], name)
+    try:
+        st = os.stat(p)
+    except OSError:
+        raise Fail(f"credential {name} is not provisioned on this node") from None
+    if st.st_uid != 0 or st.st_mode & 0o077:
+        raise Fail(f"credential file {name} must be root-owned 0600")
+    return p
+
+
+def read_secret(cfg: dict, name: str) -> str:
+    return open(secret_file(cfg, name)).read().strip()
+
+
+class Scrub:
+    def __init__(self, cfg: dict):
+        self.words = []
+        for n in ("repo-password", "rest-password", "maint-password"):
+            try:
+                v = read_secret(cfg, n)
+                if len(v) >= 6:
+                    self.words.append(v)
+            except Fail:
+                pass
+
+    def __call__(self, s: str, limit: int = 600) -> str:
+        for w in self.words:
+            s = s.replace(w, "[secret]")
+        return re.sub(r"[^\x20-\x7e\n]", "?", s)[-limit:]
+
+
+def restic(cfg: dict, args: list[str], *, maint: bool = False, timeout: int = 900, extra_env: dict | None = None) -> subprocess.CompletedProcess:
+    exe = cfg["restic"]
+    got = hashlib.sha256(open(exe, "rb").read()).hexdigest()
+    if got != cfg["restic_sha256"]:
+        raise Fail("restic binary does not match the pinned sha256")
+    url = cfg.get("maint_repo_url") if maint else cfg["repo_url"]
+    if not url:
+        raise Fail("no maintenance repository endpoint configured on this node")
+    user, pw = ("maint-user", "maint-password") if maint else ("rest-user", "rest-password")
+    env = dict(ENV, RESTIC_REPOSITORY="rest:" + url.rstrip("/") + "/", RESTIC_PASSWORD_FILE=secret_file(cfg, "repo-password"),
+               RESTIC_CACERT=cfg["cacert"], RESTIC_REST_USERNAME=read_secret(cfg, user), RESTIC_REST_PASSWORD=read_secret(cfg, pw),
+               RESTIC_CACHE_DIR=os.path.join(cfg["stage_dir"], ".restic-cache"), HOME="/root", **(extra_env or {}))
+    try:
+        return subprocess.run([exe, *args], env=env, capture_output=True, text=True, timeout=timeout, stdin=subprocess.DEVNULL)
+    except subprocess.TimeoutExpired:
+        raise Fail("restic timed out") from None
+
+
+def j(out: str):
+    return json.loads(out)
+
+
+def jlines(out: str) -> list:
+    res = []
+    for line in out.splitlines():
+        try:
+            res.append(json.loads(line))
+        except ValueError:
+            pass
+    return res
+
+
+def repo_stats(cfg: dict, scrub: Scrub) -> dict:
+    r = restic(cfg, ["stats", "--mode", "raw-data", "--json"], timeout=120)
+    if r.returncode != 0:
+        return {}
+    d = j(r.stdout)
+    return {"repo_bytes": d.get("total_size"), "repo_blobs": d.get("total_blob_count")}
+
+
+def repo_id(cfg: dict) -> str | None:
+    r = restic(cfg, ["cat", "config", "--json"], timeout=60)
+    return j(r.stdout).get("id") if r.returncode == 0 else None
+
+
+def in_machine(machine: str, argv: list[str], stdin_path: str | None = None, timeout: int = 300) -> subprocess.CompletedProcess:
+    cmd = ["/usr/bin/systemd-run", "-M", machine, "--wait", "-q", "-P", "--pipe", *argv]
+    with open(stdin_path, "rb") if stdin_path else open(os.devnull, "rb") as fin:
+        return subprocess.run(cmd, env=ENV, stdin=fin, capture_output=True, text=True, timeout=timeout)
+
+
+def canary(cfg: dict, machine: str, tier: str) -> dict | None:
+    if tier == "ics" or not cfg.get("canary"):
+        return None
+    script = os.path.join(os.path.dirname(os.path.abspath(__file__)), "ou-backup-canary.py")
+    if not os.path.exists(script):
+        script = "/usr/local/sbin/ou-backup-canary.py"
+    r = in_machine(machine, ["/usr/bin/python3", "-", tier, json.dumps(cfg["canary"])], stdin_path=script, timeout=120)
+    if r.returncode != 0:
+        raise Fail("canary could not be read from the machine: " + r.stderr.strip()[-200:])
+    res = json.loads(r.stdout)
+    return res if any(res.values()) else None   # an empty canary (nothing found) is "no canary": it must never make a restore look verified
+
+
+# ---- operations -----------------------------------------------------------------------------------------------------------------------
+def op_run(tier: str) -> dict:
+    cfg = load_cfg(tier)
+    scrub = Scrub(cfg)
+    t0 = now()
+    stage_root = os.path.join(cfg["stage_dir"], tier)
+    shutil.rmtree(stage_root, ignore_errors=True)
+    os.makedirs(stage_root, mode=0o700)
+    os.chmod(cfg["stage_dir"], 0o700)
+    try:
+        canary_error = None
+        try:
+            expected = canary(cfg, cfg["machine"], tier)
+        except Fail as e:   # the backup still runs (data protection first); the restore verification will fail loudly without a canary
+            expected, canary_error = None, str(e)[:200]
+        t1 = now()
+        env = dict(ENV, OU_ONLINE="1")
+        script = os.path.join(cfg["scripts_dir"], BACKUP_SCRIPT[tier])
+        r = subprocess.run([script, cfg["machine"], os.path.join(stage_root, "inbox")] if tier != "ics" else [script, os.path.join(stage_root, "inbox")],
+                           env=env, capture_output=True, text=True, timeout=cfg.get("backup_timeout", 1800), stdin=subprocess.DEVNULL)
+        if r.returncode != 0:
+            raise Fail(f"{BACKUP_SCRIPT[tier]} failed (rc={r.returncode}): " + scrub(r.stderr))
+        dest = r.stdout.strip().splitlines()[-1]
+        if not os.path.realpath(dest).startswith(os.path.realpath(os.path.join(stage_root, "inbox")) + "/"):
+            raise Fail("backup script returned a path outside the staging area")
+        t2 = now()
+        cur = os.path.join(stage_root, "current")
+        os.rename(dest, cur)
+        if expected is not None:
+            with open(os.path.join(cur, "MANIFEST"), "a") as f:
+                f.write("canary_json=" + json.dumps(expected, sort_keys=True) + "\n")
+        archive = os.path.join(cur, ARCHIVE[tier])
+        archive_bytes = os.stat(archive).st_size if os.path.exists(archive) else None
+        rid = secrets.token_hex(4)
+        b = restic(cfg, ["backup", "--json", "--host", cfg["machine"], "--tag", f"tier:{tier}", "--tag", f"run:{rid}", "--one-file-system", cur],
+                   timeout=cfg.get("restic_timeout", 1800))
+        if b.returncode != 0:
+            raise Fail("restic backup failed: " + scrub(b.stderr))
+        summ = next((m for m in jlines(b.stdout) if m.get("message_type") == "summary"), None)
+        if not summ:
+            raise Fail("restic backup returned no summary")
+        t3 = now()
+        sn = restic(cfg, ["snapshots", "--json", "--tag", f"run:{rid}", "--host", cfg["machine"]], timeout=120)
+        snaps = j(sn.stdout) if sn.returncode == 0 else []
+        confirmed = any(s["id"] == summ["snapshot_id"] for s in snaps)
+        allsn = restic(cfg, ["snapshots", "--json", "--tag", f"tier:{tier}"], timeout=120)
+        total = len(j(allsn.stdout)) if allsn.returncode == 0 else None
+        res = {"tier": tier, "snapshot": summ["snapshot_id"], "snapshot_short": summ["snapshot_id"][:8], "run_tag": rid,
+               "bytes_added": summ.get("data_added"), "bytes_added_packed": summ.get("data_added_packed"),
+               "bytes_processed": summ.get("total_bytes_processed"), "files_new": summ.get("files_new"),
+               "files_changed": summ.get("files_changed"), "files_unmodified": summ.get("files_unmodified"),
+               "archive_bytes": archive_bytes, "repo_confirmed": confirmed, "snapshots_total": total, "repo_id": repo_id(cfg),
+               "canary_recorded": expected is not None, "canary_error": canary_error, "consistency": "online",
+               "seconds": {"canary": round(t1 - t0, 1), "source_export": round(t2 - t1, 1), "restic": round(t3 - t2, 1), "total": round(now() - t0, 1)},
+               **repo_stats(cfg, scrub)}
+        if not confirmed:
+            raise Fail("snapshot was written but is not listed in the repository")
+        return res
+    finally:
+        shutil.rmtree(stage_root, ignore_errors=True)
+
+
+def op_check(tier: str, percent: int) -> dict:
+    cfg = load_cfg(tier)
+    scrub = Scrub(cfg)
+    t0 = now()
+    r = restic(cfg, ["check", f"--read-data-subset={percent}%"], timeout=cfg.get("check_timeout", 3000))
+    res = {"tier": tier, "level": "check", "passed": r.returncode == 0, "read_data_percent": percent, "seconds": round(now() - t0, 1),
+           "output_tail": scrub(r.stdout + r.stderr, 400), **repo_stats(cfg, scrub), "repo_id": repo_id(cfg)}
+    return res
+
+
+def wait_ready(machine: str, timeout: int = 90) -> None:
+    t = now()
+    while now() - t < timeout:
+        r = subprocess.run(["/usr/bin/systemd-run", "-M", machine, "--wait", "-q", "-P", "/bin/true"], env=ENV, capture_output=True, timeout=30)
+        if r.returncode == 0:
+            return
+        time.sleep(1)
+    raise Fail(f"scratch machine {machine} did not come up")
+
+
+def op_restore(tier: str, snapshot: str | None) -> dict:
+    cfg = load_cfg(tier)
+    if tier == "ics" or tier not in RESTORE_SCRIPT or not cfg.get("scratch"):
+        raise Fail(f"restore verification is not configured for tier {tier}")
+    scrub = Scrub(cfg)
+    scratch = cfg["scratch"]
+    if scratch == cfg["machine"]:
+        raise Fail("scratch machine must differ from the source machine")
+    target = os.path.join(cfg["stage_dir"], f"restore-{tier}")
+    shutil.rmtree(target, ignore_errors=True)
+    os.makedirs(target, mode=0o700)
+    t0 = now()
+    powered = False
+    try:
+        if snapshot:
+            snap = snapshot
+        else:   # resolve "latest" now so the result names the snapshot that was really restored
+            ls = restic(cfg, ["snapshots", "latest", "--json", "--host", cfg["machine"], "--tag", f"tier:{tier}"], timeout=120)
+            found = j(ls.stdout) if ls.returncode == 0 else []
+            if not found:
+                raise Fail("repository holds no snapshot for this tier")
+            snap = found[-1]["id"]
+        r = restic(cfg, ["restore", snap, "--target", target, "--host", cfg["machine"], "--tag", f"tier:{tier}", "--json"], timeout=cfg.get("restic_timeout", 1800))
+        if r.returncode != 0:
+            raise Fail("restic restore failed: " + scrub(r.stderr))
+        done = next((m for m in jlines(r.stdout) if m.get("message_type") == "summary"), {})
+        t1 = now()
+        d = target + os.path.join(cfg["stage_dir"], tier, "current")
+        mf = {k: v for k, _, v in (l.partition("=") for l in open(os.path.join(d, "MANIFEST")).read().splitlines())}
+        expected = json.loads(mf["canary_json"]) if "canary_json" in mf else None
+        sha = hashlib.sha256()
+        with open(os.path.join(d, ARCHIVE[tier]), "rb") as f:
+            for chunk in iter(lambda: f.read(1 << 20), b""):
+                sha.update(chunk)
+        if sha.hexdigest() != mf.get("archive_sha256"):
+            raise Fail("restored archive does not match the MANIFEST checksum (corrupt backup)")
+        subprocess.run(["/usr/bin/machinectl", "start", scratch], env=ENV, capture_output=True, timeout=60)
+        powered = True
+        wait_ready(scratch)
+        t2 = now()   # scratch machine is up (a real DR would provision it; reported separately)
+        script = os.path.join(cfg["scripts_dir"], RESTORE_SCRIPT[tier][0])
+        rr = subprocess.run([script, *RESTORE_SCRIPT[tier][1:], d, scratch], env=dict(ENV, OU_INTO_EXISTING="1"), capture_output=True, text=True,
+                            timeout=cfg.get("restore_timeout", 2400), stdin=subprocess.DEVNULL)
+        if rr.returncode != 0:
+            raise Fail(f"{RESTORE_SCRIPT[tier][0]} failed (rc={rr.returncode}): " + scrub(rr.stderr))
+        t3 = now()
+        observed = canary(cfg, scratch, tier)
+        svcs = cfg.get("services") or SERVICES[tier]
+        act = in_machine(scratch, ["/bin/bash", "-c", "for s in " + " ".join(svcs) + "; do printf '%s=%s\\n' $s $(systemctl is-active $s); done"], timeout=60)
+        inactive = [l.split("=")[0] for l in act.stdout.split() if not l.endswith("=active")]
+        t4 = now()
+        match = expected is not None and observed == expected and not inactive
+        problems = [f"service {n} is not active on the restored machine" for n in inactive]
+        if expected is None:
+            problems.append("no canary was recorded at backup time")
+        elif not match:
+            for k in sorted(set(expected) | set(observed or {})):
+                if expected.get(k) != (observed or {}).get(k):
+                    problems.append(f"canary {k} differs")
+        return {"tier": tier, "level": "restore", "snapshot": snap, "services_checked": svcs, "match": match, "problems": problems,
+                "canary_expected": expected, "canary_observed": observed, "scratch": scratch,
+                "restic_restore_bytes": done.get("bytes_restored"),
+                "seconds": {"restic_restore": round(t1 - t0, 1), "scratch_poweron": round(t2 - t1, 1), "data_restore": round(t3 - t2, 1),
+                            "canary": round(t4 - t3, 1)},
+                "rto_seconds": round((t1 - t0) + (t3 - t2) + (t4 - t3), 1),
+                "rto_seconds_incl_poweron": round(t4 - t0, 1)}
+    finally:
+        shutil.rmtree(target, ignore_errors=True)
+        if powered:
+            subprocess.run(["/usr/bin/machinectl", "poweroff", scratch], env=ENV, capture_output=True, timeout=60)
+
+
+def op_prune(tier: str, keep: dict) -> dict:
+    cfg = load_cfg(tier)
+    scrub = Scrub(cfg)
+    t0 = now()
+    args = ["forget", "--json", "--prune", "--group-by", "host,tags", "--tag", f"tier:{tier}"]
+    for k in ("last", "daily", "weekly", "monthly"):
+        if keep[k]:
+            args += [f"--keep-{k}", str(keep[k])]
+    r = restic(cfg, args, maint=True, timeout=cfg.get("prune_timeout", 3000))
+    if r.returncode != 0:
+        raise Fail("restic forget/prune failed: " + scrub(r.stderr))
+    groups = []
+    for line in r.stdout.splitlines():
+        try:
+            groups = json.loads(line) if line.startswith("[") else groups
+        except ValueError:
+            pass
+    kept = sum(len(g.get("keep") or []) for g in groups)
+    removed = sum(len(g.get("remove") or []) for g in groups)
+    return {"tier": tier, "kept": kept, "removed": removed, "seconds": round(now() - t0, 1), **repo_stats(cfg, scrub)}
+
+
+# ---- provisioning (console, direct) ---------------------------------------------------------------------------------------------------
+def op_provision(tier: str) -> dict:
+    """Reads one JSON object from stdin: {repo_password, rest_user, rest_password[, maint_user, maint_password]} and installs root-only 0600 files."""
+    cfg = load_cfg(tier)
+    d = json.load(sys.stdin)
+    os.makedirs(cfg["creds_dir"], mode=0o700, exist_ok=True)
+    os.chmod(cfg["creds_dir"], 0o700)
+    names = {"repo_password": "repo-password", "rest_user": "rest-user", "rest_password": "rest-password",
+             "maint_user": "maint-user", "maint_password": "maint-password"}
+    for k, fn in names.items():
+        if k in d:
+            if not isinstance(d[k], str) or not re.fullmatch(r"[A-Za-z0-9_.-]{3,128}", d[k]):
+                raise Fail(f"{k}: invalid format")
+            fd = os.open(os.path.join(cfg["creds_dir"], fn), os.O_WRONLY | os.O_CREAT | os.O_TRUNC, 0o600)
+            with os.fdopen(fd, "w") as f:
+                f.write(d[k] + "\n")
+    return {"provisioned": sorted(k for k in names if k in d)}
+
+
+def op_init(tier: str) -> dict:
+    cfg = load_cfg(tier)
+    r = restic(cfg, ["init", "--json"], timeout=120)
+    if r.returncode != 0:
+        raise Fail("restic init failed: " + Scrub(cfg)(r.stderr))
+    return {"repo_id": j(r.stdout).get("id")}
+
+
+def op_recovery_key(tier: str, out: str) -> dict:
+    """Adds a SECOND restic key (random, 256 bit) and writes it to `out` (0600, must not exist). The ICS stores only a fingerprint; the owner
+    takes the file offline (print / safe) and shreds it. Losing the vault key then no longer means losing the backups."""
+    cfg = load_cfg(tier)
+    if os.path.exists(out):
+        raise Fail("output file exists")
+    pw = secrets.token_urlsafe(32)
+    tmp = os.path.join(cfg["stage_dir"], ".newkey")
+    fd = os.open(tmp, os.O_WRONLY | os.O_CREAT | os.O_EXCL, 0o600)
+    with os.fdopen(fd, "w") as f:
+        f.write(pw)
+    try:
+        r = restic(cfg, ["key", "add", "--new-password-file", tmp, "--host", "ou-recovery"], timeout=120)
+        if r.returncode != 0:
+            raise Fail("restic key add failed: " + Scrub(cfg)(r.stderr))
+        fd = os.open(out, os.O_WRONLY | os.O_CREAT | os.O_EXCL, 0o600)
+        with os.fdopen(fd, "w") as f:
+            f.write(f"Office Unbound offline recovery key\nrepository: {cfg['repo_url']}\ntier: {tier}\nrepository password: {pw}\n")
+    finally:
+        os.unlink(tmp)
+    fp = hashlib.sha256(b"ou-backup-key-fp-v1\n" + pw.encode()).hexdigest()[:16]
+    return {"recovery_fp": fp, "file": out}
+
+
+# ---- spool mode (agent runbook) -------------------------------------------------------------------------------------------------------
+def validate(action: str, p: dict) -> dict:
+    def exact(keys, req=None):
+        if set(p) - set(keys) or set(req if req is not None else keys) - set(p):
+            raise Fail("bad parameters")
+    if action == "backup.run":
+        exact(("tier",))
+    elif action == "backup.verify":
+        exact(("tier", "level", "percent", "snapshot"), ("tier", "level"))
+        if p["level"] not in ("check", "restore"):
+            raise Fail("bad level")
+        if "percent" in p and (type(p["percent"]) is not int or not 1 <= p["percent"] <= 100):
+            raise Fail("bad percent")
+        if "snapshot" in p and not (isinstance(p["snapshot"], str) and SNAP_RE.match(p["snapshot"])):
+            raise Fail("bad snapshot")
+    elif action == "backup.prune":
+        exact(("tier", "last", "daily", "weekly", "monthly"))
+        for k, hi in (("last", 100), ("daily", 366), ("weekly", 260), ("monthly", 240)):
+            if type(p[k]) is not int or not 0 <= p[k] <= hi:
+                raise Fail("bad retention")
+        if sum(p[k] for k in ("last", "daily", "weekly", "monthly")) < 1:
+            raise Fail("retention keeps nothing")
+    else:
+        raise Fail("unknown action")
+    if p["tier"] not in TIERS:
+        raise Fail("unknown tier")
+    return p
+
+
+def dispatch(action: str, p: dict) -> dict:
+    p = validate(action, p)
+    if action == "backup.run":
+        return op_run(p["tier"])
+    if action == "backup.prune":
+        return op_prune(p["tier"], p)
+    if p["level"] == "check":
+        return op_check(p["tier"], p.get("percent", 10))
+    return op_restore(p["tier"], p.get("snapshot"))
+
+
+def main(argv: list[str]) -> int:
+    if os.geteuid() != 0:
+        print("must run as root", file=sys.stderr)
+        return 2
+    os.umask(0o077)
+    if argv and argv[0] == "--direct":
+        cmd, tier, rest = argv[1], argv[2], argv[3:]
+        try:
+            res = {"init": lambda: op_init(tier), "provision": lambda: op_provision(tier), "recovery-key": lambda: op_recovery_key(tier, rest[0]),
+                   "run": lambda: op_run(tier), "check": lambda: op_check(tier, int(rest[0]) if rest else 10),
+                   "restore": lambda: op_restore(tier, rest[0] if rest else None),
+                   "prune": lambda: op_prune(tier, dict(zip(("last", "daily", "weekly", "monthly"), map(int, rest))))}[cmd]()
+        except Fail as e:
+            print(json.dumps({"error": str(e)}))
+            return 1
+        print(json.dumps(res, sort_keys=True))
+        return 0
+    rid = argv[0] if argv else ""
+    if not RID_RE.match(rid):
+        return 2
+    os.makedirs(RUN_DIR, mode=0o755, exist_ok=True)
+    out = {"rid": rid}
+    try:
+        spool = json.load(open(os.path.join(SPOOL_DIR, rid + ".json")))
+        out["result"] = dispatch(spool["action"], spool["params"])
+    except Fail as e:
+        out["error"] = str(e)[:600]
+    except Exception as e:  # noqa: BLE001
+        out["error"] = f"internal error: {type(e).__name__}"
+    for f in os.listdir(RUN_DIR):   # prune old results
+        p = os.path.join(RUN_DIR, f)
+        if os.path.getmtime(p) < now() - 86400:
+            os.unlink(p)
+    tmp = os.path.join(RUN_DIR, rid + ".tmp")
+    with open(tmp, "w") as f:
+        json.dump(out, f)
+    os.chmod(tmp, 0o644)
+    os.rename(tmp, os.path.join(RUN_DIR, rid + ".json"))
+    return 0 if "error" not in out else 1
+
+
+if __name__ == "__main__":
+    sys.exit(main(sys.argv[1:]))

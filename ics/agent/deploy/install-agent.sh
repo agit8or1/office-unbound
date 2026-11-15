@@ -49,6 +49,11 @@ if grep -q '"gromox\.\|"opencloud\.' /etc/ou-agent/agent.json; then
   fi
   [ -n "${OU_MAIL_DOMAIN:-}" ] && printf '{"mail_domain": "%s"}\n' "$OU_MAIL_DOMAIN" > /etc/ou-rb/gromox.json
 fi
+if grep -q '"backup\.' /etc/ou-agent/agent.json; then   # backup product (ADR-0010): fixed template unit + root helper; tier configs /etc/ou-backup/<tier>.json are provisioned separately
+  install -m 0644 "$D/runbooks/ou-rb-backup@.service" /etc/systemd/system/
+  install -m 0755 -o root -g root "$D/runbooks/ou-backup" /usr/local/sbin/ou-backup
+  install -m 0755 -o root -g root "$D/runbooks/ou-backup-canary.py" /usr/local/sbin/ou-backup-canary.py
+fi
 python3 "$D/render_polkit.py" /etc/ou-agent/agent.json > /etc/polkit-1/rules.d/50-ou-agent.rules
 chmod 0644 /etc/polkit-1/rules.d/50-ou-agent.rules
 install -d -o ou-agent -g ou-agent -m 0700 /var/lib/ou-agent

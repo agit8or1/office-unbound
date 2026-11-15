@@ -1,7 +1,7 @@
 # Backup and restore
 
 Evidence: [restore-drill-results.md](../status/restore-drill-results.md) (files, identity, ICS controller and groupware drills, 2026-11-15, lab), [ics-installer-results.md](../status/ics-installer-results.md) (controller restore re-run on a fresh installer-built host), [docs/runbooks/ics-recovery.md](../runbooks/ics-recovery.md).
-All scripts run as root on the ICS host against **nspawn lab machines**; they are drill tooling, not a product backup service. Backups hold secrets: output is root-only (0700/0600).
+All scripts run as root on the ICS host against **nspawn lab machines**; they are drill tooling and tier hooks; the **backup product** (ADR-0010) is described in [the product section](#backup-product-adr-0010) and [backup-product-results.md](../status/backup-product-results.md). Backups hold secrets: output is root-only (0700/0600).
 Default destination `/var/backups/office-unbound/lab/<machine>/<UTC timestamp>`. Executables are never restored from backup: they are re-fetched/rebuilt from pinned, hash-checked sources.
 
 ## Summary
@@ -40,8 +40,21 @@ Quarantined (suspended) mailboxes are mode 000 and are handled specially; the re
 6. Record the recovery in the audit log/incident.
 Customer stacks do not depend on the ICS at runtime, so they keep running while it is down.
 
+## Backup product (ADR-0010)
+Lab-proven (2026-11-15): policies per deployment and tier, restic 0.19.1 repositories on a rest-server (`ou-bkp1`), typed actions, scheduler, checks, automated restore verification with measured RTO.
+
+**Operating it** (all mutations are plans; read views `GET /api/v1/backups/policies|runs|verifications`):
+1. Enroll the runner node (`node.enroll`) with an agent config enabling `backup.run/verify/prune` for the tiers (`ics/agent/deploy/agent-backup.json`), install `/etc/ou-backup/<tier>.json` on it (root-owned; source machine, repository URL, credential directory, scratch machine, canary pattern; see `blueprints/lab/backup/lab-runner-setup.sh` for the lab values).
+2. `backup.policy.create` (normal, one approver): tier, deployment label, schedule (`every_hours` or `daily_at`), retention (`last/daily/weekly/monthly`), RPO and RTO targets, repository URL + certificate SHA-256, verification cadence. The repository password is generated server-side and kept only in the vault.
+3. Provision the node (host root, once per tier): `sudo -u ics python -m ics.cli backup-node-secret --policy P | sudo ou-backup --direct provision <tier>` then `sudo ou-backup --direct init <tier>`. The value is never printed to a terminal log by ICS (the command writes JSON to the pipe; the audit log records the export with a fingerprint only).
+4. **Offline recovery key (owner procedure).** `sudo ou-backup --direct recovery-key <tier> /root/recovery-<tier>.txt` adds a second, independent restic key and writes it to a 0600 file once; it prints only a 16-hex fingerprint. Print or copy the file to offline media (safe, sealed envelope, second site), verify the fingerprint on the copy, then `shred -u` the file and run `sudo -u ics python -m ics.cli backup-recovery-ack --policy P --fingerprint <fp>` (ICS then reports `recovery_key.exported`). With this key, `restic -r <repo> snapshots` works without the ICS vault: losing the vault key (see the ICS controller backup above) does not lose the backups. Rotate by adding a new key, then `restic key remove` the old one.
+5. Watch the four states (never one flag): `backup_success`, `replication`, `recovery_readiness`, `verified_restore`. Create `kind: backup` checks (`age`, `repo_check`, `restore`, `growth`) with `check.create` to alert through the existing channels.
+6. A restore verification failing, a canary mismatch, a failed repository check or a RPO breach are incidents like any other check; retention reductions are high-risk plans (two approvers) because the next prune deletes history.
+
+**Real recovery** (not the verification): `restic -r rest:https://<target>:8000/<tier> restore <snapshot> --target /restore`, then feed the directory (`MANIFEST` + archive) to the tier restore script exactly as in the drills above (`files-restore.sh`, `id-restore.sh`, `gw-restore.sh`; the archive is `files.tar` for online-mode backups).
+
 ## Not yet covered
-- No encryption of backups, off-host copy, scheduling, retention, or measured RPO (all **Planned**; the scripts say so).
+- Product gaps: ICS controller tier not run in the lab, second-copy replication, S3 backends, production runner topology, filesystem-snapshot consistency for files (see backup-product-results.md).
 - Restore of a whole customer stack together, with DNS/MX cut-over: not drilled. Collabora editing against a restored files node: not proven. The portal is not in the backup set.
 - Groupware logical export is not point-in-time across mailboxes; only IPM_SUBTREE content is exported (no archive stores, search index, rules, OOF, delegates); ActiveSync device state and the postfix queue are not backed up (devices fully resync); large attachments untested.
 - The ICS cut-over (nginx/IP move) and agents accepting the restored controller were **not exercised** in either drill. The installer drill restored a controller with one operator and verified `verify-chain` (head equal to the manifest) and a login with the original password and TOTP.

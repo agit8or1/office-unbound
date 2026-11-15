@@ -1,0 +1,10 @@
+{
+  "listen": {"address": "0.0.0.0", "port": 8443},
+  "runbooks": {
+    "service.status": {"units": ["ou-agent"]},
+    "disk.usage": {"paths": ["/", "/var/lib/ou-backup"]},
+    "backup.run": {"tiers": ["files", "identity", "groupware"]},
+    "backup.verify": {"tiers": ["files", "identity", "groupware"]},
+    "backup.prune": {"tiers": ["files", "identity", "groupware"]}
+  }
+}
