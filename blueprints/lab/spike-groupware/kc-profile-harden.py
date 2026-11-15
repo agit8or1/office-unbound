@@ -2,17 +2,20 @@
 """Realm user-profile hardening: `email` and `username` become admin-edit-only (users keep view). Runs INSIDE ou-id1 next to kc_lib.py.
 
   kc-profile-harden.py apply   set permissions.edit=[admin] for username+email (idempotent)
+  kc-profile-harden.py verify  read-only; exit 1 + the offending attributes if a user can edit username/email (used by install/restore and monitoring)
+  kc-profile-harden.py ensure  verify; if drifted apply; verify again (exit 1 if still drifted). Called by install-kc.sh and backup/id-restore.sh
   kc-profile-harden.py test    prove what a user can do: creates a throw-away LOCAL user (random password, never printed), signs in with it
                                and tries to change email and username through the Account REST API (what the account console uses); deletes the user.
 Why: grommunio/gromox take the mailbox identity from the token's `email` claim (docs/status/webmail-sso-results.md section 4); a user who can edit it
 could become another mailbox.
 """
 import json
+import os
 import secrets
 import sys
 import urllib.error
 
-sys.path.insert(0, "/root")
+sys.path[:0] = [os.path.dirname(os.path.abspath(__file__)), "/root"]
 from kc_lib import REALM, call, admin_token  # noqa: E402
 
 A = f"/admin/realms/{REALM}"
@@ -26,6 +29,31 @@ def apply(T):
     call("PUT", f"{A}/users/profile", T, prof)
     _, prof = call("GET", f"{A}/users/profile", T)
     print({a["name"]: a["permissions"]["edit"] for a in prof["attributes"] if a["name"] in ("username", "email")})
+
+
+LOCKED = ("username", "email")
+
+
+def drift(T):
+    """attributes among LOCKED whose edit permission contains anything but admin (or that are missing)."""
+    _, prof = call("GET", f"{A}/users/profile", T)
+    seen = {a["name"]: a for a in prof["attributes"]}
+    return {n: (sorted(set(seen[n].get("permissions", {}).get("edit", [])) - {"admin"}) if n in seen else ["<missing>"]) for n in LOCKED
+            if n not in seen or set(seen[n].get("permissions", {}).get("edit", [])) - {"admin"}}
+
+
+def verify(T):
+    d = drift(T)
+    print(json.dumps({"drift": d, "ok": not d}))
+    if d:
+        sys.exit(1)
+
+
+def ensure(T):
+    if drift(T):
+        print("user profile allows users to edit username/email: applying hardening")
+        apply(T)
+    verify(T)
 
 
 def test(T):
@@ -64,4 +92,4 @@ def test(T):
 
 if __name__ == "__main__":
     T = admin_token()
-    {"apply": apply, "test": test}[sys.argv[1]](T)
+    {"apply": apply, "test": test, "verify": verify, "ensure": ensure}[sys.argv[1]](T)

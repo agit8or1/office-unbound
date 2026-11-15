@@ -1,0 +1,20 @@
+[Unit]
+Description=Office Unbound grommunio-sync remote-wipe contract (admin-api subset)
+After=mariadb.service
+ConditionPathExists=/etc/ou-rb/wipe-api.json
+
+[Service]
+User=ou-wipe
+Group=ou-wipe
+ExecStart=/usr/local/sbin/ou-wipe-api
+Restart=on-failure
+NoNewPrivileges=true
+PrivateTmp=true
+ProtectSystem=strict
+ProtectHome=true
+RestrictAddressFamilies=AF_UNIX AF_INET6
+IPAddressDeny=any
+IPAddressAllow=localhost
+
+[Install]
+WantedBy=multi-user.target

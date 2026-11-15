@@ -8,7 +8,11 @@ This job runs on the groupware node (systemd timer, every 30 s). Stdlib only.
 How the key is chosen (by kid, not by position): GET <realm>  -> `public_key` (the key Keycloak currently SIGNS with); GET <realm>/protocol/openid-connect/certs
 -> JWKS; the JWKS entry (use=sig, alg=RS256, kty=RSA) whose public key equals it gives the kid. The PEM written is built from that JWKS entry. If no JWKS entry
 matches (inconsistent response) nothing is written and the exit code is 3 (the old key stays).
-Exit: 0 unchanged/updated, 2 fetch error (old key stays), 3 inconsistent answer. State (kid, timestamp) -> /var/lib/ou-sync-bearer-key/state.json.
+Trust (security review 4, L4): the realm certificate is verified against the PINNED lab/deployment CA only (--ca, default
+/usr/local/share/ca-certificates/ou-lab-ca.crt), never the system bundle (any public CA mis-issuance would otherwise let an attacker push a key that
+logs in as any mailbox). Keys must be RSA >= 2048 bits with e = 65537 (RS256 is the only algorithm gromox implements; a weaker key in the realm is
+refused and the old key stays). Responses are capped at 1 MiB.
+Exit: 0 unchanged/updated, 2 fetch error (old key stays), 3 inconsistent answer / weak key, 4 CA misconfiguration. State (kid, timestamp) -> /var/lib/ou-sync-bearer-key/state.json.
 Limitation (documented in docs/status/sso-rollout-results.md): gromox holds ONE key, so tokens signed by the previous key (max. access-token lifetime, 5 min)
 stop validating at the switch; webmail refreshes its token every 280 s and logs in again through Keycloak when it fails.
 """
@@ -56,18 +60,35 @@ def pem(b64: str) -> str:
     return "-----BEGIN PUBLIC KEY-----\n" + "\n".join(b64[i:i + 64] for i in range(0, len(b64), 64)) + "\n-----END PUBLIC KEY-----\n"
 
 
+MIN_RSA_BITS = 2048
+MAX_RESPONSE = 1 << 20
+SYSTEM_BUNDLES = ("/etc/ssl/certs/ca-certificates.crt", "/etc/ssl/certs/ca-bundle.crt", "/etc/pki/tls/certs/ca-bundle.crt")
+
+
+def check_key_strength(jwk: dict) -> None:
+    n, e = int.from_bytes(_b64u(jwk["n"]), "big"), int.from_bytes(_b64u(jwk["e"]), "big")
+    if n.bit_length() < MIN_RSA_BITS:
+        raise ValueError(f"realm signing key is only {n.bit_length()} bits (minimum {MIN_RSA_BITS})")
+    if e != 65537:
+        raise ValueError(f"realm signing key has public exponent {e} (only 65537 accepted)")
+
+
 def choose(realm: dict, jwks: dict) -> tuple[str, str]:
-    """-> (kid, spki_b64) of the JWKS entry equal to the realm's active signing key. ValueError if none matches."""
+    """-> (kid, spki_b64) of the JWKS entry equal to the realm's active signing key. ValueError if none matches or the key is weak."""
     want = "".join(realm["public_key"].split())
     for k in jwks.get("keys", []):
         if k.get("kty") == "RSA" and k.get("use", "sig") == "sig" and k.get("alg", "RS256") == "RS256" and jwk_to_spki_b64(k) == want:
+            check_key_strength(k)
             return k["kid"], want
     raise ValueError("active realm key not found in JWKS")
 
 
 def fetch(url: str, ctx) -> dict:
     with urllib.request.urlopen(url, context=ctx, timeout=10) as r:
-        return json.load(r)
+        raw = r.read(MAX_RESPONSE + 1)
+    if len(raw) > MAX_RESPONSE:
+        raise ValueError("response too large")
+    return json.loads(raw)
 
 
 def write_if_changed(path: str, content: str, group: str | None) -> bool:
@@ -91,12 +112,23 @@ def write_if_changed(path: str, content: str, group: str | None) -> bool:
 def main(argv=None) -> int:
     ap = argparse.ArgumentParser()
     ap.add_argument("--realm-url", default="https://auth.ou-lab.internal/realms/ou-lab")
-    ap.add_argument("--ca", default="/etc/ssl/certs/ca-certificates.crt")
+    ap.add_argument("--ca", default="/usr/local/share/ca-certificates/ou-lab-ca.crt", help="PEM of the CA that issued the realm host certificate (pinned; NOT the system bundle)")
     ap.add_argument("--out", default="/etc/gromox/bearer_pubkey")
     ap.add_argument("--group", default="gromoxcf")
     ap.add_argument("--state-dir", default="/var/lib/ou-sync-bearer-key")
     a = ap.parse_args(argv)
-    ctx = ssl.create_default_context(cafile=a.ca)
+    if os.path.realpath(a.ca) in {os.path.realpath(b) for b in SYSTEM_BUNDLES if os.path.exists(b)}:
+        print("refusing to trust the system CA bundle for the signing key; pass the deployment CA with --ca", file=sys.stderr)
+        return 4
+    try:
+        ctx = ssl.SSLContext(ssl.PROTOCOL_TLS_CLIENT)         # only the pinned CA is loaded: no default/system roots
+        ctx.minimum_version = ssl.TLSVersion.TLSv1_2
+        ctx.verify_mode = ssl.CERT_REQUIRED
+        ctx.check_hostname = True
+        ctx.load_verify_locations(cafile=a.ca)
+    except (OSError, ssl.SSLError) as e:
+        print(f"cannot load the pinned CA {a.ca} ({type(e).__name__})", file=sys.stderr)
+        return 4
     try:
         realm = fetch(a.realm_url, ctx)
         jwks = fetch(a.realm_url + "/protocol/openid-connect/certs", ctx)

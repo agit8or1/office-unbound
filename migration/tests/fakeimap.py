@@ -42,6 +42,8 @@ class FakeImap:
         self.drop_before_append: set[int] = set()
         self.drop_after_append: set[int] = set()
         self.fail_login_once = False
+        self.list_literal = False        # send LIST names as {N} literals (lets a hostile name contain CR/LF)
+        self.advertised_size = None      # lie about RFC822.SIZE
         self.reject_token_once = False
         self.logins = 0
         self.lock = threading.Lock()
@@ -149,7 +151,10 @@ class _Conn:
             for n, f in sorted(s.folders.items()):
                 at = " ".join(f.attrs)
                 nm = n.replace("\\", "\\\\").replace('"', '\\"')
-                self.w(f'* LIST ({at}) "{s.delim}" "{nm}"\r\n')
+                if s.list_literal:
+                    self.w(f'* LIST ({at}) "{s.delim}" {{{len(n.encode())}}}\r\n'.encode() + n.encode() + b"\r\n")
+                else:
+                    self.w(f'* LIST ({at}) "{s.delim}" "{nm}"\r\n')
             self.w(f"{tag} OK list done\r\n")
         elif verb in ("EXAMINE", "SELECT"):
             n = _unq(args)
@@ -261,7 +266,7 @@ class _Conn:
             if "INTERNALDATE" in items:
                 parts.append(f'INTERNALDATE "{m.date}"')
             if "RFC822.SIZE" in items:
-                parts.append(f"RFC822.SIZE {len(m.data)}")
+                parts.append(f"RFC822.SIZE {s.advertised_size if s.advertised_size is not None else len(m.data)}")
             lits = []
             hm = re.search(r"BODY\.PEEK\[HEADER\.FIELDS \(([^)]*)\)\]", items)
             if hm:

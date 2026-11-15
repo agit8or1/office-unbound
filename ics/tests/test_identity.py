@@ -52,12 +52,28 @@ def stack_params(**over):
 
 
 # ---- in-memory systems ----------------------------------------------------------------------------------------------------------------
+_REAL_MAS_ACTIVE = identity.Mas.active_sessions
+_REAL_MAS_KINDS = identity.Mas.KINDS
+_REAL_PROFILE_CHECK = identity.Keycloak.profile_check            # captured before the fixtures replace identity.Keycloak
+_PROFILE_LOCKED = identity.Keycloak.PROFILE_LOCKED
+
+
 class World:
     def __init__(self):
         self.ldap: dict = {}
         self.kc: dict = {}
         self.gx: dict = {}
         self.stuck_imap = False
+        self.profile = [{"name": "username", "permissions": {"view": ["admin", "user"], "edit": ["admin"]}},
+                        {"name": "email", "permissions": {"view": ["admin", "user"], "edit": ["admin"]}},
+                        {"name": "firstName", "permissions": {"view": ["admin", "user"], "edit": ["admin", "user"]}}]
+        self.app_tokens: dict = {}          # uid -> number of live OpenCloud app tokens
+        self.devices: dict = {}             # uid -> {device_id: wipe status}
+        self.picks_up_after: int | None = None   # wipe is "delivered" after this many gromox.devices polls (None: never)
+        self.polls = 0
+        self.pw_at_wipe = None
+        self.kicked: list = []
+        self.revoke_ok = True
         self.passwords: dict = {}
         self.calls: list = []
         self.mas: dict = {}  # uid -> {"id","locked","deactivated","sessions"}
@@ -109,6 +125,9 @@ def world(monkeypatch):
         def close(self): pass
         def req(self, *a, **k): return types.SimpleNamespace(json=lambda: 3)
         def find(self, uid): return w.kc.get(uid)
+        def profile_check(self):
+            fake = types.SimpleNamespace(req=lambda *a, **k: types.SimpleNamespace(json=lambda: {"attributes": w.profile}), PROFILE_LOCKED=_PROFILE_LOCKED)
+            return _REAL_PROFILE_CHECK(fake)
 
         def set_enabled(self, user, en): w.kc[user["username"]]["enabled"] = en
         def logout(self, kid): [u.update(sessions=0) for u in w.kc.values() if u["id"] == kid]
@@ -159,6 +178,31 @@ def world(monkeypatch):
             return {"uid": uid, "state": {"exists": bool(r), **(r or {})}, "maildir_mode": (r or {}).get("mode")}
         if action == "opencloud.check_user":
             return {"uid": uid, "resolved": bool(e) and not e["locked"]}
+        if action == "opencloud.revoke_app_tokens":
+            if not e or e["locked"]:
+                return {"uid": uid, "resolved": False, "ok": False}
+            n = w.app_tokens.get(uid, 0)
+            if w.revoke_ok:
+                w.app_tokens[uid] = 0
+            return {"uid": uid, "resolved": True, "ok": w.revoke_ok, "listed": n + 1, "revoked": n if w.revoke_ok else 0, "remaining": 0 if w.revoke_ok else n,
+                    "temp_token_dead": True}
+        if action == "gromox.kill_sessions":
+            w.kicked.append(uid)
+            return {"uid": uid, "kick_sent": True}
+        if action in ("gromox.wipe_devices", "gromox.devices"):
+            devs = w.devices.get(uid, {})
+            if action == "gromox.wipe_devices":
+                w.pw_at_wipe = w.passwords.get(uid)
+                w.polls = 0
+                for d in devs:
+                    devs[d] = max(devs[d], 2)
+            else:
+                w.polls += 1
+                if w.picks_up_after is not None and w.polls >= w.picks_up_after:
+                    for d in devs:
+                        devs[d] = 4
+            names = {0: "none", 2: "wipe_pending", 4: "wipe_delivered", 8: "wiped_acknowledged"}
+            return {"uid": uid, "devices": [{"device": d, "status": s, "status_name": names[s], "last_sync": 1, "history": []} for d, s in sorted(devs.items())]}
         raise AssertionError(action)
 
     monkeypatch.setattr(identity, "Directory", FakeDir)
@@ -781,3 +825,33 @@ def test_mas_client_calls_exact_endpoints(rt):
     assert ("POST", "/api/admin/v1/oauth2-sessions/S1/finish") in seen and ("POST", "/api/admin/v1/compat-sessions/S1/finish") in seen
     assert ("POST", "/api/admin/v1/users/M1/lock") in seen
     assert all(p.startswith("/api/admin/v1/") or p == "/oauth2/token" for _, p in seen)
+
+
+def test_reconcile_alerts_when_email_or_username_become_user_editable(env, rt, world):
+    """Security review 4, M4: the realm profile must keep email/username admin-edit-only; drift is a CRITICAL finding (report only)."""
+    add_stack(rt)
+    create_user(env)
+    ok = env.run(env.plan("idm.reconcile", {"stack": "acme"}))["result"]
+    assert not [f for f in ok["findings"] if f["kind"].startswith("kc_profile")]
+    world.profile[1]["permissions"]["edit"] = ["admin", "user"]                      # email becomes user-editable (e.g. re-import of the old realm export)
+    r = env.run(env.plan("idm.reconcile", {"stack": "acme"}))["result"]
+    f = [f for f in r["findings"] if f["kind"] == "kc_profile_user_editable"]
+    assert len(f) == 1 and f[0]["severity"] == "critical" and "'email'" in f[0]["detail"] and r["ok"] is False and r["critical"] >= 1
+    world.profile[1]["permissions"]["edit"] = ["admin"]
+    del world.profile[0]                                                              # username attribute missing: cannot verify -> warning
+    r = env.run(env.plan("idm.reconcile", {"stack": "acme"}))["result"]
+    assert [f["kind"] for f in r["findings"] if f["kind"].startswith("kc_profile")] == ["kc_profile_attribute_missing"]
+
+
+def test_mas_active_sessions_follows_cursor_pages():
+    """Review 4, L5: more than 100 sessions must all be listed (and ended), not just the first page."""
+    ids = {"oauth2-sessions": [f"o{i:03d}" for i in range(230)], "compat-sessions": ["c1"]}
+
+    def req(method, path, **kw):
+        p = kw["params"]
+        allids = ids[path.lstrip("/")]
+        start = allids.index(p["page[after]"]) + 1 if p.get("page[after]") else 0
+        return types.SimpleNamespace(json=lambda: {"data": [{"id": i} for i in allids[start:start + 100]]})
+    fake = types.SimpleNamespace(req=req, KINDS=_REAL_MAS_KINDS)
+    got = _REAL_MAS_ACTIVE(fake, "user1")
+    assert len([g for g in got if g[0] == "oauth2-sessions"]) == 230 and ("compat-sessions", "c1") in got

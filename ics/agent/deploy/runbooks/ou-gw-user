@@ -1,15 +1,20 @@
 #!/usr/bin/python3
 """Root helper for the ou-agent identity runbooks on the Gromox node. Started ONLY by the fixed template units ou-rb-gromox-*@<uid>.service.
-usage: ou-gw-user sync|quarantine|state <uid>      (uid is validated again here; nothing is read from the environment or stdin)
+usage: ou-gw-user sync|quarantine|state|kill|wipe|devices <uid>      (uid is validated again here; nothing is read from the environment or stdin)
 Writes /run/ou-rb/gromox-<cmd>-<uid>.json (what the agent returns to the ICS).
   sync        gw-ldap-sync.py --user <uid>@<mail_domain> (create / suspend / reactivate); a reactivated mailbox is released from quarantine
   quarantine  only for an already SUSPENDED user: gromox-mbop freeze (exmdb rejects the store), midb X-UNLD, chmod 000 on the maildir.
               Effect on an IMAP session opened BEFORE the suspension: SEARCH -> NO, FETCH returns no content (measured, results doc)
   state       read-only SQL status + maildir mode
+  kill        USER-KICK on the gromox event bus: gromox-imap (patched build, blueprints/build/gromox/patches/0001) sends "* BYE" to and closes every open
+              IMAP session of the user that predates the kick; the user can log in again afterwards (if still allowed)
+  wipe        request an ActiveSync remote wipe for ALL devices grommunio-sync knows for the user: user_devices.status=2 (PENDING) + history row, and the
+              device's provisioning-cache entry is dropped so the device must call Provision, which answers RemoteWipe (see ou-wipe-api)
+  devices     read-only: the user's devices (grommunio-sync redis) with wipe status and history (acknowledgements)
 """
 import json, os, re, socket, subprocess, sys, time
 
-UID_RE = re.compile(r"^[a-z][a-z0-9._-]{1,31}$")
+UID_RE = re.compile(r"^[a-z][a-z0-9._-]{1,31}\Z")
 CFG = "/etc/ou-rb/gromox.json"
 OUT = "/run/ou-rb"
 SYNC = "/usr/local/sbin/gw-ldap-sync.py"
@@ -57,14 +62,99 @@ def mbop(d, verb, *extra):
     return subprocess.run(["/usr/sbin/gromox-mbop", "-d", d, verb, *extra], capture_output=True, text=True, timeout=40, stdin=subprocess.DEVNULL).returncode == 0
 
 
+DEV_RE = re.compile(r"^[A-Za-z0-9]{1,64}$")
+EVENT_SOCK = "/run/gromox/event.sock"
+
+
+def event_kick(mail):
+    """gromox-event line protocol: server greets "OK"; `ID <name>` -> TRUE; `USER-KICK <user> *` -> TRUE (delivered to every listener)."""
+    s = socket.socket(socket.AF_UNIX, socket.SOCK_STREAM)
+    s.settimeout(10)
+    s.connect(EVENT_SOCK)
+    f = s.makefile("rw", newline="")
+    if f.readline().strip() != "OK":
+        raise RuntimeError("event greeting")
+    for line in ("ID ou-kick", "USER-KICK %s *" % mail):
+        f.write(line + "\r\n"); f.flush()
+        if f.readline().strip() != "TRUE":
+            raise RuntimeError("event refused %s" % line.split()[0])
+    f.write("QUIT\r\n"); f.flush()
+    s.close()
+    return True
+
+
+def redis_cli(*args):
+    return subprocess.run(["/usr/bin/redis-cli", "--raw", *args], capture_output=True, text=True, timeout=10, stdin=subprocess.DEVNULL)
+
+
+def sync_devices(mail):
+    """{device_id: last_sync_epoch} as grommunio-sync recorded them (redis hash grommunio-sync:userdevices)"""
+    r = redis_cli("HGET", "grommunio-sync:userdevices", mail)
+    try:
+        j = json.loads(r.stdout) if r.stdout.strip() else {}
+    except ValueError:
+        j = {}
+    return {d: int(t) for d, t in j.items() if isinstance(d, str) and DEV_RE.match(d)} if isinstance(j, dict) else {}
+
+
+def sql_connect():
+    import pymysql
+    m = readcfg("/etc/gromox/mysql_adaptor.cfg")
+    return pymysql.connect(unix_socket="/run/mysqld/mysqld.sock", user=m["mysql_username"], password=m["mysql_password"], database=m["mysql_dbname"])
+
+
+STATUS_NAMES = {0: "none", 1: "ok", 2: "wipe_pending", 4: "wipe_delivered", 8: "wiped_acknowledged", 16: "account_wipe_pending",
+                32: "account_wipe_delivered", 64: "account_wiped_acknowledged"}
+
+
+def devices_state(mail, request_wipe=False):
+    db = sql_connect()
+    try:
+        cur = db.cursor()
+        cur.execute("SELECT id FROM users WHERE username=%s", (mail,))
+        row = cur.fetchone()
+        if row is None:
+            return []
+        uid = row[0]
+        known = sync_devices(mail)
+        cur.execute("SELECT id, device_id, status FROM user_devices WHERE user_id=%s", (uid,))
+        have = {d: (i, int(s)) for i, d, s in cur.fetchall()}
+        if request_wipe:
+            for d in sorted(known):
+                if d in have and have[d][1] in (2, 4):
+                    continue                       # already requested / delivered: keep (history keeps the first request)
+                if d in have:
+                    cur.execute("UPDATE user_devices SET status=2 WHERE id=%s", (have[d][0],))
+                    did = have[d][0]
+                else:
+                    cur.execute("INSERT INTO user_devices (user_id, device_id, status) VALUES (%s, %s, 2)", (uid, d))
+                    did = cur.lastrowid
+                cur.execute("INSERT INTO user_device_history (user_device_id, remote_ip, status) VALUES (%s, %s, 2)", (did, "ou-ics"))
+                redis_cli("HDEL", "grommunio-sync:provisioningcache", "%s|-|%s" % (d, mail))   # the device must Provision (HTTP 449 / status 142) next
+            db.commit()
+            cur.execute("SELECT id, device_id, status FROM user_devices WHERE user_id=%s", (uid,))
+            have = {d: (i, int(s)) for i, d, s in cur.fetchall()}
+        out = []
+        for d in sorted(set(known) | set(have)):
+            did, st = have.get(d, (None, 0))
+            hist = []
+            if did is not None:
+                cur.execute("SELECT UNIX_TIMESTAMP(time), remote_ip, status FROM user_device_history WHERE user_device_id=%s ORDER BY id DESC LIMIT 6", (did,))
+                hist = [{"time": int(t), "remote_ip": ip, "status": int(s), "name": STATUS_NAMES.get(int(s), str(s))} for t, ip, s in cur.fetchall()]
+            out.append({"device": d, "last_sync": known.get(d), "status": st, "status_name": STATUS_NAMES.get(st, str(st)), "history": hist})
+        return out
+    finally:
+        db.close()
+
+
 def release(d):
     os.chmod(d, 0o770)
     return mbop(d, "thaw")
 
 
 def main():
-    if len(sys.argv) != 3 or sys.argv[1] not in ("sync", "quarantine", "state") or not UID_RE.match(sys.argv[2]):
-        print("usage: ou-gw-user sync|quarantine|state <uid>", file=sys.stderr); return 2
+    if len(sys.argv) != 3 or sys.argv[1] not in ("sync", "quarantine", "state", "kill", "wipe", "devices") or not UID_RE.match(sys.argv[2]):
+        print("usage: ou-gw-user sync|quarantine|state|kill|wipe|devices <uid>", file=sys.stderr); return 2
     cmd, uid = sys.argv[1], sys.argv[2]
     domain = json.load(open(CFG))["mail_domain"]
     mail = "%s@%s" % (uid, domain)
@@ -97,6 +187,15 @@ def main():
                 res["midb_unloaded"] = False
             os.chmod(d, 0o000)
             res["maildir_mode"] = mode(d)
+    elif cmd == "kill":
+        try:
+            res["kick_sent"] = event_kick(mail)
+        except (OSError, RuntimeError) as e:
+            res["kick_sent"] = False
+            res["error"] = str(e)[:120]
+            rc = 3
+    elif cmd in ("wipe", "devices"):
+        res["devices"] = devices_state(mail, request_wipe=(cmd == "wipe"))
     else:
         res["state"] = sql_state(mail)
         res["maildir_mode"] = mode(d)

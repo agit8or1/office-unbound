@@ -4,7 +4,7 @@
 #   SECRET_DIR   dir containing kc-ou-phone-client-secret (output of kc-phone-client.py)
 set -euo pipefail
 HERE="$(cd "$(dirname "$0")" && pwd)"
-n=ou-pbx1; : "${SECRET_DIR:?}"
+n="${PBX_MACHINE:-ou-pbx1}"; : "${SECRET_DIR:?}"
 inm() { sudo systemd-run -M "$n" --pipe --wait --quiet "$@"; }
 inm rm -rf /root/stage; inm mkdir -p /root/stage/secrets /root/stage/phone
 tar -C "$HERE" -cz pbx 20-install-pbx.sh | inm tar -xz -C /root/stage

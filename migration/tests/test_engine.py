@@ -100,8 +100,8 @@ def test_mapping_special_use_hint_hierarchy_and_sanitising():
 
 def test_mapping_sanitises_unsafe_names_and_rename_exclude():
     m = Mapper(exclude=(r"Tmp.*",), rename={"Old": "Neu/Alt"})
-    p = {x.src_display: x for x in m.map_all([("a*b%c\x01", "/", []), ("Tmp1", "/", []), ("Old", "/", []), ("x" * 300, "/", [])])}
-    assert p["a*b%c\x01"].target == "a_b_c"
+    p = {x.src_display: x for x in m.map_all([("a*b%c", "/", []), ("Tmp1", "/", []), ("Old", "/", []), ("x" * 300, "/", [])])}
+    assert p["a*b%c"].target == "a_b_c"
     assert p["Tmp1"].reason == "skipped:excluded"
     assert p["Old"].target == "Neu/Alt"
     assert len(p["x" * 300].target) == 120

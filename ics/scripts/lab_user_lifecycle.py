@@ -13,6 +13,8 @@ usage: lab_user_lifecycle.py {setup|lifecycle|all|matrix|cleanup}
   matrix: Matrix (MAS) downstream. Needs OU_MATRIX_PYTHON (collab test venv) and a lab ICS instance of this code (ics/scripts/lab_ics_instance.py):
           OU_ICS_BASE=http://127.0.0.1:8099/api/v1 OU_DEMO_CREDS=<creds.json>. Measures when Synapse/MAS refuse the user's OWN Matrix access and refresh
           token after the lock, a new SSO login, unlock on enable, reconcile drift, and deactivation on delete.
+
+usage: lab_user_lifecycle.py {setup|lifecycle|gaps|all}   (gaps: app-token revocation, session kill, ActiveSync wipe; docs/status/lifecycle-gaps-results.md)
 """
 import json
 import os
@@ -26,7 +28,7 @@ import time
 import httpx
 
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
-sys.path.insert(0, "/opt/office-unbound/ics")
+sys.path.insert(0, os.environ.get("OU_ICS_SRC") or os.path.join(os.path.dirname(os.path.abspath(__file__)), ".."))
 from ics import idprobe  # noqa: E402  (same prober the ICS uses for its VERIFY step)
 import lab_monitoring_demo as demo  # noqa: E402  (Api, accounts, TOTP handling)
 
@@ -91,24 +93,40 @@ def run_plan(op, approvers, action, params, expect_fail=False):
     return r["plan_id"], j
 
 
-def mint_files_node(op, aps):
+SIDECAR = bool(os.environ.get("OU_LAB_SIDECAR"))   # development ICS: talk to the sidecar agents (port 8444, own trust) instead of the production agents
+NODE_ADDR = {"ou-files1": "192.168.186.242", "ou-gw1": "192.168.186.218"}
+
+
+def mint_node(op, aps, machine):
+    """Enroll the node's agent (production agent, or the lab sidecar) into the ICS this script talks to; idempotent."""
     nodes = {n["name"]: n for n in op.get("nodes")}
-    if "ou-files1" in nodes:
-        return nodes["ou-files1"]["id"]
-    rc, out = sh("ou-files1", "rm -f /var/lib/ou-agent/trust.json; setpriv --reuid=ou-agent --regid=ou-agent --clear-groups env PYTHONPATH=/opt/ou-agent python3 -m ou_agent arm-enroll")
+    if machine in nodes:
+        return nodes[machine]["id"]
+    if SIDECAR:
+        script = open(os.path.join(os.path.dirname(os.path.abspath(__file__)), "lab_agent_sidecar.sh")).read()
+        p = subprocess.run(["sudo", "-n", "systemd-run", "-M", machine, "--quiet", "--pipe", "--wait", "/bin/sh", "-s", "arm"], input=script, capture_output=True, text=True, timeout=120)
+        out = p.stdout + p.stderr
+        port = 8444
+    else:
+        rc, out = sh(machine, "rm -f /var/lib/ou-agent/trust.json; setpriv --reuid=ou-agent --regid=ou-agent --clear-groups env PYTHONPATH=/opt/ou-agent python3 -m ou_agent arm-enroll")
+        port = 8443
     tok = re.search(r"TOKEN[^:]*: (\S+)", out).group(1)
     fps = dict(re.findall(r"(tls_fingerprint_sha256|agent_key_fingerprint_sha256)=([0-9a-f]{64})", out))
-    _, j = run_plan(op, aps, "node.enroll", {"name": "ou-files1", "address": "192.168.186.242", "port": 8443,
+    _, j = run_plan(op, aps, "node.enroll", {"name": machine, "address": NODE_ADDR[machine], "port": port,
                                               "tls_fingerprint_sha256": fps["tls_fingerprint_sha256"],
                                               "agent_key_fingerprint_sha256": fps["agent_key_fingerprint_sha256"], "enrollment_token": tok})
     return j["result"]["node_id"]
+
+
+def mint_files_node(op, aps):
+    return mint_node(op, aps, "ou-files1")
 
 
 def setup():
     demo.setup_accounts() if not os.path.exists(demo.STATE) else None
     op, a1, a2 = api_login()
     aps = [a1, a2]
-    gw = {n["name"]: n for n in op.get("nodes")}["ou-gw1"]["id"]
+    gw = mint_node(op, aps, "ou-gw1") if SIDECAR else {n["name"]: n for n in op.get("nodes")}["ou-gw1"]["id"]
     files = mint_files_node(op, aps)
     if any(s["name"] == STACK for s in op.get("identity/stacks")):
         log(f"stack {STACK} already registered")
@@ -459,6 +477,159 @@ def matrix():
     print(f"RESULT {'PASS' if ok else 'FAIL'}: Matrix access refused within {TARGET:.0f} s of the lock; total run {time.time() - t_all:.0f} s")
     return 0 if ok else 1
 
+def create_enrolled(op, aps, uid, pw):
+    plan_id, j = run_plan(op, aps, "idm.user.create", {"stack": STACK, "uid": uid, "display_name": f"Gap test {uid}", "mail": f"{uid}@{MAIL_DOMAIN}",
+                                                       "groups": ["opencloudUser"], "mailbox": True})
+    enroll_user(op, plan_id, STACK, uid, pw)
+    # the personal space (and with it WebDAV for app tokens) is created on the user's first OIDC login
+    pc = probe_cfg()
+    ok, tok = idprobe.kc_password_grant(pc, uid, pw)
+    if ok:
+        idprobe.files_webdav_bearer(pc, tok.get("access_token", ""), uid)
+
+
+def wait_closed(sess, timeout=20.0, step=0.25):
+    """seconds until the (idle) IMAP connection is closed/refused by the server, None if still alive at the timeout"""
+    t0 = time.monotonic()
+    while time.monotonic() - t0 < timeout:
+        if idprobe.imap_session_alive(sess) is False:
+            return round(time.monotonic() - t0, 2)
+        time.sleep(step)
+    return None
+
+
+def gaps():
+    """The three gaps of docs/status/user-lifecycle-results.md section 6, each measured against the real lab systems through the ICS."""
+    import threading
+    from ics import easprobe
+    op, a1, a2 = api_login()
+    aps = [a1, a2]
+    pc = probe_cfg()
+    uid, uidb = "lg" + secrets.token_hex(3), "lh" + secrets.token_hex(3)
+    mail, mailb = f"{uid}@{MAIL_DOMAIN}", f"{uidb}@{MAIL_DOMAIN}"
+    pw1, pw2, pwb = (secrets.token_urlsafe(18) for _ in range(3))
+    summary: dict = {}
+    log(f"== gap tests with {uid} (subject) and {uidb} (bystander) in stack {STACK}")
+    create_enrolled(op, aps, uid, pw1)
+    create_enrolled(op, aps, uidb, pwb)
+
+    # ---- GAP 2a: the kill primitive on its own (user stays ACTIVE, so the quarantine cannot be what ends the sessions) ----------------------
+    s_idle = idprobe.imap_open(pc, mail, pw1)                      # authenticated + SELECTed
+    s_auth = idprobe.imap_open(pc, mail, pw1)
+    s_auth.close()                                                 # back to the authenticated state: nothing selected
+    s_other = idprobe.imap_open(pc, mailb, pwb)
+    assert all(x is not None and idprobe.imap_session_alive(x) is not False for x in (s_idle, s_other)), "baseline IMAP sessions failed"
+    t0 = time.time()
+    rc, out = sh("ou-gw1", f"systemctl start --wait ou-rb-gromox-kill@{uid}.service; cat /run/ou-rb/gromox-kill-{uid}.json")
+    log(f"USER-KICK for {uid} (helper rc={rc}): {out.strip()[-160:]}")
+    closed = {"selected session": wait_closed(s_idle), "authenticated session (mailbox closed)": wait_closed(s_auth)}
+    other_alive = idprobe.imap_session_alive(s_other)
+    fresh = idprobe.imap_login(pc, mail, pw1)
+    log(f"sessions closed after the kick (s): {closed}; bystander {uidb} session still alive: {other_alive}; fresh login of {uid} still works: {fresh}")
+    summary["kill_primitive"] = {"closed_after_s": closed, "bystander_alive": other_alive, "fresh_login_ok": fresh}
+    fails = int(any(v is None for v in closed.values())) + int(other_alive is not True) + int(fresh is not True)
+
+    # ---- GAP 1: app tokens + GAP 2b: sessions closed by the disable itself -----------------------------------------------------------------
+    toks = [app_token(uid) for _ in range(3)]
+    tok_ok = [idprobe.files_webdav_basic(pc, uid, t) for t in toks]
+    log(f"3 app tokens minted, accepted by WebDAV: {tok_ok}")
+    sess2 = idprobe.imap_open(pc, mail, pw1)
+    r = op.post("plans", {"action": "idm.user.disable", "params": {"stack": STACK, "uid": uid, "rotate_credentials": False, "verify_timeout_seconds": 45,
+                                                                    "reason": "gap test 1/2: tokens + session kill"}})
+    t_appr = time.monotonic()
+    appr = a1.post(f"plans/{r['plan_id']}/approve")
+    probes = {f"oc app token {i + 1}": (lambda t=t: idprobe.files_webdav_basic(pc, uid, t)) for i, t in enumerate(toks)}
+    probes["imap session (opened before disable)"] = lambda: idprobe.imap_session_alive(sess2)
+    measured = idprobe.measure(probes, t_appr, 60)
+    for _ in range(200):
+        jd = op.get(f"jobs/{appr['job_id']}")
+        if jd["status"] in ("succeeded", "failed"):
+            break
+        time.sleep(1)
+    log(f"disable job {jd['status']}" + (f" :: {jd['error']}" if jd["status"] == "failed" else ""))
+    steps = (jd["result"] or {}).get("steps", [])
+    for st in steps:
+        if st["step"] in ("opencloud.revoke_app_tokens", "gromox.kill_sessions", "gromox.quarantine_mailbox", "ldap.lock"):
+            log("   step " + json.dumps(st))
+    fails += table("GAP 1/2: refusal after the disable was approved (seconds from approval; the lock itself comes ~1-3 s later)", measured, None)
+    summary["disable1_measured_s"] = {k: (o["seconds"] if o["status"] == "refused" else "NOT REVOKED") for k, o in measured.items()}
+    summary["disable1_oc_tokens"] = [x for x in steps if x["step"] == "opencloud.revoke_app_tokens"]
+    # ---- re-enable: the old tokens must stay dead -----------------------------------------------------------------------------------------
+    plan_id2, j = run_plan(op, aps, "idm.user.enable", {"stack": STACK, "uid": uid, "reason": "gap test: back from leave"})
+    enroll_user(op, plan_id2, STACK, uid, pw2)
+    after = [idprobe.files_webdav_basic(pc, uid, t) for t in toks]
+    newtok = app_token(uid)
+    log(f"AFTER ENABLE: pre-disable app tokens accepted? {after} (all must be False); a NEW token works: {idprobe.files_webdav_basic(pc, uid, newtok)}")
+    summary["tokens_resurrected_after_enable"] = any(after)
+    fails += int(any(after))
+
+    # ---- GAP 3: ActiveSync remote wipe -----------------------------------------------------------------------------------------------------
+    dev = easprobe.EasClient(pc, mail, pw2, "oulabwipe" + uid[2:], "OULab")
+    p = dev.provision_device()
+    fs = dev.foldersync()
+    log(f"EAS device {dev.dev}: provisioned={p is not None and p.status == 1} policy_key_len={len(dev.policy_key or '')}; FolderSync -> {fs}")
+    _, j = run_plan(op, aps, "idm.user.devices", {"stack": STACK, "uid": uid})
+    log("device list before: " + json.dumps([(d["device"], d["status_name"]) for d in j["result"]["devices"]]))
+    events: list = []
+    stop = threading.Event()
+
+    def device_loop():
+        while not stop.is_set():
+            r = dev.foldersync()
+            if not events or events[-1][0] != "foldersync" or events[-1][2] != r:
+                events.append(("foldersync", round(time.time(), 2), r))
+            if r and (r[0] == 449 or r[1] == 142):
+                t = time.time()
+                pr = dev.provision()
+                events.append(("provision", round(t, 2), pr.remote_wipe if pr else None, pr.status if pr else None))
+                if pr and pr.remote_wipe:
+                    ack = dev.provision(ack_wipe=True)
+                    events.append(("ack", round(time.time(), 2), ack.http_status if ack else None))
+                    return
+            time.sleep(2)
+
+    th = threading.Thread(target=device_loop, daemon=True)
+    th.start()
+    r = op.post("plans", {"action": "idm.user.disable", "params": {"stack": STACK, "uid": uid, "rotate_credentials": True, "verify_timeout_seconds": 45,
+                                                                    "wipe_devices": True, "wipe_wait_seconds": 90, "reason": "gap test: leaver with a lost phone"}})
+    log(f"disable with wipe_devices -> risk={r['risk']} approvals_required={r['approvals_required']}")
+    t_req = time.time()
+    a1.post(f"plans/{r['plan_id']}/approve")
+    appr = a2.post(f"plans/{r['plan_id']}/approve")
+    for _ in range(300):
+        jd = op.get(f"jobs/{appr['job_id']}")
+        if jd["status"] in ("succeeded", "failed"):
+            break
+        time.sleep(1)
+    stop.set()
+    th.join(5)
+    log(f"disable+wipe job {jd['status']} after {time.time() - t_req:.1f} s" + (f" :: {jd['error']}" if jd["status"] == "failed" else ""))
+    steps = (jd["result"] or {}).get("steps", [])
+    for st in steps:
+        if st["step"] in ("gromox.wipe_devices", "opencloud.revoke_app_tokens", "gromox.kill_sessions"):
+            log("   step " + json.dumps(st))
+    ver = (jd["result"] or {}).get("verification") or {}
+    log("   verification: overall=%s device_wipe=%s" % (ver.get("overall"), json.dumps(ver.get("device_wipe"))))
+    log("   device simulator events (provision/ack): " + json.dumps(events))
+    _, j = run_plan(op, aps, "idm.user.devices", {"stack": STACK, "uid": uid})
+    for d in j["result"]["devices"]:
+        log(f"   device {d['device']}: status={d['status_name']} history={json.dumps([(h['name'], h['remote_ip']) for h in d['history']])}")
+    delivered = any(e[0] == "provision" and e[2] is True for e in events)
+    acked = any(e[0] == "ack" for e in events)
+    post = dev.provision()
+    log(f"after suspension the device can no longer authenticate: Provision -> HTTP {post.http_status if post else None}")
+    summary["wipe"] = {"delivered_in_provision_response": delivered, "acknowledged": acked, "status_after": [(d["device"], d["status_name"]) for d in j["result"]["devices"]],
+                       "post_suspension_provision_http": post.http_status if post else None,
+                       "seconds_request_to_delivery": (round(min(e[1] for e in events if e[0] == "provision" and e[2] is True) - t_req, 1) if delivered else None)}
+    fails += int(not delivered) + int(not acked) + int(jd["status"] != "succeeded")
+    # ---- cleanup ------------------------------------------------------------------------------------------------------------------------
+    run_plan(op, aps, "idm.user.disable", {"stack": STACK, "uid": uidb, "verify_timeout_seconds": 30})
+    for u in (uid, uidb):
+        run_plan(op, aps, "idm.user.delete", {"stack": STACK, "uid": u, "reason": "gap test cleanup"})
+    print("\nSUMMARY " + json.dumps(summary))
+    print(f"RESULT {'PASS' if fails == 0 else 'FAIL'}: {fails} problem(s)")
+    return 0 if fails == 0 else 1
+
 
 def cleanup():
     """Delete earlier lab users (state disabled) of this script through normal 2-approver plans."""
@@ -477,5 +648,7 @@ if __name__ == "__main__":
         sys.exit(matrix())
     if cmd in ("setup", "all"):
         setup()
+    if cmd == "gaps":
+        sys.exit(gaps())
     rc = lifecycle() if cmd in ("lifecycle", "all") else 0
     sys.exit(rc)

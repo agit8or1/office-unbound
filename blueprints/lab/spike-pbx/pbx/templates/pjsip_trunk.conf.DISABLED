@@ -32,7 +32,7 @@
 ; allow=ulaw,alaw
 ; outbound_auth=trunk-provider
 ; aors=trunk-provider
-; media_encryption=sdes
+; media_encryption=sdes   ; ONLY valid together with transport=transport-tls (SDES keys travel in SDP: over UDP they are readable); add it before enabling
 ; [trunk-provider]
 ; type=identify
 ; endpoint=trunk-provider

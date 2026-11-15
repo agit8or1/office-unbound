@@ -67,6 +67,22 @@ for f in mbx/*.exchange.sqlite3; do
   rm -f "$dir/exmdb/exchange.sqlite3"{,-wal,-shm}; install -m 0660 -o gromox -g gromox "$f" "$dir/exmdb/exchange.sqlite3"
   rm -rf "$dir/cid"; tar -xf "mbx/$u.cid.tar" -C "$dir"; chown -R gromox:gromox "$dir/cid"; log "raw store restored for $u"
 done
+# --- M1 (security review 4): zcore.sock group-restricted (inline copy of spike-groupware/ou-zcore-lockdown.sh)
+( set -e
+getent group gromox-zcore >/dev/null || groupadd -r gromox-zcore
+for u in groweb grosync grodav; do id "$u" >/dev/null 2>&1 && usermod -aG gromox-zcore "$u"; done
+cat > /usr/local/sbin/ou-zcore-sockperm <<'EOS'
+#!/bin/sh
+# re-applied by gromox-zcore.service (ExecStartPost; ExecStartPre removes the stale socket first so the wait below sees the NEW one).
+for i in $(seq 1 240); do [ -S /run/gromox/zcore.sock ] && break; sleep 0.25; done   # up to 60 s (zcore creates it after its DB/ldap init)
+chgrp gromox-zcore /run/gromox && chmod 0710 /run/gromox
+chgrp gromox-zcore /run/gromox/zcore.sock && chmod 0660 /run/gromox/zcore.sock
+EOS
+chmod 0755 /usr/local/sbin/ou-zcore-sockperm
+install -d /etc/systemd/system/gromox-zcore.service.d
+printf "[Service]\nExecStartPre=+/bin/rm -f /run/gromox/zcore.sock\nExecStartPost=+/usr/local/sbin/ou-zcore-sockperm\n" > /etc/systemd/system/gromox-zcore.service.d/ou-sockperm.conf
+systemctl daemon-reload
+) || die "zcore lockdown failed" 8
 # --- services (the gromox units were installed by make install; the enable set is the one running on the original)
 systemctl daemon-reload
 systemctl enable --now redis-server php8.2-fpm

@@ -7,7 +7,7 @@ import time
 from dataclasses import dataclass
 
 from . import mutf7
-from .imapx import Fatal, GuardViolation, ImapError, Throttle, Transient
+from .imapx import Fatal, GuardViolation, ImapError, Throttle, TooLarge, Transient, UnsafeName
 from .mailbox import Mailbox, MsgMeta, fingerprint
 from .mapping import Mapper
 from .state import State
@@ -103,6 +103,9 @@ class Migrator:
                 break
             except GuardViolation:
                 raise
+            except ImapError as e:   # one bad folder (e.g. TooLarge literal) must not stop the others
+                fr["failed"] += 1
+                fr["errors"].append(str(e))
         rep["finished"] = time.time()
         tot = collections.Counter()
         for fr in rep["folders"]:
@@ -209,7 +212,11 @@ class Migrator:
 
     def _copy_one(self, p, idx, m: MsgMeta, fp) -> str:
         self.throttle.acquire(m.size)
-        body = self.src.fetch_body(m.uid)
+        # The advertised size is only trusted up to a small slack; the literal is refused BEFORE it is read when larger
+        cap = min(self.opt.max_message_bytes, m.size + 65536 + m.size // 100)
+        body = self.src.fetch_body(m.uid, cap)
+        if len(body) > self.opt.max_message_bytes:
+            raise ImapError(f"uid {m.uid}: body exceeds max-message-bytes")
         if len(body) != m.size:
             log.warning("uid %s: fetched %d bytes, RFC822.SIZE said %d", m.uid, len(body), m.size)
         last = None
