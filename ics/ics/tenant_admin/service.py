@@ -25,7 +25,7 @@ from fastapi import HTTPException, Request
 from pydantic import ValidationError
 from sqlalchemy import text
 
-from .. import actions, audit, auth, identity
+from .. import actions, audit, auth, identity, mailadmin
 from ..tenancy import scope as tscope
 from . import jwtv
 
@@ -361,6 +361,52 @@ def reveal_enrollment(ctx: Ctx, plan_id) -> dict:
                  details={"uid": r["uid"], **ctx.identity_details()})
     ctx.db.commit()
     return {"token": r["token"], "uid": r["uid"], "stack": r["stack"], "expires_at": r["expires_at"]}
+
+
+# ---- aliases, shared mailboxes, quotas (mailadmin.py) ------------------------------------------------------------------------------
+def aliases_view(ctx: Ctx) -> dict:
+    sid = str(ctx.stack_row.id)
+    al: dict[str, list[str]] = {}
+    for r in ctx.db.execute(text("SELECT uid, alias FROM idm_aliases WHERE stack_id = :s ORDER BY alias"), {"s": sid}).all():
+        al.setdefault(r.uid, []).append(r.alias)
+    ent = ctx.cfg["entitlement_group"]
+    users = [{"uid": r.uid, "display_name": r.display_name, "mail": r.mail, "aliases": al.get(r.uid, [])}
+             for r in ctx.db.execute(text("SELECT * FROM idm_users WHERE stack_id = :s AND state = 'active' ORDER BY display_name, uid LIMIT 1000"), {"s": sid}).all()
+             if ent in (r.groups or [])]
+    return {"domains": mailadmin.alias_domains(ctx.cfg), "max_aliases": mailadmin.MAX_ALIASES, "users": users}
+
+
+def shared_view(ctx: Ctx) -> dict:
+    sid = str(ctx.stack_row.id)
+    rows = ctx.db.execute(text("SELECT * FROM idm_shared_mailboxes WHERE stack_id = :s AND state = 'active' ORDER BY name"), {"s": sid}).all()
+    grants: dict[str, dict[str, list[str]]] = {}
+    for g in ctx.db.execute(text("SELECT g.shared_id, g.uid, g.kind FROM idm_shared_grants g JOIN idm_shared_mailboxes m ON m.id = g.shared_id WHERE m.stack_id = :s ORDER BY g.uid"),
+                            {"s": sid}).all():
+        grants.setdefault(str(g.shared_id), {}).setdefault(g.kind, []).append(g.uid)
+    people = [{"uid": r.uid, "display_name": r.display_name} for r in ctx.db.execute(
+        text("SELECT uid, display_name, groups FROM idm_users WHERE stack_id = :s AND state = 'active' ORDER BY display_name, uid LIMIT 1000"), {"s": sid}).all()
+        if ctx.cfg["entitlement_group"] in (r.groups or [])]
+    return {"mailboxes": [{"name": r.name, "mail": r.mail, "display_name": r.display_name, "created_at": r.created_at.isoformat(),
+                           "grants": {k: grants.get(str(r.id), {}).get(k, []) for k in mailadmin.KINDS}} for r in rows],
+            "kinds": [{"key": k, "label": mailadmin.KIND_LABELS[k]} for k in mailadmin.KINDS], "people": people, "domain": ctx.cfg["mail_domain"]}
+
+
+def quotas_view(ctx: Ctx, live: bool = True) -> dict:
+    sid = str(ctx.stack_row.id)
+    rows = [r for r in ctx.db.execute(text("SELECT * FROM idm_users WHERE stack_id = :s AND state = 'active' ORDER BY display_name, uid LIMIT 1000"), {"s": sid}).all()]
+    q = {r.uid: r for r in ctx.db.execute(text("SELECT * FROM idm_quotas WHERE stack_id = :s"), {"s": sid}).all()}
+    use = {"users": {}, "available": {"mail": False, "files": False}}
+    if live and rows:
+        use = mailadmin.usage(ctx.rt, ctx.stack_row.name, [(r.uid, r.entry_uuid) for r in rows])
+    out = []
+    for r in rows:
+        mq, u = q.get(r.uid), use["users"].get(r.uid) or {}
+        mail, files = u.get("mail"), u.get("files")
+        out.append({"uid": r.uid, "display_name": r.display_name, "has_mailbox": ctx.cfg["entitlement_group"] in (r.groups or []),
+                    "mail": {"used_bytes": (mail or {}).get("used_bytes"), "limit_kb": (mail or {}).get("storage_kb") if mail else (mq.mail_storage_kb if mq else None),
+                             "send_kb": (mail or {}).get("send_kb") if mail else None, "receive_kb": (mail or {}).get("receive_kb") if mail else None},
+                    "files": {"used_bytes": (files or {}).get("used_bytes"), "limit_bytes": ((files or {}).get("total_bytes") or None) if files else (mq.files_quota_bytes or None if mq else None)}})
+    return {"users": out, "available": use["available"], "files_quota_supported": bool(ctx.cfg.get("oc_quota_user") and ctx.cfg.get("files_url"))}
 
 
 # ---- branding / apps ----------------------------------------------------------------------------------------------------------------

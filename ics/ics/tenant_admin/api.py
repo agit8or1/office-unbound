@@ -52,6 +52,34 @@ class Apps(BaseModel):
     apps: dict[str, bool]
 
 
+class AliasChange(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+    add: list[str] = Field(default_factory=list, max_length=20)
+    remove: list[str] = Field(default_factory=list, max_length=20)
+
+
+class NewShared(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+    name: str = Field(pattern=UID)
+    display_name: str = Field(min_length=1, max_length=100)
+
+
+class SharedGrant(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+    uid: str = Field(pattern=UID)
+    kind: str = Field(pattern="^(full_access|send_as|send_on_behalf)$")
+
+
+class MailQuota(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+    limit_mb: int | None = Field(ge=1, le=10_000_000)
+
+
+class FilesQuota(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+    quota_mb: int | None = Field(ge=1, le=10_000_000)
+
+
 class BindIn(BaseModel):
     model_config = ConfigDict(extra="forbid")
     stack: str
@@ -91,7 +119,9 @@ def mount(app: FastAPI) -> None:
         return {"customer": c, "user": {"sub": ctx.sub, "username": ctx.username, "name": ctx.name}, "domain": ctx.cfg["mail_domain"],
                 "users": {r.state: r.n for r in counts}, "policy": {"self_service_auto": pol["self_service_auto"], "destructive_approval": pol["destructive_approval"]},
                 "pending": sum(1 for r in service.requests_view(ctx, limit=100) if r["can_decide"]),
-                "planned": ["Mailbox aliases and shared mailboxes (no tooling yet in the mailbox runbooks)", "Per-user storage quota (needs an OpenCloud admin identity that does not exist yet)"]}
+                "planned": ["Creating/renaming groups and adding domains (done by your service provider)"],
+                "features": {"aliases": bool(ctx.cfg.get("gromox_node_id")), "shared": bool(ctx.cfg.get("gromox_node_id")), "mail_quota": bool(ctx.cfg.get("gromox_node_id")),
+                             "files_quota": bool(ctx.cfg.get("oc_quota_user") and ctx.cfg.get("files_url"))}}
 
     # ---- branding for the portal itself (service credential only: any signed-in user's page needs it) ------------------------------
     @app.get(f"{T}/branding")
@@ -196,6 +226,51 @@ def mount(app: FastAPI) -> None:
         label = "password" if b.what == "password" else "two-step verification"
         return _wrap(lambda: service.submit(ctx, f"user.reset_{b.what}", "idm.user.reset_credentials", {"uid": uid, "what": b.what, "reason": f"by {ctx.username}"},
                                             f"Reset {label} for {uid}", uid))
+
+    # ---- aliases, shared mailboxes, quotas -------------------------------------------------------------------------------------
+    @app.get(f"{T}/aliases")
+    def aliases(ctx: Ctx = Depends(ctx_read)):
+        return service.aliases_view(ctx)
+
+    @app.post(f"{T}/users/{{uid}}/aliases", status_code=202)
+    def user_aliases(uid: str, b: AliasChange, ctx: Ctx = Depends(ctx_write)):
+        return _wrap(lambda: service.submit(ctx, "user.aliases", "idm.user.set_aliases", {"uid": uid, "add": b.add, "remove": b.remove}, f"Change addresses of {uid}", uid))
+
+    @app.get(f"{T}/shared")
+    def shared(ctx: Ctx = Depends(ctx_read)):
+        return service.shared_view(ctx)
+
+    @app.post(f"{T}/shared", status_code=202)
+    def shared_create(b: NewShared, ctx: Ctx = Depends(ctx_write)):
+        return _wrap(lambda: service.submit(ctx, "shared.create", "idm.shared_mailbox.create", {"name": b.name, "display_name": b.display_name},
+                                            f"Create shared mailbox {b.name}", None))
+
+    @app.post(f"{T}/shared/{{name}}/delete", status_code=202)
+    def shared_delete(name: str, b: Reason, ctx: Ctx = Depends(ctx_write)):
+        return _wrap(lambda: service.submit(ctx, "shared.delete", "idm.shared_mailbox.delete", {"name": name, "reason": b.reason or f"deleted by {ctx.username}"},
+                                            f"Delete shared mailbox {name}", None))
+
+    @app.post(f"{T}/shared/{{name}}/grant", status_code=202)
+    def shared_grant(name: str, b: SharedGrant, ctx: Ctx = Depends(ctx_write)):
+        return _wrap(lambda: service.submit(ctx, "shared.grant", "idm.shared_mailbox.grant", {"name": name, "uid": b.uid, "kind": b.kind},
+                                            f"Give {b.uid} access to {name}", b.uid))
+
+    @app.post(f"{T}/shared/{{name}}/revoke", status_code=202)
+    def shared_revoke(name: str, b: SharedGrant, ctx: Ctx = Depends(ctx_write)):
+        return _wrap(lambda: service.submit(ctx, "shared.revoke", "idm.shared_mailbox.revoke", {"name": name, "uid": b.uid, "kind": b.kind},
+                                            f"Remove access of {b.uid} to {name}", b.uid))
+
+    @app.get(f"{T}/quotas")
+    def quotas(live: bool = True, ctx: Ctx = Depends(ctx_read)):
+        return service.quotas_view(ctx, live)
+
+    @app.post(f"{T}/users/{{uid}}/quota/mail", status_code=202)
+    def quota_mail(uid: str, b: MailQuota, ctx: Ctx = Depends(ctx_write)):
+        return _wrap(lambda: service.submit(ctx, "quota.mail", "idm.user.set_mail_quota", {"uid": uid, "limit_mb": b.limit_mb}, f"Set mailbox size of {uid}", uid))
+
+    @app.post(f"{T}/users/{{uid}}/quota/files", status_code=202)
+    def quota_files(uid: str, b: FilesQuota, ctx: Ctx = Depends(ctx_write)):
+        return _wrap(lambda: service.submit(ctx, "quota.files", "idm.user.set_storage_quota", {"uid": uid, "quota_mb": b.quota_mb}, f"Set file storage of {uid}", uid))
 
     # ---- groups ---------------------------------------------------------------------------------------------------------------
     @app.get(f"{T}/groups")

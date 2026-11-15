@@ -42,7 +42,7 @@ if grep -q '"gromox\.\|"opencloud\.' /etc/ou-agent/agent.json; then
   done
   grep -q '"gromox\.' /etc/ou-agent/agent.json && install -m 0755 -o root -g root "$D/runbooks/ou-gw-user" /usr/local/sbin/ou-gw-user
   grep -q '"opencloud\.' /etc/ou-agent/agent.json && install -m 0755 -o root -g root "$D/runbooks/ou-oc-check" /usr/local/sbin/ou-oc-check
-  [ -n "${OU_MAIL_DOMAIN:-}" ] && printf '{"mail_domain": "%s"}\n' "$OU_MAIL_DOMAIN" > /etc/ou-rb/gromox.json
+  [ -n "${OU_MAIL_DOMAIN:-}" ] && python3 -c 'import json,os,sys;print(json.dumps({"mail_domain": sys.argv[1], "alias_domains": [d for d in os.environ.get("OU_ALIAS_DOMAINS","").split(",") if d]}))' "$OU_MAIL_DOMAIN" > /etc/ou-rb/gromox.json
 fi
 python3 "$D/render_polkit.py" /etc/ou-agent/agent.json > /etc/polkit-1/rules.d/50-ou-agent.rules
 chmod 0644 /etc/polkit-1/rules.d/50-ou-agent.rules

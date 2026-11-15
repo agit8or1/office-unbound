@@ -7,7 +7,7 @@ import secrets
 import subprocess
 import time
 
-from . import guestspec
+from . import guestspec, mbxspec
 from .proto import Reject
 
 SYSTEMCTL = "/usr/bin/systemctl"
@@ -31,8 +31,11 @@ _ENV = {"PATH": "/usr/bin:/bin", "LANG": "C"}
 def validate_config(cfg: dict) -> dict:
     """Shape of /etc/ou-agent/agent.json: {"listen": {"address","port"}, "runbooks": {name: {"units":[...]} | {"paths":[...]}}}"""
     rb = cfg.get("runbooks")
-    if not isinstance(rb, dict) or set(rb) - set(RUNBOOKS) - set(USER_RUNBOOKS) - set(guestspec.GUEST_RUNBOOKS):
-        raise ValueError("runbooks must be a subset of " + ", ".join(RUNBOOKS + tuple(USER_RUNBOOKS) + guestspec.GUEST_RUNBOOKS))
+    if not isinstance(rb, dict) or set(rb) - set(RUNBOOKS) - set(USER_RUNBOOKS) - set(guestspec.GUEST_RUNBOOKS) - set(mbxspec.MBX_RUNBOOKS):
+        raise ValueError("runbooks must be a subset of " + ", ".join(RUNBOOKS + tuple(USER_RUNBOOKS) + guestspec.GUEST_RUNBOOKS + mbxspec.MBX_RUNBOOKS))
+    for name in mbxspec.MBX_RUNBOOKS:
+        if name in rb and rb[name] != {"enabled": True}:
+            raise ValueError(f"{name} takes exactly {{\"enabled\": true}}")
     for name in guestspec.GUEST_RUNBOOKS:
         if name in rb:
             guestspec.validate_runbook_config(name, rb[name])
@@ -53,7 +56,7 @@ def capabilities(cfg: dict) -> dict:
     rb = cfg["runbooks"]
     out = {}
     for k, v in rb.items():
-        if k in USER_RUNBOOKS:
+        if k in USER_RUNBOOKS or k in mbxspec.MBX_RUNBOOKS:
             out[k] = {"enabled": True}
         elif k in guestspec.GUEST_RUNBOOKS:
             out[k] = {key: sorted(val) if isinstance(val, list) else val for key, val in v.items()}
@@ -71,6 +74,8 @@ def check_allowed(cfg: dict, action: str, params: dict) -> dict:
         raise Reject("not_allowed", "action is not an allowlisted runbook")
     if action in guestspec.GUEST_RUNBOOKS:
         return guestspec.CHECKS[action](params, spec)   # typed, closed-shape validation; nothing is spooled before this passes
+    if action in mbxspec.MBX_RUNBOOKS:
+        return mbxspec.CHECKS[action](params)   # typed, closed-shape validation; nothing is spooled before this passes
     if action in USER_RUNBOOKS:
         if set(params) != {"user"} or not isinstance(params["user"], str) or not UID_RE.fullmatch(params["user"]):
             raise Reject("bad_params", "params must be exactly {user} (lowercase uid)")
@@ -123,13 +128,13 @@ def _user_runbook(action: str, uid: str) -> dict:
     return out
 
 
-SPOOL_DIR = "/run/ou-agent-spool"   # RuntimeDirectory of ou-agent.service (agent-writable, world-readable); params are not secret
+SPOOL_DIR = os.environ.get("OU_AGENT_SPOOL", "/run/ou-agent-spool")   # RuntimeDirectory of ou-agent.service (agent-writable, world-readable); params are not secret
 RESULT_ROOT = "/run"
 
 
 def _guest_runbook(action: str, params: dict) -> dict:
     """Spool the validated params, start the fixed template unit ou-rb-<family>@<rid>.service (polkit allows exactly that), read the result."""
-    fam = guestspec.FAMILY_OF[action]
+    fam = mbxspec.FAMILY if action in mbxspec.MBX_RUNBOOKS else guestspec.FAMILY_OF[action]
     rid = "r" + secrets.token_hex(8)
     spool = os.path.join(SPOOL_DIR, rid + ".json")
     fd = os.open(spool, os.O_WRONLY | os.O_CREAT | os.O_EXCL, 0o644)
@@ -160,7 +165,7 @@ def _guest_runbook(action: str, params: dict) -> dict:
 
 def execute(action: str, params: dict) -> dict:
     """Run an already allowlisted runbook. Returns a small JSON-safe dict."""
-    if action in guestspec.GUEST_RUNBOOKS:
+    if action in guestspec.GUEST_RUNBOOKS or action in mbxspec.MBX_RUNBOOKS:
         return _guest_runbook(action, params)
     if action in USER_RUNBOOKS:
         return _user_runbook(action, params["user"])

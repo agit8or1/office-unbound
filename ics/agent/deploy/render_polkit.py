@@ -9,6 +9,8 @@ USER_UNITS = {"gromox.sync_user": "ou-rb-gromox-sync", "gromox.kick_user": "ou-r
               "gromox.user_state": "ou-rb-gromox-state", "opencloud.check_user": "ou-rb-opencloud-check",
               "podman.pull_verified": "ou-rb-podman", "podman.deploy_unit": "ou-rb-podman", "podman.remove_unit": "ou-rb-podman",
               "podman.status": "ou-rb-podman", "guest.facts": "ou-rb-podman", "pkg.install_pinned": "ou-rb-pkg"}
+USER_UNITS.update({r: "ou-rb-gromox-mbx" for r in ("gromox.set_aliases", "gromox.shared_create", "gromox.shared_delete", "gromox.shared_access",
+                                                      "gromox.shared_state", "gromox.set_quota", "gromox.mail_usage")})
 
 cfg = json.load(open(sys.argv[1]))
 units = sorted({u + ".service" for u in cfg["runbooks"].get("service.restart", {}).get("units", [])})

@@ -18,7 +18,7 @@ from pydantic import BaseModel, ConfigDict, Field, SecretStr, field_validator, m
 from sqlalchemy import text
 from sqlalchemy.orm import Session
 
-from . import agentclient, alerts, audit, auth, checks as checkmod, endpoint_actions, identity, monitor, removal
+from . import agentclient, alerts, audit, auth, checks as checkmod, endpoint_actions, identity, mailadmin, monitor, removal
 from .deploy import ops as deploy_ops
 from .deploy import ports as deploy_ports
 from .deploy.ports import DeployError
@@ -66,6 +66,13 @@ class ActionType(StrEnum):
     idm_user_delete = "idm.user.delete"
     idm_user_reset_credentials = "idm.user.reset_credentials"
     idm_reconcile = "idm.reconcile"
+    idm_user_set_aliases = "idm.user.set_aliases"
+    idm_shared_mailbox_create = "idm.shared_mailbox.create"
+    idm_shared_mailbox_delete = "idm.shared_mailbox.delete"
+    idm_shared_mailbox_grant = "idm.shared_mailbox.grant"
+    idm_shared_mailbox_revoke = "idm.shared_mailbox.revoke"
+    idm_user_set_mail_quota = "idm.user.set_mail_quota"
+    idm_user_set_storage_quota = "idm.user.set_storage_quota"
     deployment_create = "deployment.create"
     deployment_change = "deployment.change"
     deployment_destroy = "deployment.destroy"
@@ -373,6 +380,7 @@ CATALOG: dict[ActionType, dict] = {
     ActionType.idm_user_delete: {"model": identity.UserDelete, "risk": "high", "secrets": ()},
     ActionType.idm_user_reset_credentials: {"model": identity.UserResetCredentials, "risk": "normal", "secrets": ()},
     ActionType.idm_reconcile: {"model": identity.Reconcile, "risk": "low", "secrets": ()},
+    **{ActionType(a): {"model": m, "risk": "high" if a == "idm.shared_mailbox.delete" else "normal", "secrets": ()} for a, m in mailadmin.MODELS.items()},
     # deployment engine (deploy/ops.py). "risk" is the catalog default; create_plan takes the real tier from the change diff (override => high)
     ActionType.deployment_create: {"model": deploy_ops.DeploymentCreate, "risk": "high", "secrets": ()},
     ActionType.deployment_change: {"model": deploy_ops.DeploymentChange, "risk": "normal", "secrets": ()},
@@ -1298,6 +1306,7 @@ _EXEC = {ActionType.endpoint_register: endpoint_actions.exec_register, ActionTyp
          ActionType.node_decommission: removal.exec_node_decommission, ActionType.maintenance_cancel: removal.exec_maintenance_cancel,
          ActionType.maintenance_delete: removal.exec_maintenance_delete, ActionType.plan_archive: removal.exec_plan_archive,
          **{ActionType(k): v for k, v in identity.EXECUTORS.items()},
+         **{ActionType(k): v for k, v in mailadmin.EXECUTORS.items()},
          **{ActionType(k): v for k, v in deploy_ops.EXECUTORS.items()},
          **{ActionType(k): v for k, v in endpoint_actions.EXECUTORS.items()},
          **{ActionType(k): v for k, v in prov_actions.EXECUTORS.items()},

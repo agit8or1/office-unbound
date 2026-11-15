@@ -6,6 +6,13 @@
     "disk.usage":      {"paths": ["/", "/var/lib/mysql", "/var/lib/gromox"]},
     "gromox.sync_user": {"enabled": true},
     "gromox.kick_user": {"enabled": true},
-    "gromox.user_state": {"enabled": true}
+    "gromox.user_state": {"enabled": true},
+    "gromox.set_aliases": {"enabled": true},
+    "gromox.shared_create": {"enabled": true},
+    "gromox.shared_delete": {"enabled": true},
+    "gromox.shared_access": {"enabled": true},
+    "gromox.shared_state": {"enabled": true},
+    "gromox.set_quota": {"enabled": true},
+    "gromox.mail_usage": {"enabled": true}
   }
 }

@@ -99,10 +99,22 @@ class StackRegister(BaseModel):
     mas_client_id: str | None = Field(default=None, pattern=NAME_RE, description="MAS OAuth2 client (client credentials, scope urn:mas:admin) dedicated to the ICS")
     mas_client_secret: SecretStr | None = None
     reconcile_interval_seconds: int = Field(default=900, ge=0, le=86400, description="0 disables the periodic reconcile")
+    alias_domains: list[str] = Field(default_factory=list, max_length=20, description="additional verified mail domains customers may use for ALIASES (mail_domain is always allowed)")
+    oc_quota_user: str | None = Field(default=None, pattern=UID_RE, description="directory user holding the OpenCloud Admin role, used ONLY to set/read personal-drive quotas")
+    oc_quota_password: SecretStr | None = None
 
     _s1 = field_validator("ldap_bind_password", "kc_client_secret", mode="before")(lambda cls, v: _secret(v))
     _s2 = field_validator("mas_client_secret", mode="before")(lambda cls, v: None if v is None else _secret(v))
     _p1 = field_validator("identity_ca_pem", "mail_ca_pem")(lambda cls, v: _pem(v))
+    _s3 = field_validator("oc_quota_password", mode="before")(lambda cls, v: None if v is None else _secret(v))
+
+    @field_validator("alias_domains")
+    @classmethod
+    def _ad(cls, v: list[str]) -> list[str]:
+        for d in v:
+            if not re.fullmatch(HOST_RE, d) or "." not in d or d != d.lower():
+                raise ValueError("alias_domains must be lowercase domain names")
+        return sorted(set(v))
 
     @field_validator("ldap_url")
     @classmethod
@@ -139,6 +151,10 @@ class StackRegister(BaseModel):
             raise ValueError("gromox_node_id needs mail_host and mail_ca_pem")
         if bool(self.mas_url) != bool(self.mas_client_id) or bool(self.mas_url) != bool(self.mas_client_secret):
             raise ValueError("mas_url, mas_client_id and mas_client_secret must be given together")
+        if bool(self.oc_quota_user) != bool(self.oc_quota_password):
+            raise ValueError("oc_quota_user and oc_quota_password must be given together")
+        if self.oc_quota_user and not (self.files_url and self.probe_client_id):
+            raise ValueError("oc_quota_user needs files_url and probe_client_id (the direct-grant client used to obtain its token)")
         if self.probe_client_id and not (self.mail_host or self.files_url):
             raise ValueError("probe_client_id needs mail_host and/or files_url")
         return self
@@ -232,6 +248,7 @@ class Stack:
         self.id, self.name, self.cfg = str(row.id), row.name, dict(row.config)
         self.ldap_pw, self.kc_secret = secrets_["ldap_bind_password"], secrets_["kc_client_secret"]
         self.mas_secret = secrets_.get("mas_client_secret")
+        self.oc_pw = secrets_.get("oc_quota_password")
 
     @property
     def mail_domain(self) -> str:
@@ -583,13 +600,17 @@ def _audit(rt: Runtime, action: str, plan=None, resource="idm_user", resource_id
 
 def agent_user(rt: Runtime, node_id, action: str, uid: str, known: list[str]) -> dict:
     """One signed agent request (fixed runbook, params exactly {user}). Returns the helper's JSON result; raises IdentityError otherwise."""
+    return agent_call(rt, node_id, action, {"user": uid}, known)
+
+
+def agent_call(rt: Runtime, node_id, action: str, params: dict, known: list[str]) -> dict:
+    """One signed request for a fixed, typed runbook (params are validated again by the agent). Returns the helper's JSON result."""
     with rt.session() as d:
         node = d.execute(text("SELECT * FROM nodes WHERE id = :i"), {"i": str(node_id)}).first()
     if node is None:
         raise IdentityError("node not found (enroll the node first)")
     priv = agentclient.load_signing_key(rt.settings.signing_key_file)
     jid = str(uuid.uuid4())
-    params = {"user": uid}
     body = agentclient.build_request(priv, action=action, params=params, node_id=str(node.id), job_id=jid, ttl=rt.settings.agent_request_ttl_seconds)
     req = body["req"]
     with rt.session() as d:
@@ -616,6 +637,8 @@ def agent_user(rt: Runtime, node_id, action: str, uid: str, known: list[str]) ->
     if resp.get("status") != "ok":
         raise IdentityError(f"{action}: agent {resp.get('status')}: {code}")
     r = resp.get("result") or {}
+    if isinstance(r.get("rejected"), dict):   # the node-side helper refused on policy grounds (e.g. address already used): safe, short message
+        raise IdentityError(f"{action}: refused by the node: {str(r['rejected'].get('message', r['rejected'].get('code')))[:120]}")
     if r.get("returncode") not in (0,) or not isinstance(r.get("result"), dict):
         raise IdentityError(f"{action}: helper failed (rc={r.get('returncode')})")
     return audit.sanitize(r["result"])
@@ -723,6 +746,9 @@ def _user_row(db, stack_id, uid: str, states: tuple[str, ...]):
 
 def risk_for(db, action: str, p) -> str:
     """normal = one approver other than the requester; high = two. Privileged groups raise create/update to high."""
+    from . import mailadmin
+    if action in mailadmin.ACTIONS:
+        return mailadmin.risk_for(db, action, p)
     if action in ("idm.stack.register", "idm.user.delete"):
         return "high"
     if action == "idm.reconcile":
@@ -737,6 +763,9 @@ def risk_for(db, action: str, p) -> str:
 
 def precheck(db, rt: Runtime, action: str, p) -> dict:
     """Raises ValueError (-> HTTP 422/409 via PlanError in actions.py). Returns extra info shown to the approver."""
+    from . import mailadmin
+    if action in mailadmin.ACTIONS:
+        return mailadmin.precheck(db, rt, action, p)
     if action == "idm.stack.register":
         if db.execute(text("SELECT 1 FROM idm_stacks WHERE name = :n"), {"n": p.name}).first():
             raise LookupError("stack name already exists")
@@ -819,10 +848,12 @@ def _gromox(rt, stack, action, uid, known) -> dict | None:
 
 def exec_register(rt: Runtime, db, m: StackRegister, plan, known: list[str]) -> dict:
     sid = uuid.uuid4()
-    cfg = m.model_dump(mode="json", exclude={"ldap_bind_password", "kc_client_secret", "mas_client_secret"})
+    cfg = m.model_dump(mode="json", exclude={"ldap_bind_password", "kc_client_secret", "mas_client_secret", "oc_quota_password"})
     sec = {"ldap_bind_password": m.ldap_bind_password.get_secret_value(), "kc_client_secret": m.kc_client_secret.get_secret_value()}
     if m.mas_client_secret:
         sec["mas_client_secret"] = m.mas_client_secret.get_secret_value()
+    if m.oc_quota_password:
+        sec["oc_quota_password"] = m.oc_quota_password.get_secret_value()
     known.extend(sec.values())
     stack = Stack(type("R", (), {"id": sid, "name": m.name, "config": cfg}), sec)
     d = Directory(rt, stack)  # proves TLS trust + service-account bind before anything is stored
@@ -1388,4 +1419,4 @@ MODELS = {"idm.stack.register": StackRegister, "idm.user.create": UserCreate, "i
 EXECUTORS = {"idm.stack.register": exec_register, "idm.user.create": exec_create, "idm.user.update_groups": exec_update_groups,
              "idm.user.disable": exec_disable, "idm.user.enable": exec_enable, "idm.user.delete": exec_delete,
              "idm.user.reset_credentials": exec_reset_credentials, "idm.reconcile": exec_reconcile}
-SECRETS = {"idm.stack.register": ("ldap_bind_password", "kc_client_secret", "mas_client_secret")}
+SECRETS = {"idm.stack.register": ("ldap_bind_password", "kc_client_secret", "mas_client_secret", "oc_quota_password")}
