@@ -1,10 +1,35 @@
 # UI verification of main (redesigned console), 2026-11-15
 
-Status: harness **Implemented & tested**; findings below are **open defects** unless marked fixed.
+Status: harness **Implemented & tested**; the original findings below were all closed by the polish pass (see "After state").
 Under test: main at `2da07bb` (vue-router shell, ADR-0009 IA, new dashboard, Integrations, operator user management, monitoring hardening) merged into the harness branch. Previous baseline: `ui-verification-baseline.md` (older UI).
 Run: `ics/e2e/run.sh <checkout>`; full run = read-only pass at 1440x900 / 1024x768 / 400x860 (241 passed, 147 failed; every failure is one of the findings below, mostly per-route axe results) + a mutating `flows` pass (all pass). Screenshots: `docs/screenshots/e2e/` (48 files). Raw findings: `ics/e2e/results/findings.jsonl` (`npm run summary`).
 
-## D1-D7 from the baseline
+## After state (console polish, agent Y)
+
+Status: **all D and N items closed**; verified with the harness (`ics/e2e/run.sh <checkout>`), `npm run typecheck && npm test && npm run build`, and `pytest tests/test_sysinfo.py`.
+Before (main at `2da07bb`, see below): 241 passed / 147 failed, axe serious+critical on most routes, 2 routes with page overflow at 1024 and 400, 3 dead links/pages. After: 0 axe serious/critical (every route, both themes, 3 viewports), 0 overflow at 400/1024/1440, 0 dead controls, 0 raw technical errors shown outside "Technical details".
+Harness adjustments: the seed has no Proxmox endpoint, so the dashboard shows the getting-started card (Connect, Deploy, Invite users) with the single primary button "Start guided setup"; per the owner decision login always lands on the dashboard and the wizard never opens automatically, and a new spec asserts exactly that. `deployments/history` and `system` were added to the route list; the mobile navigation spec measures layout after the drawer closes (an open drawer legitimately covers the page); `08-console-shots.spec.ts` writes the documentation screenshots to `docs/screenshots/console-v2/`.
+
+| # | Result | What changed |
+|---|---|---|
+| D2 | closed | **Deployments > History** (`/deployments/history`) merges every environment's event log, newest first. **Administration > System** (`/system`, admin) is backed by a new read-only `GET /api/v1/system` (`ics/sysinfo.py`, test `tests/test_sysinfo.py`): version, schema head (shown as unknown when the service role may not read it), readiness checks (database, worker, audit chain), per-thread health of the job runner, monitor, inventory collector and heartbeat, database size, free disk, last backup (newest folder of `ICS_BACKUP_DIR`, "unknown" when unreadable). Catalog, Changes, Updates, Access policies, Configuration stay labelled Planned |
+| D4 | closed | `src/friendly.ts` maps TLS, socket, DNS, timeout and login failures to plain sentences; `ui/TechText.vue` and `ErrorBox` show the sentence and keep the original only under a "Technical details" expander. Applied to Health checks (list and results), incident detail and notifications, and API errors |
+| D5 | closed | Every scrollable table region is a focusable, named `role=region` (Users tabs, Approvals, Incidents, Jobs, Audit, Checks, Inventory, Preview, DataTable) |
+| D6 | closed | Login and Enroll render a `<main id="main">`; the sign-in side panel is an `aside`; the skip link focuses `#main` on every page |
+| D7 | closed | The approve/reject result stays under the plan until "Dismiss" (or another plan is opened), whatever status the plan moves to |
+| N1 | closed | `hasPath` only accepts routes without parameters, so `/deployments/new` can never be satisfied by `/deployments/:id`; `/deployments/new` and `/deployments/history` are static routes that win over `:id`; unit tests in `src/polish.test.ts` |
+| N2 | closed | Directory, Invitations and Privileged tables become stacked cards below 1100px (no sideways scrolling); actions wrap instead of being clipped at 1440 |
+| N3 | closed | Sidebar "Planned" tags no longer inherit the light `.tag` background |
+| N4 | closed | The help "i" is a real `<button>` with an accessible name, tooltip (`title`) and a toggled help note (Escape closes it); 24px minimum size |
+| N5 | closed | Links in running text (paragraphs, lists, definitions, alerts, table cells) are underlined |
+| N6 | closed | "Back to sign in" is a 32px ghost button |
+| N7 | closed | Empty-state titles are `h2`, so no heading level is skipped |
+
+Unchanged owner rules: no sample data in the product, no automatic wizard redirect (dashboard offers it, covered by an e2e spec), a single primary empty-state button. Screenshots (light and dark): `docs/screenshots/console-v2/` (dashboard, users, integrations, check detail with a plain-language error and its technical details, system).
+
+## Findings of the original run (before the polish), kept for history
+
+### D1-D7 from the baseline
 | # | Status | Evidence now |
 |---|---|---|
 | D1 Users page said "API has no user list", showed no accounts | **FIXED** | Directory lists the accounts of `GET /users` (spec 03 passes); copy gone |
@@ -15,7 +40,7 @@ Run: `ics/e2e/run.sh <checkout>`; full run = read-only pass at 1440x900 / 1024x7
 | D6 Login/Enroll: no main landmark, content outside landmarks, dead skip link | **OPEN** | `landmark-one-main`, `region`, `skip-link` on login and enroll, 3 viewports x 2 themes |
 | D7 approve/reject confirmation vanishes | **OPEN** | Still absent 1.5 s after the 2nd approval and after Reject (Plans page unchanged) |
 
-## New defects on the redesigned console
+### New defects on the redesigned console
 | # | Area | Defect | Severity |
 |---|---|---|---|
 | N1 | IA / dead link | "New deployment" is shown in the nav but opens a not-found/empty page: `hasPath('/deployments/new')` matches the `/deployments/:id` route, so the wizard-presence check is always true. Also ADR items Deployments > History and Administration > System are neither built nor labelled Planned. | high |

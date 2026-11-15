@@ -319,3 +319,4 @@ dl.sys { display: grid; grid-template-columns: minmax(150px, max-content) 1fr; g
 .steps3 { list-style: none; display: grid; grid-template-columns: repeat(auto-fit, minmax(200px, 1fr)); gap: 12px; margin: 8px 0 4px; padding: 0 8px 8px; }
 .steps3 li { display: flex; flex-direction: column; gap: 2px; padding: 12px 14px; background: var(--surface2); border-radius: var(--radius-sm); }
 .steps3 span { color: var(--muted); font-size: 12.5px; }
+td.msg { min-width: 260px; }

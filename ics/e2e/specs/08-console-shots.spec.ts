@@ -16,7 +16,7 @@ for (const theme of ['light', 'dark'] as Theme[]) {
     await setTheme(page, theme)
     const shot = async (name: string) => page.screenshot({ path: path.join(dir, `${name}-${theme}.png`) })
     await gotoRoute(page, 'overview'); await shot('dashboard')
-    await gotoRoute(page, 'users'); await shot('users')
+    await gotoRoute(page, 'users'); await expect(page.locator('table tbody tr').first()).toBeVisible(); await shot('users')
     await gotoRoute(page, 'endpoints'); await shot('integrations')
     const checks = await api<{ id: string; state: string; last_message: string | null }[]>(page, 'checks')
     const bad = checks.find((c) => c.state === 'critical' && c.last_message) ?? checks[0]

@@ -45,7 +45,7 @@ const counts = computed(() => {
                 <td><a :href="'#/checks/' + c.id">{{ c.name }}</a><span v-if="!c.enabled" class="muted"> (disabled)</span></td>
                 <td class="mono">{{ c.kind }}</td>
                 <td><Status :s="c.state" /></td>
-                <td class="wrap"><TechText :text="c.last_message" fallback="not run yet" /><span v-if="c.last_run_at" class="muted small"> · {{ fmtTime(c.last_run_at) }}</span></td>
+                <td class="wrap msg"><TechText :text="c.last_message" fallback="not run yet" /><span v-if="c.last_run_at" class="muted small"> · {{ fmtTime(c.last_run_at) }}</span></td>
                 <td class="num">{{ c.interval_seconds }} s</td>
                 <td>{{ c.remediation ? String(c.remediation.runbook) + ' ' + String(c.remediation.unit ?? c.remediation.path ?? '') : '-' }}</td>
               </tr>

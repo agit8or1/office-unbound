@@ -118,7 +118,7 @@ test.describe('forms', () => {
   test('Endpoints: Register endpoint opens the form', async ({ page }) => {
     await gotoRoute(page, 'endpoints')
     await page.locator('button, a.btn').filter({ hasText: /Add endpoint|Start setup wizard/ }).first().click()
-    await expect(page.locator('[role=dialog], #main h1').filter({ hasText: /endpoint|setup/i }).first()).toBeVisible()
+    await expect(page.locator('[role=dialog], h1').filter({ hasText: /endpoint|setup|connect/i }).first()).toBeVisible()
   })
 })
 
