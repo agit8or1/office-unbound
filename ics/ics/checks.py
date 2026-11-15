@@ -4,10 +4,12 @@ Every TLS-capable check requires exactly one trust anchor (CA bundle or leaf SHA
 nothing here ever disables verification. Runners return an Outcome and never raise: failures are results. Secrets (mailbox / EWS
 passwords) come from the vault, are passed in by the caller, and are scrubbed from every message.
 """
+import base64
 import datetime
 import imaplib
 import json
 import re
+import secrets
 import smtplib
 import socket
 import ssl
@@ -24,7 +26,7 @@ from pydantic import BaseModel, ConfigDict, Field, field_validator, model_valida
 from .backups.ops import BackupCheckConfig
 from .proxmox import ProxmoxError, build_ssl_context, check_destination, normalize_fingerprint
 
-KINDS = ("http", "tcp_tls", "imap_login", "smtp_banner", "ews_getfolder", "backup")
+KINDS = ("http", "tcp_tls", "imap_login", "smtp_banner", "ews_getfolder", "backup", "sip_options_tls", "jitsi_jwt")
 HOST_RE = r"^[A-Za-z0-9]([A-Za-z0-9.-]{0,251}[A-Za-z0-9])?$"
 USER_RE = r"^[A-Za-z0-9][A-Za-z0-9._@+-]{0,127}$"
 MAX_BODY = 1024 * 1024
@@ -214,8 +216,25 @@ class EwsGetFolderCheck(_Trust):
         return urlparse(self.url).hostname or ""
 
 
+class SipOptionsTlsCheck(_Trust):
+    """SIP OPTIONS over TLS (the PBX's real signalling path, not just a TLS handshake)."""
+    host: str = Field(pattern=HOST_RE)
+    port: int = Field(default=5061, ge=1, le=65535)
+    timeout_seconds: int = Field(default=10, ge=1, le=30)
+
+
+class JitsiJwtCheck(_Trust):
+    """XMPP-over-WebSocket handshake against Jitsi's Prosody (RFC 7395), as lib-jitsi-meet does. Without a token the session MUST be
+    refused (token auth enforced); a Prosody that lets an anonymous client authenticate is reported critical."""
+    host: str = Field(pattern=HOST_RE)
+    port: int = Field(default=443, ge=1, le=65535)
+    room: str = Field(default="ou-monitor-probe", pattern=r"^[a-z0-9-]{3,60}$")
+    timeout_seconds: int = Field(default=10, ge=1, le=30)
+
+
 MODELS: dict[str, type[BaseModel]] = {"http": HttpCheck, "tcp_tls": TcpTlsCheck, "imap_login": ImapLoginCheck,
-                                      "smtp_banner": SmtpBannerCheck, "ews_getfolder": EwsGetFolderCheck, "backup": BackupCheckConfig}
+                                      "smtp_banner": SmtpBannerCheck, "ews_getfolder": EwsGetFolderCheck, "backup": BackupCheckConfig,
+                                      "sip_options_tls": SipOptionsTlsCheck, "jitsi_jwt": JitsiJwtCheck}
 NEEDS_PASSWORD = {"imap_login", "ews_getfolder"}
 
 
@@ -373,6 +392,116 @@ def run_ews(cfg: EwsGetFolderCheck, password: str, allow_loopback: bool) -> Outc
     return Outcome("ok", f"EWS GetFolder {cfg.folder} Success", _ms(t0), {})
 
 
+def _recv_until(s, marker: bytes, limit: int = 65536) -> bytes:
+    buf = b""
+    while marker not in buf:
+        _check_deadline()
+        ch = s.recv(4096)
+        if not ch:
+            break
+        buf += ch
+        if len(buf) > limit:
+            break
+    return buf
+
+
+def run_sip_options(cfg: SipOptionsTlsCheck, allow_loopback: bool) -> Outcome:
+    t0 = time.monotonic()
+    ip = _pinned_ip(cfg.host, allow_loopback)
+    tag = secrets.token_hex(6)
+    msg = (f"OPTIONS sip:{cfg.host} SIP/2.0\r\nVia: SIP/2.0/TLS ou-monitor.invalid;branch=z9hG4bK{tag};rport\r\nMax-Forwards: 70\r\n"
+           f"From: <sip:ou-monitor@{cfg.host}>;tag={tag}\r\nTo: <sip:{cfg.host}>\r\nCall-ID: {tag}@ou-monitor.invalid\r\n"
+           f"CSeq: 1 OPTIONS\r\nContact: <sip:ou-monitor@ou-monitor.invalid;transport=tls>\r\nContent-Length: 0\r\n\r\n")
+    with socket.create_connection((ip, cfg.port), timeout=cfg.timeout_seconds) as raw:
+        _track(raw)
+        with cfg.ctx().wrap_socket(raw, server_hostname=cfg.host) as s:
+            s.sendall(msg.encode())
+            head = _recv_until(s, b"\r\n\r\n")
+    m = re.match(rb"SIP/2\.0 (\d{3}) ", head)
+    if not m:
+        return _fail(t0, "no SIP response to OPTIONS over TLS")
+    code = int(m.group(1))
+    if 200 <= code < 300:
+        return Outcome("ok", f"SIP OPTIONS over TLS answered {code}", _ms(t0), {"sip_status": code})
+    if code in (401, 403, 404):   # the SIP stack answered; Asterisk may refuse OPTIONS from an unidentified peer
+        return Outcome("ok", f"SIP stack answered OPTIONS over TLS with {code} (unidentified peer)", _ms(t0), {"sip_status": code})
+    return Outcome("critical", f"SIP OPTIONS answered {code}", _ms(t0), {"sip_status": code})
+
+
+def _ws_send(s, text: str) -> None:
+    data = text.encode()
+    mask = secrets.token_bytes(4)
+    n = len(data)
+    hdr = bytes([0x81]) + (bytes([0x80 | n]) if n < 126 else bytes([0x80 | 126]) + n.to_bytes(2, "big"))
+    s.sendall(hdr + mask + bytes(b ^ mask[i % 4] for i, b in enumerate(data)))
+
+
+def _ws_recv(s, buf: bytearray) -> str | None:
+    """One text frame (None on close). Server frames are unmasked; fragmented messages are not used by Prosody for these stanzas."""
+    def need(n: int) -> bytes:
+        while len(buf) < n:
+            _check_deadline()
+            ch = s.recv(4096)
+            if not ch:
+                raise ConnectionError("websocket closed")
+            buf.extend(ch)
+            if len(buf) > MAX_BODY:
+                raise ConnectionError("websocket frame too large")
+        out = bytes(buf[:n])
+        del buf[:n]
+        return out
+    while True:
+        b0, b1 = need(2)
+        ln = b1 & 0x7F
+        if ln == 126:
+            ln = int.from_bytes(need(2), "big")
+        elif ln == 127:
+            ln = int.from_bytes(need(8), "big")
+        if ln > MAX_BODY:
+            raise ConnectionError("websocket frame too large")
+        payload = need(ln)
+        op = b0 & 0x0F
+        if op == 8:
+            return None
+        if op in (1, 2):
+            return payload.decode("utf-8", "replace")
+        # ping/pong/continuation: ignore
+
+
+def run_jitsi(cfg: JitsiJwtCheck, allow_loopback: bool) -> Outcome:
+    t0 = time.monotonic()
+    ip = _pinned_ip(cfg.host, allow_loopback)
+    key = base64.b64encode(secrets.token_bytes(16)).decode()
+    req = (f"GET /xmpp-websocket?room={cfg.room} HTTP/1.1\r\nHost: {cfg.host}\r\nOrigin: https://{cfg.host}\r\nUpgrade: websocket\r\n"
+           f"Connection: Upgrade\r\nSec-WebSocket-Key: {key}\r\nSec-WebSocket-Version: 13\r\nSec-WebSocket-Protocol: xmpp\r\n\r\n")
+    with socket.create_connection((ip, cfg.port), timeout=cfg.timeout_seconds) as raw:
+        _track(raw)
+        with cfg.ctx().wrap_socket(raw, server_hostname=cfg.host) as s:
+            s.sendall(req.encode())
+            head = _recv_until(s, b"\r\n\r\n")
+            if not head.startswith(b"HTTP/1.1 101"):
+                return _fail(t0, "Jitsi XMPP websocket upgrade refused (is Prosody/nginx up?)")
+            buf = bytearray(head.split(b"\r\n\r\n", 1)[1])
+            _ws_send(s, f'<open to="{cfg.host}" version="1.0" xmlns="urn:ietf:params:xml:ns:xmpp-framing"/>')
+            feat = ""
+            for _ in range(3):
+                fr = _ws_recv(s, buf)
+                if fr is None:
+                    break
+                feat += fr
+                if "<mechanisms" in feat or "</stream:features>" in feat:
+                    break
+            if "<stream:features" not in feat and "<features" not in feat:
+                return _fail(t0, "Prosody sent no stream features")
+            if "<mechanisms" not in feat:
+                return Outcome("ok", "Prosody up; anonymous session refused (no SASL mechanism without a token)", _ms(t0), {"enforced": True})
+            _ws_send(s, '<auth mechanism="ANONYMOUS" xmlns="urn:ietf:params:xml:ns:xmpp-sasl"/>')
+            r = _ws_recv(s, buf) or ""
+    if "<success" in r:
+        return Outcome("critical", "Prosody accepted an anonymous session: token authentication is NOT enforced", _ms(t0), {"enforced": False})
+    return Outcome("ok", "Prosody up; anonymous session refused (token authentication enforced)", _ms(t0), {"enforced": True})
+
+
 def run_check(kind: str, cfg: dict, password: str | None, allow_loopback: bool = False) -> Outcome:
     """Never raises and never takes longer than the check's `timeout_seconds` of wall clock (review M2): the runner executes in its
     own daemon thread; on expiry its sockets are closed and it is abandoned (bounded: MAX_STUCK_CHECKS)."""
@@ -412,6 +541,10 @@ def _run_check_inner(kind: str, cfg: dict, password: str | None, allow_loopback:
             return run_tcp_tls(m, allow_loopback)  # type: ignore[arg-type]
         if kind == "smtp_banner":
             return run_smtp(m, allow_loopback)  # type: ignore[arg-type]
+        if kind == "sip_options_tls":
+            return run_sip_options(m, allow_loopback)  # type: ignore[arg-type]
+        if kind == "jitsi_jwt":
+            return run_jitsi(m, allow_loopback)  # type: ignore[arg-type]
         if password is None:
             return _fail(t0, "no password stored for this check", cause="config")
         if kind == "imap_login":

@@ -1,7 +1,7 @@
 name: small
 version: 1.0.0
 title: Small (up to 50 users, 3 VMs)
-description: Identity+edge, groupware, and files+office on separate VMs (ADR-0006 lightweight layout).
+description: Identity+edge, groupware, and files+office on separate VMs (ADR-0006 lightweight layout). Chat, meetings and telephony are optional extras on their own VMs (off by default).
 maturity: lab-validated
 max_users: 50
 min_nodes: 1
@@ -11,6 +11,9 @@ vms:
   - {name: id, components: [identity, edge]}
   - {name: groupware, components: [groupware]}
   - {name: files, components: [files, office]}
-optional_components: [office]
+  - {name: chat, components: [chat]}
+  - {name: meet, components: [meetings]}
+  - {name: pbx, components: [telephony]}
+optional_components: [office, chat, meetings, telephony]
 default_optional: [office]
 backup: {schedule: daily, retention_days: 14, snapshot_before_change: true, offsite: false}

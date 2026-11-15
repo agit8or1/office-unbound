@@ -20,7 +20,7 @@ SEMVER = r"^\d+\.\d+\.\d+(-[0-9A-Za-z.-]+)?$"
 DIGEST_RE = re.compile(r"^sha256:([0-9a-f]{64})?$")  # "sha256:" alone is the explicit placeholder (unpinned)
 PIN_RE = r"^[A-Za-z0-9][A-Za-z0-9.+~:_-]{0,63}$"
 Exposure = Literal["local", "internal", "edge", "public", "ics"]
-CheckKind = Literal["http", "tcp_tls", "smtp_banner"]  # kinds that need no stored password (checks.py)
+CheckKind = Literal["http", "tcp_tls", "smtp_banner", "sip_options_tls", "jitsi_jwt"]  # kinds that need no stored password (checks.py)
 
 
 class CatalogError(Exception):
@@ -101,6 +101,18 @@ class Port(_M):
     port: int = Field(ge=1, le=65535)
     proto: Literal["tcp", "udp"] = "tcp"
     exposure: Exposure
+    port_end: int | None = Field(default=None, ge=1, le=65535, description="last port of a range (e.g. RTP 10000-10200); None = single port")
+    default_enabled: bool = Field(default=True, description="False = declared but closed unless the plan input enables it (enabled_ports)")
+
+    @model_validator(mode="after")
+    def _range(self) -> Self:
+        if self.port_end is not None and self.port_end <= self.port:
+            raise ValueError("port_end must be greater than port")
+        return self
+
+    @property
+    def last(self) -> int:
+        return self.port_end or self.port
 
 
 class DnsRecord(_M):
@@ -115,12 +127,15 @@ class HealthCheck(_M):
     port: int = Field(ge=1, le=65535)
     path: str | None = Field(default=None, pattern=r"^/[A-Za-z0-9_./?=&%-]{0,200}$")
     expect_status: int = Field(default=200, ge=100, le=599)
+    body_contains: str | None = Field(default=None, max_length=200, description="http only: text the response body must contain")
     interval_seconds: int = Field(default=60, ge=5, le=86400)
 
     @model_validator(mode="after")
     def _chk(self) -> Self:
         if self.path and self.kind != "http":
             raise ValueError("path only applies to http checks")
+        if self.body_contains and self.kind != "http":
+            raise ValueError("body_contains only applies to http checks")
         return self
 
 
@@ -152,6 +167,9 @@ class Component(_M):
     health_checks: list[HealthCheck] = []
     backup: BackupSpec
     upgrade: Upgrade
+    notices: list[str] = Field(default=[], description="plain-language caveats; every plan containing the component lists them as warnings")
+    ha_note: str | None = Field(default=None, max_length=300, description="what replication/HA means (or does not mean) for this component")
+    os_images: list[str] = Field(default=[], description="OS images the artifacts were built/validated for; empty = no restriction")
 
     @model_validator(mode="after")
     def _uniq(self) -> Self:
@@ -306,6 +324,9 @@ def build_catalog(meta_raw: dict, comp_raws: list[dict], prof_raws: list[dict], 
     if not meta.os_images or meta.default_os_image not in {o.id for o in meta.os_images}:
         raise CatalogError("default_os_image is not in os_images")
     for c in comps.values():
+        for o in c.os_images:
+            if o not in {i.id for i in meta.os_images}:
+                raise CatalogError(f"component {c.name}: os_images entry {o!r} is not in catalog os_images")
         for d in (*c.depends_on, *c.after):
             if d not in comps:
                 raise CatalogError(f"component {c.name}: unknown dependency {d!r}")

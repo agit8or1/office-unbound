@@ -335,7 +335,7 @@ def h_register_checks(ctx: StepCtx) -> dict:
         if c["vm"] != vm or c["component"] != comp:
             continue
         trust = None
-        if c["kind"] in ("http", "tcp_tls"):
+        if c["kind"] in ("http", "tcp_tls", "sip_options_tls", "jitsi_jwt"):
             trust = ctx.env.agent.tls_trust(node, c["port"])
         ctx.env.checks.register(ctx.rt, c, host, trust, ctx.created_by, ctx.deployment_id)
         ctx.resource("check", c["name"], state="present")

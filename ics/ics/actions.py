@@ -249,7 +249,7 @@ class NodeEnroll(BaseModel):
 class CheckCreate(BaseModel):
     model_config = ConfigDict(extra="forbid")
     name: str = Field(pattern=NAME_RE)
-    kind: Literal["http", "tcp_tls", "imap_login", "smtp_banner", "ews_getfolder", "backup"]
+    kind: Literal["http", "tcp_tls", "imap_login", "smtp_banner", "ews_getfolder", "backup", "sip_options_tls", "jitsi_jwt"]
     config: dict
     password: SecretStr | None = Field(default=None, description="mailbox/EWS password for imap_login / ews_getfolder (stored in the vault)")
     interval_seconds: int = Field(default=60, ge=5, le=86400)

@@ -5,7 +5,7 @@ import type { Component, DiscNetwork, DiscStorage, Endpoint, Loaded, OsImage, Pl
 import { Banner, Field, HelpNote, Unavailable, WizardShell, fmtGb, useWizard } from '../kit'
 import JobSteps from '../kit/JobSteps.vue'
 import PlanReview from './PlanReview.vue'
-import { PROFILE_ORDER, assertSubmittable, buildCreateParams, buildRequest, deploySteps, newDeployModel, planBlocked, requestKey } from './state'
+import { PROFILE_ORDER, assertSubmittable, buildCreateParams, buildRequest, deploySteps, newDeployModel, optionalHelp, planBlocked, requestKey } from './state'
 
 const m = reactive(newDeployModel())
 const wz = useWizard(deploySteps, m)
@@ -58,7 +58,7 @@ watch(() => endpoint.value?.id, async (id) => {
 })
 
 const label = (id: string) => (components.value?.state === 'ok' ? components.value.data.find((c) => c.id === id)?.label : undefined) ?? id
-const describe = (id: string) => (components.value?.state === 'ok' ? components.value.data.find((c) => c.id === id)?.description : undefined)
+const describe = (id: string) => optionalHelp(id, components.value?.state === 'ok' ? components.value.data.find((c) => c.id === id)?.description : undefined)
 const sortedProfiles = computed(() => {
   if (profiles.value?.state !== 'ok') return []
   const rank = (id: string) => { const i = PROFILE_ORDER.indexOf(id); return i < 0 ? 99 : i }
@@ -74,6 +74,7 @@ function pick(p: Profile) {
   if (p.multi_tenant && m.tenants < 2) m.tenants = 2
   m.optionalAvailable = [...p.optional_components]
   m.optional = [...p.default_optional]
+  m.federation = false
 }
 
 async function replan() {
@@ -185,6 +186,7 @@ function adjust(id: string) { const i = deploySteps.findIndex((s) => s.id === id
       <p v-if="components?.state === 'unavailable'"><Unavailable what="The component catalog" endpoint="GET /api/v1/catalog/components" :status="components.status" /></p>
       <p v-else-if="!m.optionalAvailable.length" class="muted">This profile has no optional components.</p>
       <label v-for="c in m.optionalAvailable" :key="c" class="wz-choice"><input v-model="m.optional" type="checkbox" :value="c" /> <span><b>{{ label(c) }}</b><span v-if="describe(c)" class="muted"> &mdash; {{ describe(c) }}</span></span></label>
+      <label v-if="m.optional.includes('chat')" class="wz-choice"><input v-model="m.federation" type="checkbox" /> <span><b>Chat federation</b><span class="muted"> &mdash; let people on other Matrix servers talk to your users (opens port 8448). Off by default.</span></span></label>
     </div>
 
     <!-- plan -->

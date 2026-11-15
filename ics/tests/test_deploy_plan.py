@@ -45,7 +45,7 @@ def codes(items):
 def test_real_catalog_loads_and_is_complete():
     c = load_catalog()
     assert set(c.profiles) == {"lab", "small", "medium", "large", "ha", "msp-multi", "dedicated", "custom"}
-    assert set(c.components) == {"identity", "groupware", "files", "office", "edge", "monitoring-agent"}
+    assert set(c.components) == {"identity", "groupware", "files", "office", "edge", "monitoring-agent", "chat", "meetings", "telephony"}
     assert re.fullmatch(r"[0-9a-f]{64}", c.digest)
     for comp in c.components.values():  # every formula cites its evidence
         for f in (comp.resources.cores, comp.resources.memory_mb, comp.resources.disk_gb, *(v.size_gb for v in comp.volumes)):
@@ -235,11 +235,11 @@ def test_existing_load_reduces_capacity():
 def test_ha_anti_affinity_distinct_nodes():
     c = pinned()
     p = generate_plan(inp(profile="ha", users=30), cap(2), c)
-    assert p["errors"] == []
+    assert p["errors"] == []     # ha defaults: chat + meetings on (7 replicated VM groups), telephony off
     by_group = {}
     for v in p["vms"]:
         by_group.setdefault(v["group"], []).append(v["node"])
-    assert len(by_group) == 5 and all(len(n) == 2 and len(set(n)) == 2 for n in by_group.values())
+    assert len(by_group) == 7 and all(len(n) == 2 and len(set(n)) == 2 for n in by_group.values())
     # one node only -> refused with a clear reason (never silently co-located)
     one = generate_plan(inp(profile="ha", users=30), cap(1), c)
     assert "anti_affinity_unsatisfiable" in codes(one["errors"]) and "insufficient_nodes" in codes(one["errors"])
