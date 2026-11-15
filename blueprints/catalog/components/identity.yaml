@@ -1,0 +1,32 @@
+name: identity
+version: 1.0.0
+title: Identity (OpenLDAP + Keycloak + PostgreSQL)
+description: Directory of record (OpenLDAP), OIDC provider (Keycloak) and its database (PostgreSQL). ADR-0004.
+artifacts:
+  - {name: openldap, kind: package, package: slapd, version: "2.6.10", repo: ubuntu-noble}
+  - {name: postgresql, kind: package, package: postgresql-16, version: "16.15", repo: ubuntu-noble}
+  # placeholder digest until the OB image is built and signed (ADR-0008); plans refuse to execute while unpinned
+  - {name: keycloak, kind: oci, image: registry.ou.invalid/ou/keycloak, digest: "sha256:", version: "26.8.2"}
+resources:
+  cores:     {base: 2,    per_user: 0.004, source: "lab ou-id1: Keycloak java 0.65-0.87 GB RSS; +1 core per 250 users is a planning assumption (docs/status/identity-files-lab-results.md)"}
+  memory_mb: {base: 2048, per_user: 2,     source: "identity-files-lab-results.md: ou-id1 MemoryMax 2G, machine total 0.87 GB idle; 2 MB/user JVM cache growth is an unmeasured assumption"}
+  disk_gb:   {base: 6,    per_user: 0,     source: "OS packages + Keycloak distribution (lab estimate)"}
+volumes:
+  - {name: ldap-data, path: /var/lib/ldap, size_gb: {base: 2, per_user: 0.002, source: "lab: 19 LDAP entries is negligible; 2 MB/user is generous"}, backup: true}
+  - {name: pgdata, path: /var/lib/postgresql, size_gb: {base: 5, per_user: 0.005, source: "lab keycloak DB tiny; headroom for sessions/events (assumption)"}, backup: true}
+ports:
+  - {name: ldaps, port: 636, proto: tcp, exposure: internal}
+  - {name: keycloak-https, port: 8444, proto: tcp, exposure: edge}
+  - {name: postgres, port: 5432, proto: tcp, exposure: local}
+depends_on: []
+dns: []
+health_checks:
+  - {name: keycloak-oidc, kind: http, port: 8444, path: /realms/master/.well-known/openid-configuration, expect_status: 200}
+  - {name: ldaps-tls, kind: tcp_tls, port: 636}
+backup:
+  method: online_dump
+  description: "slapcat -n0/-n1 + pg_dumpall --globals-only + pg_dump -Fc keycloak + config tar (CA private key excluded)"
+  quiesce: online
+  rpo_hours: 24
+  evidence: "docs/status/restore-drill-results.md (ou-id1 drill, online, no downtime)"
+upgrade: {downtime_seconds: 120}

@@ -19,6 +19,7 @@ from .auth import ROLES, User, client_ip, cookie_name, get_db, require
 from .blueprint import preview
 from . import userdir
 from .config import Settings
+from .deploy.api import register_routes as register_deploy_routes
 from .runtime import Runtime
 from .worker import Worker
 
@@ -360,6 +361,8 @@ def create_app(settings: Settings | None = None, runtime: Runtime | None = None)
                      details={"valid": out["valid"], "sha256": hashlib.sha256(body.blueprint_yaml.encode()).hexdigest()})
         db.commit()
         return out
+
+    register_deploy_routes(app, rt)  # catalog, deployments, drift, change preview, job steps (deploy/api.py)
 
     # ---- monitoring (read-only views; every mutation is a typed plan) ----
     def _strip_cfg(cfg: dict) -> dict:

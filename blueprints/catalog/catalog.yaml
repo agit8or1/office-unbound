@@ -1,0 +1,21 @@
+# Catalog metadata (ADR-0009 section 4). Validated by ics/ics/deploy/catalog.py.
+catalog_version: 1.0.0
+os_images:
+  - id: ubuntu-24.04
+    title: Ubuntu 24.04 LTS (noble) cloud image
+    template: ou-tpl-ubuntu-2404          # approved Proxmox template name (ADR-0009 section 5)
+    sha256: ""                            # placeholder: checksum pin is recorded when the template is approved; plan warns while empty
+  - id: debian-12
+    title: Debian 12 (bookworm) cloud image
+    template: ou-debian12-template        # real cluster template (VM 131, genericcloud); no snippets storage -> native cloud-init drive only
+    sha256: ""
+default_os_image: ubuntu-24.04
+vm_overhead:                              # added to every VM on top of the sum of its components
+  cores: 0
+  memory_mb: 512
+  disk_gb: 10
+placement:
+  cpu_overcommit: 4                       # max vCPUs per physical core (lab-grade default)
+  memory_reserve_pct: 10                  # host memory kept back, never allocated
+  storage_reserve_pct: 10                 # configurable safety margin on PHYSICAL free space
+  thin_max_ratio_pct: 100                 # a plan may not push a thin pool above 100% provisioned/physical (policy; raise explicitly)

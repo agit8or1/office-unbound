@@ -1,0 +1,17 @@
+name: msp-multi
+version: 1.0.0
+title: MSP multi-tenant (isolated stack per tenant, shared edge)
+description: Each tenant gets its own identity, groupware and files(+office) VMs (ADR-0006 isolation); one shared edge VM. `users` is per tenant.
+maturity: experimental
+max_users: 250
+min_nodes: 1
+ha: false
+tenancy: multi
+vms:
+  - {name: edge, components: [edge]}
+  - {name: identity, components: [identity], per_tenant: true}
+  - {name: groupware, components: [groupware], per_tenant: true}
+  - {name: files, components: [files, office], per_tenant: true}
+optional_components: [office]
+default_optional: [office]
+backup: {schedule: daily, retention_days: 30, snapshot_before_change: true, offsite: true}
