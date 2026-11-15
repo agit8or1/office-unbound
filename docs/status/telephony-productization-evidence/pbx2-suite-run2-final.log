@@ -1,0 +1,159 @@
+== P01 WebRTC softphone call bob -> carol (WSS + DTLS-SRTP)
+PASS bob softphone registered over WSS (own credential from /api/credential) - status='registered' ext=1002
+PASS carol softphone registered over WSS (own credential from /api/credential) - status='registered' ext=1003
+PASS login + provisioning + register for both users took - 3.9s
+PASS strict CSP on softphone assets - default-src 'none'; script-src 'self'; style-src 'self'; connect-src 'self' wss://pbx2.ou-lab.internal:8089/ws; img-src 'self'; media-src 'self' blob:; base-uri 'none'; form-action 'self'; frame-ancestors 'none'
+PASS PBX shows both WSS contacts - ==================================================================================== Contact: bob.web/sip:s9qgpvog@192.168.186.1:39108;trans 9517f6e3e2 NonQual nan Contact: carol.web/sip:3uckcnc0@192.168.186.1:39112;tra b67832964b NonQual nan Objects found: 2 
+PASS carol's phone rings (Answer button visible) - carol callstate=ringing-in peer='Lab Bob 1002'
+PASS call answered: both sides 'connected'
+PASS two PJSIP channels Up and bridged on the PBX - PJSIP/carol.web-00000001!ou-internal!!1!Up!AppDial!(Outgoing Line)!1003!!!3!4!8fcadf6c-f8c1-4322-a1a3-bb907d7a3f8c!1794780052.1 | PJSIP/bob.web-00000000!ou-internal!1003!2!Up!Dial!PJSIP/carol.web,20,Tt!1002!!!3!4!8fcadf6c-f8c1-4322-a1a3-bb907d7a3f8c!1794780052.0
+---- pjsip show channelstats (sample 1) ----
+...........Receive......... .........Transmit..........
+ BridgeId ChannelId ........ UpTime.. Codec.   Count    Lost Pct  Jitter   Count    Lost Pct  Jitter RTT....
+ ===========================================================================================================
+
+ 8fcadf6c bob.web-00000000   00:00:04 ulaw      207       0    0   0.000    206       0    0   0.000   0.000
+ 8fcadf6c carol.web-00000001 00:00:04 ulaw      206       0    0   0.000    207       0    0   0.000   0.000
+
+Objects found: 2
+---- (sample 2, +3 s) ----
+...........Receive......... .........Transmit..........
+ BridgeId ChannelId ........ UpTime.. Codec.   Count    Lost Pct  Jitter   Count    Lost Pct  Jitter RTT....
+ ===========================================================================================================
+
+ 8fcadf6c bob.web-00000000   00:00:07 ulaw      362       0    0   0.000    362       0    0   0.000   0.001
+ 8fcadf6c carol.web-00000001 00:00:07 ulaw      362       0    0   0.000    362       0    0   0.000   0.000
+
+Objects found: 2
+PASS RTP flows both directions on both legs (rx/tx packet counters grow) - sample1=[(207, 206), (206, 207)] sample2=[(362, 362), (362, 362)]
+PASS web endpoint media encryption is mandatory DTLS-SRTP (a plain-RTP call could not have connected) - media_encryption                   : dtls
+PASS hang up: both sides 'ended'
+PASS no channels left on PBX
+PASS CDR row written (1002 -> 1003, ANSWERED, billsec>0) - "","1002","1003","ou-internal","""Lab Bob"" <1002>","PJSIP/bob.web-00000000","PJSIP/carol.web-00000001","Dial","PJSIP/carol.web,20,Tt","2026-11-15 22:00:52","2026-11-15 22:00:52","2026-11-15 22:00:59",7,7,"ANSWERED","DOCUMENTATION","1794780052.0"
+== P01 WebRTC softphone call bob -> carol (WSS + DTLS-SRTP): 13 PASS / 0 FAIL
+== P02 native SIP client (baresip) over TLS + SDES-SRTP -> echo test 600
+PASS provisioning returns a one-time credential for carol.native (password not printed)
+PASS clear SIP password appears in no file on the PBX (only the MD5 digest is stored) - 0 files
+   | PBX-SIDE-DURING-CALL:
+   | PJSIP/carol.native-00000002!ou-internal!600!3!Up!Echo!!1003!!!3!4!!1794780067.2
+   |                                              ...........Receive......... .........Transmit..........
+   |  BridgeId ChannelId ........ UpTime.. Codec.   Count    Lost Pct  Jitter   Count    Lost Pct  Jitter RTT....
+   |  ===========================================================================================================
+   |           carol.native-00000 00:00:05 ulaw      249       0    0   0.000    249       0    0   0.001   0.000
+   | Objects found: 1
+   |                                              ...........Receive......... .........Transmit..........
+   |  BridgeId ChannelId ........ UpTime.. Codec.   Count    Lost Pct  Jitter   Count    Lost Pct  Jitter RTT....
+   |  ===========================================================================================================
+   |           carol.native-00000 00:00:06 ulaw      299       0    0   0.001    299       0    0   0.001   0.000
+   | Objects found: 1
+   |   Contact:  <Aor/ContactUri..............................> <Hash....> <Status> <RTT(ms)..>
+   |   Contact:  carol.native/sip:carol.native-0x5d30944459e0@1 25900a9915 NonQual         nan
+   | Objects found: 1
+   | BARESIP: baresip v1.0.0 Copyright (C) 2010 - 2020 Alfred E. Heggestad et al.
+   | BARESIP: Local network address:  IPv4=host0|192.168.186.83 
+   | BARESIP: ua: adding SIP CA: /etc/ou-lab/tls/ca.crt
+   | BARESIP: stdio: could not setup terminal: Inappropriate ioctl for device
+   | BARESIP: aucodec: PCMU/8000/1
+   | BARESIP: aucodec: PCMA/8000/1
+   | BARESIP: ausrc: aufile
+   | BARESIP: mediaenc: srtp
+   | BARESIP: mediaenc: srtp-mand
+   | BARESIP: mediaenc: srtp-mandf
+   | BARESIP: carol.native@pbx2.ou-lab.internal: Using media encryption 'srtp-mand'
+   | BARESIP: Populated 1 account
+   | BARESIP: Populated 2 audio codecs
+   | BARESIP: Populated 0 audio filters
+   | BARESIP: Populated 0 video codecs
+   | BARESIP: Populated 0 video filters
+   | BARESIP: baresip is ready.
+   | BARESIP: carol.native@pbx2.ou-lab.internal: {0/TLS/v4} 200 OK (OU-PBX) [1 binding]
+   | BARESIP: All 1 useragent registered successfully! (34 ms)
+   | BARESIP: ua: using best effort AF: af=AF_INET
+   | BARESIP: stream: audio: starting mediaenc 'srtp-mand' (wait_secure=0)
+   | BARESIP: call: connecting to 'sip:600@pbx2.ou-lab.internal;transport=tls'..
+   | BARESIP: call: SIP Progress: 100 Trying (/)
+   | BARESIP: stream: update 'audio'
+   | BARESIP: stream: audio: starting mediaenc 'srtp-mand' (wait_secure=0)
+   | BARESIP: srtp: audio: SRTP is Enabled (cryptosuite=AES_CM_128_HMAC_SHA1_80)
+   | BARESIP: audio: Set audio encoder: PCMU 8000Hz 1ch
+   | BARESIP: aufile: loading input file '/run/baresip-test/src.wav'
+   | BARESIP: aufile: /run/baresip-test/src.wav: 8000 Hz, 1 channels
+   | BARESIP: aufile: audio ptime=20 sampc=160
+   | BARESIP: aufile: end of file
+   | BARESIP: aufile: loaded 480000 bytes
+   | BARESIP: audio: source started with sample format S16LE
+   | BARESIP: audio: Set audio decoder: PCMU 8000Hz 1ch
+   | BARESIP: audio tx pipeline:      aufile ---> PCMU
+   | BARESIP: audio rx pipeline:      (play) <--- PCMU
+   | BARESIP: carol.native@pbx2.ou-lab.internal: Call established: sip:600@pbx2.ou-lab.internal;transport=tls
+   | BARESIP: stream: incoming rtp for 'audio' established, receiving from 192.168.186.83:10114
+   | BARESIP: call: terminate call '781ae870ecc747c1' with sip:600@pbx2.ou-lab.internal;transport=tls
+   | BARESIP: sip:carol.native@pbx2.ou-lab.internal: Call with sip:600@pbx2.ou-lab.internal;transport=tls terminated (duration: 8 secs)
+   | BARESIP: Quit
+   | BARESIP: ua: stop all (forced=0)
+   | RX-WAV-BYTES: 0
+PASS TLS REGISTER with digest auth accepted (200 OK)
+PASS baresip verified the server cert against the lab CA (sip_verify_server yes)
+PASS SRTP negotiated (mandatory SDES, AES_CM_128_HMAC_SHA1_80)
+PASS call to echo extension established
+PASS PBX: channel Up in Echo()
+PASS RTP in both directions on the PBX leg (two channelstats samples, counters grow) - [('carol.native-00000', '249', '0', '249', '0'), ('carol.native-00000', '299', '0', '299', '0')]
+PASS call terminated cleanly by the client
+PASS CDR row written (1003 -> 600, ANSWERED) - "","1003","600","ou-internal","""Lab Carol"" <1003>","PJSIP/carol.native-00000002","","Echo","","2026-11-15 22:01:07","2026-11-15 22:01:07","2026-11-15 22:01:15",7,7,"ANSWERED","DOCUMENTATION","1794780067.2"
+PASS wrong password: registration refused - ['BARESIP: \x1b[31mreg: sip:carol.native@pbx2.ou-lab.internal: 401 Unauthorized (OU-PBX)', 'BARESIP: sip:600@pbx2.ou-lab.internal;transport=tls: session closed: 401 Unauthorized']
+== P02 native SIP client (baresip) over TLS + SDES-SRTP -> echo test 600: 11 PASS / 0 FAIL
+== P03 voicemail -> e-mail in carol's lab mailbox
+PASS baseline: voicemail mails already in carol's INBOX - 3
+PASS both softphones registered
+PASS carol's phone rings and she does NOT answer
+PASS after the ring timeout bob's call is in VoiceMail() - 21s after dialling
+PASS bob's call state before hanging up: connected
+PASS voice message stored on the PBX (msg0000.* with audio data) - msg0000.WAV 15335 | msg0000.gsm 15543 | msg0000.txt 289
+PASS e-mail delivered to carol@ou-lab.internal (IMAPS on the lab groupware) - 1 new
+   | From: "Office Unbound PBX" <voicemail@pbx2.ou-lab.internal> | To: "Lab Carol" <carol@ou-lab.internal> | Subject: =?ISO-8859-1?Q?=5BVoicemail=5D_New_message_from_1002?=
+PASS subject names the caller (1002) and From is the PBX - =?ISO-8859-1?Q?=5BVoicemail=5D_New_message_from_1002?=
+PASS audio attachment present with data - [('msg0000.WAV', 15335)]
+PASS body mentions caller name from LDAP (Lab Bob) - Hello Lab Carol,
+
+you have a new voicemail from Lab Bob <1002> (0:09, Sunday, November 15, 2026 at 10:02:15 PM).
+
+Of
+== P03 voicemail -> e-mail in carol's lab mailbox: 10 PASS / 0 FAIL
+== P05 softphone credential endpoint (Keycloak OIDC gate)
+PASS anonymous /api/me -> 401 - 401
+PASS anonymous POST /api/credential -> 401 (no credential issued) - 401
+PASS anonymous / redirects to /login (then Keycloak) - https://phone2.ou-lab.internal/login
+PASS login redirect is Keycloak code flow with PKCE S256
+PASS strict CSP: no inline/eval, scripts only 'self', connect only self + PBX WSS, frame-ancestors none - default-src 'none'; script-src 'self'; style-src 'self'; connect-src 'self' wss://pbx2.ou-lab.internal:8089/ws; img-src 'self'; media-src 'self' blob:; base-uri 'none'; form-action 'self'; frame-ancestors 'none'
+PASS the page has no inline script/style/handlers
+PASS anonymous SIP REGISTER for a made-up user is refused
+PASS alice (no telephoneNumber in LDAP) gets NO credential and no extension - your account has no extension
+PASS POST /api/credential for a user without extension -> 403 - 403
+PASS bob without CSRF header -> 403 - 403
+PASS a user can only obtain HIS OWN credential (?user=carol ignored -> bob.web) - bob.web
+PASS credential response is no-store
+PASS session cookie is HttpOnly, Secure, SameSite=Strict - Strict
+PASS issued web password appears in no PBX log/state file or journal - 0
+== P05 softphone credential endpoint (Keycloak OIDC gate): 14 PASS / 0 FAIL
+== P04 deprovisioning: lock carol in LDAP -> PBX refuses her
+PASS baseline: carol.native REGISTER over TLS accepted
+PASS baseline: bob.native REGISTER accepted (control user)
+PASS both web softphones registered
+PASS live call bob <-> carol connected
+PASS PBX has the 2 live channels
+PASS carol locked in LDAP (ldap-user.sh lock, pwdAccountLockedTime set) - 0.4s
+   | sync output: {"changed": [true, true, true], "endpoints": ["bob.native", "bob.web"], "removed": ["carol.native", "carol.web"], "kicked": {"carol.native": [0, 0], "carol.web": [1, 1]}}
+PASS provisioning re-run removed carol's endpoints
+PASS carol.native REGISTER with her (previously valid) credential is now refused - status 401
+   | MEASURED A (explicit run): lock 0.4s | LDAP lock -> sync finished 0.5s | LDAP lock -> first refused REGISTER 0.5s
+PASS refused within 5 s of the LDAP change when provisioning is re-run immediately - 0.5s
+PASS live call of carol hung up by the PBX - no channels
+PASS carol's registered contacts (web + native) deleted on the PBX - =============================================================== Contact: bob.web/sip:5j1nh0pe@192.168.186.1:36794;trans 86a3e598d3 NonQual nan Objects found: 1 
+PASS bob (control user) still registers
+PASS carol's browser call state is 'ended' (media/signalling torn down) - ended
+PASS unlock carol
+PASS after unlock the OLD credential still does not work (purged, not resurrected)
+PASS re-issued credential works
+   | MEASURED B (timer only, 15 s period): LDAP lock -> first refused REGISTER 1.0s (status 401)
+PASS timer-driven deprovisioning refuses carol within 20 s (15 s period + sync) - 1.0s
+== P04 deprovisioning: lock carol in LDAP -> PBX refuses her: 17 PASS / 0 FAIL
