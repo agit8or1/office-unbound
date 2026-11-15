@@ -52,12 +52,19 @@ def stack_params(**over):
 
 
 # ---- in-memory systems ----------------------------------------------------------------------------------------------------------------
+_REAL_PROFILE_CHECK = identity.Keycloak.profile_check            # captured before the fixtures replace identity.Keycloak
+_PROFILE_LOCKED = identity.Keycloak.PROFILE_LOCKED
+
+
 class World:
     def __init__(self):
         self.ldap: dict = {}
         self.kc: dict = {}
         self.gx: dict = {}
         self.stuck_imap = False
+        self.profile = [{"name": "username", "permissions": {"view": ["admin", "user"], "edit": ["admin"]}},
+                        {"name": "email", "permissions": {"view": ["admin", "user"], "edit": ["admin"]}},
+                        {"name": "firstName", "permissions": {"view": ["admin", "user"], "edit": ["admin", "user"]}}]
         self.app_tokens: dict = {}          # uid -> number of live OpenCloud app tokens
         self.devices: dict = {}             # uid -> {device_id: wipe status}
         self.picks_up_after: int | None = None   # wipe is "delivered" after this many gromox.devices polls (None: never)
@@ -116,6 +123,9 @@ def world(monkeypatch):
         def close(self): pass
         def req(self, *a, **k): return types.SimpleNamespace(json=lambda: 3)
         def find(self, uid): return w.kc.get(uid)
+        def profile_check(self):
+            fake = types.SimpleNamespace(req=lambda *a, **k: types.SimpleNamespace(json=lambda: {"attributes": w.profile}), PROFILE_LOCKED=_PROFILE_LOCKED)
+            return _REAL_PROFILE_CHECK(fake)
 
         def set_enabled(self, user, en): w.kc[user["username"]]["enabled"] = en
         def logout(self, kid): [u.update(sessions=0) for u in w.kc.values() if u["id"] == kid]
@@ -813,3 +823,19 @@ def test_mas_client_calls_exact_endpoints(rt):
     assert ("POST", "/api/admin/v1/oauth2-sessions/S1/finish") in seen and ("POST", "/api/admin/v1/compat-sessions/S1/finish") in seen
     assert ("POST", "/api/admin/v1/users/M1/lock") in seen
     assert all(p.startswith("/api/admin/v1/") or p == "/oauth2/token" for _, p in seen)
+
+
+def test_reconcile_alerts_when_email_or_username_become_user_editable(env, rt, world):
+    """Security review 4, M4: the realm profile must keep email/username admin-edit-only; drift is a CRITICAL finding (report only)."""
+    add_stack(rt)
+    create_user(env)
+    ok = env.run(env.plan("idm.reconcile", {"stack": "acme"}))["result"]
+    assert not [f for f in ok["findings"] if f["kind"].startswith("kc_profile")]
+    world.profile[1]["permissions"]["edit"] = ["admin", "user"]                      # email becomes user-editable (e.g. re-import of the old realm export)
+    r = env.run(env.plan("idm.reconcile", {"stack": "acme"}))["result"]
+    f = [f for f in r["findings"] if f["kind"] == "kc_profile_user_editable"]
+    assert len(f) == 1 and f[0]["severity"] == "critical" and "'email'" in f[0]["detail"] and r["ok"] is False and r["critical"] >= 1
+    world.profile[1]["permissions"]["edit"] = ["admin"]
+    del world.profile[0]                                                              # username attribute missing: cannot verify -> warning
+    r = env.run(env.plan("idm.reconcile", {"stack": "acme"}))["result"]
+    assert [f["kind"] for f in r["findings"] if f["kind"].startswith("kc_profile")] == ["kc_profile_attribute_missing"]

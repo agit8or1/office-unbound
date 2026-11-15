@@ -455,6 +455,28 @@ class Keycloak:
         r = self.req("GET", "/users", params={"username": uid, "exact": "true"})
         return r.json()[0] if r.json() else None
 
+    # attributes that carry the mailbox identity: gromox maps a session to a mailbox ONLY by the token's email claim (security review 4, M4)
+    PROFILE_LOCKED = ("email", "username")
+
+    def profile_check(self) -> list[dict]:
+        """Reconcile finding(s) if the realm user profile lets users edit email/username (read-only call; the existing ICS role set manage-users+view-users+query-clients is enough, verified live)."""
+        try:
+            attrs = {a.get("name"): a for a in self.req("GET", "/users/profile").json().get("attributes", [])}
+        except IdentityError as e:
+            return [{"uid": "(realm)", "kind": "kc_profile_check_failed", "system": "keycloak", "severity": "warning", "detail": str(e)[:200]}]
+        out = []
+        for name in self.PROFILE_LOCKED:
+            a = attrs.get(name)
+            if a is None:
+                out.append({"uid": "(realm)", "kind": "kc_profile_attribute_missing", "system": "keycloak", "severity": "warning",
+                            "detail": f"user profile has no '{name}' attribute (cannot verify it is admin-edit-only)"})
+                continue
+            editors = sorted(set((a.get("permissions") or {}).get("edit") or []) - {"admin"})
+            if editors:
+                out.append({"uid": "(realm)", "kind": "kc_profile_user_editable", "system": "keycloak", "severity": "critical",
+                            "detail": f"'{name}' is editable by {','.join(editors)}: a user could take over another mailbox (fix: kc-profile-harden.py apply)"})
+        return out
+
     def set_enabled(self, user: dict, enabled: bool) -> None:
         full = self.req("GET", f"/users/{user['id']}").json()
         full["enabled"] = enabled
@@ -1339,6 +1361,7 @@ def reconcile(rt: Runtime, stack_name: str, trigger: str = "periodic", max_users
     mas = Mas(rt, stack) if stack.cfg.get("mas_url") else None
     findings: list[dict] = []
     try:
+        findings.extend(kc.profile_check())
         people = {p["uid"]: p for p in d.list_people()}
         managed = {u["uid"] for u in users}
         for u in users + deleted:

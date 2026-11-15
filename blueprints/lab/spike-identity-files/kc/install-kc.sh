@@ -105,6 +105,12 @@ for i in $(seq 1 90); do
 done
 [ "${OK:-0}" = 1 ] || die "Keycloak realm did not come up; journalctl -u keycloak"
 
+log "user-profile hardening (email/username admin-edit-only; also set in realm-ou-lab.json, re-checked here)"
+install -d -m 0755 /usr/local/lib/ou-kc
+install -m 0644 "${HERE}/../../spike-groupware/kc_lib.py" "${HERE}/../../spike-groupware/kc-profile-harden.py" /usr/local/lib/ou-kc/
+KC_URL="https://${HOST_KC}" KC_REALM="${REALM}" KC_CA="${TLS_DIR}/ca.crt" KC_ADMIN_PASSWORD_FILE="${SECRETS_DIR}/keycloak-admin-password" \
+  python3 /usr/local/lib/ou-kc/kc-profile-harden.py ensure || die "Keycloak user profile still lets users edit email/username (security review 4, M4)"
+
 cat <<EOS
 
 kc VM done (untested script; verify each step). Next:
