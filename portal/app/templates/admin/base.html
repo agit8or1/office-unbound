@@ -1,0 +1,18 @@
+{% extends "base.html" %}
+{% from "_icons.html" import icon %}
+{% block title %}{% block atitle %}Administration{% endblock %} · {{ brand.name }}{% endblock %}
+{% block main %}
+<nav class="subnav" aria-label="Administration">
+  <a href="/admin" {% if section == 'overview' %}aria-current="page"{% endif %}>Overview</a>
+  <a href="/admin/users" {% if section in ('users', 'user', 'new_user', 'confirm') %}aria-current="page"{% endif %}>People</a>
+  <a href="/admin/groups" {% if section == 'groups' %}aria-current="page"{% endif %}>Groups and apps</a>
+  <a href="/admin/domains" {% if section == 'domains' %}aria-current="page"{% endif %}>Domains</a>
+  <a href="/admin/branding" {% if section == 'branding' %}aria-current="page"{% endif %}>Look and feel</a>
+  <a href="/admin/requests" {% if section in ('requests', 'request') %}aria-current="page"{% endif %}>Activity</a>
+</nav>
+{% if flash == 'saved' %}<p class="notice ok" role="status">Saved.</p>
+{% elif flash == 'approved' %}<p class="notice ok" role="status">Approved. It will be carried out now.</p>
+{% elif flash == 'declined' %}<p class="notice" role="status">Declined. Nothing was changed.</p>
+{% elif flash == 'nochange' %}<p class="notice" role="status">Nothing to change.</p>{% endif %}
+{% block admin %}{% endblock %}
+{% endblock %}

@@ -1,6 +1,6 @@
 {% extends "base.html" %}
 {% from "_icons.html" import icon %}
-{% block title %}Home · {{ cfg.org_name }}{% endblock %}
+{% block title %}Home · {{ brand.name }}{% endblock %}
 {% block main %}
 <h1 class="greet">Hello, {{ user.first }}</h1>
 <p class="sub">What would you like to do today?</p>
@@ -10,10 +10,15 @@
 <section aria-labelledby="h-apps">
   <h2 id="h-apps" class="sr">Your apps</h2>
   <ul class="tiles">
+    {% set apps = brand.apps %}
+    {% if apps is none or apps.get("mail", true) %}
     <li><a class="tile" href="{{ cfg.mail_web_url }}" data-app="mail">{{ icon('mail') }}<span class="t">Mail</span><span class="d">Read and send messages</span></a></li>
     <li><a class="tile" href="{{ cfg.mail_view_url('calendar') }}" data-app="calendar">{{ icon('calendar') }}<span class="t">Calendar</span><span class="d">Meetings and events</span></a></li>
     <li><a class="tile" href="{{ cfg.mail_view_url('contacts') }}" data-app="contacts">{{ icon('contacts') }}<span class="t">Contacts</span><span class="d">People and address books</span></a></li>
+    {% endif %}
+    {% if apps is none or apps.get("files", true) %}
     <li><a class="tile" href="{{ cfg.files_url }}/" data-app="files">{{ icon('files') }}<span class="t">Files</span><span class="d">Your documents, anywhere</span></a></li>
+    {% endif %}
   </ul>
 </section>
 

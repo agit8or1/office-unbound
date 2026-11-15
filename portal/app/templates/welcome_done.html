@@ -1,0 +1,9 @@
+{% extends "base.html" %}
+{% block title %}You are all set · {{ brand.name }}{% endblock %}
+{% block main %}
+<section class="hero narrow">
+  <h1>You are all set, {{ u }}</h1>
+  <p class="lead">Your password is saved. Sign in to open your mail, calendar and files. If asked, set up two-step verification with an authenticator app.</p>
+  <p><a class="btn primary big" href="/login">Sign in</a></p>
+</section>
+{% endblock %}

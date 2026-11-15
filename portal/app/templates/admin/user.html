@@ -1,0 +1,53 @@
+{% extends "admin/base.html" %}
+{% block atitle %}{{ u.display_name }}{% endblock %}
+{% block admin %}
+<p class="crumb"><a href="/admin/users">People</a> / {{ u.display_name }}</p>
+<div class="pagehead"><h1>{{ u.display_name }}</h1>{% if u.state == 'active' %}<span class="pill ok">Access is on</span>{% else %}<span class="pill warn">Access is off</span>{% endif %}</div>
+
+<section class="card" aria-labelledby="h-det">
+  <h2 id="h-det">Details</h2>
+  <dl class="kv">
+    <dt>E-mail</dt><dd>{{ u.mail }}</dd>
+    <dt>User name</dt><dd>{{ u.uid }}</dd>
+    <dt>Added</dt><dd><time datetime="{{ u.created_at }}">{{ u.created_at | isoago }}</time></dd>
+    {% if u.disabled_at %}<dt>Switched off</dt><dd><time datetime="{{ u.disabled_at }}">{{ u.disabled_at | isoago }}</time></dd>{% endif %}
+    <dt>Storage</dt><dd><span class="pill">Planned</span> Usage and limits per person are not shown yet.</dd>
+    <dt>Extra addresses</dt><dd><span class="pill">Planned</span> Aliases and shared mailboxes.</dd>
+  </dl>
+</section>
+
+{% if u.state == 'active' %}
+<section class="card" aria-labelledby="h-apps">
+  <h2 id="h-apps">Apps</h2>
+  <form method="post" action="/admin/users/{{ u.uid }}/apps">
+    <input type="hidden" name="csrf" value="{{ sess.csrf }}">
+    <fieldset class="checks"><legend class="sr">Apps for {{ u.display_name }}</legend>
+    {% for key, a in apps.items() %}
+      <label class="check"><input type="checkbox" name="app_{{ key }}" {% if u.apps.get(key) %}checked{% endif %}><span><b>{{ a.label }}</b></span></label>
+    {% endfor %}
+    </fieldset>
+    <button class="btn" type="submit">Save apps</button>
+  </form>
+</section>
+{% endif %}
+
+<section class="card" aria-labelledby="h-act">
+  <h2 id="h-act">Sign-in and access</h2>
+  <ul class="actions">
+  {% if u.state == 'active' %}
+    <li><a class="act" href="/admin/users/{{ u.uid }}/do/reset-password"><span><b>Create a new sign-up link</b><small>For a forgotten password. They choose a new one with it.</small></span></a></li>
+    <li><a class="act" href="/admin/users/{{ u.uid }}/do/reset-mfa"><span><b>Reset two-step verification</b><small>For a lost or replaced phone</small></span></a></li>
+    {% if not u.is_you %}<li><a class="act danger" href="/admin/users/{{ u.uid }}/do/disable"><span><b>Switch off access</b><small>Signs them out everywhere. Nothing is deleted.</small></span></a></li>{% endif %}
+  {% else %}
+    <li><a class="act" href="/admin/users/{{ u.uid }}/do/enable"><span><b>Turn access back on</b><small>They get a new one-time link to set a password</small></span></a></li>
+    <li><a class="act danger" href="/admin/users/{{ u.uid }}/do/delete"><span><b>Delete this person</b><small>Needs a second administrator. The mailbox is kept.</small></span></a></li>
+  {% endif %}
+  </ul>
+</section>
+
+{% if u.history %}
+<section aria-labelledby="h-hist"><h2 id="h-hist">History</h2>
+  {% set rows = u.history %}{% include "admin/_requests_table.html" %}
+</section>
+{% endif %}
+{% endblock %}
