@@ -22,3 +22,11 @@ Endpoint `https://192.168.22.17:8006`, token `officeunbound@pam!ics` (privsep). 
 4. Drop `VM.Console` from the role.
 5. A cloud-init **template** inside the pool (Debian 12 / Ubuntu 24.04 cloud image, checksum-verified), or a directory storage with `import,snippets` content for the ICS to build its own.
 Privsep reminder: token permissions are the intersection of the user's and the token's ACLs — grant to both.
+
+## Owner remediation applied (2026-11-15) — verified
+Owner ran the ACL changes on pve06; effective token permissions (`pveum user token permissions officeunbound@pam ics`) and the ICS probe now show:
+- `/vms/126` (the ICS VM): **audit-only** (Datastore/Mapping/Pool/SDN/Sys/VM/GuestAgent .Audit). VM 126 removed from pool `officeunbound-pve06`, so pool rights no longer propagate to it.
+- `/sdn/zones/localnetwork/vmbr0`: SDN.Use + SDN.Audit. `/pool/officeunbound-pve06`: Pool.Audit + VM lifecycle set. `VM.Console` removed from role `OfficeUnboundDeploy`.
+- Template **VM 131 `ou-debian12-template`** (Debian 12 genericcloud, image SHA-512 verified on the node) in the pool — clone source.
+- Probe: **missing for provisioning: none; unnecessary: none.**
+Remaining owner items: rotate the token (secret was pasted in chat); later a VLAN-aware bridge or SDN zone for tenant isolation; thin-pool overcommit (15.17 TiB provisioned / 10.91 TiB physical, autoextend off).
