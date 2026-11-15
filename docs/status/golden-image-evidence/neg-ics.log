@@ -1,0 +1,2 @@
+ICS callback endpoint listening on https://127.0.0.1:8445 (pin sha256:5c284d74c657e8b7...), bootstrap record bid=201220f215dd1d48 state=pending; waiting for the guest
+{"smbios_written": true, "pin": "5c284d74c657e8b7a1e74007d66c123f39a5ee5cd15dbc3375f38a5a45453cb5", "state_after_wait": "pending"}

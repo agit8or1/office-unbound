@@ -1,0 +1,13 @@
+#!/bin/sh
+# Grows the root partition and its ext4 filesystem to the size of the disk (the ICS resizes the VM disk with vm.resize before the first start).
+# Idempotent: a no-op when the partition already fills the disk. Runs before ou-bootstrap; failure never blocks boot.
+set -u
+dev=$(findmnt -no SOURCE /) || exit 0
+case "$dev" in /dev/*) ;; *) exit 0 ;; esac
+name=$(basename "$dev")
+[ -r "/sys/class/block/$name/partition" ] || exit 0
+part=$(cat "/sys/class/block/$name/partition")
+disk=/dev/$(lsblk -no PKNAME "$dev" | head -1)
+growpart "$disk" "$part" >/dev/null 2>&1 || true
+resize2fs "$dev" >/dev/null 2>&1 || true
+exit 0

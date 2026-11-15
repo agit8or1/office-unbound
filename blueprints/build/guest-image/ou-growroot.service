@@ -1,0 +1,15 @@
+[Unit]
+Description=Office Unbound: grow the root partition to the disk size
+DefaultDependencies=no
+After=systemd-remount-fs.service
+Before=ou-bootstrap.service local-fs.target
+ConditionPathExists=!/var/lib/ou-bootstrap/growroot.done
+
+[Service]
+Type=oneshot
+ExecStart=/usr/local/sbin/ou-growroot
+ExecStartPost=/bin/sh -c 'mkdir -p /var/lib/ou-bootstrap && : > /var/lib/ou-bootstrap/growroot.done'
+RemainAfterExit=yes
+
+[Install]
+WantedBy=local-fs.target

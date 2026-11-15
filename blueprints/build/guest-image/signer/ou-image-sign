@@ -1,0 +1,130 @@
+#!/usr/bin/env python3
+"""ou-image-sign: the ONLY code that touches the Office Unbound golden-image manifest signing key (same pattern as ou-release-sign, security review 4).
+
+Runs as the dedicated system user `ou-imgsign`, invoked as `sudo -u ou-imgsign /usr/local/sbin/ou-image-sign <command>` (fixed sudoers rule, see
+install-image-signer.sh). The ECDSA P-256 key is passphrase-protected; the passphrase file is readable by ou-imgsign only. The builder (which handles
+untrusted build output) supplies everything on stdin as a tar stream; nothing the caller says about a hash is trusted:
+
+  sign                         stdin: tar with exactly ou-golden-<os>-<YYYYMMDD>.qcow2 and ou-golden-<os>-<YYYYMMDD>.qcow2.sbom.cdx.json (regular files).
+                               The signer RE-COMPUTES both SHA-256 values itself, REFUSES unless a passing `first-boot` test record exists for the image's
+                               SHA-256 (record-test) and the SBOM is a CycloneDX document with a component inventory, builds the SHA256SUMS text itself (the
+                               exact two-line form ics/guest/golden.py verifies) and prints a tar with SHA256SUMS and SHA256SUMS.sig (base64 DER ECDSA/SHA-256).
+  record-test <sha256> <name> <pass|fail> <log-sha256>      writes records/<sha256>.json (name must be `first-boot` for the sign gate)
+  pubkey                       prints the public key PEM and its SPKI SHA-256 pin (what the ICS operator confirms)
+State directory (default /var/lib/ou-imgsign, env OU_IMGSIGN_STATE for tests): key.pem, passphrase, records/.
+"""
+import base64
+import hashlib
+import io
+import json
+import os
+import re
+import subprocess
+import sys
+import tarfile
+
+STATE = os.environ.get("OU_IMGSIGN_STATE", "/var/lib/ou-imgsign")
+IMAGE_RE = re.compile(r"^ou-golden-(debian-12|ubuntu-24\.04)-\d{8}\.qcow2$")
+MAXTOTAL = 6 * 1024 ** 3
+MAXSBOM = 64 * 1024 * 1024
+
+
+def die(msg, code=3):
+    print("REFUSED: " + msg, file=sys.stderr)
+    sys.exit(code)
+
+
+def read_tar(fp):
+    """regular top-level files only; the image is hashed on the fly (never held in memory), the SBOM is kept"""
+    hashes, sbom, total = {}, None, 0
+    with tarfile.open(fileobj=fp, mode="r|*") as tf:
+        for m in tf:
+            if m.isdir() and m.name in (".", "./"):
+                continue
+            name = m.name[2:] if m.name.startswith("./") else m.name
+            if not m.isreg() or "/" in name or name in hashes:
+                die("tar member %r is not an acceptable regular file" % m.name)
+            total += m.size
+            if total > MAXTOTAL:
+                die("tar too large")
+            f = tf.extractfile(m)
+            if name.endswith(".sbom.cdx.json"):
+                if m.size > MAXSBOM:
+                    die("SBOM too large")
+                sbom = f.read()
+                hashes[name] = hashlib.sha256(sbom).hexdigest()
+            else:
+                h = hashlib.sha256()
+                for chunk in iter(lambda: f.read(1 << 20), b""):
+                    h.update(chunk)
+                hashes[name] = h.hexdigest()
+    return hashes, sbom
+
+
+def cmd_sign():
+    files, sbom = read_tar(sys.stdin.buffer)
+    images = [n for n in files if IMAGE_RE.match(n)]
+    if len(images) != 1 or set(files) != {images[0], images[0] + ".sbom.cdx.json"}:
+        die("the tar must hold exactly one ou-golden-<os>-<date>.qcow2 and its .sbom.cdx.json")
+    img = images[0]
+    try:
+        r = json.load(open(os.path.join(STATE, "records", files[img] + ".json")))
+    except (OSError, ValueError):
+        die("no test record for image sha256 %s: run the first-boot proof and record-test first" % files[img])
+    if r.get("results", {}).get("first-boot", {}).get("result") != "pass":
+        die("the recorded first-boot test of this image did not pass")
+    try:
+        bom = json.loads(sbom)
+        ok = bom["bomFormat"] == "CycloneDX" and isinstance(bom.get("components"), list) and len(bom["components"]) > 50
+    except (ValueError, KeyError, TypeError):
+        ok = False
+    if not ok:
+        die("the SBOM is not a CycloneDX document with a component inventory")
+    manifest = ("%s  %s\n%s  %s\n" % (files[img], img, files[img + ".sbom.cdx.json"], img + ".sbom.cdx.json")).encode()
+    p = subprocess.run(["openssl", "dgst", "-sha256", "-sign", os.path.join(STATE, "key.pem"), "-passin", "file:" + os.path.join(STATE, "passphrase")],
+                       input=manifest, capture_output=True)
+    if p.returncode != 0:
+        die("openssl failed: " + p.stderr.decode()[-200:], 4)
+    bio = io.BytesIO()
+    with tarfile.open(fileobj=bio, mode="w") as tf:
+        for n, b in (("SHA256SUMS", manifest), ("SHA256SUMS.sig", base64.b64encode(p.stdout))):
+            ti = tarfile.TarInfo(n)
+            ti.size, ti.mode, ti.mtime = len(b), 0o644, 0
+            tf.addfile(ti, io.BytesIO(b))
+    sys.stdout.buffer.write(bio.getvalue())
+
+
+def cmd_record(sha, name, res, logsha):
+    if not re.fullmatch(r"[0-9a-f]{64}", sha) or res not in ("pass", "fail") or not re.fullmatch(r"[a-z0-9-]{1,40}", name) or not re.fullmatch(r"[0-9a-f]{64}", logsha):
+        die("bad arguments")
+    d = os.path.join(STATE, "records")
+    os.makedirs(d, exist_ok=True)
+    fn = os.path.join(d, sha + ".json")
+    rec = json.load(open(fn)) if os.path.exists(fn) else {"sha256": sha, "results": {}}
+    rec["results"][name] = {"result": res, "log_sha256": logsha}
+    open(fn, "w").write(json.dumps(rec, sort_keys=True))
+    print("recorded %s=%s for %s" % (name, res, sha), file=sys.stderr)
+
+
+def cmd_pubkey():
+    k = ["-passin", "file:" + os.path.join(STATE, "passphrase")]
+    pem = subprocess.run(["openssl", "ec", "-in", os.path.join(STATE, "key.pem"), *k, "-pubout"], capture_output=True, check=True).stdout
+    der = subprocess.run(["openssl", "pkey", "-pubin", "-outform", "DER"], input=pem, capture_output=True, check=True).stdout
+    sys.stdout.write(pem.decode() + "# spki-sha256 pin: " + hashlib.sha256(der).hexdigest() + "\n")
+
+
+def main():
+    a = sys.argv[1:]
+    os.umask(0o022)
+    if a == ["sign"]:
+        cmd_sign()
+    elif a[:1] == ["record-test"] and len(a) == 5:
+        cmd_record(*a[1:])
+    elif a == ["pubkey"]:
+        cmd_pubkey()
+    else:
+        print(__doc__)
+        sys.exit(2)
+
+
+main()
