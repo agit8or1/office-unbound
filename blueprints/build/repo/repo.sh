@@ -2,6 +2,7 @@
 # Office Unbound signed apt repository (ADR-0008 steps 8-9). Run on the ICS host as the operator user. The signing key is NOT reachable from here:
 # everything that needs it goes through the fixed program /usr/local/sbin/ou-release-sign as user `ou-release` (install-signer.sh; security review 4).
 #   repo.sh publish <component>             verify the built artifacts (regular files only, dpkg-deb parsed), add to channel `dev`, admit + sign dev
+#   repo.sh retain <component> <suite>      copy the older versions of <component> from another channel's pool into dev again (rollback targets) and admit+sign
 #   repo.sh record-test <component> <suite-name> pass|fail <logfile>   record a test result for every .deb of the component's dev pool (operator-supplied;
 #                                           tests/pkgtest.sh records what it really installed on its own)
 #   repo.sh record-installed <suite> <name> pass|fail <logfile> <pkg_version>...   record for exactly the named pool .debs (used by pkgtest.sh)
@@ -71,6 +72,14 @@ publish() {
   index dev
 }
 
+retain() {  # <component> <from-suite>: put the older versions of a component that are in another channel's pool back into dev (publish replaces dev with the
+  # current build only, so a pinned-downgrade target would vanish from dev); only files the signer already knows are re-admitted by hash, nothing is rebuilt
+  c=$1; from=$2; strict_dir "$REPO/pool/$from/$c"; strict_dir "$REPO/pool/dev/$c"; d="$REPO/pool/dev/$c"   # strict_dir overwrites $d
+  for f in "$REPO/pool/$from/$c"/*; do [ -e "$d/$(basename "$f")" ] || cp --no-dereference -p "$f" "$d/"; done
+  tar_dir "$d" | $SIGN admit dev
+  index dev
+}
+
 record_test() {
   c=$1; name=$2; res=$3; log=$4
   [ "$res" = pass ] || [ "$res" = fail ] || { echo "result must be pass|fail"; exit 2; }
@@ -127,6 +136,7 @@ unserve() { . "$BUILD/tools.env"; sudo systemd-run -M "$REPO_MACHINE" --wait --p
 case "${1:-}" in
   keygen) echo "the signing key is managed by install-signer.sh (run as root); see the header of that file"; exit 2 ;;
   publish) publish "$2" ;;
+  retain) retain "$2" "$3" ;;
   record-test) shift; record_test "$@" ;;
   record-installed) shift; record_installed "$@" ;;
   promote) shift; promote "$@" ;;

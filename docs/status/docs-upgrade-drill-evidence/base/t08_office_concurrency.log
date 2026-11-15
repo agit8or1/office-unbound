@@ -1,0 +1,7 @@
+== T08 Collabora 30 concurrent sessions via OpenCloud (run 4a64aa9178) ==
+PASS uploaded 30 docs - all have fileids
+PASS all 30 sessions opened via /app/open - 30/30
+PASS all 30 sessions loaded concurrently (perm: edit) - 30/30 in 15s
+PASS all 30 saved (PutFile) - 30/30
+PASS stored DOCX of every session contains its own marker - 30/30
+-- T08 Collabora 30 concurrent sessions via OpenCloud: 5 PASS, 0 FAIL, 0 SKIP

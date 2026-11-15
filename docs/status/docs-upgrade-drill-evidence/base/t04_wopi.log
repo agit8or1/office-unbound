@@ -1,0 +1,15 @@
+== T04 WOPI / Collabora session (run c2bc8f7588) ==
+PASS collabora discovery - discovery XML lists docx
+PASS collabora capabilities - capabilities JSON: {"convert-to":{"available":true,"endpoint":"/cool/convert-to"},"hasDocumentSigni
+PASS app registry lists Collabora - CollaboraOnline registered
+PASS upload - uploaded wopi-c2bc8f7588.docx
+PASS file id - oc:fileid=ec3a7ecd-7559-4b70-9d64-04dd6e7f0b56$26b5940b-b727-45d2-bf3f-666fd5a06658!43ca37d3-f9bf-44d2-b99d-4a9b02855868
+PASS app/open - app_url + WOPI token returned
+PASS CheckFileInfo without proof-key refused - HTTP 500 (token alone is not enough; Collabora proof headers required)
+PASS tampered token refused - HTTP 401
+PASS Collabora loads document via WOPI - session got status; CheckFileInfo BaseFileName=wopi-c2bc8f7588.docx UserCanWrite visible
+PASS session is editable - perm: edit
+PASS Collabora save (PutFile) - .uno:Save success=true
+PASS stored DOCX contains Collabora edit - paragraphs=['EDITEDBYCOLLABORAWOPI check c2bc8f7588'] (bytes changed 36595 -> 20535)
+PASS Collabora save created a version - version listed after save
+-- T04 WOPI / Collabora session: 13 PASS, 0 FAIL, 0 SKIP
