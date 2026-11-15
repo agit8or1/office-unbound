@@ -18,6 +18,7 @@ from pydantic import BaseModel, ConfigDict, Field, SecretStr, field_validator, m
 from sqlalchemy import text
 from sqlalchemy.orm import Session
 
+from . import release as release_ops
 from . import agentclient, alerts, audit, auth, checks as checkmod, endpoint_actions, identity, monitor, removal
 from .deploy import ops as deploy_ops
 from .deploy import ports as deploy_ports
@@ -100,6 +101,7 @@ class ActionType(StrEnum):
     backup_run = "backup.run"
     backup_verify = "backup.verify"
     backup_prune = "backup.prune"
+    release_promote = "release.promote"
 
 
 class EndpointRegister(endpoint_actions.ScopeLists):
@@ -402,6 +404,7 @@ CATALOG: dict[ActionType, dict] = {
     ActionType.backup_run: {"model": backup_ops.BackupRun, "risk": "low", "secrets": ()},
     ActionType.backup_verify: {"model": backup_ops.BackupVerify, "risk": "low", "secrets": ()},
     ActionType.backup_prune: {"model": backup_ops.BackupPrune, "risk": "low", "secrets": ()},
+    ActionType.release_promote: {"model": release_ops.ReleasePromote, "risk": release_ops.risk, "secrets": (), "admin_only": True},
 }
 CATALOG.update({ActionType(k): v for k, v in prov_actions.CATALOG.items()})   # provider provisioning (ics/provisioning/actions.py)
 _PROV = {ActionType(k) for k in prov_actions.CATALOG}
@@ -557,7 +560,7 @@ _PRECHECK = {ActionType.node_enroll: _pre_node_enroll, ActionType.check_create: 
              ActionType.alert_channel_test: _pre_channel_test, ActionType.incident_ack: _pre_ack, ActionType.runbook_execute: _pre_runbook,
              ActionType.check_delete: removal.pre_check_delete, ActionType.alert_channel_delete: removal.pre_channel_delete,
              ActionType.node_decommission: removal.pre_node_decommission, ActionType.maintenance_cancel: removal.pre_maintenance_cancel,
-             ActionType.maintenance_delete: removal.pre_maintenance_delete, ActionType.plan_archive: removal.pre_plan_archive,
+             ActionType.maintenance_delete: removal.pre_maintenance_delete, ActionType.plan_archive: removal.pre_plan_archive, ActionType.release_promote: release_ops.precheck,
 **{ActionType(k): v for k, v in {**cred_actions.PRECHECK, **ten_actions.PRECHECK}.items()}}
 
 
@@ -1331,4 +1334,5 @@ _EXEC = {ActionType.endpoint_register: endpoint_actions.exec_register, ActionTyp
          **{ActionType(k): v for k, v in endpoint_actions.EXECUTORS.items()},
          **{ActionType(k): v for k, v in prov_actions.EXECUTORS.items()},
          **{ActionType(k): v for k, v in {**cred_actions.EXECUTORS, **ten_actions.EXECUTORS}.items()},
+         ActionType.release_promote: release_ops.exec_promote,
          **{ActionType(k): v for k, v in backup_ops.EXECUTORS.items()}}

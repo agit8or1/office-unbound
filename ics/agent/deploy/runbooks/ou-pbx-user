@@ -6,9 +6,9 @@ validates, drops privileges, and writes the result file the agent returns to the
   sync   -> ou-pbx report --user U   (LDAP -> pjsip/dialplan/voicemail config, reload only if changed; this user's state)
   kick   -> ou-pbx kick --user U     (sync from the directory, delete registrations, hang up live calls)
   state  -> ou-pbx state --user U    (read-only)
-  issue  -> ou-pbx issue --user U --device D   (credential returned ONCE; written 0600 to /run/ou-rb-secret (a 0700 directory owned by ou-agent) for the agent only, never to /run/ou-rb)
+  issue  -> ou-pbx issue --user U --device D   (credential returned ONCE; created 0600 (O_EXCL|O_NOFOLLOW, fchown to ou-agent) in /run/ou-rb-secret (a root-owned 1770 directory, group ou-agent) for the agent only, never to /run/ou-rb)
 """
-import json, os, pwd, re, subprocess, sys, time
+import json, os, pwd, re, shutil, stat, subprocess, sys, time
 
 UID_RE = re.compile(r"^[a-z][a-z0-9._-]{1,31}$")
 DEVICES = ("web", "native", "desk")
@@ -25,6 +25,59 @@ def run(args):
     return json.loads(r.stdout.strip().splitlines()[-1])
 
 
+SECRET_NAME_RE = re.compile(r"^[A-Za-z0-9._-]{1,120}$")
+
+
+def secret_dir_fd(path, owner_uid, agent_gid):
+    """Review 5 H3: the secret directory is OWNED BY ROOT (mode 1770, group ou-agent: the agent may create nothing we trust and may unlink only its own
+    files). A directory that is not exactly that (agent-owned from an older install, a symlink, a plain file) is removed and recreated; the directory
+    is then used through a file descriptor only, so no path component is looked up twice."""
+    try:
+        st = os.lstat(path)
+        ok = stat.S_ISDIR(st.st_mode) and st.st_uid == owner_uid
+    except FileNotFoundError:
+        ok = None
+    if ok is False:
+        if stat.S_ISDIR(st.st_mode):
+            shutil.rmtree(path)
+        else:
+            os.unlink(path)
+    if not ok:
+        os.mkdir(path, 0o700)
+    fd = os.open(path, os.O_RDONLY | os.O_DIRECTORY | os.O_NOFOLLOW)
+    st = os.fstat(fd)
+    if st.st_uid != owner_uid:
+        os.close(fd)
+        sys.exit("secret directory is not owned by the helper's identity")
+    os.fchown(fd, owner_uid, agent_gid)
+    os.fchmod(fd, 0o1770)
+    return fd
+
+
+def write_secret(dirpath, name, payload, owner_uid, agent_uid, agent_gid):
+    """create <dirpath>/<name> with O_CREAT|O_EXCL|O_NOFOLLOW inside the root-owned directory, fchown the FD (never a path) to the agent"""
+    if not SECRET_NAME_RE.match(name):
+        sys.exit(2)
+    dfd = secret_dir_fd(dirpath, owner_uid, agent_gid)
+    try:
+        for f in os.listdir(dfd):                   # leftovers of a crashed run never live longer than the next issue; entries are never followed
+            try:
+                st = os.stat(f, dir_fd=dfd, follow_symlinks=False)
+                if f == name or (time.time() - st.st_mtime > 60 and not stat.S_ISDIR(st.st_mode)):
+                    os.unlink(f, dir_fd=dfd)
+            except OSError:
+                pass
+        fd = os.open(name, os.O_WRONLY | os.O_CREAT | os.O_EXCL | os.O_NOFOLLOW, 0o600, dir_fd=dfd)   # a racing re-planted entry => EEXIST: fail closed
+        try:
+            os.fchown(fd, agent_uid, agent_gid)
+            os.fchmod(fd, 0o600)
+            os.write(fd, payload)
+        finally:
+            os.close(fd)
+    finally:
+        os.close(dfd)
+
+
 def main():
     verb, arg = sys.argv[1], sys.argv[2]
     if verb == "issue":
@@ -34,20 +87,7 @@ def main():
         data = run(["issue", "--user", uid, "--device", dev])
         data.update({"uid": uid, "device": dev, "ts": int(time.time())})
         ag = pwd.getpwnam("ou-agent")
-        os.makedirs(SECRET, mode=0o700, exist_ok=True)
-        os.chown(SECRET, ag.pw_uid, ag.pw_gid)     # the AGENT must own the directory: it unlinks the file after reading it (a root-owned dir kept the secret on disk)
-        os.chmod(SECRET, 0o700)
-        for f in os.listdir(SECRET):                # leftovers of a crashed run never live longer than the next issue
-            try:
-                if time.time() - os.stat(os.path.join(SECRET, f)).st_mtime > 60:
-                    os.unlink(os.path.join(SECRET, f))
-            except OSError:
-                pass
-        path = os.path.join(SECRET, "pbx-issue-%s.%s.json" % (uid, dev))
-        fd = os.open(path, os.O_WRONLY | os.O_CREAT | os.O_TRUNC, 0o600)
-        with os.fdopen(fd, "w") as f:
-            json.dump(data, f)
-        os.chown(path, ag.pw_uid, ag.pw_gid)
+        write_secret(SECRET, "pbx-issue-%s.%s.json" % (uid, dev), json.dumps(data).encode(), 0, ag.pw_uid, ag.pw_gid)
         return
     uid = arg
     if verb not in ("sync", "kick", "state") or not UID_RE.match(uid):
@@ -62,4 +102,5 @@ def main():
     os.replace(path + ".tmp", path)
 
 
-main()
+if __name__ == "__main__":
+    main()
