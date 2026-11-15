@@ -9,7 +9,10 @@
                -> enable (new enrollment) -> disable again with a canary credential (the ICS's own VERIFY measures) -> reconcile incl. an injected drift
                -> delete -> audit/secret hygiene checks
 Prints a per-path table: PASS (refused within 60 s) / FAIL (measured seconds, or "NOT REVOKED"). Passwords/tokens are never printed.
-usage: lab_user_lifecycle.py {setup|lifecycle|all}
+usage: lab_user_lifecycle.py {setup|lifecycle|all|matrix|cleanup}
+  matrix: Matrix (MAS) downstream. Needs OU_MATRIX_PYTHON (collab test venv) and a lab ICS instance of this code (ics/scripts/lab_ics_instance.py):
+          OU_ICS_BASE=http://127.0.0.1:8099/api/v1 OU_DEMO_CREDS=<creds.json>. Measures when Synapse/MAS refuse the user's OWN Matrix access and refresh
+          token after the lock, a new SSO login, unlock on enable, reconcile drift, and deactivation on delete.
 """
 import json
 import os
@@ -27,6 +30,7 @@ sys.path.insert(0, "/opt/office-unbound/ics")
 from ics import idprobe  # noqa: E402  (same prober the ICS uses for its VERIFY step)
 import lab_monitoring_demo as demo  # noqa: E402  (Api, accounts, TOTP handling)
 
+demo.BASE = os.environ.get("OU_ICS_BASE", demo.BASE)   # a lab ICS instance instead of the production service
 BASE = demo.BASE
 STACK = "lab-acme"
 MAIL_DOMAIN = "ou-lab.internal"
@@ -325,12 +329,143 @@ def lifecycle():
     return 0 if total == 0 else 1
 
 
+# ---- Matrix (MAS) downstream: stack without nodes, real Keycloak/LDAP/MAS, Matrix access measured independently -----------------------------------
+MX_STACK = "lab-mx"
+MX_PY = os.environ.get("OU_MATRIX_PYTHON")      # python with requests+playwright+PyJWT (the collab test venv)
+MX_PROBE = os.path.join(os.path.dirname(os.path.abspath(__file__)), "..", "..", "blueprints", "lab", "spike-collab", "tests", "matrix_probe.py")
+_MX_TOK: dict = {}
+
+
+def mx_run(args, stdin=None, timeout=240):
+    p = subprocess.run([MX_PY, MX_PROBE, *args], input=stdin, capture_output=True, text=True, timeout=timeout)
+    return p.returncode, p.stdout.strip(), p.stderr.strip()[-300:]
+
+
+def mx_json(out):
+    """Last JSON object line of the helper's stdout (Playwright/MAS libraries may print other lines first)."""
+    for line in reversed((out or "").splitlines()):
+        if line.startswith("{"):
+            return json.loads(line)
+    return {}
+
+
+def mx_secret():
+    return secret_file("ou-chat1", "/root/ou-lab-secrets/mas-ics-client-secret")
+
+
+def mas_admin(method, path):
+    """Direct MAS admin call (only to inject/inspect drift in the lab run; the ICS uses its own vault-held credential)."""
+    ctx = ssl.create_default_context(cadata=secret_file("ou-id1", "/etc/ou-lab/tls/ca.crt"))
+    with httpx.Client(verify=ctx, timeout=20) as c:
+        if "t" not in _MX_TOK:
+            cid = secret_file("ou-chat1", "/root/ou-lab-secrets/mas-ics-client-id")
+            r = c.post("https://mas.ou-lab.internal/oauth2/token", auth=(cid, mx_secret()), data={"grant_type": "client_credentials", "scope": "urn:mas:admin"})
+            _MX_TOK["t"] = r.json()["access_token"]
+        r = c.request(method, "https://mas.ou-lab.internal/api/admin/v1" + path, headers={"Authorization": "Bearer " + _MX_TOK["t"]})
+        r.raise_for_status()
+        return r
+
+
+def setup_matrix(op, aps):
+    if any(s["name"] == MX_STACK for s in op.get("identity/stacks")):
+        log(f"stack {MX_STACK} already registered")
+        return
+    base = "dc=ou-lab,dc=internal"
+    run_plan(op, aps, "idm.stack.register", {
+        "name": MX_STACK, "ldap_url": "ldaps://ldap.ou-lab.internal", "ldap_bind_dn": f"cn=svc-ics,ou=system,{base}",
+        "ldap_bind_password": secret_file("ou-id1", "/root/ou-lab-secrets/ldap-ics-password"),
+        "ldap_people_dn": f"ou=people,{base}", "ldap_groups_dn": f"ou=groups,{base}", "mail_domain": MAIL_DOMAIN,
+        "entitlement_group": "mail-users", "allowed_groups": ["mail-users", "opencloudUser"], "privileged_groups": [],
+        "kc_url": "https://auth.ou-lab.internal", "kc_realm": "ou-lab", "kc_client_id": "ou-ics",
+        "kc_client_secret": secret_file("ou-id1", "/root/ou-lab-secrets/kc-ics-client-secret"),
+        "kc_offline_clients": [], "identity_ca_pem": secret_file("ou-id1", "/etc/ou-lab/tls/ca.crt"),
+        "mas_url": "https://mas.ou-lab.internal", "mas_client_id": secret_file("ou-chat1", "/root/ou-lab-secrets/mas-ics-client-id"),
+        "mas_client_secret": mx_secret(), "reconcile_interval_seconds": 0})
+    log("stack registered (Keycloak + LDAP + MAS; no mail/files nodes)")
+
+
+def matrix():
+    """One user lifecycle with Matrix as a downstream. Measures, with the user's REAL Matrix tokens, how long after the ICS locks the account
+    Synapse still honours the access token / MAS still accepts the refresh token; new SSO login after the lock; unlock; reconcile drift; delete."""
+    if not MX_PY:
+        raise SystemExit("set OU_MATRIX_PYTHON to a python with requests, playwright, PyJWT (the collab test venv)")
+    op, a1, a2 = api_login()
+    aps = [a1, a2]
+    setup_matrix(op, aps)
+    uid = "mx" + secrets.token_hex(3)
+    pw1, pw2 = secrets.token_urlsafe(18), secrets.token_urlsafe(18)
+    tmp = os.path.join(os.path.expanduser("~/.cache/ou-ics-inst"), uid)
+    os.makedirs(tmp, mode=0o700, exist_ok=True)
+    tokf, resf = os.path.join(tmp, "tokens.json"), os.path.join(tmp, "poll.json")
+    res: dict = {}
+    t_all = time.time()
+    log(f"== Matrix lifecycle of {uid} in stack {MX_STACK}")
+    plan_id, j = run_plan(op, aps, "idm.user.create", {"stack": MX_STACK, "uid": uid, "display_name": f"Matrix {uid}", "mail": f"{uid}@{MAIL_DOMAIN}",
+                                                       "groups": ["opencloudUser"], "mailbox": False})
+    enroll_user(op, plan_id, MX_STACK, uid, pw1)
+    rc, out, err = mx_run(["login", uid, "--out", tokf], stdin=pw1 + "\n")
+    log(f"Matrix SSO login (real browser, MAS -> Keycloak): rc={rc} {out} {err if rc else ''}")
+    if rc:
+        raise SystemExit("Matrix login failed")
+    # ---- disable: poll the user's own Matrix tokens from before the lock, concurrently with the plan ---------------------------------------
+    poll = subprocess.Popen([MX_PY, MX_PROBE, "poll", "--tokens", tokf, "--out", resf, "--horizon", "90"], stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+    time.sleep(3)   # let the poller prime Synapse's introspection cache the way a live client does
+    _, j = run_plan(op, aps, "idm.user.disable", {"stack": MX_STACK, "uid": uid, "rotate_credentials": False, "verify_timeout_seconds": 60,
+                                                  "reason": "lab acceptance: leaver (Matrix)"})
+    ver = j["result"]["verification"]
+    lock = float(ver["lock_applied_epoch"])
+    poll.wait(timeout=120)
+    pr = json.load(open(resf))
+    acc = round(pr["access_refused_epoch"] - lock, 1) if pr.get("access_refused_epoch") else None
+    ref = round(pr["refresh_refused_epoch"] - lock, 1) if pr.get("refresh_refused_epoch") else None
+    log("ICS steps: " + "; ".join(f"{s['step']} {s['ms']}ms" + (f" (+{s['at']}s)" if "at" in s else "") for s in j["result"]["steps"]))
+    log(f"ICS VERIFY overall={ver['overall']} matrix state={json.dumps(ver['state'].get('matrix'))} matrix_access={json.dumps(ver['paths'].get('matrix_access'))}")
+    res["disable"] = {"access_token_refused_s": acc, "refresh_token_refused_s": ref, "ics_verify": ver["overall"],
+                      "ics_matrix_access_s": (ver["paths"].get("matrix_access") or {}).get("seconds")}
+    rc, out, _ = mx_run(["relogin", uid], stdin=pw1 + "\n")
+    res["disable"]["new_sso_login_after_lock"] = mx_json(out).get("login")
+    log(f"after the lock: access token refused after {acc} s, refresh token refused after {ref} s (target {TARGET:.0f} s); "
+        f"new SSO login possible: {res['disable']['new_sso_login_after_lock']}")
+    # ---- enable: unlock, user re-enrols, Matrix works again ---------------------------------------------------------------------------------
+    plan_id2, j = run_plan(op, aps, "idm.user.enable", {"stack": MX_STACK, "uid": uid, "reason": "lab: back from leave"})
+    log("enable steps: " + "; ".join(f"{s['step']} {s['ms']}ms" for s in j["result"]["steps"]))
+    enroll_user(op, plan_id2, MX_STACK, uid, pw2)
+    rc, out, _ = mx_run(["relogin", uid], stdin=pw2 + "\n")
+    res["enable"] = {"matrix_login_again": mx_json(out).get("login")}
+    log(f"after enable + re-enrolment: Matrix SSO login possible again: {res['enable']['matrix_login_again']}")
+    # ---- second disable, then injected drift (MAS unlocked out of band), reconcile -------------------------------------------------------------
+    _, j = run_plan(op, aps, "idm.user.disable", {"stack": MX_STACK, "uid": uid, "rotate_credentials": False, "verify_timeout_seconds": 45,
+                                                  "reason": "lab: second disable"})
+    log("second disable: " + "; ".join(f"{s['step']} {s['ms']}ms sessions_ended={s.get('sessions_ended')}" for s in j["result"]["steps"] if s["step"].startswith("matrix"))
+        + f" -> {j['result']['verification']['overall']}")
+    mid = mas_admin("GET", f"/users/by-username/{uid}").json()["data"]["id"]
+    mas_admin("POST", f"/users/{mid}/unlock")
+    log("INJECTED DRIFT: unlocked the Matrix account out of band (ICS says 'disabled')")
+    _, j = run_plan(op, aps, "idm.reconcile", {"stack": MX_STACK})
+    drift = [(f["kind"], f["severity"]) for f in j["result"]["findings"] if f["uid"] == uid]
+    log(f"reconcile after drift: {drift}")
+    res["drift_detected"] = any(k == "matrix_not_locked" for k, _ in drift)
+    # ---- delete -> MAS account deactivated ------------------------------------------------------------------------------------------------------
+    _, j = run_plan(op, aps, "idm.user.delete", {"stack": MX_STACK, "uid": uid, "reason": "lab: end of Matrix lifecycle"})
+    st = mas_admin("GET", f"/users/by-username/{uid}").json()["data"]["attributes"]
+    res["delete"] = {"mas_deactivated": bool(st.get("deactivated_at"))}
+    log("delete steps: " + "; ".join(f"{s['step']} {s['ms']}ms" for s in j["result"]["steps"]) + f"; MAS account deactivated={res['delete']['mas_deactivated']}")
+    blob = json.dumps(a1.get("audit?limit=500")) + json.dumps(op.get("jobs?limit=200"))
+    leaks = [n for n, v in (("password1", pw1), ("password2", pw2), ("mas secret", mx_secret())) if v and v in blob]
+    log(f"audit + job result scan for passwords / the MAS client secret: leaks={leaks or 'none'}")
+    ok = (acc is not None and acc <= TARGET and ref is not None and ref <= TARGET and ver["overall"] == "PASS" and res["disable"]["new_sso_login_after_lock"] is False
+          and res["enable"]["matrix_login_again"] is True and res["drift_detected"] and res["delete"]["mas_deactivated"] and not leaks)
+    print("\nSUMMARY " + json.dumps(res))
+    print(f"RESULT {'PASS' if ok else 'FAIL'}: Matrix access refused within {TARGET:.0f} s of the lock; total run {time.time() - t_all:.0f} s")
+    return 0 if ok else 1
+
+
 def cleanup():
     """Delete earlier lab users (state disabled) of this script through normal 2-approver plans."""
     op, a1, a2 = api_login()
     for u in op.get("identity/users"):
-        if u["stack"] == STACK and u["uid"].startswith("lc") and u["state"] == "disabled":
-            run_plan(op, [a1, a2], "idm.user.delete", {"stack": STACK, "uid": u["uid"], "reason": "lab cleanup of test user"})
+        if u["stack"] in (STACK, MX_STACK) and u["uid"][:2] in ("lc", "mx") and u["state"] == "disabled":
+            run_plan(op, [a1, a2], "idm.user.delete", {"stack": u["stack"], "uid": u["uid"], "reason": "lab cleanup of test user"})
 
 
 if __name__ == "__main__":
@@ -338,6 +473,8 @@ if __name__ == "__main__":
     if cmd == "cleanup":
         cleanup()
         sys.exit(0)
+    if cmd == "matrix":     # Keycloak + LDAP + Matrix (MAS) lifecycle on a stack without nodes; against a lab ICS instance (OU_ICS_BASE, OU_DEMO_CREDS)
+        sys.exit(matrix())
     if cmd in ("setup", "all"):
         setup()
     rc = lifecycle() if cmd in ("lifecycle", "all") else 0
