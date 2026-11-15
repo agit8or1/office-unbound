@@ -61,6 +61,8 @@ class ActionType(StrEnum):
     idm_user_enable = "idm.user.enable"
     idm_user_delete = "idm.user.delete"
     idm_reconcile = "idm.reconcile"
+    idm_user_set_extension = "idm.user.set_extension"
+    idm_user_issue_sip_credential = "idm.user.issue_sip_credential"
     deployment_create = "deployment.create"
     deployment_change = "deployment.change"
     deployment_destroy = "deployment.destroy"
@@ -345,6 +347,8 @@ CATALOG: dict[ActionType, dict] = {
     ActionType.idm_user_enable: {"model": identity.UserEnable, "risk": "normal", "secrets": ()},
     ActionType.idm_user_delete: {"model": identity.UserDelete, "risk": "high", "secrets": ()},
     ActionType.idm_reconcile: {"model": identity.Reconcile, "risk": "low", "secrets": ()},
+    ActionType.idm_user_set_extension: {"model": identity.UserSetExtension, "risk": "normal", "secrets": ()},
+    ActionType.idm_user_issue_sip_credential: {"model": identity.IssueSipCredential, "risk": "normal", "secrets": ()},
     # deployment engine (deploy/ops.py). "risk" is the catalog default; create_plan takes the real tier from the change diff (override => high)
     ActionType.deployment_create: {"model": deploy_ops.DeploymentCreate, "risk": "high", "secrets": ()},
     ActionType.deployment_change: {"model": deploy_ops.DeploymentChange, "risk": "normal", "secrets": ()},

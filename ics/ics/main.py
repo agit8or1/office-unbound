@@ -7,7 +7,7 @@ import pyotp
 from pathlib import Path
 
 from fastapi import Depends, FastAPI, HTTPException, Request, Response
-from fastapi.responses import RedirectResponse
+from fastapi.responses import JSONResponse, RedirectResponse
 from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel, Field, ValidationError
 from sqlalchemy import text
@@ -452,6 +452,14 @@ def create_app(settings: Settings | None = None, runtime: Runtime | None = None)
         if not r:
             raise HTTPException(404, "no unrevealed, unexpired enrollment for this plan and requester")
         return r
+
+    @app.post(f"{API}/identity/sip-credentials/{{plan_id}}/reveal")
+    def idm_sip_reveal(plan_id: UUID, user: User = Depends(require("operator")), db: Session = Depends(get_db)):
+        """Shows the one-time SIP device credential of an idm.user.issue_sip_credential plan to ITS REQUESTER, once (the PBX keeps only a digest)."""
+        r = identity.reveal_sip_credential(db, rt, user, plan_id)
+        if not r:
+            raise HTTPException(404, "no unrevealed, unexpired SIP credential for this plan and requester")
+        return JSONResponse(r, headers={"Cache-Control": "no-store"})
 
     @app.post(f"{API}/identity/enroll")
     def idm_enroll(body: IdmEnrollIn, request: Request, db: Session = Depends(get_db)):

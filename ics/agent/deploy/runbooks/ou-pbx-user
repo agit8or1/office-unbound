@@ -1,0 +1,58 @@
+#!/usr/bin/python3
+"""Root helper for the ou-agent telephony runbooks on the PBX node. Started ONLY by the fixed template units ou-rb-pbx-<verb>@<instance>.service.
+usage: ou-pbx-user sync|kick|state <uid>      |      ou-pbx-user issue <uid>.<device>      (everything validated again here; no env, no stdin)
+The real work is done by /usr/local/bin/ou-pbx (blueprints/telephony/pbx/ou_pbx.py) as the unprivileged user ou-pbx; this helper only
+validates, drops privileges, and writes the result file the agent returns to the ICS:
+  sync   -> ou-pbx report --user U   (LDAP -> pjsip/dialplan/voicemail config, reload only if changed; this user's state)
+  kick   -> ou-pbx kick --user U     (sync from the directory, delete registrations, hang up live calls)
+  state  -> ou-pbx state --user U    (read-only)
+  issue  -> ou-pbx issue --user U --device D   (credential returned ONCE; written 0600 to /run/ou-rb-secret for the agent only, never to /run/ou-rb)
+"""
+import json, os, pwd, re, subprocess, sys, time
+
+UID_RE = re.compile(r"^[a-z][a-z0-9._-]{1,31}$")
+DEVICES = ("web", "native", "desk")
+OUT, SECRET = "/run/ou-rb", "/run/ou-rb-secret"
+PBX = "/usr/local/bin/ou-pbx"
+
+
+def run(args):
+    cmd = ["/usr/bin/setpriv", "--reuid=ou-pbx", "--regid=ou-pbx", "--init-groups", PBX, *args]
+    r = subprocess.run(cmd, capture_output=True, text=True, timeout=50, stdin=subprocess.DEVNULL, env={"PATH": "/usr/bin:/bin", "LANG": "C"})
+    if r.returncode != 0:
+        sys.stderr.write(r.stderr[-300:])
+        sys.exit(1)
+    return json.loads(r.stdout.strip().splitlines()[-1])
+
+
+def main():
+    verb, arg = sys.argv[1], sys.argv[2]
+    if verb == "issue":
+        uid, _, dev = arg.rpartition(".")
+        if dev not in DEVICES or not UID_RE.match(uid):
+            sys.exit(2)
+        data = run(["issue", "--user", uid, "--device", dev])
+        data.update({"uid": uid, "device": dev, "ts": int(time.time())})
+        os.makedirs(SECRET, mode=0o711, exist_ok=True)
+        os.chmod(SECRET, 0o711)
+        path = os.path.join(SECRET, "pbx-issue-%s.%s.json" % (uid, dev))
+        fd = os.open(path, os.O_WRONLY | os.O_CREAT | os.O_TRUNC, 0o600)
+        with os.fdopen(fd, "w") as f:
+            json.dump(data, f)
+        ag = pwd.getpwnam("ou-agent")
+        os.chown(path, ag.pw_uid, ag.pw_gid)
+        return
+    uid = arg
+    if verb not in ("sync", "kick", "state") or not UID_RE.match(uid):
+        sys.exit(2)
+    data = run([{"sync": "report", "kick": "kick", "state": "state"}[verb], "--user", uid])
+    data.update({"uid": uid, "ts": int(time.time())})
+    os.makedirs(OUT, exist_ok=True)
+    path = os.path.join(OUT, "pbx-%s-%s.json" % (verb, uid))
+    with open(path + ".tmp", "w") as f:
+        json.dump(data, f)
+    os.chmod(path + ".tmp", 0o644)
+    os.replace(path + ".tmp", path)
+
+
+main()

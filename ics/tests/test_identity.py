@@ -86,7 +86,7 @@ def world(monkeypatch):
 
         def list_people(self): return [dict(e, groups=sorted(e["groups"])) for e in w.ldap.values()]
 
-        def add(self, uid, name, mail):
+        def add(self, uid, name, mail, extension=None):
             w.ldap[uid] = {"uid": uid, "dn": f"uid={uid},ou=people", "mail": mail, "display_name": name, "locked": False, "groups": set(),
                            "entry_uuid": str(uuid.uuid4())}
 
