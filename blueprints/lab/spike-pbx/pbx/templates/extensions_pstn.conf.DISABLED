@@ -1,0 +1,5 @@
+; DISABLED outbound route template - not included anywhere. See pjsip_trunk.conf.DISABLED for the emergency-calling warning.
+; Any enablement must also restrict WHO may dial out (e.g. an LDAP group -> separate endpoint context), add rate/cost limits,
+; and route emergency numbers to the trunk ONLY after the emergency profile has been legally reviewed and tested with the provider.
+; [ou-outbound]
+; exten => _0X.,1,Dial(PJSIP/${EXTEN:1}@trunk-provider,60)

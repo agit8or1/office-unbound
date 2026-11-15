@@ -1,0 +1,21 @@
+#!/usr/bin/env python3
+"""Asterisk `mailcmd` replacement: read an RFC822 message on stdin, deliver it to the lab groupware SMTP (gw1, port 25, STARTTLS
+verified against the gw1 lab CA). Lab-local only; no other relay. Envelope recipients = To/Cc of the message."""
+import email
+import email.utils
+import json
+import smtplib
+import ssl
+import sys
+
+CONF = json.load(open("/etc/ou-pbx/ou-pbx.json"))["smtp"]
+raw = sys.stdin.buffer.read()
+msg = email.message_from_bytes(raw)
+rcpts = [a for _, a in email.utils.getaddresses(msg.get_all("To", []) + msg.get_all("Cc", []))]
+if not rcpts:
+    sys.exit("no recipient")
+sender = email.utils.parseaddr(msg.get("From", ""))[1] or CONF["from"]
+ctx = ssl.create_default_context(cafile=CONF["ca"])
+with smtplib.SMTP(CONF["host"], CONF.get("port", 25), timeout=20) as s:
+    s.starttls(context=ctx)
+    s.sendmail(sender, rcpts, raw)
