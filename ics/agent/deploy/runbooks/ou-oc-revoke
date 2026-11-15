@@ -1,0 +1,115 @@
+#!/usr/bin/python3
+"""Started (as user opencloud, by ou-rb-opencloud-revoke@<uid>.service) to revoke ALL app tokens of one user. usage: ou-oc-revoke <uid>
+OpenCloud (services/auth-app) offers list/delete only as the user's own HTTP API (GET/DELETE /auth-app/tokens); the CLI can only `create`. The
+supported way to act as the user without their password is the one the CLI itself uses: the machine-auth key. So:
+  1. `opencloud auth-app create --user-name <uid> --expiration 300s`  -> a short-lived TEMPORARY token (argv, no shell; never written anywhere)
+  2. GET /auth-app/tokens (Basic <uid>:<temp>) on the loopback proxy -> every token id (UUID; the listing never contains a secret)
+  3. DELETE /auth-app/tokens?token=<id> for every id except the temporary one, then list again: only the temporary token may remain
+  4. DELETE the temporary token and check that it is refused (HTTP 401)
+Must run BEFORE the account is locked (OpenCloud cannot resolve a locked user: `resolved: false` is reported and nothing is revoked).
+Result: /run/ou-rb/opencloud-revoke-<uid>.json  {resolved, listed, revoked, remaining, temp_token_dead, ok}"""
+import base64
+import http.client
+import json
+import os
+import re
+import subprocess
+import sys
+import time
+import urllib.parse
+from datetime import datetime
+
+UUID_RE = re.compile(r"^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$")
+TOKEN_RE = re.compile(r"^[A-Za-z0-9 ]{8,128}$")   # app tokens are word passphrases
+TEMP_TTL = 300
+
+
+def host_port():
+    hp = os.environ.get("PROXY_HTTP_ADDR", "127.0.0.1:9200")
+    h, _, p = hp.rpartition(":")
+    return (h if h in ("127.0.0.1", "localhost", "::1") else "127.0.0.1"), int(p)   # loopback only: the token never leaves the node
+
+
+def request(method, path, uid, token, host_header):
+    h, p = host_port()
+    c = http.client.HTTPConnection(h, p, timeout=20)
+    auth = base64.b64encode(f"{uid}:{token}".encode()).decode()
+    c.request(method, path, headers={"Authorization": "Basic " + auth, "Host": host_header, "Accept": "application/json"})
+    r = c.getresponse()
+    body = r.read(1 << 20)
+    c.close()
+    return r.status, body
+
+
+def tokens(uid, tmp, hosth):
+    st, body = request("GET", "/auth-app/tokens", uid, tmp, hosth)
+    if st != 200:
+        raise RuntimeError("list failed: HTTP %d" % st)
+    out = []
+    for t in json.loads(body or b"[]"):
+        if not (isinstance(t, dict) and isinstance(t.get("token"), str) and UUID_RE.match(t["token"])):
+            raise RuntimeError("unexpected token list entry")
+        out.append(t)
+    return out
+
+
+def expiry(t):
+    return datetime.fromisoformat(t["expiration_date"].replace("Z", "+00:00")).timestamp()
+
+
+def finish(res):
+    os.makedirs("/run/ou-rb", mode=0o755, exist_ok=True)
+    tmpf = "/run/ou-rb/.ocr-%s.tmp" % res["uid"]
+    with open(tmpf, "w") as f:
+        json.dump(res, f)
+    os.chmod(tmpf, 0o644)
+    os.replace(tmpf, "/run/ou-rb/opencloud-revoke-%s.json" % res["uid"])
+    return 0
+
+
+def main():
+    if len(sys.argv) != 2 or not re.fullmatch(r"[a-z][a-z0-9._-]{1,31}", sys.argv[1]):
+        print("usage: ou-oc-revoke <uid>", file=sys.stderr)
+        return 2
+    uid = sys.argv[1]
+    res = {"uid": uid, "cmd": "revoke", "ts": int(time.time()), "resolved": False, "ok": False}
+    hosth = urllib.parse.urlparse(os.environ.get("OC_URL", "")).netloc or "localhost"
+    p = subprocess.run(["/usr/local/bin/opencloud", "auth-app", "create", "--user-name", uid, "--expiration", "%ds" % TEMP_TTL],
+                       capture_output=True, text=True, timeout=40, stdin=subprocess.DEVNULL)
+    tmp = None
+    for line in p.stdout.splitlines():
+        if line.strip().startswith("token:"):
+            tmp = line.split("token:", 1)[1].strip()
+    if p.returncode != 0 or not tmp or not TOKEN_RE.match(tmp):
+        res["error"] = (p.stderr.strip().splitlines() or ["no usable token"])[-1][:160]   # stdout may hold a token: never reported
+        return finish(res)
+    res["resolved"] = True
+    try:
+        before = tokens(uid, tmp, hosth)
+        res["listed"] = len(before)
+        now = time.time()
+        # the temporary token is the one whose expiry lies about TEMP_TTL ahead of now; it is deleted last
+        mine = min(before, key=lambda t: abs(expiry(t) - (now + TEMP_TTL))) if before else None
+        revoked = 0
+        for t in before:
+            if t is mine:
+                continue
+            st, _ = request("DELETE", "/auth-app/tokens?" + urllib.parse.urlencode({"token": t["token"]}), uid, tmp, hosth)
+            if st != 200:
+                raise RuntimeError("delete failed: HTTP %d" % st)
+            revoked += 1
+        res["revoked"] = revoked
+        rest = tokens(uid, tmp, hosth)
+        res["remaining"] = len(rest) - (1 if mine else 0)
+        if mine is not None:
+            request("DELETE", "/auth-app/tokens?" + urllib.parse.urlencode({"token": mine["token"]}), uid, tmp, hosth)
+        st, _ = request("GET", "/auth-app/tokens", uid, tmp, hosth)
+        res["temp_token_dead"] = st == 401
+        res["ok"] = res["remaining"] == 0 and res["temp_token_dead"]
+    except (RuntimeError, OSError, ValueError, KeyError) as e:
+        res["error"] = str(e)[:160]
+    return finish(res)
+
+
+if __name__ == "__main__":
+    sys.exit(main())

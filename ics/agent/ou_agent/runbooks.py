@@ -20,9 +20,13 @@ USER_RUNBOOKS = {
     "gromox.sync_user": ("ou-rb-gromox-sync", "gromox-sync"),         # reconcile the directory user into Gromox (create / suspend / reactivate)
     "gromox.kick_user": ("ou-rb-gromox-quarantine", "gromox-quarantine"),  # lock the (already suspended) mailbox for already-open sessions
     "gromox.user_state": ("ou-rb-gromox-state", "gromox-state"),      # read-only: SQL status + mailbox lock state
+    "gromox.kill_sessions": ("ou-rb-gromox-kill", "gromox-kill"),     # USER-KICK on the event bus: gromox-imap closes the user's open sessions
+    "gromox.wipe_devices": ("ou-rb-gromox-wipe", "gromox-wipe"),      # request an ActiveSync remote wipe for every device of the user
+    "gromox.devices": ("ou-rb-gromox-devices", "gromox-devices"),     # read-only: the user's EAS devices + wipe status/history
     "opencloud.check_user": ("ou-rb-opencloud-check", "opencloud-check"),  # can OpenCloud still resolve this user (1 s app token probe)
+    "opencloud.revoke_app_tokens": ("ou-rb-opencloud-revoke", "opencloud-revoke"),  # delete ALL app tokens of the user (before the lock)
 }
-UID_RE = re.compile(r"^[a-z][a-z0-9._-]{1,31}$")
+UID_RE = re.compile(r"^[a-z][a-z0-9._-]{1,31}\Z")
 RESULT_DIR = "/run/ou-rb"
 MAX_RESULT = 24576
 _ENV = {"PATH": "/usr/bin:/bin", "LANG": "C"}

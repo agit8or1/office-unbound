@@ -6,6 +6,9 @@
     "disk.usage":      {"paths": ["/", "/var/lib/mysql", "/var/lib/gromox"]},
     "gromox.sync_user": {"enabled": true},
     "gromox.kick_user": {"enabled": true},
-    "gromox.user_state": {"enabled": true}
+    "gromox.user_state": {"enabled": true},
+    "gromox.kill_sessions": {"enabled": true},
+    "gromox.wipe_devices": {"enabled": true},
+    "gromox.devices": {"enabled": true}
   }
 }
