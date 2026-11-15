@@ -45,11 +45,22 @@ onUnmounted(() => clearInterval(timer))
 
 // auth redirects
 const bare = computed(() => !!route.meta.bare)
+let firstRunChecked = false
+async function firstRun() {
+  if (firstRunChecked || !session.user || !hasRole('admin') || !hasPath('/setup')) return
+  firstRunChecked = true
+  try { if (sessionStorage.getItem('ics-setup-skipped')) return } catch { /* storage may be blocked */ }
+  try {
+    const s = await get<{ has_endpoint: boolean }>('setup/state')
+    if (!s.has_endpoint) void router.replace('/setup')
+  } catch { /* the console works without it */ }
+}
 watch([() => session.ready, () => session.user, () => route.name], () => {
   if (!session.ready) return
   if (route.name === 'enroll') return
   if (!session.user && route.name !== 'login') void router.replace('/login')
-  else if (session.user && route.name === 'login') { void router.replace('/overview'); void refreshBadges() }
+  else if (session.user && route.name === 'login') { void router.replace('/overview'); void refreshBadges(); void firstRun() }
+  else if (session.user) void firstRun()
 }, { immediate: true })
 watch(() => route.fullPath, () => { navOpen.value = false; crumbLabel.value = '' })
 

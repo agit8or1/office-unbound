@@ -483,10 +483,11 @@ def create_steps(vms: list[dict], inp: PlanInput, cat: Catalog, extra_nic: bool 
         steps.append(_step(f"vm.clone:{n}", "provider_task", n, "clone_vm",
                            {"name": n, "template": tmpl, "node": v["node"], "pool": inp.pool,
                             "storage": v["disks"][0].get("storage"), "tags": v["tags"]}, []))
+        steps.append(_step(f"vm.tag:{n}", "provider_task", n, "finalize_clone", {}, [f"vm.clone:{n}"]))
         steps.append(_step(f"vm.configure:{n}", "provider_task", n, "configure_vm",
                            {"cores": v["cores"], "memory_mb": v["memory_mb"], "disks": v["disks"], "nics": v["nics"],
                             "cloud_init": {"hostname": v["hostname"], "agent_enrollment": True, "rootless_podman": True}},
-                           [f"vm.clone:{n}"]))
+                           [f"vm.tag:{n}"]))
         steps.append(_step(f"vm.start:{n}", "provider_task", n, "power", {"op": "start"}, [f"vm.configure:{n}"]))
         steps.append(_step(f"agent.enroll:{n}", "wait_agent_enrollment", n, "enroll", {"timeout_seconds": 600}, [f"vm.start:{n}"]))
     for v in vms:

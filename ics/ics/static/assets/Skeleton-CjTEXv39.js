@@ -1,1 +1,0 @@
-import{H as e,P as t,R as n,U as r,et as i,k as a}from"./index-BvIfINt3.js";var o={class:`page`,role:`status`,"aria-label":`Loading`},s=n({__name:`Skeleton`,props:{rows:{default:4}},setup(n){return(s,c)=>(e(),t(`div`,o,[(e(!0),t(a,null,r(n.rows,n=>(e(),t(`span`,{key:n,class:i([`skel`,n%2?``:`w70`])},null,2))),128))]))}});export{s as t};

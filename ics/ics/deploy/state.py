@@ -143,7 +143,7 @@ def change_steps(old: dict, new: dict, added, changed, removed, cat) -> list[dic
         ov, nv = old_vms[n], new_vms[n]
         old_d = {d["name"]: d for d in ov["disks"]}
         reboot = bool(_REBOOT_FIELDS & set(f))
-        grown = [d for d in nv["disks"] if d["name"] in old_d and d["size_gb"] > old_d[d["name"]]["size_gb"]]
+        grown = [(i, d) for i, d in enumerate(nv["disks"]) if d["name"] in old_d and d["size_gb"] > old_d[d["name"]]["size_gb"]]
         fresh = [d for d in nv["disks"] if d["name"] not in old_d]
         need_cfg = bool({"cores", "memory_mb", "nics"} & set(f)) or bool(fresh)
         deps: list[str] = []
@@ -153,12 +153,13 @@ def change_steps(old: dict, new: dict, added, changed, removed, cat) -> list[dic
         if reboot:
             steps.append(_step(f"vm.stop:{n}", "provider_task", n, "power", {"op": "shutdown"}, deps, disruptive=True, est_seconds=60))
             deps = [f"vm.stop:{n}"]
-        for d in grown:
+        for i, d in grown:
             steps.append(_step(f"vm.resize:{n}:{d['name']}", "provider_task", n, "resize_disk",
-                               {"disk": d["name"], "new_size_gb": d["size_gb"]}, deps, est_seconds=30))
+                               {"disk": d["name"], "disk_index": i, "new_size_gb": d["size_gb"]}, deps, est_seconds=30))
         if need_cfg:
             steps.append(_step(f"vm.configure:{n}", "provider_task", n, "configure_vm",
-                               {"cores": nv["cores"], "memory_mb": nv["memory_mb"], "disks": nv["disks"], "nics": nv["nics"], "cloud_init": {}},
+                               {"cores": nv["cores"], "memory_mb": nv["memory_mb"], "disks": nv["disks"], "nics": nv["nics"], "cloud_init": {},
+                                "new_disks": [d["name"] for d in fresh]},
                                deps, est_seconds=20))
         if reboot:
             steps.append(_step(f"vm.start:{n}", "provider_task", n, "power", {"op": "start"}, [s["key"] for s in steps if s["target"] == n],

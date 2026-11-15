@@ -8,7 +8,7 @@ from sqlalchemy import text
 from ics import worker
 from ics.deploy import executor, ops
 from ics.deploy.ports import DbChecks, ExecEnv, StepFailed
-from ics.providers.base import Discovery, GuestInfo, TaskRef, TaskStatus
+from ics.providers.base import Discovery, TaskRef, TaskStatus
 
 from .test_deploy_plan import DIGEST, inp, pinned
 
@@ -23,6 +23,7 @@ class SimulatedCrash(BaseException):
 class FakeProvider:
     def __init__(self):
         self.vms: dict[int, dict] = {}
+        self.sizes: dict[str, int] = {}
         self.calls: list[tuple] = []
         self.next = 100
         self.polls: dict[str, int] = {}
@@ -39,27 +40,40 @@ class FakeProvider:
         if cb:
             cb()
 
-    def _task(self, op, vmid=None, node="pve1"):
+    def _task(self, op, vmid=None, node="pve1", name=None):
         tid = f"t{len(self.calls)}"
         if self.fail.get(op, 0) > 0:
             self.fail[op] -= 1
             self.polls[tid] = -1
-        return TaskRef(tid, node, vmid)
+        return TaskRef(node, tid, vmid, op, None, 9000 if op == "clone" else None, name)
 
     def discover(self):
-        return Discovery(guests=[GuestInfo(v["vmid"], v["node"], v["name"], "vm", v["status"], list(v["tags"])) for v in self.vms.values()])
+        guests = [{"vmid": v["vmid"], "node": v["node"], "name": v["name"], "kind": "vm", "status": v["status"], "tags": [t.lower() for t in v["tags"]]}
+                  for v in self.vms.values()]
+        return Discovery(guests=guests, templates=[{"vmid": 9000, "node": "pve1", "name": "ou-tpl-ubuntu-2404", "kind": "vm", "tags": []},
+                                                    {"vmid": 9001, "node": "pve1", "name": "ou-debian12-template", "kind": "vm", "tags": []}])
 
     def clone_vm(self, spec):
         self._rec("clone", spec.name)
         vmid, self.next = self.next, self.next + 1
-        self.vms[vmid] = {"vmid": vmid, "node": spec.node, "name": spec.name, "status": "stopped", "tags": spec.tags, "cfg": None, "disks": {}}
-        t = self._task("clone", vmid, spec.node)
-        if self.polls.get(t.id) == -1:      # a failed clone task leaves no guest behind
+        node = spec.target_node or spec.template_node
+        self.vms[vmid] = {"vmid": vmid, "node": node, "name": spec.name, "status": "stopped", "tags": [], "cfg": None, "disks": {},
+                          "dep": spec.deployment_id}
+        t = self._task("clone", vmid, node, spec.name)
+        if self.polls.get(t.upid) == -1:      # a failed clone task leaves no guest behind
             del self.vms[vmid]
         return t
 
+    def finalize_clone(self, task):
+        v = self.vms[task.vmid]
+        assert task.template_vmid == 9000 and task.name == v["name"] and task.upid  # the persisted clone TaskRef round-trips intact
+        self._rec("tag", v["name"])
+        v["tags"] = ["ou-managed", f"ou-deployment-{v['dep']}"]
+        return self._task("tag", task.vmid, task.node)
+
     def configure_vm(self, ref, spec):
         self._rec("configure", self.vms[ref.vmid]["name"])
+        assert ref.deployment_id == self.vms[ref.vmid]["dep"]
         self.vms[ref.vmid]["cfg"] = spec
         return self._task("configure", ref.vmid, ref.node)
 
@@ -83,11 +97,11 @@ class FakeProvider:
         return self._task("destroy", ref.vmid, ref.node)
 
     def task_status(self, task):
-        n = self.polls.get(task.id, 0)
+        n = self.polls.get(task.upid, 0)
         if n == -1:
-            return TaskStatus("failed", "injected provider failure")
-        self.polls[task.id] = n + 1
-        return TaskStatus("running", "", 50) if n == 0 else TaskStatus("ok")
+            return TaskStatus("error", "ERROR", "injected provider failure")
+        self.polls[task.upid] = n + 1
+        return TaskStatus("running") if n == 0 else TaskStatus("ok", "OK")
 
     def names(self, op):
         return [c[1] for c in self.calls if c[0] == op]
@@ -262,7 +276,7 @@ def test_create_end_to_end(client, actors, rt, env):
     assert cfg.cores == next(v for v in p["vms"] if v["name"].endswith("-id"))["cores"] and cfg.nics[0].bridge == "vmbr0"
     # per-VM order: clone -> configure -> start; pull before deploy_unit
     order = [c for c in prov.calls if c[1] == "acme-prod-files"]
-    assert [c[0] for c in order] == ["clone", "configure", "power"]
+    assert [c[0] for c in order] == ["clone", "tag", "configure", "power"]
     rb = [r[1] for r in agent.runbooks if r[0] == "node-acme-prod-files"]
     assert rb.index("podman.pull_verified") < rb.index("podman.deploy_unit")
     assert any(r[1] == "pkg.install_pinned" and r[2]["package"] == "ou-gromox" for r in agent.runbooks)
@@ -343,23 +357,43 @@ def test_adopts_orphan_vm_from_interrupted_clone(client, actors, rt, env):
     seed_inventory(rt)
     p = preview(actors[0])
     prov = env.provider
-    orig = prov.clone_vm
+    orig = prov.finalize_clone
     state = {"n": 0}
 
-    def clone_then_die(spec):
-        t = orig(spec)
+    def tag_then_die(task):
+        t = orig(task)
         state["n"] += 1
         if state["n"] == 1:
             raise SimulatedCrash()
         return t
-    prov.clone_vm = clone_then_die
+    prov.finalize_clone = tag_then_die
     submit(actors, rt, "deployment.create", {"spec": spec_body(), "plan_hash": p["plan_hash"]})
-    n_orphans = len(prov.vms)
-    assert n_orphans == 1
-    prov.clone_vm = orig
+    n_cloned = len(prov.names("clone"))
+    assert n_cloned == 3 and sum(bool(v["tags"]) for v in prov.vms.values()) == 1  # all cloned; the tag step died after the first tag landed (response lost)
+    prov.finalize_clone = orig
     _, jid2 = submit(actors, rt, "deployment.create", {"spec": spec_body(), "plan_hash": p["plan_hash"]})
     assert job(actors[0], jid2)["status"] == "succeeded" and len(prov.vms) == 3
-    assert any("adopted" in s["log_excerpt"] for s in steps(actors[0], jid2))
+    assert len(prov.names("clone")) == 3                          # no VM was cloned twice
+    st = {s["step_key"]: s for s in steps(actors[0], jid2)}
+    assert all(s["status"] == "succeeded" for s in st.values()) and all(st[f"vm.clone:{v['name']}"]["carried_from_job"] for v in p["vms"])
+    assert all({"ou-managed", "ou-deployment-prod"} <= set(v["tags"]) for v in prov.vms.values())
+    # the create plan tags every clone as its own step, after the clone and before configure (configure depends on it)
+    keys = [s["key"] for s in p["steps"]]
+    for v in p["vms"]:
+        n = v["name"]
+        assert keys.index(f"vm.clone:{n}") < keys.index(f"vm.tag:{n}") and keys.index(f"vm.tag:{n}") < keys.index(f"vm.configure:{n}")
+
+
+def test_untagged_guest_with_same_name_is_never_adopted(client, actors, rt, env):
+    """Crash between clone and tagging leaves an untagged guest: ICS refuses to adopt or duplicate it (ownership is the tag)."""
+    seed_inventory(rt)
+    p = preview(actors[0])
+    prov = env.provider
+    prov.vms[500] = {"vmid": 500, "node": "pve1", "name": p["vms"][0]["name"], "status": "stopped", "tags": [], "cfg": None, "disks": {}, "dep": "prod"}
+    _, jid = submit(actors, rt, "deployment.create", {"spec": spec_body(), "plan_hash": p["plan_hash"]})
+    j = job(actors[0], jid)
+    assert j["status"] == "failed" and "not tagged as owned" in j["error"]["message"]
+    assert prov.names("clone") == [] and len(prov.vms) == 1
 
 
 def test_step_retry_then_success_and_hard_failure_with_explanation(client, actors, rt, env):
@@ -536,12 +570,13 @@ def _guests_from(prov, cores_delta=0):
     for v in prov.vms.values():
         c = v["cfg"]
         out.setdefault(v["node"], []).append({"vmid": v["vmid"], "name": v["name"], "status": v["status"], "cpus": c.cores + cores_delta,
-                                              "maxmem": c.memory_mb * MiB, "maxdisk": c.disks[0].size_gb * GiB, "tags": ";".join(v["tags"])})
+                                              "maxmem": c.memory_mb * MiB, "maxdisk": prov.sizes[v["name"]] * GiB, "tags": ";".join(v["tags"])})
     return out
 
 
 def test_drift_report_is_report_only(client, actors, rt, env):
-    _active(actors, rt)
+    p = _active(actors, rt)
+    env.provider.sizes = {v["name"]: v["disks"][0]["size_gb"] for v in p["vms"]}
     (o, _) = actors[0]
     seed_inventory(rt, guests=_guests_from(env.provider))
     d = o.get(f"{H}/deployments/prod/drift").json()

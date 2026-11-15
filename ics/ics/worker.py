@@ -5,6 +5,7 @@ import time
 from sqlalchemy import text
 
 from . import identity, monitor
+from .inventory import collector
 from .actions import claim_job, reap_expired, run_job
 from .runtime import Runtime
 
@@ -85,10 +86,20 @@ class Worker(threading.Thread):
                 log.exception("monitor loop error")
             self._stop_evt.wait(self.interval)
 
+    def _inventory_loop(self) -> None:
+        """Inventory/metrics collection on its own thread: a slow provider can never stall checks, jobs or the heartbeat."""
+        while not self._stop_evt.is_set():
+            try:
+                collector.tick(self.rt)
+            except Exception:  # noqa: BLE001
+                log.exception("inventory loop error")
+            self._stop_evt.wait(self.interval)
+
     def run(self) -> None:
         threading.Thread(target=self._beat, daemon=True, name="ics-heartbeat").start()
         if self.rt.settings.monitor_enabled:
             threading.Thread(target=self._monitor_loop, daemon=True, name="ics-monitor").start()
+            threading.Thread(target=self._inventory_loop, daemon=True, name="ics-inventory").start()
         self._job_loop()
 
     def stop(self) -> None:

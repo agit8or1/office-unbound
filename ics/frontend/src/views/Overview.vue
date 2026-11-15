@@ -52,7 +52,7 @@ const recent = computed(() => (jobs.data.value ?? []).filter((j) => j.status ===
 const activeWindows = computed(() => (windows.data.value ?? []).filter((w) => w.active))
 const upcoming = computed(() => (windows.data.value ?? []).filter((w) => !w.active && +new Date(w.starts_at) > now.value))
 
-const scopes = computed(() => i.value.clusters.length ? i.value.clusters.map((c) => ({ scope: 'cluster', id: c.id, name: c.name })) : [])
+const scopes = computed(() => i.value.nodes.filter((n) => n.raw.managed !== false).map((n) => ({ scope: 'node', id: n.id, name: n.name })))
 const guestDist = computed(() => [
   { label: 'Running', value: i.value.guests.filter((g) => g.status === 'running').length },
   { label: 'Stopped', value: i.value.guests.filter((g) => ['stopped', 'shutdown'].includes(g.status)).length },
@@ -73,7 +73,12 @@ const notReady = computed(() => ready.data.value && !ready.data.value.ready ? Ob
 
     <div v-if="loaded && !i.connected" class="card">
       <EmptyState icon="cluster" title="Connect your first Proxmox cluster" text="Once a cluster is connected, this dashboard fills with live node, VM and storage status, utilization charts and a health matrix. Health checks and jobs already work.">
-        <Button variant="primary" icon="plus" :to="hasPath('/setup') ? '/setup' : '/endpoints'">{{ hasPath('/setup') ? 'Start setup wizard' : 'Add a cluster' }}</Button>
+        <Button variant="primary" icon="plus" :to="hasPath('/setup') ? '/setup' : '/endpoints'">Connect Proxmox</Button>
+      </EmptyState>
+    </div>
+    <div v-else-if="loaded && deployments.data.value && !deployments.data.value.data.length && hasPath('/deployments/new')" class="card">
+      <EmptyState icon="rocket" title="Deploy Office Unbound" text="Your cluster is connected. Pick a size and ICS plans the virtual machines, shows you exactly what it will create, and runs it after approval.">
+        <Button variant="primary" icon="plus" to="/deployments/new">Deploy Office Unbound</Button>
       </EmptyState>
     </div>
 

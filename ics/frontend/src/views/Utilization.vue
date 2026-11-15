@@ -13,12 +13,12 @@ const infra = useLoad(loadInfra, 60000)
 const scopes = computed(() => {
   const i = infra.data.value
   if (!i) return []
-  return [...i.clusters.map((c) => ({ scope: 'cluster', id: c.id, name: 'Cluster: ' + c.name })), ...i.nodes.map((n) => ({ scope: 'node', id: n.id, name: 'Node: ' + n.name }))]
+  return i.nodes.filter((n) => n.raw.managed !== false).map((n) => ({ scope: 'node', id: n.id, name: 'Node: ' + n.name }))
 })
 </script>
 <template>
   <div class="page">
-    <PageHeader title="Utilization" sub="CPU, memory, storage and network over time, per cluster or node." help="Charts use metric samples collected from your clusters. Pick a scope and a time range." />
+    <PageHeader title="Utilization" sub="CPU, memory, storage and network over time, per node." help="Charts use metric samples collected from your clusters. Pick a scope and a time range." />
     <ErrorBox :error="infra.error.value" />
     <UtilizationPanel v-if="infra.data.value" :scopes="scopes" :connected="infra.data.value.connected" title="Resource utilization" />
     <Card v-else><EmptyState compact title="Loading…" /></Card>

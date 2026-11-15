@@ -1,6 +1,7 @@
 import type { RouteRecordRaw } from 'vue-router'
 import type { Role } from './api'
 import { wizardRoutes } from './wizards'
+import type { WizardRoute } from './wizards'
 
 declare module 'vue-router' {
   interface RouteMeta {
@@ -17,6 +18,12 @@ const infraList = (path: string, kind: string, title: string): RouteRecordRaw[] 
   { path: `/infrastructure/${path}/:id`, name: `infra-${path}-detail`, component: () => import('./views/infra/InfraDetail.vue'), props: (r) => ({ kind, id: String(r.params.id) }),
     meta: { title, section: 'Infrastructure', parent: { label: title, to: `/infrastructure/${path}` } } },
 ]
+
+/** The setup wizard is full-screen (no console chrome); the others live inside the console shell. */
+const wizardRecord = (w: WizardRoute): RouteRecordRaw => ({
+  path: w.path, name: w.name, component: w.component,
+  meta: { title: w.title, section: w.path === '/setup' || w.path === '/setup/connection' ? 'Administration' : 'Deployments', min: w.minRole, bare: w.path === '/setup' },
+})
 
 export const routes: RouteRecordRaw[] = [
   { path: '/', redirect: '/overview' },
@@ -43,6 +50,6 @@ export const routes: RouteRecordRaw[] = [
   { path: '/inventory/:id?', name: 'inventory', component: () => import('./views/Inventory.vue'), meta: { title: 'Inventory snapshots', section: 'Administration' } },
   { path: '/preview', name: 'preview', component: () => import('./views/Preview.vue'), meta: { title: 'Plan preview', section: 'Administration', min: 'operator' } },
   { path: '/audit', name: 'audit', component: () => import('./views/Audit.vue'), meta: { title: 'Audit log', section: 'Administration', min: 'approver' } },
-  ...wizardRoutes,
+  ...wizardRoutes.map(wizardRecord),
   { path: '/:pathMatch(.*)*', name: 'not-found', component: () => import('./views/NotFound.vue'), meta: { title: 'Not found' } },
 ]
