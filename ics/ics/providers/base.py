@@ -130,6 +130,9 @@ class VmConfigSpec:
     cicustom: str | None = None                            # "user=<storage>:snippets/<file>"; refused unless the endpoint allows it
     ciupgrade: bool | None = None                          # cloud-init first-boot package upgrade (PVE default is on)
     smbios_serial: str | None = None                       # per-VM bootstrap proof secret, delivered through the hypervisor (SMBIOS serial); [A-Za-z0-9_-]{16,128}
+    smbios_sku: str | None = None                          # golden-image bootstrap: ICS callback URL (SMBIOS product_sku), https://host[:port]
+    smbios_family: str | None = None                       # golden-image bootstrap: pin of the ICS certificate, "sha256:<64 hex>" (SMBIOS product_family)
+    clear_bootstrap: bool = False                          # after enrollment/seal: remove the SMBIOS secret fields, `sshkeys` and `ciuser` from the VM config
     description: str | None = None
 
 

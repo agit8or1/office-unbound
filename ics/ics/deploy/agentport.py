@@ -1,30 +1,34 @@
 """The real AgentPort of the deployment executor (ports.AgentPort): guest bootstrap + enrollment + signed runbooks.
 
-Flow of `wait_enrollment(vm)` (the `agent.enroll` step; idempotent, resumable):
-  1. a node row named `<deployment>-<vm>` already exists  ->  done (a crash after enrollment is harmless);
-  2. MAC of the guest from Proxmox -> its IPv6 link-local address; wait for SSH and prove (SMBIOS PSK) that the host is the VM Proxmox started;
-  3. render the guest user-data (guest/cloudinit.py: agent bundle, firewall, rootless podman, signed-image policy pinned to the operator's key)
-     and apply it over SSH as a NoCloud seed (guest/sshboot.py); wait until the bootstrap reports done;
-  4. read the agent's TLS + agent-key fingerprints (MAC-authenticated), enroll over the pinned TLS channel with the one-time token (only its hash
-     was ever in the user-data), record the node;
-  5. seal the guest (SSH disabled and masked, bootstrap account locked).
-Everything after that uses the same signed-request channel as every other node (guest/agentcall.py)."""
+TWO bootstrap modes (ADR-0009 section 5 addendum, docs/status/bootstrap-v2.md):
+
+  * PRODUCTION (default): golden image + authenticated callback, no SSH at any point. `bootstrap_config` draws a random per-VM-instance secret
+    (guest/bootsecrets.py) and hands it to the guest through SMBIOS together with the ICS callback URL and certificate pin; the image's first-boot
+    unit calls the ICS back (guest/callback.py). `await_callback` waits for the verified report, `wait_enrollment` enrolls the agent over pinned TLS
+    with the fingerprints from that report and then clears the secret from the VM config and the vault.
+  * LAB ONLY (ICS_LAB_SSH_BOOTSTRAP=true + ICS_ENVIRONMENT=lab): the ICS-driven SSH bootstrap of the stock template (guest/sshboot.py), hardened per the
+    review: fails closed (seal timer armed first; any terminal failure seals+stops the guest), synchronous verified seal, random per-instance secrets,
+    no secret on a command line, proof verified before any payload is sent.
+
+Both modes: `wait_enrollment` is idempotent and resumable; every failure that could leave a guest reachable ends in `fail_closed`."""
 import ipaddress
 import json
 import logging
+import re
 import socket
 import uuid
+from datetime import datetime, timezone
 from pathlib import Path
 
 from sqlalchemy import text
 
 from .. import agentclient, audit
 from ..agentclient import AgentError
-from ..guest import agentcall, cloudinit, sshboot
+from ..guest import agentcall, bootsecrets, cloudinit, sshboot
 from ..proxmox import normalize_fingerprint
-from ..providers.base import VmRef
+from ..providers.base import ProviderError, VmConfigSpec, VmRef
 from . import state
-from .ports import StepFailed
+from .ports import Fenced, StepFailed
 
 log = logging.getLogger("ics.deploy.agentport")
 AGENT_PORT = 8443
@@ -68,51 +72,226 @@ class GuestAgentPort:
             raise StepFailed(f"VM {vm} is not part of the plan", "", retryable=False)
         return v
 
+    # ---- shared helpers ------------------------------------------------------------------------------------------------
+    @property
+    def lab(self) -> bool:
+        return bool(self.rt.settings.lab_ssh_bootstrap)
+
+    @property
+    def mode(self) -> str:
+        return "ssh-lab" if self.lab else "callback"
+
+    def _pref(self, vm: str) -> dict:
+        with self.rt.session() as db:
+            pref = state.provider_ref(db, self.dep["id"], vm)
+        if not pref or pref.get("vmid") is None:
+            raise StepFailed(f"VM {vm} has no provider reference", "", retryable=False)
+        return pref
+
+    def _vmref(self, vm: str) -> VmRef:
+        pref = self._pref(vm)
+        return VmRef(pref["node"], int(pref["vmid"]), "vm", self.slug)
+
+    def _audit(self, action: str, vm: str, **details) -> None:
+        with self.rt.session() as db:
+            audit.append(db, action, actor_name="worker", resource="vm", resource_id=f"{self.slug}/{vm}",
+                         details={"deployment": self.slug, "vm": vm, **details})
+            db.commit()
+
+    def _task(self, task, what: str, timeout: float = 300.0) -> None:
+        t0 = self.clock()
+        while True:
+            st = self.provider.task_status(task)
+            if st.state == "ok":
+                return
+            if st.state == "error":
+                raise StepFailed(f"{what} failed: {(st.message or st.exitstatus or 'unknown error')[:200]}", "", retryable=True)
+            if self.clock() - t0 > timeout:
+                raise StepFailed(f"{what} did not finish in time", "", retryable=True)
+            self.sleep(2)
+
+    def _clear_material(self, ref: VmRef) -> bool:
+        """Review M2: remove the SMBIOS secret/URL/pin, `sshkeys` and `ciuser` from the VM config (idempotent)."""
+        if not self.provider.bootstrap_material_present(ref):
+            return False
+        self._task(self.provider.configure_vm(ref, VmConfigSpec(clear_bootstrap=True)), "clear the bootstrap material from the VM config")
+        return True
+
+    def _expect_material(self, vm: str, mode: str):
+        ref = self._vmref(vm)
+        return ref, bootsecrets.find(self.rt, self.dep["id"], vm, ref.vmid, mode)
+
     # ---- executor-facing API --------------------------------------------------------------------------------------
     def bootstrap_config(self, vm: str) -> dict:
-        """Cloud-init drive / SMBIOS values for `configure_vm`: only public material and the per-VM proof secret derived from the signing key."""
-        ident = sshboot.identity(self._key(), self.slug, vm)
-        return {"ciuser": sshboot.BOOT_USER, "sshkeys": (ident.ssh_public,), "smbios_serial": ident.psk}
+        """Values for `configure_vm`: fresh random per-instance material (never derived from a long-lived key; vault-encrypted; deleted after use)."""
+        s = self.rt.settings
+        ref = self._vmref(vm)
+        if self.lab:
+            rec = bootsecrets.issue(self.rt, self.dep["id"], vm, ref.vmid, "ssh-lab")
+            ident = sshboot.identity(rec)
+            # review H1(a): a configuration error must surface BEFORE a VM boots with an open bootstrap account
+            self._render(vm, ident, "192.0.2.10")
+            return {"ciuser": sshboot.BOOT_USER, "sshkeys": (ident.ssh_public,), "smbios_serial": rec.smbios_serial}
+        url, pin = s.guest_callback_url, (s.guest_callback_pin_sha256 or "").lower()
+        if not url or not re.fullmatch(r"https://[A-Za-z0-9.:\[\]-]{1,100}", url) or not re.fullmatch(r"[0-9a-f]{64}", pin):
+            raise StepFailed("the golden-image bootstrap is not configured (ICS_GUEST_CALLBACK_URL and ICS_GUEST_CALLBACK_PIN_SHA256)",
+                             "Set the HTTPS URL the guests call back (reachable from the VM network) and the SHA-256 of the certificate they must pin.",
+                             retryable=False)
+        rec = bootsecrets.issue(self.rt, self.dep["id"], vm, ref.vmid, "callback")
+        return {"smbios_serial": rec.smbios_serial, "smbios_sku": url, "smbios_family": "sha256:" + pin}
+
+    def await_callback(self, vm: str, timeout_s: int) -> dict:
+        """Step `guest.await_callback`: wait until the guest's first-boot unit has reported (HMAC-verified, single use) or fail closed."""
+        if self.lab:
+            return {"skipped": "lab SSH bootstrap (no callback)"}
+        if self._node(self.node_name(vm)) is not None:
+            return {"already": True}
+        ref, rec = self._expect_material(vm, "callback")
+        if rec is None:
+            raise StepFailed(f"no bootstrap record for {vm}", "The VM was not configured with bootstrap material; destroy and re-create it.", retryable=False)
+        deadline = self.clock() + min(max(timeout_s, 60), self.rt.settings.guest_bootstrap_timeout_seconds)
+        try:
+            while True:
+                rec2 = bootsecrets.find(self.rt, self.dep["id"], vm, ref.vmid, "callback")
+                if rec2 is not None and rec2.state in ("reported", "enrolled"):
+                    return {"reported": True}
+                if rec2 is None or rec2.state in ("failed", "revoked", "expired") or rec2.secret is None:
+                    raise StepFailed("the bootstrap material of this VM instance is gone",
+                                     "A previous attempt failed closed; destroy and re-create the deployment.", retryable=False)
+                if rec2.expires_at <= datetime.now(timezone.utc):
+                    bootsecrets.set_state(self.rt, rec2.id, "expired")
+                    raise StepFailed("the bootstrap secret expired before the guest called back", "Check the VM console in Proxmox.", retryable=False)
+                if self.clock() >= deadline:
+                    raise StepFailed("the guest did not call back in time", "Check the VM console in Proxmox: the golden image's ou-bootstrap.service, "
+                                     "the callback URL's reachability from the VM network and the certificate pin.", retryable=False)
+                self.sleep(3)
+        except Fenced:
+            raise
+        except BaseException as e:   # noqa: BLE001  fail closed, then re-raise
+            self.fail_closed(vm, type(e).__name__)
+            raise
 
     def wait_enrollment(self, vm: str, timeout_s: int) -> str:
         name = self.node_name(vm)
         n = self._node(name)
         if n is not None:
+            self._finish_resume(vm)
             return str(n.id)
+        try:
+            nid = self._wait_lab(vm, name, timeout_s) if self.lab else self._enroll_from_callback(vm, name)
+        except Fenced:
+            raise   # not ours any more: touch nothing
+        except BaseException as e:   # noqa: BLE001  fail closed (review H1), then re-raise
+            self.fail_closed(vm, type(e).__name__)
+            raise
+        self._finish(vm)
+        return nid
+
+    # ---- production path: enroll from the verified callback report ----------------------------------------------------
+    def _enroll_from_callback(self, vm: str, name: str) -> str:
+        ref, rec = self._expect_material(vm, "callback")
+        if rec is None or rec.state != "reported" or not rec.token:
+            raise StepFailed("no verified bootstrap report for this VM", "The guest has not called back (or its report was already consumed).",
+                             retryable=False)
+        with self.rt.session() as db:
+            rep = db.execute(text("SELECT report FROM guest_bootstrap WHERE id = :i"), {"i": rec.id}).scalar() or {}
+        fps = {"address": rep.get("address"), "port": rep.get("port"), "tls_fingerprint_sha256": rep.get("tls_fingerprint_sha256"),
+               "agent_key_fingerprint_sha256": rep.get("agent_key_fingerprint_sha256")}
+        if any(v is None for v in fps.values()):
+            raise StepFailed("the guest's report lacks its agent fingerprints", "", retryable=False)
+        nid = self._enroll_retry(name, fps, rec.token)
+        bootsecrets.set_state(self.rt, rec.id, "enrolled")
+        return nid
+
+    def _enroll_retry(self, name: str, fps: dict, token: str) -> str:
+        last = None
+        for _ in range(3):
+            try:
+                return self._enroll(name, fps, token)
+            except StepFailed as e:
+                if not e.retryable:
+                    raise
+                last = e
+                self.sleep(3)
+        raise last
+
+    def _finish(self, vm: str) -> None:
+        """After a successful enrollment (outside the fail-closed region): clear the VM config, wipe the vault copies, audit. A resume repeats it."""
+        ref, rec = self._expect_material(vm, self.mode)
+        try:
+            cleared = self._clear_material(ref)
+        except ProviderError as e:
+            raise StepFailed(f"could not clear the bootstrap material from the VM config: {e.message[:200]}", "Retrying.", retryable=True) from None
+        if rec is not None and rec.secret is not None:
+            bootsecrets.delete_secrets(self.rt, rec.id, "sealed" if self.lab else "enrolled")
+            self._audit("guest.bootstrap_completed", vm, mode=self.mode, config_cleared=cleared, secrets_deleted=True)
+
+    def _finish_resume(self, vm: str) -> None:
+        """The node exists (a crash after enrollment, or a repeated step): make sure the guest is sealed (lab) and the material is gone (review H2)."""
+        ref, rec = self._expect_material(vm, self.mode)
+        if self.lab and rec is not None and rec.secret is not None and not self.rt.settings.guest_keep_bootstrap_ssh:
+            try:
+                guest = self._guest_factory(sshboot.identity(rec), sshboot.link_local(self.provider.guest_mac(ref), sshboot.default_iface()))
+                self._seal_and_audit(vm, guest, resumed=True)
+            except (sshboot.BootstrapError, ProviderError) as e:
+                self.fail_closed(vm, "resume could not seal")
+                raise StepFailed("the guest could not be sealed on resume: " + str(e)[:200], "The VM was stopped.", retryable=False) from None
+        self._finish(vm)
+
+    # ---- lab path ----------------------------------------------------------------------------------------------------
+    def _seal_and_audit(self, vm: str, guest, *, resumed: bool = False) -> None:
+        try:
+            guest.seal_verified()
+        except sshboot.BootstrapError as e:
+            self._audit("guest.bootstrap_seal_failed", vm, error=str(e)[:200], resumed=resumed)
+            raise
+        self._audit("guest.bootstrap_sealed", vm, verified=True, resumed=resumed)
+
+    def _wait_lab(self, vm: str, name: str, timeout_s: int) -> str:
         s = self.rt.settings
         deadline = self.clock() + max(timeout_s, s.guest_bootstrap_timeout_seconds)
-        ident = sshboot.identity(self._key(), self.slug, vm)
-        with self.rt.session() as db:
-            pref = state.provider_ref(db, self.dep["id"], vm)
-        if not pref or pref.get("vmid") is None:
-            raise StepFailed(f"VM {vm} has no provider reference", "", retryable=False)
+        ref, rec = self._expect_material(vm, "ssh-lab")
+        if rec is None or rec.secret is None or rec.state in ("failed", "revoked", "sealed", "expired"):
+            raise StepFailed("the bootstrap material of this VM instance is gone", "A previous attempt failed closed (the VM was sealed/stopped); "
+                             "destroy and re-create the deployment.", retryable=False)
+        ident = sshboot.identity(rec)
         try:
-            mac = self.provider.guest_mac(VmRef(pref["node"], int(pref["vmid"]), "vm", self.slug))
-            guest = self._guest_factory(ident, sshboot.link_local(mac, sshboot.default_iface()))
+            guest = self._guest_factory(ident, sshboot.link_local(self.provider.guest_mac(ref), sshboot.default_iface()))
         except sshboot.BootstrapError as e:
             raise StepFailed(str(e), "The guest's link-local address could not be derived.", retryable=False) from None
+        # 1. the guest proves itself (nothing is sent to it); 2. FIRST action: arm the persistent dead-man seal; 3. only then anything else
         probe = self._until(lambda: guest.probe(), deadline, "the guest to accept the ICS's bootstrap key")
-        addr = probe.get("addr", "")
-        try:
-            ipaddress.IPv4Address(addr)
-        except ValueError:
-            raise StepFailed("the guest has no IPv4 address yet", "DHCP did not hand the VM an address; check the LAN's DHCP service "
-                             "and the bridge/VLAN of the VM.", retryable=True) from None
+        bootsecrets.set_state(self.rt, rec.id, "reported")
+        if probe.get("armed") != "1":
+            self._until(lambda: guest.arm(max(5, s.guest_bootstrap_ttl_seconds // 60)), deadline, "the guest to arm its seal timer")
+        self._until(lambda: guest.wait_cloud_init(), deadline, "the guest's first cloud-init run")
+        while True:
+            probe = self._until(lambda: guest.probe(), deadline, "the guest's network")
+            addr = probe.get("addr", "")
+            try:
+                ipaddress.IPv4Address(addr)
+                break
+            except ValueError:
+                if self.clock() >= deadline:
+                    raise StepFailed("the guest has no IPv4 address", "DHCP did not hand the VM an address; check the LAN's DHCP service "
+                                     "and the bridge/VLAN of the VM.", retryable=False) from None
+                self.sleep(5)
         if probe.get("done") != "1":
             ud = self._render(vm, ident, addr)
             if probe.get("running") != "active":
-                st = guest.install(ud, "ou-boot-" + ident.enroll_token_sha256[:16], vm)
+                st = self._until(lambda: guest.install(ud, "ou-boot-" + ident.enroll_token_sha256[:16], vm), deadline, "the guest to take the seed")
                 log.info("guest %s bootstrap: %s", vm, st.get("state"))
             self._until(lambda: self._finished(guest), deadline, "the guest bootstrap to finish")
-        fps = json.loads(guest.fingerprints() or "{}")
+        fps = json.loads(self._until(lambda: guest.fingerprints(), deadline, "the agent fingerprints") or "{}")
         for k in ("address", "port", "tls_fingerprint_sha256", "agent_key_fingerprint_sha256"):
             if k not in fps:
                 raise StepFailed("the guest did not report its agent fingerprints", "The bootstrap ended without a usable agent.", retryable=False)
         if fps["address"] != addr:
-            raise StepFailed("the guest's agent address does not match its DHCP address", "The lease changed during the bootstrap.", retryable=True)
-        nid = self._enroll(name, fps, ident.enroll_token)
-        if not self.rt.settings.guest_keep_bootstrap_ssh:
-            guest.seal()
+            raise StepFailed("the guest's agent address does not match its DHCP address", "The lease changed during the bootstrap.", retryable=False)
+        nid = self._enroll_retry(name, fps, ident.enroll_token)
+        bootsecrets.set_state(self.rt, rec.id, "enrolled")
+        if not s.guest_keep_bootstrap_ssh:
+            self._seal_and_audit(vm, guest)   # synchronous and verified; a failure here fails closed (stop) although the node is enrolled
         return nid
 
     def _until(self, fn, deadline: float, what: str):
@@ -125,9 +304,44 @@ class GuestAgentPort:
                                  "the LAN before re-running; nothing was sent to it.", retryable=False) from None
             except sshboot.NotReady as e:
                 last = str(e)
+            except sshboot.BootstrapError as e:
+                raise StepFailed(str(e), "The guest bootstrap step failed.", retryable=False) from None
             if self.clock() >= deadline:
                 raise StepFailed(f"timed out waiting for {what}: {last}", "Check the VM console in Proxmox (cloud-init, network).", retryable=False)
             self.sleep(5)
+
+    # ---- fail closed (review H1) ---------------------------------------------------------------------------------------
+    def fail_closed(self, vm: str, reason: str) -> None:
+        """Called on every terminal failure of the bootstrap. Best effort, never raises. Lab: seal (verified) if the guest ever proved itself, then
+        STOP the VM; callback: STOP the VM. Always: clear the secrets from the VM config, wipe them from the vault, audit."""
+        result = {"sealed": False, "stopped": False, "cleared": False}
+        try:
+            ref = self._vmref(vm)
+            rec = bootsecrets.find(self.rt, self.dep["id"], vm, ref.vmid, self.mode)
+            if self.lab and rec is not None and rec.secret is not None and rec.state in ("reported", "enrolled"):
+                try:
+                    guest = self._guest_factory(sshboot.identity(rec), sshboot.link_local(self.provider.guest_mac(ref), sshboot.default_iface()))
+                    guest.seal_verified()
+                    result["sealed"] = True
+                except Exception as e:  # noqa: BLE001
+                    log.warning("fail_closed(%s): seal not verified: %s", vm, type(e).__name__)
+            try:
+                g = next((x for x in self.provider.discover().guests if int(x["vmid"]) == ref.vmid), None)
+                if g is None or g.get("status") != "stopped":
+                    self._task(self.provider.power(ref, "stop"), "stop the guest", 120)
+                result["stopped"] = True
+            except Exception as e:  # noqa: BLE001
+                log.error("fail_closed(%s): could not stop the guest: %s", vm, type(e).__name__)
+            try:
+                self._clear_material(ref)
+                result["cleared"] = True
+            except Exception as e:  # noqa: BLE001
+                log.error("fail_closed(%s): could not clear the bootstrap material: %s", vm, type(e).__name__)
+            if rec is not None:
+                bootsecrets.delete_secrets(self.rt, rec.id, "failed")
+            self._audit("guest.bootstrap_failed_closed", vm, reason=reason[:120], mode=self.mode, **result)
+        except Exception as e:  # noqa: BLE001
+            log.error("fail_closed(%s) itself failed: %s", vm, type(e).__name__)
 
     def _finished(self, guest):
         st = guest.status()

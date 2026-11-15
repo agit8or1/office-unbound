@@ -36,6 +36,8 @@ _CIUSER = re.compile(r"^[a-z_][a-z0-9_-]{0,31}$")
 _SSHKEY = re.compile(r"^(ssh-ed25519|ssh-rsa|ecdsa-sha2-nistp(256|384|521)|sk-ssh-ed25519@openssh\.com) [A-Za-z0-9+/=]{20,2000}( [\x21-\x7e ]{0,100})?$")
 _CICUSTOM = re.compile(r"^(user|network|meta|vendor)=([A-Za-z0-9._-]{1,40}):snippets/[A-Za-z0-9._-]{1,100}$")
 _SMBIOS_SERIAL = re.compile(r"^[A-Za-z0-9_-]{16,128}$")
+_SMBIOS_SKU = re.compile(r"^https://[A-Za-z0-9.:\[\]-]{1,100}$")
+_SMBIOS_FAMILY = re.compile(r"^sha256:[0-9a-f]{64}$")
 _DOMAIN = re.compile(r"^[A-Za-z0-9]([A-Za-z0-9.-]{0,251}[A-Za-z0-9])?$")
 _KIND_PATH = {"vm": "qemu", "lxc": "lxc"}
 
@@ -841,11 +843,28 @@ class ProxmoxMutations(ProxmoxProvider):
             d["searchdomain"] = spec.searchdomain
         if spec.ciupgrade is not None:
             d["ciupgrade"] = int(spec.ciupgrade)
-        if spec.smbios_serial is not None:
-            if not _SMBIOS_SERIAL.match(spec.smbios_serial):
-                raise ProviderError("invalid_request", "invalid SMBIOS serial")
+        if spec.smbios_serial is not None or spec.smbios_sku is not None or spec.smbios_family is not None:
+            if spec.clear_bootstrap:
+                raise ProviderError("invalid_request", "cannot set and clear the bootstrap material in one call")
+            for val, rx, what in ((spec.smbios_serial, _SMBIOS_SERIAL, "serial"), (spec.smbios_sku, _SMBIOS_SKU, "sku"),
+                                  (spec.smbios_family, _SMBIOS_FAMILY, "family")):
+                if val is not None and not rx.match(val):
+                    raise ProviderError("invalid_request", f"invalid SMBIOS {what}")
             uuid = _UUID.search(str(self._cfg(ref).get("smbios1", "")))   # keep the guest's own SMBIOS uuid
-            d["smbios1"] = (f"uuid={uuid.group(1)}," if uuid else "") + "base64=1,serial=" + base64.b64encode(spec.smbios_serial.encode()).decode()
+            b = lambda v: base64.b64encode(v.encode()).decode()  # noqa: E731
+            d["smbios1"] = (f"uuid={uuid.group(1)}," if uuid else "") + "base64=1" + "".join(
+                f",{k}={b(v)}" for k, v in (("serial", spec.smbios_serial), ("sku", spec.smbios_sku), ("family", spec.smbios_family)) if v is not None)
+        if spec.clear_bootstrap:   # review M2: the one-time secret must not live on in the VM config (readable by VM.Audit holders, backups)
+            cfg = self._cfg(ref)
+            uuid = _UUID.search(str(cfg.get("smbios1", "")))
+            dl = [k for k in ("sshkeys", "ciuser") if k in cfg]
+            if cfg.get("smbios1") is not None:
+                if uuid:
+                    d["smbios1"] = f"uuid={uuid.group(1)}"   # keep the guest's own SMBIOS uuid, drop serial/sku/family
+                else:
+                    dl.append("smbios1")
+            if dl:
+                d["delete"] = ",".join(dl)
         if spec.cicustom:
             if not self.scope.allow_cicustom:
                 raise ScopeViolation("cicustom snippets are not enabled for this endpoint")
@@ -860,6 +879,13 @@ class ProxmoxMutations(ProxmoxProvider):
             raise ProviderError("invalid_request", "nothing to configure")
         up = self._do("put", f"/nodes/{_seg(ref.node)}/{_KIND_PATH[ref.kind]}/{int(ref.vmid)}/config", d)
         return self._task(ref.node, up, ref.vmid, "config", ref.deployment_id)
+
+    def bootstrap_material_present(self, ref: VmRef) -> bool:
+        """True while the VM config still carries first-contact material (SMBIOS serial/sku/family, sshkeys, ciuser). Read-only."""
+        require_job_execution()
+        self._guest(ref)
+        cfg = self._cfg(ref)
+        return "sshkeys" in cfg or "ciuser" in cfg or bool(re.search(r"(?:^|,)(serial|sku|family)=", str(cfg.get("smbios1", ""))))
 
     def guest_mac(self, ref: VmRef) -> str:
         """MAC of net0 of an owned guest (read-only; the ICS derives the guest's IPv6 link-local address from it for first contact)."""

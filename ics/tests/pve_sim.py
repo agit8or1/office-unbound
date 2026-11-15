@@ -873,6 +873,12 @@ class PveSim:
         self._unlocked(vm)
         for k, v in f.items():
             if k == "delete":
+                for dk in str(v).split(","):
+                    for rx, pr in self._CFG_PRIV:
+                        if re.fullmatch(rx, dk):
+                            self.need(tid, "vm", vm["vmid"], pr)
+                            break
+                    vm["cfg"].pop(dk, None)
                 continue
             if k == "cicustom":
                 self.need(tid, "root", None, "Sys.Modify")  # PVE restricts cicustom to highly privileged users

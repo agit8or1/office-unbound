@@ -422,7 +422,7 @@ def _derive(vms: list[_Vm], inp: PlanInput, prof: Profile, cat: Catalog, warning
 
 # ---- steps (DAG) --------------------------------------------------------------------------------------------
 
-EST = {"vm.clone": 120, "vm.configure": 20, "vm.resize": 30, "vm.start": 60, "agent.enroll": 120, "comp.install": 180, "checks.register": 5, "health.verify": 30}
+EST = {"vm.clone": 120, "vm.configure": 20, "vm.resize": 30, "vm.start": 60, "guest.await_callback": 90, "agent.enroll": 30, "comp.install": 180, "checks.register": 5, "health.verify": 30}
 
 
 def _step(key: str, kind: str, target: str, op: str, params: dict, deps: list[str], **extra) -> dict:
@@ -498,7 +498,8 @@ def create_steps(vms: list[dict], inp: PlanInput, cat: Catalog, extra_nic: bool 
         steps.append(_step(f"vm.resize:{n}", "provider_task", n, "resize_disk",
                            {"disk": "root", "disk_index": 0, "new_size_gb": v["disks"][0]["size_gb"]}, [f"vm.configure:{n}"]))
         steps.append(_step(f"vm.start:{n}", "provider_task", n, "power", {"op": "start"}, [f"vm.resize:{n}"]))
-        steps.append(_step(f"agent.enroll:{n}", "wait_agent_enrollment", n, "enroll", {"timeout_seconds": 600}, [f"vm.start:{n}"]))
+        steps.append(_step(f"guest.await_callback:{n}", "wait_guest_callback", n, "await_callback", {"timeout_seconds": 600}, [f"vm.start:{n}"]))
+        steps.append(_step(f"agent.enroll:{n}", "wait_agent_enrollment", n, "enroll", {"timeout_seconds": 600}, [f"guest.await_callback:{n}"]))
     for v in vms:
         n = v["name"]
         for cname in v["components"]:

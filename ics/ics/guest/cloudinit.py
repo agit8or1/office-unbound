@@ -302,9 +302,9 @@ def bootstrap_script(s: GuestSpec) -> str:
         "ADDR=$(ip -4 -o addr show scope global | awk '{print $4}' | cut -d/ -f1 | head -n1)"
     ssh_on = bool(s.break_glass_ssh_key)
     if s.bootstrap_user:
-        # the ICS is connected over SSH right now and seals it itself after enrollment; a timer seals it anyway (dead-man switch)
-        ssh = (f"systemd-run --quiet --unit=ou-bootstrap-seal-timer --on-active={s.bootstrap_seal_seconds} /usr/local/sbin/ou-bootstrap-seal "
-               "|| true")
+        # LAB bootstrap: the ICS armed a persistent seal (script + timer + boot check, guest/sshboot.py) BEFORE it sent this user-data and seals
+        # synchronously after enrollment; nothing here touches SSH.
+        ssh = ":"
     else:
         ssh = None
     ssh = ssh if ssh is not None else ("install -d -m 0755 /etc/ssh/sshd_config.d\nprintf 'PasswordAuthentication no\\nKbdInteractiveAuthentication no\\nPermitRootLogin no\\n"
@@ -349,22 +349,6 @@ touch $B/done
 """
 
 
-def seal_script(s: GuestSpec) -> str:
-    u = s.bootstrap_user
-    return f"""#!/bin/sh
-# generated: ends the ICS-driven bootstrap: SSH is disabled and masked, the bootstrap account is locked and loses its key and sudo rule.
-# Run by the ICS after enrollment (detached) and by a timer as a dead-man switch. Idempotent.
-set -u
-systemctl disable --now ssh.socket ssh.service 2>/dev/null || true
-systemctl mask ssh.socket ssh.service 2>/dev/null || true
-passwd -l {u} >/dev/null 2>&1 || true
-usermod --expiredate 1 {u} 2>/dev/null || true
-rm -f "$(getent passwd {u} | cut -d: -f6)/.ssh/authorized_keys"
-for f in /etc/sudoers.d/*; do [ -f "$f" ] && sed -i '/^{u}[[:space:]]/d' "$f"; done
-exit 0
-"""
-
-
 def _wf(path, content, mode="0644", b64=False):
     d = {"path": path, "owner": "root:root", "permissions": mode, "content": content}
     if b64:
@@ -387,8 +371,6 @@ def build(s: GuestSpec) -> dict:
         files.append(_wf("/etc/containers/registries.conf.d/50-ou-insecure.conf",
                          "# generated: plain-HTTP registries; image integrity is enforced by the signature policy + digest pin, not by the transport\n" +
                          "".join(f'[[registry]]\nlocation = "{r}"\ninsecure = true\n\n' for r in sorted(s.insecure_registries))))
-    if s.bootstrap_user:
-        files.append(_wf("/usr/local/sbin/ou-bootstrap-seal", seal_script(s), "0750"))
     if s.image_signing_pubkey_pem:
         files.append(_wf("/etc/ou-agent/image-signing.pub", s.image_signing_pubkey_pem if s.image_signing_pubkey_pem.endswith("\n") else s.image_signing_pubkey_pem + "\n"))
     if s.ou_repo:

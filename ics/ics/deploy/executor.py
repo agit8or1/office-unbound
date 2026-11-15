@@ -258,7 +258,7 @@ def h_provider_task(ctx: StepCtx) -> dict:
                             new_disks=tuple((_disk_key(i), d["storage"], d["size_gb"]) for i, d in enumerate(p["disks"])
                                             if i > 0 and (new is None or d["name"] in new)),
                             cloudinit_storage=p["disks"][0]["storage"] if ci else None,
-                            ciuser=bc.get("ciuser"), sshkeys=tuple(bc.get("sshkeys", ())), smbios_serial=bc.get("smbios_serial"),
+                            ciuser=bc.get("ciuser"), sshkeys=tuple(bc.get("sshkeys", ())), smbios_serial=bc.get("smbios_serial"), smbios_sku=bc.get("smbios_sku"), smbios_family=bc.get("smbios_family"),
                             ipconfigs=(IpConfig(0, "dhcp"),) if bc else (), ciupgrade=False if bc else None,
                             description=f"Office Unbound deployment {ctx.slug}: {ci.get('hostname', vm)}" if ci else None)
         _poll(ctx, prov.configure_vm(ref, spec), f"configure {vm}")
@@ -295,6 +295,17 @@ def h_provider_task(ctx: StepCtx) -> dict:
         ctx.resource("vm", vm, state="removed")
         return {"destroyed": True}
     raise StepFailed(f"unknown provider operation {op!r}", "", retryable=False)
+
+
+def h_await_callback(ctx: StepCtx) -> dict:
+    """`guest.await_callback`: the golden image's first-boot unit reports in (HMAC-verified, single use). Fakes without it skip the step."""
+    vm = ctx.step["target"]
+    fn = getattr(ctx.env.agent, "await_callback", None)
+    if fn is None:
+        return {"skipped": "no callback bootstrap on this port"}
+    res = fn(vm, int(ctx.step["params"].get("timeout_seconds", 600)))
+    ctx.log(f"guest {vm}: " + ("bootstrap callback received" if res.get("reported") else str(next(iter(res), "done"))))
+    return res
 
 
 def h_wait_enroll(ctx: StepCtx) -> dict:
@@ -382,7 +393,7 @@ def h_verify_health(ctx: StepCtx) -> dict:
         env.sleep(env.poll_interval)
 
 
-HANDLERS = {"provider_task": h_provider_task, "wait_agent_enrollment": h_wait_enroll, "agent_runbook": h_agent_runbook,
+HANDLERS = {"provider_task": h_provider_task, "wait_guest_callback": h_await_callback, "wait_agent_enrollment": h_wait_enroll, "agent_runbook": h_agent_runbook,
             "register_checks": h_register_checks, "verify_health": h_verify_health}
 
 

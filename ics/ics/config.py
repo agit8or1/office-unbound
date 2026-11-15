@@ -92,8 +92,25 @@ class Settings:
     guest_image_signing_key_sha256: str | None = None      # operator-confirmed pin: sha256 of that key's DER SubjectPublicKeyInfo (checked at render time)
     guest_mgmt_sources: tuple[str, ...] = ()               # CIDRs allowed to reach guest agents; default: this host's source address towards the guest
     guest_bootstrap_timeout_seconds: int = 1500
+    environment: str = "production"              # "production" (default) | "lab"; lab-only features are refused unless this is "lab"
+    lab_ssh_bootstrap: bool = False              # LAB ONLY (ICS_LAB_SSH_BOOTSTRAP): the ICS-driven SSH guest bootstrap of docs/status/first-real-deployment.md; ADR-0002 addendum
+    guest_callback_url: str | None = None        # https://<ics-host>:<port> the guests call back (golden-image bootstrap); no path
+    guest_callback_pin_sha256: str | None = None # sha256 (hex) of the certificate (CA or leaf) the guests pin for that URL
+    guest_bootstrap_ttl_seconds: int = 1800      # lifetime of a per-VM one-time bootstrap secret
     guest_keep_bootstrap_ssh: bool = False       # DEBUG ONLY: do not seal the bootstrap SSH access after enrollment (the guest's own timer still seals it after bootstrap_seal_seconds)
     trusted_proxy: str | None = None             # exact IP of a local reverse proxy whose X-Forwarded-For is honoured (e.g. 127.0.0.1); None = ignore XFF
+
+    def __post_init__(self):
+        _check_lab_only(self)   # lab-only features are refused in production no matter how the Settings object was built
+
+
+def _check_lab_only(s: "Settings") -> None:
+    if s.environment not in ("production", "lab"):
+        raise RuntimeError("ICS_ENVIRONMENT must be 'production' or 'lab'")
+    if (s.lab_ssh_bootstrap or s.guest_keep_bootstrap_ssh) and s.environment != "lab":
+        raise RuntimeError("ICS_LAB_SSH_BOOTSTRAP / ICS_GUEST_KEEP_BOOTSTRAP_SSH are lab-only (ADR-0002 addendum): refused unless ICS_ENVIRONMENT=lab")
+    if s.guest_keep_bootstrap_ssh and not s.lab_ssh_bootstrap:
+        raise RuntimeError("ICS_GUEST_KEEP_BOOTSTRAP_SSH needs ICS_LAB_SSH_BOOTSTRAP")
 
 
 def _trusted_proxy(v: str | None) -> str | None:
@@ -119,7 +136,7 @@ def load_settings() -> Settings:
         return env.get(name, str(default)).lower() in ("1", "true", "yes")
 
     try:
-        return Settings(
+        s = Settings(
             database_url=env["ICS_DATABASE_URL"],
             vault_key_file=env["ICS_VAULT_KEY_FILE"],
             audit_key_file=env["ICS_AUDIT_KEY_FILE"],
@@ -140,7 +157,13 @@ def load_settings() -> Settings:
             guest_mgmt_sources=_csv(env.get("ICS_GUEST_MGMT_SOURCES")),
             guest_bootstrap_timeout_seconds=int(env.get("ICS_GUEST_BOOTSTRAP_TIMEOUT_SECONDS", 1500)),
             guest_keep_bootstrap_ssh=b("ICS_GUEST_KEEP_BOOTSTRAP_SSH", False),
+            environment=env.get("ICS_ENVIRONMENT", "production").strip().lower(),
+            lab_ssh_bootstrap=b("ICS_LAB_SSH_BOOTSTRAP", False),
+            guest_callback_url=env.get("ICS_GUEST_CALLBACK_URL") or None,
+            guest_callback_pin_sha256=env.get("ICS_GUEST_CALLBACK_PIN_SHA256") or None,
+            guest_bootstrap_ttl_seconds=int(env.get("ICS_GUEST_BOOTSTRAP_TTL_SECONDS", 1800)),
         )
+        return s
     except KeyError as e:  # pragma: no cover
         raise RuntimeError(f"missing required config {e}; see README (config)") from None
 
