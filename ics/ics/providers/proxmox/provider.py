@@ -9,7 +9,9 @@ from __future__ import annotations
 
 import base64
 import dataclasses
+import hmac
 import ipaddress
+import os
 import re
 import time
 import urllib.parse
@@ -19,7 +21,7 @@ from typing import Callable, Literal
 
 from ...proxmox import ProxmoxError, ProxmoxHTTPError, ProxmoxReadClient, ProxmoxWriteClient
 from ..base import (Discovery, MutationNotAllowed, ProbeResult, ProviderError, ProviderTimeout, Sample, Scope, ScopeViolation,
-                    TaskRef, TaskStatus, VerbCheck, VmCloneSpec, VmConfigSpec, VmRef, require_job_execution)
+                    ImageImportResult, ImageImportSpec, TaskRef, TaskStatus, VerbCheck, VmCloneSpec, VmConfigSpec, VmRef, require_job_execution)
 from . import privileges as priv
 
 SIM_MARKER = "pve-sim-test-double"
@@ -974,6 +976,79 @@ class ProxmoxMutations(ProxmoxProvider):
                 raise ProviderError("invalid_state", f"guest {ref.vmid} is running; stop it before destroying it")
         up = self._do("delete", f"/nodes/{_seg(ref.node)}/{_KIND_PATH[ref.kind]}/{int(ref.vmid)}?purge=1&destroy-unreferenced-disks=1")
         return self._task(ref.node, up, ref.vmid, "destroy", ref.deployment_id)
+
+    def import_image(self, spec: ImageImportSpec) -> ImageImportResult:
+        """`image.import` (bootstrap v2, ADR-0008 output): upload the signed golden image to an `import` directory storage and make a template from it.
+        The caller has ALREADY verified the release signature of the file; this verb re-hashes it (a swapped file is refused) and Proxmox verifies the
+        same SHA-256 on receipt. Needs, on the import storage, Datastore.AllocateTemplate + AllocateSpace + Audit (the owner grants it; see
+        docs/status/bootstrap-v2.md); on the pool the usual VM.* rights. Synchronous: three tasks (upload, create, template), each waited for."""
+        require_job_execution()
+        if not self.scope.node_ok(spec.node):
+            raise ScopeViolation(f"node {spec.node!r} is not an authorized node of this endpoint")
+        if spec.pool not in self.scope.pools:
+            raise ScopeViolation(f"pool {spec.pool!r} is not in the endpoint's allowed pools")
+        for st in (spec.import_storage, spec.target_storage):
+            self._need_storage(st)
+        fname = os.path.basename(spec.file_path)
+        if not _IMAGE_FILE.match(fname) or not re.fullmatch(r"[0-9a-f]{64}", spec.sha256) or not _TPL_NAME.match(spec.name):
+            raise ProviderError("invalid_request", "image file must be named ou-golden-<id>.qcow2, the checksum 64 hex digits and the template ou-tpl-<name>")
+        if not (1 <= spec.cores <= 64 and 256 <= spec.memory_mb <= 262144):
+            raise ProviderError("invalid_request", "invalid template sizing")
+        digest, size = _file_sha256(spec.file_path)
+        if size == 0 or size > IMAGE_MAX_BYTES or not hmac_equal(digest, spec.sha256):
+            raise ProviderError("integrity", "the image file does not match the verified checksum (or is empty/too large); nothing was uploaded")
+        stor = {x["storage"]: x for x in self._get(f"/nodes/{_seg(spec.node)}/storage", self._w)}
+        have_imp, have_img = stor.get(spec.import_storage), stor.get(spec.target_storage)
+        if have_imp is None or "import" not in str(have_imp.get("content", "")).split(","):
+            raise ProviderError("capability", f"storage {spec.import_storage!r} does not accept `import` content (owner action: pvesm set {spec.import_storage} "
+                                f"--content <existing>,import) or is not visible to the provision token (needs Datastore.AllocateTemplate/AllocateSpace/Audit)")
+        if have_img is None or "images" not in str(have_img.get("content", "")).split(","):
+            raise ProviderError("capability", f"storage {spec.target_storage!r} does not hold `images`")
+        net = ""
+        if spec.bridge:
+            if not self.scope.network_ok(spec.bridge, None):
+                raise ScopeViolation(f"bridge {spec.bridge!r} is not in the endpoint's allowed networks")
+            net = f"virtio,bridge={spec.bridge}"
+        vmid = int(self._get("/cluster/nextid", self._w))
+        try:
+            up = self._w.upload(f"/nodes/{_seg(spec.node)}/storage/{_seg(spec.import_storage)}/upload",
+                                {"content": "import", "checksum-algorithm": "sha256", "checksum": spec.sha256}, spec.file_path, fname)
+        except ProxmoxError as e:
+            raise map_error(e, "image upload") from None
+        self.wait(self._task(spec.node, up, None, "imgcopy"), timeout=3600.0, interval=2.0)
+        volid = f"{spec.import_storage}:import/{fname}"
+        data = {"vmid": vmid, "name": spec.name, "pool": spec.pool, "cores": spec.cores, "memory": spec.memory_mb, "ostype": "l26", "scsihw": "virtio-scsi-single",
+                "scsi0": f"{spec.target_storage}:0,import-from={volid}", "boot": "order=scsi0", "serial0": "socket", "agent": "0",
+                "tags": f"{OWNED_TAG};ou-image", "description": "Office Unbound golden guest image (ADR-0008 pipeline output)"}
+        if net:
+            data["net0"] = net
+        try:
+            up = self._do("post", f"/nodes/{_seg(spec.node)}/qemu", data)
+            self.wait(self._task(spec.node, up, vmid, "qmcreate"), timeout=1800.0, interval=2.0)
+            up = self._do("post", f"/nodes/{_seg(spec.node)}/qemu/{vmid}/template", {})
+            self.wait(self._task(spec.node, up, vmid, "qmtemplate"), timeout=600.0, interval=2.0)
+        except ProviderError:
+            raise
+        return ImageImportResult(spec.node, vmid, spec.name, volid)
+
+
+_IMAGE_FILE = re.compile(r"^ou-golden-[a-z0-9][a-z0-9.-]{0,60}\.qcow2$")
+_TPL_NAME = re.compile(r"^ou-tpl-[a-z0-9][a-z0-9-]{0,50}$")
+IMAGE_MAX_BYTES = 16 << 30
+
+
+def hmac_equal(a: str, b: str) -> bool:
+    return hmac.compare_digest(a.encode(), b.encode())
+
+
+def _file_sha256(path: str) -> tuple[str, int]:
+    import hashlib
+    h, n = hashlib.sha256(), 0
+    with open(path, "rb") as f:
+        for chunk in iter(lambda: f.read(1 << 20), b""):
+            h.update(chunk)
+            n += len(chunk)
+    return h.hexdigest(), n
 
 
 def _seg(node: str) -> str:

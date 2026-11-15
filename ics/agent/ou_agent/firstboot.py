@@ -253,6 +253,8 @@ def apply_config(g: Guest, conf: dict) -> None:
         if conf["insecure_registries"]:
             g.write("/etc/containers/registries.conf.d/50-ou-insecure.conf", "".join(
                 f'[[registry]]\nlocation = "{r}"\ninsecure = true\n\n' for r in sorted(conf["insecure_registries"])))
+    pol = g.run(["python3", "/opt/ou-agent/deploy/render_polkit.py", g.p("/etc/ou-agent/agent.json")])   # the agent's only privilege: restart allowlisted units
+    g.write("/etc/polkit-1/rules.d/50-ou-agent.rules", pol.stdout.decode() if isinstance(pol.stdout, bytes) else str(pol.stdout))
     rules = nft_ruleset(conf)
     g.write("/etc/nftables.conf.new", rules)
     g.run(["nft", "-c", "-f", g.p("/etc/nftables.conf.new")])                   # syntax checked before it replaces anything

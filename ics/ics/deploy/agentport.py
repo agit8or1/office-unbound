@@ -205,14 +205,14 @@ class GuestAgentPort:
 
     def _enroll_retry(self, name: str, fps: dict, token: str) -> str:
         last = None
-        for _ in range(3):
+        for _ in range(10):   # the guest opens the agent port only AFTER the callback was acknowledged: allow it a moment
             try:
                 return self._enroll(name, fps, token)
             except StepFailed as e:
                 if not e.retryable:
                     raise
                 last = e
-                self.sleep(3)
+                self.sleep(5)
         raise last
 
     def _finish(self, vm: str) -> None:

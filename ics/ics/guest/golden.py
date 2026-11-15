@@ -1,0 +1,80 @@
+"""Verification of a golden-image release before `image.import` (ADR-0008 step 8, docs/status/bootstrap-v2.md).
+
+A release directory holds `ou-golden-<os>-<date>.qcow2`, its CycloneDX SBOM, `SHA256SUMS` and `SHA256SUMS.sig` (base64 DER ECDSA P-256 / SHA-256 over
+SHA256SUMS, made on the offline release host). The ICS holds only the PUBLIC key (a file whose SHA-256-of-SPKI pin the operator confirmed, the same
+convention as the container image signing key). Nothing is imported unless the manifest signature verifies, the image and SBOM hashes match it, and the
+file names are the closed form the provider verb accepts."""
+import base64
+import hashlib
+import os
+import re
+from dataclasses import dataclass
+
+from cryptography.exceptions import InvalidSignature
+from cryptography.hazmat.primitives import hashes, serialization
+from cryptography.hazmat.primitives.asymmetric import ec
+
+IMAGE_RE = re.compile(r"^ou-golden-(debian-12|ubuntu-24\.04)-\d{8}\.qcow2$")
+LINE_RE = re.compile(r"^([0-9a-f]{64})  (\S+)$")
+
+
+class ReleaseError(Exception):
+    """Operator-readable, secret-free."""
+
+
+@dataclass(frozen=True)
+class Release:
+    path: str
+    name: str
+    os: str
+    sha256: str
+    sbom_path: str
+
+
+def key_pin(pem: str) -> str:
+    k = serialization.load_pem_public_key(pem.encode())
+    return hashlib.sha256(k.public_bytes(serialization.Encoding.DER, serialization.PublicFormat.SubjectPublicKeyInfo)).hexdigest()
+
+
+def _sha256_file(path: str) -> str:
+    h = hashlib.sha256()
+    with open(path, "rb") as f:
+        for chunk in iter(lambda: f.read(1 << 20), b""):
+            h.update(chunk)
+    return h.hexdigest()
+
+
+def verify_release(directory: str, pubkey_pem: str, pin_sha256: str) -> Release:
+    try:
+        pub = serialization.load_pem_public_key(pubkey_pem.encode())
+    except ValueError:
+        raise ReleaseError("the release public key is not a valid PEM public key") from None
+    if not isinstance(pub, ec.EllipticCurvePublicKey) or pub.curve.name != "secp256r1":
+        raise ReleaseError("the release key must be an ECDSA P-256 public key")
+    if key_pin(pubkey_pem) != pin_sha256.lower():
+        raise ReleaseError("the release public key does not match the operator-confirmed pin")
+    try:
+        with open(os.path.join(directory, "SHA256SUMS"), "rb") as f:
+            manifest = f.read(65536)
+        sig = base64.b64decode(open(os.path.join(directory, "SHA256SUMS.sig"), "rb").read(4096), validate=True)
+    except (OSError, ValueError):
+        raise ReleaseError("SHA256SUMS or SHA256SUMS.sig is missing or malformed") from None
+    try:
+        pub.verify(sig, manifest, ec.ECDSA(hashes.SHA256()))
+    except InvalidSignature:
+        raise ReleaseError("the manifest signature does not verify against the release key") from None
+    entries = {}
+    for line in manifest.decode("ascii", "strict").splitlines():
+        m = LINE_RE.match(line)
+        if not m or "/" in m.group(2) or m.group(2) in entries:
+            raise ReleaseError("malformed manifest line")
+        entries[m.group(2)] = m.group(1)
+    images = [n for n in entries if IMAGE_RE.match(n)]
+    if len(images) != 1 or f"{images[0]}.sbom.cdx.json" not in entries or len(entries) != 2:
+        raise ReleaseError("the manifest must list exactly one ou-golden-<os>-<date>.qcow2 and its SBOM")
+    name = images[0]
+    for n in (name, name + ".sbom.cdx.json"):
+        p = os.path.join(directory, n)
+        if not os.path.isfile(p) or os.path.islink(p) or _sha256_file(p) != entries[n]:
+            raise ReleaseError(f"{n} does not match the signed manifest")
+    return Release(os.path.join(directory, name), name, IMAGE_RE.match(name).group(1), entries[name], os.path.join(directory, name + ".sbom.cdx.json"))

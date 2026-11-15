@@ -1,0 +1,22 @@
+[Unit]
+Description=Office Unbound first-boot bootstrap (one outbound, authenticated callback to the ICS)
+Documentation=docs/status/bootstrap-v2.md
+After=network-online.target nftables.service
+Wants=network-online.target
+ConditionPathExists=!/var/lib/ou-bootstrap/done
+ConditionPathExists=!/var/lib/ou-bootstrap/failed
+
+[Service]
+Type=oneshot
+Environment=PYTHONPATH=/opt/ou-agent PYTHONDONTWRITEBYTECODE=1
+ExecStart=/usr/bin/python3 -m ou_agent.firstboot
+# FAIL CLOSED: no restart policy. A failed first boot leaves the image state exactly as shipped (default-deny nftables, SSH masked, agent not started)
+# and the /var/lib/ou-bootstrap/failed marker; the ICS destroys or re-creates the VM.
+Restart=no
+TimeoutStartSec=900
+NoNewPrivileges=true
+PrivateTmp=true
+ProtectHome=true
+
+[Install]
+WantedBy=multi-user.target

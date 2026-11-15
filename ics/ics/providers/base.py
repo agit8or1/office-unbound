@@ -136,6 +136,29 @@ class VmConfigSpec:
     description: str | None = None
 
 
+@dataclass(frozen=True)
+class ImageImportSpec:
+    """`image.import`: upload a signed golden image to an `import`-capable directory storage and turn it into a template VM (ADR-0008 pipeline output)."""
+    node: str
+    import_storage: str            # directory storage with `import` content (PVE: upload content=import); needs Datastore.AllocateTemplate
+    target_storage: str            # storage that holds the template's disk (`images` content); needs Datastore.AllocateSpace
+    file_path: str                 # local path of the .qcow2 (already signature-verified by the caller)
+    sha256: str                    # hex digest of that file (Proxmox verifies it too: checksum-algorithm=sha256)
+    name: str                      # template name, e.g. ou-tpl-debian12-agent
+    pool: str
+    cores: int = 2
+    memory_mb: int = 2048
+    bridge: str | None = None
+
+
+@dataclass(frozen=True)
+class ImageImportResult:
+    node: str
+    vmid: int
+    name: str
+    volid: str
+
+
 @dataclass
 class VerbCheck:
     verb: str
@@ -199,6 +222,7 @@ class Provider(ReadProvider, Protocol):
     def rollback(self, ref: VmRef, name: str) -> TaskRef: ...
     def migrate(self, ref: VmRef, target_node: str, online: bool) -> TaskRef: ...
     def destroy_vm(self, ref: VmRef) -> TaskRef: ...
+    def import_image(self, spec: ImageImportSpec) -> ImageImportResult: ...
 
 
 # ---- structural "mutations only from job execution" guard -------------------------------------------------------

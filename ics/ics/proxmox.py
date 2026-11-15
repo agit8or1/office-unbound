@@ -257,3 +257,20 @@ class ProxmoxWriteClient(ProxmoxReadClient):
 
     def delete(self, path: str) -> Any:
         return self._request("DELETE", path)
+
+    def upload(self, path: str, fields: dict, file_path: str, filename: str, *, timeout: float = 3600.0) -> Any:
+        """multipart/form-data upload of ONE local file (image import). Same TLS trust and error hygiene as every other call; the file is streamed."""
+        try:
+            with open(file_path, "rb") as fh:
+                r = self._client.post(self._base + path, data=fields, files={"filename": (filename, fh, "application/octet-stream")},
+                                      timeout=httpx.Timeout(10.0, read=timeout, write=timeout))
+        except (httpx.ConnectError, ssl.SSLError) as e:
+            raise ProxmoxError(f"POST {path} failed: {type(e).__name__}: {str(e)[:200]}") from None
+        except (httpx.HTTPError, OSError, ValueError) as e:
+            raise ProxmoxError(f"POST {path} failed: {type(e).__name__}") from None
+        if r.status_code != 200:
+            raise ProxmoxHTTPError("POST", path, r.status_code, _clean_reason(r.reason_phrase))
+        try:
+            return r.json()["data"]
+        except (ValueError, KeyError, TypeError):
+            raise ProxmoxError(f"POST {path}: unexpected response body") from None
