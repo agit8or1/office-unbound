@@ -419,12 +419,20 @@ fi
 
 # ------------------------------------------------------------------------------------------------------- readiness
 log "waiting for /readyz (backend, 127.0.0.1:8088)"
-unit_wait "curl -fsS -o /dev/null http://127.0.0.1:8088/readyz" 120 || { journalctl -u ics-migrate -u ics --no-pager -n 30 >&2 || true; die "/readyz did not return 200 within 120 s"; }
+PASSIVE=0; [ "$(envget "$ETC/ics.env" ICS_WORKER_ENABLED)" = false ] && PASSIVE=1
+ready() { # ready URL [curl args...]: 200, or (PASSIVE restored controller, worker disabled) 503 with database + audit chain ok
+  local u=$1 code; shift
+  code="$(curl -s -o "$TMP/ready.json" -w '%{http_code}' "$@" "$u" 2>/dev/null)" || return 1
+  [ "$code" = 200 ] && return 0
+  [ "$PASSIVE" = 1 ] && [ "$code" = 503 ] && python3 -I -c 'import json,sys; c=json.load(open(sys.argv[1]))["checks"]; sys.exit(0 if c["database"]["ok"] and c["audit_chain"]["ok"] else 1)' "$TMP/ready.json"
+}
+unit_wait "ready http://127.0.0.1:8088/readyz" 120 || { journalctl -u ics-migrate -u ics --no-pager -n 30 >&2 || true; die "/readyz did not become ready within 120 s"; }
+[ "$PASSIVE" = 0 ] || log "ICS_WORKER_ENABLED=false (passive/restored controller): /readyz 503 on the worker check is expected; database and audit chain are ok"
 URL="http://127.0.0.1:8088/"
 if [ "$SKIP_TLS" = 0 ]; then
   CAF="$TLS/ca.crt"; [ -z "$TLS_CERT" ] || CAF=/etc/ssl/certs/ca-certificates.crt
-  curl -fsS -o /dev/null --cacert "$CAF" "https://$LISTEN_IP/readyz" || die "https://$LISTEN_IP/readyz failed (TLS/nginx)"
-  [ -z "$HOSTNAME_FQDN" ] || curl -fsS -o /dev/null --cacert "$CAF" --resolve "$HOSTNAME_FQDN:443:$LISTEN_IP" "https://$HOSTNAME_FQDN/readyz" || die "https://$HOSTNAME_FQDN/readyz failed"
+  ready "https://$LISTEN_IP/readyz" --cacert "$CAF" || die "https://$LISTEN_IP/readyz failed (TLS/nginx)"
+  [ -z "$HOSTNAME_FQDN" ] || ready "https://$HOSTNAME_FQDN/readyz" --cacert "$CAF" --resolve "$HOSTNAME_FQDN:443:$LISTEN_IP" || die "https://$HOSTNAME_FQDN/readyz failed"
   URL="https://${HOSTNAME_FQDN:-$LISTEN_IP}/"
 fi
 
