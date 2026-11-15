@@ -62,6 +62,18 @@ class Settings:
     notify_max_attempts: int = 5
     incident_renotify_seconds: int = 3600        # re-notify unacknowledged incidents; 0 = never
     allow_loopback_agents: bool = False
+    trusted_proxy: str | None = None             # exact IP of a local reverse proxy whose X-Forwarded-For is honoured (e.g. 127.0.0.1); None = ignore XFF
+
+
+def _trusted_proxy(v: str | None) -> str | None:
+    """Only a single literal loopback IP may be trusted (the proxy must run on this host)."""
+    if not v:
+        return None
+    import ipaddress
+    ip = ipaddress.ip_address(v.strip())
+    if not ip.is_loopback:
+        raise RuntimeError("ICS_TRUSTED_PROXY must be a loopback address (local reverse proxy only)")
+    return str(ip)
 
 
 def load_settings() -> Settings:
@@ -83,6 +95,7 @@ def load_settings() -> Settings:
             enable_docs=b("ICS_ENABLE_DOCS", False),
             login_max_failures=int(env.get("ICS_LOGIN_MAX_FAILURES", 5)),
             allow_loopback_endpoints=b("ICS_ALLOW_LOOPBACK_ENDPOINTS", False),
+            trusted_proxy=_trusted_proxy(env.get("ICS_TRUSTED_PROXY")),
         )
     except KeyError as e:  # pragma: no cover
         raise RuntimeError(f"missing required config {e}; see README (config)") from None

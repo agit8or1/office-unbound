@@ -665,3 +665,18 @@ def test_l8_snapshot_retention_and_plan_expiry(team, pve, rt):
     assert r.status_code == 409 and "expired" in r.json()["detail"]
     with rt.session() as db:
         assert db.execute(text("SELECT secret_enc IS NULL FROM plans WHERE id=:i"), {"i": old}).scalar()
+
+
+def test_trusted_proxy_config_loopback_only(monkeypatch):
+    import pytest as _pt
+    from ics import config as _c
+    from ics.serve import make_config
+    assert _c._trusted_proxy(None) is None and _c._trusted_proxy("") is None
+    assert _c._trusted_proxy("127.0.0.1") == "127.0.0.1"
+    for bad in ("192.168.22.1", "0.0.0.0", "10.0.0.5"):
+        with _pt.raises(RuntimeError):
+            _c._trusted_proxy(bad)
+    cfg = make_config()
+    assert cfg.proxy_headers is False and cfg.forwarded_allow_ips in ("", [])
+    cfg = make_config(trusted_proxy="127.0.0.1")
+    assert cfg.proxy_headers is True
