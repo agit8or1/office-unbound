@@ -9,10 +9,10 @@ registration (authorization endpoint accepts their redirect URI + PKCE) but
 cannot be logged in with automatically.
 
 PROVES: realm reachable over lab-CA TLS; four client registrations resolve;
-roles claim is emitted per user (lldap group -> realm role -> claim);
+roles claim is emitted per user (LDAP group -> realm role -> claim);
 no-role user has no OpenCloud role; token lifetime; offline_access issues an
 offline refresh token; OpenCloud accepts a Keycloak bearer token and
-auto-provisions the user; the no-role user is rejected.
+resolves the user from the shared read-only LDAP (no autoprovisioning); the no-role user is rejected.
 DOES NOT PROVE: browser/MFA flow, desktop/Android/iOS native login,
 back-channel logout, behaviour on disabled user (see MANUAL-CHECKLIST.md).
 """
@@ -85,11 +85,12 @@ rep.check("device grant endpoint", r.status_code == 200 and "device_code" in r.j
 EXPECT = {"alice": "opencloudAdmin", "bob": "opencloudUser", "carol": "opencloudSpaceAdmin",
           "dave": "opencloudGuest", "erin": None}
 OC_ROLES = ("opencloudAdmin", "opencloudSpaceAdmin", "opencloudUser", "opencloudGuest")
-# oCIS built-in role ids (UNVERIFIED for OpenCloud 9.1.0; mismatch => FAIL with detail)
+# OpenCloud 9.1.0 built-in role ids. admin/spaceadmin/user match oCIS and were verified in the lab run;
+# the guest (user-light) id was NOT the oCIS value (1c996275-...) - observed 38071a68-... in the lab run.
 ROLE_ID = {"opencloudAdmin": "71881883-1768-46bd-a24d-a356a2afdf7f",
            "opencloudSpaceAdmin": "2aadd357-682c-406b-8874-293091995fdd",
            "opencloudUser": "d7beeea8-8ff4-406b-8fb6-ab2dd81e6b11",
-           "opencloudGuest": "1c996275-f1c9-4e71-abdf-a42f6495e960"}
+           "opencloudGuest": "38071a68-456a-4553-846a-fa67bf5596cc"}
 
 for user, want in EXPECT.items():
     pw = L.password_for(user)
@@ -128,7 +129,7 @@ for user, want in EXPECT.items():
                   "HTTP %s (login fails cleanly without role claim)" % me.status_code,
                   "HTTP %s: user without role was NOT rejected" % me.status_code)
         continue
-    if not rep.check("%s accepted by OpenCloud (autoprovision)" % user, me.status_code == 200,
+    if not rep.check("%s accepted by OpenCloud (user resolved from shared LDAP via entryUUID)" % user, me.status_code == 200,
                      "GET /graph/v1.0/me 200", "HTTP %s %s" % (me.status_code, me.text[:150])):
         continue
     j = me.json()

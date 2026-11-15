@@ -1,5 +1,5 @@
 # ADR-0003 Groupware backend
-Status: Proposed — source/licensing feasibility CONFIRMED by code review (2026-11-15); pending lab build + protocol tests
+Status: Integrated in lab (2026-11-15) — own source build of gromox 3.13 + sync 2.7 + dav 1.9 + web 5.2 passes 57 automated protocol checks (docs/status/groupware-lab-results.md, re-run by lead). Real Outlook/mobile clients untested.
 Candidate: grommunio (gromox AGPL-3.0 + web/sync/dav/admin AGPL-3.0). Only evaluated open stack offering MAPI/HTTP + EWS + ActiveSync + Autodiscover. Single authoritative mailbox store (gromox).
 Fallback for non-Outlook deployments: mailcow/SOGo (GPL; IMAP/SMTP/DAV/ActiveSync, no MAPI/EWS).
 Blocking gates before acceptance:

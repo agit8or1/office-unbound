@@ -101,6 +101,21 @@
             "userinfo.token.claim": "true",
             "introspection.token.claim": "true"
           }
+        },
+        {
+          "name": "uuid",
+          "protocol": "openid-connect",
+          "protocolMapper": "oidc-usermodel-attribute-mapper",
+          "consentRequired": false,
+          "config": {
+            "user.attribute": "uuid",
+            "claim.name": "uuid",
+            "jsonType.label": "String",
+            "id.token.claim": "true",
+            "access.token.claim": "true",
+            "userinfo.token.claim": "true",
+            "introspection.token.claim": "true"
+          }
         }
       ]
     },
@@ -151,6 +166,21 @@
           "config": {
             "claim.name": "roles",
             "multivalued": "true",
+            "jsonType.label": "String",
+            "id.token.claim": "true",
+            "access.token.claim": "true",
+            "userinfo.token.claim": "true",
+            "introspection.token.claim": "true"
+          }
+        },
+        {
+          "name": "uuid",
+          "protocol": "openid-connect",
+          "protocolMapper": "oidc-usermodel-attribute-mapper",
+          "consentRequired": false,
+          "config": {
+            "user.attribute": "uuid",
+            "claim.name": "uuid",
             "jsonType.label": "String",
             "id.token.claim": "true",
             "access.token.claim": "true",
@@ -212,6 +242,21 @@
             "userinfo.token.claim": "true",
             "introspection.token.claim": "true"
           }
+        },
+        {
+          "name": "uuid",
+          "protocol": "openid-connect",
+          "protocolMapper": "oidc-usermodel-attribute-mapper",
+          "consentRequired": false,
+          "config": {
+            "user.attribute": "uuid",
+            "claim.name": "uuid",
+            "jsonType.label": "String",
+            "id.token.claim": "true",
+            "access.token.claim": "true",
+            "userinfo.token.claim": "true",
+            "introspection.token.claim": "true"
+          }
         }
       ]
     },
@@ -261,6 +306,21 @@
           "config": {
             "claim.name": "roles",
             "multivalued": "true",
+            "jsonType.label": "String",
+            "id.token.claim": "true",
+            "access.token.claim": "true",
+            "userinfo.token.claim": "true",
+            "introspection.token.claim": "true"
+          }
+        },
+        {
+          "name": "uuid",
+          "protocol": "openid-connect",
+          "protocolMapper": "oidc-usermodel-attribute-mapper",
+          "consentRequired": false,
+          "config": {
+            "user.attribute": "uuid",
+            "claim.name": "uuid",
             "jsonType.label": "String",
             "id.token.claim": "true",
             "access.token.claim": "true",
@@ -320,6 +380,21 @@
             "userinfo.token.claim": "true",
             "introspection.token.claim": "true"
           }
+        },
+        {
+          "name": "uuid",
+          "protocol": "openid-connect",
+          "protocolMapper": "oidc-usermodel-attribute-mapper",
+          "consentRequired": false,
+          "config": {
+            "user.attribute": "uuid",
+            "claim.name": "uuid",
+            "jsonType.label": "String",
+            "id.token.claim": "true",
+            "access.token.claim": "true",
+            "userinfo.token.claim": "true",
+            "introspection.token.claim": "true"
+          }
         }
       ]
     }
@@ -327,7 +402,7 @@
   "components": {
     "org.keycloak.storage.UserStorageProvider": [
       {
-        "name": "lldap",
+        "name": "openldap",
         "providerId": "ldap",
         "config": {
           "enabled": [
@@ -355,13 +430,13 @@
             "uid"
           ],
           "uuidLDAPAttribute": [
-            "uid"
+            "entryUUID"
           ],
           "userObjectClasses": [
-            "person"
+            "inetOrgPerson, organizationalPerson, person"
           ],
           "connectionUrl": [
-            "ldaps://ldap.ou-lab.internal:6360"
+            "ldaps://ldap.ou-lab.internal:636"
           ],
           "usersDn": [
             "ou=people,dc=ou-lab,dc=internal"
@@ -370,7 +445,7 @@
             "simple"
           ],
           "bindDn": [
-            "uid=svc-bind,ou=people,dc=ou-lab,dc=internal"
+            "cn=svc-bind,ou=system,dc=ou-lab,dc=internal"
           ],
           "bindCredential": [
             "__LDAP_BIND_PASSWORD__"
@@ -499,7 +574,7 @@
               }
             },
             {
-              "name": "lldap-groups-as-realm-roles",
+              "name": "ldap-groups-as-realm-roles",
               "providerId": "role-ldap-mapper",
               "config": {
                 "roles.dn": [
@@ -509,7 +584,7 @@
                   "cn"
                 ],
                 "role.object.classes": [
-                  "groupOfUniqueNames"
+                  "groupOfNames"
                 ],
                 "membership.ldap.attribute": [
                   "member"
@@ -539,7 +614,42 @@
                   ""
                 ]
               }
+            },
+            {
+              "name": "uuid",
+              "providerId": "user-attribute-ldap-mapper",
+              "config": {
+                "ldap.attribute": [
+                  "entryUUID"
+                ],
+                "user.model.attribute": [
+                  "uuid"
+                ],
+                "is.mandatory.in.ldap": [
+                  "false"
+                ],
+                "always.read.value.from.ldap": [
+                  "true"
+                ],
+                "read.only": [
+                  "true"
+                ],
+                "is.binary.attribute": [
+                  "false"
+                ]
+              }
             }
+          ]
+        }
+      }
+    ],
+    "org.keycloak.userprofile.UserProfileProvider": [
+      {
+        "providerId": "declarative-user-profile",
+        "subComponents": {},
+        "config": {
+          "kc.user.profile.config": [
+            "{\"attributes\": [{\"name\": \"username\", \"displayName\": \"${username}\", \"validations\": {\"length\": {\"min\": 3, \"max\": 255}, \"username-prohibited-characters\": {}, \"up-username-not-idn-homograph\": {}}, \"permissions\": {\"view\": [\"admin\", \"user\"], \"edit\": [\"admin\", \"user\"]}}, {\"name\": \"email\", \"displayName\": \"${email}\", \"validations\": {\"email\": {}, \"length\": {\"max\": 255}}, \"permissions\": {\"view\": [\"admin\", \"user\"], \"edit\": [\"admin\", \"user\"]}}, {\"name\": \"firstName\", \"displayName\": \"${firstName}\", \"validations\": {\"length\": {\"max\": 255}, \"person-name-prohibited-characters\": {}}, \"permissions\": {\"view\": [\"admin\", \"user\"], \"edit\": [\"admin\", \"user\"]}}, {\"name\": \"lastName\", \"displayName\": \"${lastName}\", \"validations\": {\"length\": {\"max\": 255}, \"person-name-prohibited-characters\": {}}, \"permissions\": {\"view\": [\"admin\", \"user\"], \"edit\": [\"admin\", \"user\"]}}, {\"name\": \"uuid\", \"displayName\": \"Unique LDAP ID (entryUUID)\", \"validations\": {}, \"annotations\": {}, \"permissions\": {\"view\": [\"admin\", \"user\"], \"edit\": [\"admin\"]}, \"multivalued\": false}]}"
           ]
         }
       }

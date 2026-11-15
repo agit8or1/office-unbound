@@ -7,8 +7,9 @@ content hash equals the original and that the restore is itself versioned.
 PROVES: server-side versioning on overwrite and restore-by-API work.
 DOES NOT PROVE: versions created by Collabora saves (UI), retention policy,
 quota accounting (record these manually), sharing semantics.
-The meta endpoint /remote.php/dav/meta/<fileid>/v and COPY restore follow
-oCIS docs; UNVERIFIED for OpenCloud 9.1.0 -> failures here need a manual look first.
+VERIFIED against OpenCloud 9.1.0 in the lab run: PROPFIND /remote.php/dav/meta/<fileid>/v lists the collection
+itself + one .../v/<id>.REV.<ts> per old version; restore = COPY of that href with a FULL-URL Destination
+header (a path-only Destination gave HTTP 500).
 """
 import os
 import sys
@@ -45,13 +46,19 @@ def list_versions():
     if r.status_code != 207:
         return r.status_code, []
     hrefs = [h.text for h in ET.fromstring(r.content).iter("{DAV:}href")]
-    return 207, [h for h in hrefs if not h.rstrip("/").endswith("/v")]
+    # first href is the meta collection itself (".../<fileid>/"); versions live under ".../v/<id>.REV.<utc-ts>"
+    vs = [h for h in hrefs if "/v/" in h and ".REV." in h]
+    def key(h):  # timestamps have 1-9 fractional digits: pad, else string sort misorders them
+        ts = h.rsplit(".REV.", 1)[1].rstrip("Z")
+        base, _, frac = ts.partition(".")
+        return base + "." + frac.ljust(9, "0")
+    return 207, sorted(vs, key=key)
 
 code, vers = list_versions()
-if not rep.check("list versions", code == 207 and len(vers) >= 2, "%d old versions listed" % len(vers),
+if not rep.check("list versions", code == 207 and len(vers) == 2, "%d old versions listed (3 writes => 2 old)" % len(vers),
                  "HTTP %s, %d versions (expected >= 2 after 3 writes)" % (code, len(vers))):
     dav.delete(name); rep.finish()
-oldest = sorted(vers)[0]
+oldest = vers[0]  # list_versions() returns oldest first
 r = dav.s.request("COPY", "https://%s%s" % (L.HOST_FILES, oldest),
                   headers={"Destination": dav.url(name)}, timeout=30)
 rep.check("restore COPY", r.status_code in (201, 204), "HTTP %s" % r.status_code, "HTTP %s %s" % (r.status_code, r.text[:120]))
@@ -59,9 +66,13 @@ cur = dav.get(name).content
 rep.check("restored content", cur in v[:2], "content is an earlier version (%r)" % cur[:14],
           "content %r is not an earlier version" % cur[:30])
 rep.check("restored equals first version", cur == v[0], "hash equals version-1",
-          "restored oldest listed version is not v1 (oldest listed may be v2 if v1 was the creation; inspect)")
+          "restored oldest listed version is not v1")
 code2, vers2 = list_versions()
-rep.check("restore is versioned", code2 == 207 and len(vers2) > len(vers) - 1, "%d versions after restore" % len(vers2),
-          "versions before=%d after=%d" % (len(vers), len(vers2)))
+# Observed (9.1.0): restore CONSUMES the restored version and the replaced current content (v3) becomes a new
+# version, so the count stays the same; prove versioning of the restore by content, not by count.
+bodies = [dav.s.get("https://%s%s" % (L.HOST_FILES, h), timeout=30).content for h in vers2]
+rep.check("restore is versioned", code2 == 207 and v[2] in bodies and v[0] not in bodies,
+          "pre-restore content (v3) kept as a version; restored v1 is now current; versions=%d" % len(vers2),
+          "versions after restore=%s (v3 present=%s)" % (len(vers2), v[2] in bodies))
 dav.delete(name)
 rep.finish()

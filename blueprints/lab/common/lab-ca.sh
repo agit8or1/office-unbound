@@ -78,7 +78,8 @@ CNF
 issue kc     "${IP_KC}"     "${HOST_KC}" "${HOST_LDAP}"
 issue files  "${IP_FILES}"  "${HOST_FILES}"
 issue office "${IP_OFFICE}" "${HOST_OFFICE}"
-issue mail   "${IP_MAIL}"   "${HOST_MAIL}" "${HOST_AUTODISCOVER}"
+# mail cert only when the mail machine is inside the name-constrained subnet (set LAB_CA_ISSUE_MAIL=1)
+[ "${LAB_CA_ISSUE_MAIL:-0}" = 1 ] && issue mail   "${IP_MAIL}"   "${HOST_MAIL}" "${HOST_AUTODISCOVER}"
 
 log "CA: ${CA_DIR}/ca.crt ; per-role bundles in ${CA_DIR}/out/ (root-only)"
 log "Operator client trust: copy ca.crt to the test workstation and set LAB_CA_FILE for tests/."

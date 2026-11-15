@@ -9,7 +9,8 @@ die()  { printf '[%s] FATAL: %s\n' "$(date +%H:%M:%S)" "$*" >&2; exit 1; }
 need_root() { [ "$(id -u)" -eq 0 ] || die "run as root (sudo)"; }
 
 # Random secret, URL/shell/XML/LDAP-safe alphabet, 32 chars.
-gen_secret() { LC_ALL=C tr -dc 'A-Za-z0-9' </dev/urandom | head -c 32; }
+# (hex via openssl: the earlier tr|head pipeline died with SIGPIPE under pipefail - found in lab run)
+gen_secret() { printf "%s" "$(openssl rand -hex 16)"; }
 
 secrets_dir_init() {
   install -d -m 0700 -o root -g root "${SECRETS_DIR}"
@@ -35,6 +36,7 @@ fetch() {
 }
 
 add_lab_hosts() {
+  grep -q "127.0.1.1 $(hostname)" /etc/hosts || echo "127.0.1.1 $(hostname)" >> /etc/hosts
   # Idempotently pin the lab names in /etc/hosts (no public DNS exists).
   local marker="# ou-lab hosts"
   grep -q "^${marker}" /etc/hosts && return 0

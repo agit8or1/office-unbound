@@ -131,21 +131,92 @@ def reverify(phase):
 
 reverify("after upload")
 
-for role, unit in (("files", "opencloud"), ("office", "collabora")):
+for role, unit in (("files", "opencloud"), ("office", "coolwsd")):
     ok, detail = L.ssh_restart(role, unit)
     if ok is None:
         rep.skipped("restart %s" % unit, detail)
     elif not ok:
         rep.failed("restart %s" % unit, detail)
-if os.environ.get("OU_SSH_FILES"):
+restarted = any(os.environ.get(k) for k in ("OU_SSH_FILES", "OU_MACHINE_FILES"))
+if restarted:
     try:
         L.wait_http(requests, "https://%s/.well-known/openid-configuration" % L.HOST_FILES, 120)
+        L.wait_http(requests, "https://%s/hosting/discovery" % L.HOST_OFFICE, 120)
         tok = L.get_token(requests, user, pw)["access_token"]
         dav = L.OcDav(requests, user, tok); dav.discover()
         reverify("after restart")
     except Exception as e:  # noqa: BLE001
         rep.failed("re-verify after restart", str(e)[:200])
 else:
-    rep.skipped("re-verify after restart", "OU_SSH_FILES not set; restart + re-verify not executed")
+    rep.skipped("re-verify after restart", "no OU_SSH_FILES / OU_MACHINE_FILES; restart + re-verify not executed")
+
+# ---- Collabora editor save fidelity (VERIFIED approach, see T04): open each file in a real Collabora session, edit,
+# save (PutFile), re-read via WebDAV and check what survived the LibreOffice re-export.
+import time
+try:
+    import websocket
+except ImportError:
+    websocket = None
+
+def collabora_edit(name, mutate):
+    fid = dav.fileid("%s/%s" % (d, name))
+    S = L.CollaboraSession(requests, websocket, tok, fid)
+    if not S.ok_open:
+        return False, "app/open HTTP %s %s" % (S.open_status, S.open_text[:100])
+    try:
+        if not S.connect_and_load():
+            return False, "load failed: %s" % S.messages[-3:]
+        mutate(S)
+        ok = S.save()
+        return ok, "" if ok else "save failed: %s" % S.messages[-3:]
+    finally:
+        S.close()
+
+def mut_docx(S):
+    S.ws.send("textinput id=0 text=EDITED-"); time.sleep(1)
+
+def mut_xlsx(S):
+    S.ws.send('uno .uno:GoToCell {"ToPoint":{"type":"string","value":"D5"}}'); time.sleep(1)
+    S.ws.send("textinput id=0 text=EDITED-%s" % TOKEN); time.sleep(1)
+    S.ws.send("key type=input char=13 key=1280"); S.ws.send("key type=up char=13 key=1280"); time.sleep(1)
+
+def mut_pptx(S):
+    time.sleep(1)  # re-save only: slide text editing needs object selection (manual checklist)
+
+def after_edit_docx(b):
+    dd = docx.Document(io.BytesIO(b))
+    heads = [p.text for p in dd.paragraphs if p.style.name.startswith("Heading")]
+    body = " ".join(p.text for p in dd.paragraphs)
+    cells = [c.text for r in dd.tables[0].rows for c in r.cells]
+    return (any(TOKEN in h and "EDITED-" in h for h in heads) and "Grüße 世界" in body and cells == ["a", "b", "c", TOKEN],
+            "heads=%s cells=%s" % (heads, cells))
+
+def after_edit_xlsx(b):
+    wb = openpyxl.load_workbook(io.BytesIO(b)); wv = openpyxl.load_workbook(io.BytesIO(b), data_only=True)
+    f = (wb["Data"]["B1"].value, wb["Data"]["B2"].value, wb["Calc"]["A1"].value, wb["Calc"]["B1"].value)
+    cv = (wv["Data"]["B1"].value, wv["Data"]["B2"].value, wv["Calc"]["A1"].value)
+    ed = wb["Data"]["D5"].value
+    return (f == ("=SUM(A1:A3)", "=AVERAGE(A1:A3)", "=Data!B1*2", TOKEN) and cv == (60, 20, 120) and ed == "EDITED-" + TOKEN,
+            "formulas=%s cached=%s D5=%r" % (f, cv, ed))
+
+def after_edit_pptx(b):
+    ok, det = check_pptx(b)
+    return ok, det
+
+if websocket is None:
+    rep.skipped("collabora edit fidelity", "websocket-client missing")
+else:
+    for name, mut, chk in (("test.docx", mut_docx, after_edit_docx), ("test.xlsx", mut_xlsx, after_edit_xlsx),
+                           ("test.pptx", mut_pptx, after_edit_pptx)):
+        ok, det = collabora_edit(name, mut)
+        if not rep.check("%s edited+saved in Collabora" % name, ok, "PutFile ok", det):
+            continue
+        time.sleep(2)
+        g = dav.get("%s/%s" % (d, name))
+        ok2, det2 = chk(g.content)
+        rep.check("%s content after Collabora save" % name, ok2, det2, det2)
+        rep.check("%s bytes changed by editor save" % name, g.content != originals[name], "%d -> %d bytes" % (len(originals[name]), len(g.content)),
+                  "file unchanged: save was a no-op")
+
 dav.delete(d)
 rep.finish()

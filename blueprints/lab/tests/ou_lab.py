@@ -128,15 +128,27 @@ def get_token(requests, user, password, client_id="ou-lab-test", scope="openid p
 
 
 def ssh_restart(role, unit):
-    """Restart a systemd unit on a lab VM via ssh. Returns (ok, detail). SKIP-able."""
-    target = os.environ.get("OU_SSH_" + role.upper())
-    if not target:
-        return None, "OU_SSH_%s not set" % role.upper()
-    cmd = ["ssh", "-o", "BatchMode=yes", "-o", "ConnectTimeout=10", target, "sudo", "systemctl", "restart", unit]
-    p = subprocess.run(cmd, capture_output=True, text=True, timeout=180)
+    """Restart a systemd unit on a lab machine. Returns (ok, detail); ok is None when not configured (SKIP).
+
+    Two ways (lab run used the second, from the ICS host against nspawn machines):
+      OU_SSH_<ROLE>=user@host                      -> ssh user@host sudo systemctl restart <unit>
+      OU_RESTART_CMD='sudo systemctl -M {machine} restart {unit}' + OU_MACHINE_<ROLE>=ou-files1
+    """
+    tmpl = os.environ.get("OU_RESTART_CMD")
+    machine = os.environ.get("OU_MACHINE_" + role.upper())
+    if tmpl and machine:
+        cmd = tmpl.format(machine=machine, unit=unit).split()
+        what = machine
+    else:
+        target = os.environ.get("OU_SSH_" + role.upper())
+        if not target:
+            return None, "neither OU_SSH_%s nor OU_RESTART_CMD+OU_MACHINE_%s set" % (role.upper(), role.upper())
+        cmd = ["ssh", "-o", "BatchMode=yes", "-o", "ConnectTimeout=10", target, "sudo", "systemctl", "restart", unit]
+        what = target
+    p = subprocess.run(cmd, capture_output=True, text=True, timeout=240)
     if p.returncode != 0:
-        return False, "ssh restart %s on %s failed: %s" % (unit, target, p.stderr.strip()[:200])
-    return True, "restarted %s on %s" % (unit, target)
+        return False, "restart %s on %s failed: %s" % (unit, what, p.stderr.strip()[:200])
+    return True, "restarted %s on %s" % (unit, what)
 
 
 def wait_http(requests, url, timeout=120, **kw):
@@ -205,3 +217,71 @@ class OcDav:
         for el in ET.fromstring(r.content).iter("{http://owncloud.org/ns}fileid"):
             return el.text
         return None
+
+
+# ---- Collabora headless session (VERIFIED in the lab against coolwsd 26.04.6.1 + OpenCloud 9.1.0) ------------
+class CollaboraSession:
+    """Drives the same protocol the browser iframe uses: POST /app/open -> wss /cool/<docurl>/ws -> load -> edit -> save.
+
+    Needs `websocket-client`. The Origin must be the Collabora host (the iframe origin); with the OpenCloud host as
+    Origin coolwsd answers 403. Collabora itself calls CheckFileInfo/GetFile/PutFile on OpenCloud (with WOPI proof
+    headers), so a successful load/save proves Collabora -> OpenCloud reachability, TLS trust and the WOPI allow-list.
+    """
+
+    def __init__(self, requests, websocket, token, file_id):
+        import urllib.parse as up
+        self.websocket, self.up = websocket, up
+        r = requests.post("https://%s/app/open?file_id=%s&app_name=CollaboraOnline" % (HOST_FILES, up.quote(file_id, safe="")),
+                          headers={"Authorization": "Bearer " + token}, verify=verify(), timeout=60)
+        self.open_status, self.open_text = r.status_code, r.text
+        self.ok_open = r.status_code == 200 and "app_url" in r.text
+        if self.ok_open:
+            j = r.json()
+            self.wopi_token = j["form_parameters"]["access_token"]
+            self.wopi_src = up.parse_qs(up.urlparse(j["app_url"]).query)["WOPISrc"][0]
+        self.ws = None
+        self.messages = []
+
+    def connect_and_load(self, timeout=40):
+        up = self.up
+        docurl = self.wopi_src + "?access_token=" + self.wopi_token
+        self.ws = self.websocket.create_connection(
+            "wss://%s/cool/%s/ws" % (HOST_OFFICE, up.quote(docurl, safe="")),
+            sslopt={"ca_certs": CA_FILE}, origin="https://" + HOST_OFFICE, timeout=20)
+        self.ws.send("coolclient 0.1")
+        self.ws.send("load url=%s lang=en-US" % up.quote(docurl, safe=""))
+        return self._until(lambda m: m.startswith("status:"), timeout)
+
+    def _until(self, pred, timeout):
+        end = time.time() + timeout
+        while time.time() < end:
+            try:
+                m = self.ws.recv()
+            except Exception as e:  # noqa: BLE001
+                self.messages.append("ERR %s" % e)
+                return False
+            if isinstance(m, bytes):
+                continue
+            if m.startswith(("invalidatetiles", "tile", "cellcursor", "textselection", "statechanged", "progress")):
+                continue
+            self.messages.append(m[:200])
+            if pred(m):
+                return True
+        return False
+
+    def insert_text_and_save(self, text, timeout=40):
+        self.ws.send("textinput id=0 text=%s" % text)
+        time.sleep(1)
+        self.ws.send("save dontTerminateEdit=1 dontSaveIfUnmodified=0")
+        return self._until(lambda m: m.startswith("unocommandresult") and ".uno:Save" in m and '"success":true' in m, timeout)
+
+    def save(self, timeout=40):
+        self.ws.send("save dontTerminateEdit=1 dontSaveIfUnmodified=0")
+        return self._until(lambda m: m.startswith("unocommandresult") and ".uno:Save" in m and '"success":true' in m, timeout)
+
+    def close(self):
+        try:
+            if self.ws:
+                self.ws.close()
+        except Exception:  # noqa: BLE001
+            pass
