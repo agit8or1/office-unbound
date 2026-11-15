@@ -1,1 +1,0 @@
-import{E as e,L as t,P as n,R as r,Y as i,j as a}from"./index-DL1I8jzu.js";var o={class:`page`,role:`status`,"aria-label":`Loading`},s=n({__name:`Skeleton`,props:{rows:{default:4}},setup(n){return(s,c)=>(t(),a(`div`,o,[(t(!0),a(e,null,r(n.rows,e=>(t(),a(`span`,{key:e,class:i([`skel`,e%2?``:`w70`])},null,2))),128))]))}});export{s as t};
