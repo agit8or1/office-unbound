@@ -4,6 +4,6 @@ title = "office-unbound gitleaks config"
 useDefault = true
 
 [[allowlists]]
-description = "fake mailbox passwords for the in-process IMAP/EWS mocks in unit tests (no real credentials)"
+description = "fake passwords/tokens in unit-test fixtures (in-process mocks and test databases, no real credentials)"
 targetRules = ["generic-api-key"]
-paths = ['''^ics/tests/test_(monitor|checks|vault_audit)\.py$''']
+paths = ['''^ics/tests/.*\.py$''', '''^ics/frontend/src/.*\.test\.ts$''']
