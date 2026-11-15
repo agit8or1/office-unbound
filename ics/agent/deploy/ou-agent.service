@@ -1,0 +1,36 @@
+[Unit]
+Description=Office Unbound node agent (signed allowlisted runbooks only)
+After=network-online.target dbus.service
+Wants=network-online.target
+
+[Service]
+Type=simple
+User=ou-agent
+Group=ou-agent
+Environment=PYTHONPATH=/opt/ou-agent PYTHONDONTWRITEBYTECODE=1
+ExecStart=/usr/bin/python3 -m ou_agent serve
+Restart=on-failure
+RestartSec=3
+UMask=0077
+
+# The agent is an unprivileged user. Its ONLY privilege is a polkit rule (generated from /etc/ou-agent/agent.json by
+# install-agent.sh) that lets user ou-agent `restart` exactly the allowlisted units. Everything else is denied.
+NoNewPrivileges=true
+ProtectSystem=strict
+ReadWritePaths=/var/lib/ou-agent
+ProtectHome=true
+PrivateTmp=true
+ProtectKernelTunables=true
+ProtectKernelModules=true
+ProtectControlGroups=true
+LockPersonality=true
+RestrictRealtime=true
+RestrictSUIDSGID=true
+RestrictNamespaces=true
+MemoryDenyWriteExecute=true
+CapabilityBoundingSet=
+RestrictAddressFamilies=AF_INET AF_INET6 AF_UNIX
+SystemCallArchitectures=native
+
+[Install]
+WantedBy=multi-user.target

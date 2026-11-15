@@ -71,7 +71,7 @@ export type Role = 'viewer' | 'operator' | 'approver' | 'admin'
 export const ROLES: Role[] = ['viewer', 'operator', 'approver', 'admin']
 export const rank = (r: Role) => ROLES.indexOf(r)
 
-export interface Me { username: string; role: Role; csrf_token: string }
+export interface Me { id?: string; username: string; role: Role; csrf_token: string }
 export interface Endpoint {
   id: string; name: string; type: string; base_url: string; token_id: string
   fingerprint_sha256: string | null; has_ca_bundle: boolean; created_at: string
@@ -80,6 +80,8 @@ export interface Plan {
   id: string; action: string; params: Record<string, unknown>; risk: 'low' | 'high'
   status: 'pending_approval' | 'approved' | 'rejected'; requested_by: string
   decided_by: string | null; decided_at: string | null; created_at: string
+  params_hash?: string; requested_by_username?: string; decided_by_username?: string | null
+  approval_count?: number; approvers?: string[]; approvals_required?: number
 }
 export interface Job {
   id: string; plan_id: string; action: string; status: 'queued' | 'running' | 'succeeded' | 'failed'
@@ -99,3 +101,27 @@ export interface ChainResult {
   problems: { seq: number; kind: string; detail: string }[]
 }
 export interface Ready { ready: boolean; checks: Record<string, { ok: boolean }> }
+
+// ---- monitoring (read-only views; mutations go through typed plans) ----
+export type CheckState = 'ok' | 'warning' | 'critical' | 'unknown'
+export interface Check {
+  id: string; name: string; kind: string; config: Record<string, unknown>; has_secret: boolean; interval_seconds: number
+  fail_threshold: number; recover_threshold: number; enabled: boolean; state: CheckState; consecutive_bad: number
+  last_run_at: string | null; next_run_at: string | null; last_state_change_at: string | null; last_message: string | null
+  last_latency_ms: number | null; remediation: Record<string, unknown> | null; active_incident_id: string | null
+}
+export interface CheckResult { id: number; at: string; status: string; latency_ms: number | null; message: string | null }
+export interface Attempt {
+  id: number; runbook: string; attempt_no: number; at: string; status: string; verified: boolean | null; message: string | null
+  plan_id: string | null; job_id: string | null; finished_at: string | null
+}
+export interface Incident {
+  id: string; check_id: string; check_name: string; severity: string; status: string; title: string; message: string | null
+  opened_at: string; acked_at: string | null; acked_by_username: string | null; recovered_at: string | null; escalated_at: string | null
+  notify_count: number
+}
+export interface Notification { id: number; event: string; status: string; attempts: number; last_error: string | null; detail: string | null
+  created_at: string; sent_at: string | null; channel: string; channel_kind: string }
+export interface IncidentDetail extends Incident { notifications: Notification[]; remediation: Attempt[] }
+export interface NodeInfo { id: string; name: string; address: string; port: number; agent_key_fp: string; agent_version: string | null; last_seen_at: string | null
+  capabilities: Record<string, { units?: string[]; paths?: string[] }> }

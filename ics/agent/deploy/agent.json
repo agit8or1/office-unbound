@@ -1,0 +1,8 @@
+{
+  "listen": {"address": "0.0.0.0", "port": 8443},
+  "runbooks": {
+    "service.restart": {"units": ["gromox-http", "gromox-imap", "gromox-delivery", "nginx", "php8.2-fpm", "postfix", "mariadb"]},
+    "service.status":  {"units": ["gromox-http", "gromox-imap", "gromox-delivery", "nginx", "php8.2-fpm", "postfix", "mariadb"]},
+    "disk.usage":      {"paths": ["/", "/var/lib/mysql", "/var/lib/gromox"]}
+  }
+}

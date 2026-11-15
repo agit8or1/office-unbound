@@ -1,5 +1,8 @@
 import os
 import re
+import stat
+import sys
+import threading
 
 import pyotp
 import pytest
@@ -15,6 +18,8 @@ from ics.runtime import Runtime
 from ics.vault import Vault
 
 from .pve_mock import MockPVE
+
+sys.path.insert(0, os.path.join(os.path.dirname(__file__), "..", "agent"))
 
 
 TEST_ENV_FILE = os.environ.get("ICS_TEST_ENV_FILE", "/etc/office-unbound/ics-test.env")
@@ -34,11 +39,12 @@ def base_settings(tmp_path_factory):
     """Own throwaway vault+audit keys in a temp dir; ics_test database with its own roles (never the production env file)."""
     env = _test_env()
     d = tmp_path_factory.mktemp("keys")
-    for n in ("vault.key", "audit.key"):
+    for n in ("vault.key", "audit.key", "signing.key"):
         (d / n).write_bytes(os.urandom(32))
         (d / n).chmod(0o600)
     return Settings(database_url=env["ICS_TEST_DATABASE_URL"], vault_key_file=str(d / "vault.key"),
-                    audit_key_file=str(d / "audit.key"), worker_enabled=False, allow_loopback_endpoints=True)
+                    audit_key_file=str(d / "audit.key"), worker_enabled=False, allow_loopback_endpoints=True,
+                    signing_key_file=str(d / "signing.key"), incident_renotify_seconds=0, notify_max_attempts=2)
 
 
 @pytest.fixture(scope="session")
@@ -60,7 +66,8 @@ def owner_engine(base_settings):
 def rt(base_settings, owner_engine):
     with owner_engine.connect() as c:
         c.execute(text("TRUNCATE users, sessions, login_attempts, audit_events, endpoints, plans, jobs, "
-                       "worker_heartbeat, inventory_snapshots, plan_approvals RESTART IDENTITY CASCADE"))
+                       "worker_heartbeat, inventory_snapshots, plan_approvals, nodes, agent_requests, checks, check_results, incidents, "
+                       "maintenance_windows, alert_channels, notifications, remediation_attempts RESTART IDENTITY CASCADE"))
     r = Runtime(base_settings)
     yield r
     r.engine.dispose()
@@ -121,3 +128,49 @@ def pve():
 @pytest.fixture(scope="session")
 def other_vault():
     return Vault(b"\x07" * 32)
+
+
+class FakeAgent:
+    """A REAL ou_agent (HTTPS server + signed protocol + journal) on 127.0.0.1 with a stub `systemctl` that logs its argv."""
+
+    def __init__(self, tmp_path, units=("gromox-imap", "nginx", "mariadb"), paths=("/",)):
+        from cryptography.hazmat.primitives import serialization
+        from cryptography.hazmat.primitives.asymmetric.ed25519 import Ed25519PrivateKey
+        from ou_agent import cli, runbooks, server
+        self.runbooks = runbooks
+        self.state = str(tmp_path / "agent-state")
+        os.makedirs(self.state, mode=0o700)
+        self.log = tmp_path / "systemctl.log"
+        stub = tmp_path / "systemctl"
+        stub.write_text(f'#!/bin/sh\necho "$@" >> {self.log}\ncase "$2" in show) echo ActiveState=active; echo SubState=running;; esac\n')
+        stub.chmod(0o755)
+        self._orig = runbooks.SYSTEMCTL
+        runbooks.SYSTEMCTL = str(stub)
+        with open(os.path.join(self.state, "agent_key.pem"), "wb") as f:
+            f.write(Ed25519PrivateKey.generate().private_bytes(serialization.Encoding.PEM, serialization.PrivateFormat.PKCS8,
+                                                               serialization.NoEncryption()))
+        os.chmod(os.path.join(self.state, "agent_key.pem"), 0o600)
+        self.tls_fp = cli.make_tls(self.state, "127.0.0.1", "localhost")
+        self.cfg = {"listen": {"address": "127.0.0.1", "port": 0},
+                    "runbooks": {"service.restart": {"units": list(units)}, "service.status": {"units": list(units)},
+                                 "disk.usage": {"paths": list(paths)}}}
+        self.token = cli.arm_enroll(self.state)
+        _, self.key_fp = cli.fingerprints(self.state)
+        self.srv, self.agent = server.build_server(self.cfg, self.state)
+        self.port = self.srv.server_address[1]
+        threading.Thread(target=self.srv.serve_forever, daemon=True).start()
+
+    def calls(self):
+        return self.log.read_text().splitlines() if self.log.exists() else []
+
+    def stop(self):
+        self.srv.shutdown()
+        self.srv.server_close()
+        self.runbooks.SYSTEMCTL = self._orig
+
+
+@pytest.fixture()
+def fake_agent(tmp_path):
+    a = FakeAgent(tmp_path)
+    yield a
+    a.stop()

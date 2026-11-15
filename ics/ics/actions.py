@@ -17,7 +17,8 @@ from pydantic import BaseModel, ConfigDict, Field, SecretStr, field_validator, m
 from sqlalchemy import text
 from sqlalchemy.orm import Session
 
-from . import audit, auth
+from . import agentclient, alerts, audit, auth, checks as checkmod, monitor
+from .agentclient import AgentError
 from .proxmox import ProxmoxError, ProxmoxReadClient, check_destination, normalize_fingerprint
 from .runtime import Runtime
 from .vault import VaultError
@@ -30,6 +31,15 @@ class ActionType(StrEnum):
     inventory_refresh = "inventory.refresh"
     user_create = "user.create"
     user_set_role = "user.set_role"
+    node_enroll = "node.enroll"
+    check_create = "check.create"
+    check_set_enabled = "check.set_enabled"
+    check_bind_remediation = "check.bind_remediation"
+    maintenance_create = "maintenance.create"
+    alert_channel_create = "alert_channel.create"
+    alert_channel_test = "alert_channel.test"
+    incident_ack = "incident.ack"
+    runbook_execute = "runbook.execute"
 
 
 class EndpointRegister(BaseModel):
@@ -104,11 +114,143 @@ class UserSetRole(BaseModel):
     role: Literal["viewer", "operator", "approver", "admin"]
 
 
+NAME_RE = r"^[A-Za-z0-9][A-Za-z0-9_.-]{0,62}$"
+
+
+class NodeEnroll(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+    name: str = Field(pattern=NAME_RE)
+    address: str = Field(pattern=checkmod.HOST_RE)
+    port: int = Field(default=8443, ge=1, le=65535)
+    tls_fingerprint_sha256: str = Field(description="SHA-256 of the agent's TLS certificate, read from the node console")
+    agent_key_fingerprint_sha256: str = Field(description="SHA-256 of the agent's Ed25519 public key, read from the node console")
+    enrollment_token: SecretStr = Field(description="one-time enrollment token printed on the node console")
+
+    @field_validator("tls_fingerprint_sha256", "agent_key_fingerprint_sha256")
+    @classmethod
+    def _fp(cls, v):
+        return normalize_fingerprint(v)
+
+    @field_validator("enrollment_token", mode="before")
+    @classmethod
+    def _tok(cls, v):
+        raw = v.get_secret_value() if isinstance(v, SecretStr) else v
+        if not isinstance(raw, str) or not re.fullmatch(r"[A-Za-z0-9_-]{20,100}", raw.strip()):
+            raise ValueError("enrollment_token has an invalid format")
+        return raw.strip()
+
+
+class CheckCreate(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+    name: str = Field(pattern=NAME_RE)
+    kind: Literal["http", "tcp_tls", "imap_login", "smtp_banner", "ews_getfolder"]
+    config: dict
+    password: SecretStr | None = Field(default=None, description="mailbox/EWS password for imap_login / ews_getfolder (stored in the vault)")
+    interval_seconds: int = Field(default=60, ge=5, le=86400)
+    fail_threshold: int = Field(default=3, ge=1, le=20)
+    recover_threshold: int = Field(default=2, ge=1, le=20)
+    remediation: monitor.Remediation | None = None
+
+    @model_validator(mode="after")
+    def _cfg(self) -> Self:
+        self.config = checkmod.validate_config(self.kind, self.config)  # ValueError/ValidationError -> 422
+        need = self.kind in checkmod.NEEDS_PASSWORD
+        if need and not self.password:
+            raise ValueError(f"{self.kind} needs a password")
+        if not need and self.password:
+            raise ValueError(f"{self.kind} takes no password")
+        return self
+
+
+class CheckSetEnabled(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+    check_id: UUID
+    enabled: bool
+
+
+class CheckBindRemediation(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+    check_id: UUID
+    remediation: monitor.Remediation | None = Field(description="null removes the policy")
+
+
+class MaintenanceCreate(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+    name: str = Field(min_length=1, max_length=100)
+    check_id: UUID | None = None
+    duration_minutes: int = Field(ge=1, le=480)
+    reason: str = Field(default="", max_length=200)
+
+
+class AlertChannelCreate(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+    name: str = Field(pattern=NAME_RE)
+    kind: Literal["email", "webhook", "pushover", "sms"]
+    config: dict
+    secret: SecretStr | None = Field(default=None, description="email password / webhook HMAC key / pushover app token")
+    enabled: bool | None = None
+
+    @model_validator(mode="after")
+    def _cfg(self) -> Self:
+        self.config = alerts.validate_config(self.kind, self.config)
+        alerts.validate_secret(self.kind, self.secret.get_secret_value() if self.secret else None, self.config)
+        if self.kind in alerts.DISABLED_KINDS:
+            if self.enabled:
+                raise ValueError(f"{self.kind} is a paid third-party service and cannot be enabled (ADR-0007)")
+            self.enabled = False
+        elif self.enabled is None:
+            self.enabled = True
+        return self
+
+
+class AlertChannelTest(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+    channel_id: UUID
+
+
+class IncidentAck(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+    incident_id: UUID
+    note: str = Field(default="", max_length=200)
+
+
+class RunbookExecute(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+    node_id: UUID
+    runbook: Literal["service.restart", "service.status", "disk.usage"]
+    unit: str | None = Field(default=None, pattern=monitor.UNIT_RE)
+    path: str | None = Field(default=None, pattern=r"^/[A-Za-z0-9_./-]{0,200}$")
+    check_id: UUID | None = Field(default=None, description="re-run this check after the runbook and record verified recovery")
+    attempt_id: int | None = None
+    verify_timeout_seconds: int = Field(default=0, ge=0, le=45)
+
+    @model_validator(mode="after")
+    def _chk(self) -> Self:
+        if self.runbook.startswith("service.") and (not self.unit or self.path):
+            raise ValueError("service runbooks need `unit` (and no path)")
+        if self.runbook == "disk.usage" and (not self.path or self.unit):
+            raise ValueError("disk.usage needs `path` (and no unit)")
+        return self
+
+
+def _runbook_risk(p: RunbookExecute) -> str:
+    return monitor.runbook_risk(p.runbook, p.unit)
+
+
 CATALOG: dict[ActionType, dict] = {
     ActionType.endpoint_register: {"model": EndpointRegister, "risk": "high", "secrets": ("token_secret",)},
     ActionType.inventory_refresh: {"model": InventoryRefresh, "risk": "low", "secrets": ()},
     ActionType.user_create: {"model": UserCreate, "risk": "high", "secrets": (), "admin_only": True},
     ActionType.user_set_role: {"model": UserSetRole, "risk": "high", "secrets": (), "admin_only": True},
+    ActionType.node_enroll: {"model": NodeEnroll, "risk": "high", "secrets": ("enrollment_token",)},
+    ActionType.check_create: {"model": CheckCreate, "risk": "low", "secrets": ("password",)},
+    ActionType.check_set_enabled: {"model": CheckSetEnabled, "risk": "low", "secrets": ()},
+    ActionType.check_bind_remediation: {"model": CheckBindRemediation, "risk": "low", "secrets": ()},
+    ActionType.maintenance_create: {"model": MaintenanceCreate, "risk": "low", "secrets": ()},
+    ActionType.alert_channel_create: {"model": AlertChannelCreate, "risk": "high", "secrets": ("secret",)},
+    ActionType.alert_channel_test: {"model": AlertChannelTest, "risk": "low", "secrets": ()},
+    ActionType.incident_ack: {"model": IncidentAck, "risk": "low", "secrets": ()},
+    ActionType.runbook_execute: {"model": RunbookExecute, "risk": _runbook_risk, "secrets": ()},
 }
 
 
@@ -141,6 +283,95 @@ class PlanError(Exception):
         self.status, self.msg = status, msg
 
 
+# ---- plan-time prechecks for the monitoring / node actions ----------------------------------------------
+
+def _guard(rt: Runtime, host: str | None) -> list[str]:
+    if not host:
+        return []
+    try:
+        return check_destination(host, rt.settings.allow_loopback_endpoints)
+    except ProxmoxError as e:
+        raise PlanError(422, str(e)) from None
+
+
+def _validate_remediation(db: Session, rem) -> None:
+    if rem is None:
+        return
+    node = db.execute(text("SELECT capabilities FROM nodes WHERE id = :i"), {"i": str(rem.node_id)}).first()
+    if node is None:
+        raise PlanError(404, "remediation node not found (enroll it first)")
+    cap = node.capabilities.get(rem.runbook)
+    if cap is None:
+        raise PlanError(422, f"node does not offer runbook {rem.runbook}")
+    if (rem.unit and rem.unit not in cap.get("units", [])) or (rem.path and rem.path not in cap.get("paths", [])):
+        raise PlanError(422, "unit/path is not on that node's agent allowlist")
+
+
+def _need(db, table: str, id_, what: str):
+    r = db.execute(text(f"SELECT * FROM {table} WHERE id = :i"), {"i": str(id_)}).first()  # table names are constants below
+    if r is None:
+        raise PlanError(404, f"{what} not found")
+    return r
+
+
+def _pre_node_enroll(db, rt, p: NodeEnroll):
+    if db.execute(text("SELECT 1 FROM nodes WHERE name = :n"), {"n": p.name}).first():
+        raise PlanError(409, "node name already exists")
+    return {"resolved_ips": _guard(rt, p.address)}
+
+
+def _pre_check_create(db, rt, p: CheckCreate):
+    if db.execute(text("SELECT 1 FROM checks WHERE name = :n"), {"n": p.name}).first():
+        raise PlanError(409, "check name already exists")
+    _validate_remediation(db, p.remediation)
+    return {"resolved_ips": _guard(rt, checkmod.config_host(p.kind, p.config))}
+
+
+def _pre_check_set_enabled(db, rt, p: CheckSetEnabled):
+    _need(db, "checks", p.check_id, "check")
+
+
+def _pre_check_bind(db, rt, p: CheckBindRemediation):
+    _need(db, "checks", p.check_id, "check")
+    _validate_remediation(db, p.remediation)
+
+
+def _pre_maintenance(db, rt, p: MaintenanceCreate):
+    if p.check_id:
+        _need(db, "checks", p.check_id, "check")
+
+
+def _pre_channel_create(db, rt, p: AlertChannelCreate):
+    if db.execute(text("SELECT 1 FROM alert_channels WHERE name = :n"), {"n": p.name}).first():
+        raise PlanError(409, "channel name already exists")
+    return {"resolved_ips": _guard(rt, alerts.config_host(p.kind, p.config))}
+
+
+def _pre_channel_test(db, rt, p: AlertChannelTest):
+    _need(db, "alert_channels", p.channel_id, "channel")
+
+
+def _pre_ack(db, rt, p: IncidentAck):
+    r = _need(db, "incidents", p.incident_id, "incident")
+    if r.status == "recovered":
+        raise PlanError(409, "incident already recovered")
+
+
+def _pre_runbook(db, rt, p: RunbookExecute):
+    node = _need(db, "nodes", p.node_id, "node")
+    cap = node.capabilities.get(p.runbook)
+    if cap is None or (p.unit and p.unit not in cap.get("units", [])) or (p.path and p.path not in cap.get("paths", [])):
+        raise PlanError(422, "runbook/unit/path is not on that node's agent allowlist")
+    if p.check_id:
+        _need(db, "checks", p.check_id, "check")
+
+
+_PRECHECK = {ActionType.node_enroll: _pre_node_enroll, ActionType.check_create: _pre_check_create,
+             ActionType.check_set_enabled: _pre_check_set_enabled, ActionType.check_bind_remediation: _pre_check_bind,
+             ActionType.maintenance_create: _pre_maintenance, ActionType.alert_channel_create: _pre_channel_create,
+             ActionType.alert_channel_test: _pre_channel_test, ActionType.incident_ack: _pre_ack, ActionType.runbook_execute: _pre_runbook}
+
+
 def create_plan(db: Session, rt: Runtime, user, action: ActionType, params: dict, ip: str | None) -> dict:
     spec = CATALOG[action]
     if spec.get("admin_only") and auth.RANK[user.role] < auth.RANK["admin"]:
@@ -148,8 +379,12 @@ def create_plan(db: Session, rt: Runtime, user, action: ActionType, params: dict
     p = spec["model"].model_validate(params)  # ValidationError -> 422 at the API layer
     full = p.model_dump(mode="json")
     for k in spec["secrets"]:
-        full[k] = p.__dict__[k].get_secret_value()
-    secret_part = {k: full.pop(k) for k in spec["secrets"]}
+        if p.__dict__[k] is None:
+            full.pop(k, None)
+        else:
+            full[k] = p.__dict__[k].get_secret_value()
+    secret_part = {k: full.pop(k) for k in spec["secrets"] if k in full}
+    risk = spec["risk"](p) if callable(spec["risk"]) else spec["risk"]
     binding = None
     extra: dict = {}
     if action == ActionType.inventory_refresh:
@@ -169,17 +404,19 @@ def create_plan(db: Session, rt: Runtime, user, action: ActionType, params: dict
     elif action == ActionType.user_set_role:
         if not db.execute(text("SELECT 1 FROM users WHERE username = :u"), {"u": p.username}).first():
             raise PlanError(404, "user not found")
+    elif action in _PRECHECK:
+        extra.update(_PRECHECK[action](db, rt, p) or {})
     pid = uuid.uuid4()
     enc = rt.vault.encrypt(json.dumps(secret_part).encode(), f"plan:{pid}") if secret_part else None
     digest = plan_digest(action.value, full, enc, binding)
-    auto = spec["risk"] == "low"
+    auto = risk == "low"
     db.execute(text(
         "INSERT INTO plans (id, action, params, secret_enc, risk, status, requested_by, decided_at, params_hash) "
         "VALUES (:id, :a, CAST(:p AS jsonb), :s, :r, :st, :u, :d, :h)"),
-        {"id": str(pid), "a": action.value, "p": audit.canon(full), "s": enc, "r": spec["risk"],
+        {"id": str(pid), "a": action.value, "p": audit.canon(full), "s": enc, "r": risk,
          "st": "approved" if auto else "pending_approval", "u": user.id, "d": datetime.now(timezone.utc) if auto else None, "h": digest})
     audit.append(db, "plan.create", actor_id=user.id, actor_name=user.username, ip=ip, resource="plan", resource_id=str(pid),
-                 details={"action": action.value, "risk": spec["risk"], "params": full, "auto_approved": auto,
+                 details={"action": action.value, "risk": risk, "params": full, "auto_approved": auto,
                           "params_hash": digest, **extra})
     job_id = None
     if auto:  # policy approval for low risk; recorded like any approval so the job can verify it
@@ -187,7 +424,7 @@ def create_plan(db: Session, rt: Runtime, user, action: ActionType, params: dict
                    {"p": str(pid), "u": user.id, "h": digest})
         job_id = _enqueue(db, pid, action, user, ip, auto=True)
     db.commit()
-    return {"plan_id": str(pid), "status": "approved" if auto else "pending_approval", "risk": spec["risk"], "job_id": job_id,
+    return {"plan_id": str(pid), "status": "approved" if auto else "pending_approval", "risk": risk, "job_id": job_id,
             "params_hash": digest, "approvals_required": 1 if auto else rt.settings.required_approvals_high, **extra}
 
 
@@ -314,7 +551,7 @@ def reap_expired(rt: Runtime) -> int:
     return n
 
 
-_SAFE_ERRORS = (ProxmoxError, VaultError, PlanIntegrityError, JobTimeout)
+_SAFE_ERRORS = (ProxmoxError, VaultError, PlanIntegrityError, JobTimeout, AgentError)
 
 
 def _error_dict(e: BaseException, known: list[str]) -> dict:
@@ -467,5 +704,168 @@ def _exec_user_set_role(rt: Runtime, db: Session, m: UserSetRole, plan, known: l
     return {"user_id": str(r.id), "role": m.role}
 
 
+# ---- executors: monitoring / nodes -------------------------------------------------------------------------
+
+def _exec_node_enroll(rt: Runtime, db: Session, m: NodeEnroll, plan, known: list[str]) -> dict:
+    token = m.enrollment_token.get_secret_value()
+    known.append(token)
+    priv = agentclient.load_signing_key(rt.settings.signing_key_file)
+    lb = rt.settings.allow_loopback_endpoints
+    ident = agentclient.identity(m.address, m.port, m.tls_fingerprint_sha256, allow_loopback=lb)  # TLS pinned to the operator-supplied pin
+    if agentclient.key_fingerprint(ident["agent_pubkey"]) != m.agent_key_fingerprint_sha256:
+        raise AgentError("agent public key does not match the supplied fingerprint")
+    if ident.get("enrolled"):
+        raise AgentError("agent is already enrolled; re-arm it on the node console")
+    nid = uuid.uuid4()
+    resp = agentclient.enroll(m.address, m.port, m.tls_fingerprint_sha256, token=token, ics_pubkey_b64=agentclient.pub_b64(priv.public_key()),
+                              node_id=str(nid), expect_agent_pubkey_b64=ident["agent_pubkey"], allow_loopback=lb)
+    db.execute(text(
+        "INSERT INTO nodes (id, name, address, port, tls_fingerprint_sha256, agent_pubkey, agent_key_fp, capabilities, agent_version, "
+        "last_seen_at, created_by) VALUES (:id, :n, :a, :p, :t, :k, :f, CAST(:c AS jsonb), :v, now(), :cb)"),
+        {"id": str(nid), "n": m.name, "a": m.address, "p": m.port, "t": m.tls_fingerprint_sha256, "k": ident["agent_pubkey"],
+         "f": m.agent_key_fingerprint_sha256, "c": audit.canon(audit.sanitize(resp.get("capabilities", {}))),
+         "v": str(audit.sanitize(resp.get("agent_version")))[:40], "cb": str(plan.requested_by)})
+    audit.append(db, "node.enrolled", actor_name="worker", resource="node", resource_id=str(nid),
+                 details={"name": m.name, "address": m.address, "port": m.port, "agent_key_fingerprint": m.agent_key_fingerprint_sha256,
+                          "tls_fingerprint": m.tls_fingerprint_sha256, "capabilities": resp.get("capabilities", {})})
+    return {"node_id": str(nid), "capabilities": audit.sanitize(resp.get("capabilities", {}))}
+
+
+def _exec_check_create(rt: Runtime, db: Session, m: CheckCreate, plan, known: list[str]) -> dict:
+    cid = uuid.uuid4()
+    enc = None
+    if m.password:
+        known.append(m.password.get_secret_value())
+        enc = rt.vault.encrypt(m.password.get_secret_value().encode(), monitor.check_aad(cid, m.config))
+    db.execute(text(
+        "INSERT INTO checks (id, name, kind, config, secret_enc, interval_seconds, fail_threshold, recover_threshold, remediation, created_by) "
+        "VALUES (:id, :n, :k, CAST(:c AS jsonb), :s, :i, :ft, :rt, CAST(:r AS jsonb), :cb)"),
+        {"id": str(cid), "n": m.name, "k": m.kind, "c": audit.canon(m.config), "s": enc, "i": m.interval_seconds, "ft": m.fail_threshold,
+         "rt": m.recover_threshold, "r": audit.canon(m.remediation.model_dump(mode="json", exclude_none=True)) if m.remediation else None,
+         "cb": str(plan.requested_by)})
+    audit.append(db, "check.created", actor_name="worker", resource="check", resource_id=str(cid),
+                 details={"name": m.name, "kind": m.kind, "interval_seconds": m.interval_seconds, "has_secret": enc is not None,
+                          "remediation": m.remediation.model_dump(mode="json", exclude_none=True) if m.remediation else None})
+    return {"check_id": str(cid)}
+
+
+def _exec_check_set_enabled(rt, db, m: CheckSetEnabled, plan, known) -> dict:
+    db.execute(text("UPDATE checks SET enabled = :e, next_run_at = now() WHERE id = :i"), {"e": m.enabled, "i": str(m.check_id)})
+    audit.append(db, "check.enabled_set", actor_name="worker", resource="check", resource_id=str(m.check_id), details={"enabled": m.enabled})
+    return {"check_id": str(m.check_id), "enabled": m.enabled}
+
+
+def _exec_check_bind(rt, db, m: CheckBindRemediation, plan, known) -> dict:
+    rem = m.remediation.model_dump(mode="json", exclude_none=True) if m.remediation else None
+    db.execute(text("UPDATE checks SET remediation = CAST(:r AS jsonb) WHERE id = :i"),
+               {"r": audit.canon(rem) if rem else None, "i": str(m.check_id)})
+    audit.append(db, "check.remediation_bound", actor_name="worker", resource="check", resource_id=str(m.check_id),
+                 details={"remediation": rem, "requested_by": str(plan.requested_by)})
+    return {"check_id": str(m.check_id), "remediation": rem}
+
+
+def _exec_maintenance(rt, db, m: MaintenanceCreate, plan, known) -> dict:
+    wid = db.execute(text(
+        "INSERT INTO maintenance_windows (name, check_id, starts_at, ends_at, reason, created_by) "
+        "VALUES (:n, :c, now(), now() + make_interval(mins => :d), :r, :u) RETURNING id"),
+        {"n": m.name, "c": str(m.check_id) if m.check_id else None, "d": m.duration_minutes, "r": m.reason, "u": str(plan.requested_by)}).scalar()
+    audit.append(db, "maintenance.created", actor_name="worker", resource="maintenance", resource_id=str(wid),
+                 details={"name": m.name, "check_id": str(m.check_id) if m.check_id else None, "minutes": m.duration_minutes, "reason": m.reason})
+    return {"maintenance_id": str(wid)}
+
+
+def _exec_channel_create(rt: Runtime, db: Session, m: AlertChannelCreate, plan, known: list[str]) -> dict:
+    cid = uuid.uuid4()
+    enc = None
+    if m.secret:
+        known.append(m.secret.get_secret_value())
+        enc = rt.vault.encrypt(m.secret.get_secret_value().encode(), monitor.channel_aad(cid, m.config))
+    db.execute(text("INSERT INTO alert_channels (id, name, kind, config, secret_enc, enabled, created_by) "
+                    "VALUES (:id, :n, :k, CAST(:c AS jsonb), :s, :e, :u)"),
+               {"id": str(cid), "n": m.name, "k": m.kind, "c": audit.canon(m.config), "s": enc, "e": bool(m.enabled), "u": str(plan.requested_by)})
+    audit.append(db, "alert_channel.created", actor_name="worker", resource="alert_channel", resource_id=str(cid),
+                 details={"name": m.name, "kind": m.kind, "enabled": bool(m.enabled), "has_secret": enc is not None,
+                          "config": {k: v for k, v in m.config.items() if k not in ("ca_pem", "user_key")}})
+    return {"channel_id": str(cid), "enabled": bool(m.enabled)}
+
+
+def _exec_channel_test(rt, db, m: AlertChannelTest, plan, known) -> dict:
+    ch = db.execute(text("SELECT enabled, kind FROM alert_channels WHERE id = :i"), {"i": str(m.channel_id)}).first()
+    if ch is None or not ch.enabled:
+        raise PlanIntegrityError("channel not found or disabled")
+    nid = db.execute(text("INSERT INTO notifications (channel_id, event, status) VALUES (:c, 'test', 'pending') RETURNING id"),
+                     {"c": str(m.channel_id)}).scalar()
+    return {"notification_id": nid}
+
+
+def _exec_ack(rt, db, m: IncidentAck, plan, known) -> dict:
+    r = db.execute(text("UPDATE incidents SET status = 'acked', acked_by = :u, acked_at = now(), ack_note = :n "
+                        "WHERE id = :i AND status = 'open' RETURNING id"), {"u": str(plan.requested_by), "n": m.note, "i": str(m.incident_id)}).first()
+    if r is None:
+        raise PlanIntegrityError("incident is not open")
+    audit.append(db, "incident.acked", actor_name="worker", resource="incident", resource_id=str(m.incident_id),
+                 details={"by": str(plan.requested_by), "note": m.note})
+    return {"incident_id": str(m.incident_id), "status": "acked"}
+
+
+class AgentRejected(AgentError):
+    pass
+
+
+def _exec_runbook(rt: Runtime, db: Session, m: RunbookExecute, plan, known: list[str]) -> dict:
+    node = db.execute(text("SELECT * FROM nodes WHERE id = :i"), {"i": str(m.node_id)}).first()
+    if node is None:
+        raise PlanIntegrityError("node not found")
+    jid = str(db.execute(text("SELECT id FROM jobs WHERE plan_id = :p"), {"p": str(plan.id)}).scalar())
+    priv = agentclient.load_signing_key(rt.settings.signing_key_file)
+    params = {"unit": m.unit} if m.unit else {"path": m.path}
+    body = agentclient.build_request(priv, action=m.runbook, params=params, node_id=str(node.id), job_id=jid,
+                                     ttl=rt.settings.agent_request_ttl_seconds)
+    req = body["req"]
+    with rt.session() as d2:  # persisted BEFORE the call, independent of this job's transaction
+        d2.execute(text("INSERT INTO agent_requests (node_id, job_id, nonce, action, issued_at, expires_at) "
+                        "VALUES (:n, :j, :nc, :a, to_timestamp(:i), to_timestamp(:e))"),
+                   {"n": str(node.id), "j": jid, "nc": req["nonce"], "a": m.runbook, "i": req["issued_at"], "e": req["expires_at"]})
+        d2.commit()
+    code, resp = "error", {}
+    try:
+        _, resp = agentclient.call(node, priv, action=m.runbook, params=params, job_id=jid, deadline=rt.settings.agent_deadline_seconds,
+                                   allow_loopback=rt.settings.allow_loopback_endpoints, req_override=body)
+        code = str(resp.get("code"))[:60]
+    except AgentError:
+        code = "transport_or_signature_error"
+        raise
+    finally:
+        # separate session + commit: evidence of what was sent/answered survives even if this job fails, and it is written BEFORE the
+        # verification loop below (an audit insert in this job's own transaction would hold the chain lock during verification -> deadlock)
+        with rt.session() as d2:
+            d2.execute(text("UPDATE agent_requests SET status = :s, response_code = :c, finished_at = now() WHERE job_id = :j"),
+                       {"s": "done" if code == "ok" else "failed", "c": code, "j": jid})
+            if code != "transport_or_signature_error":
+                d2.execute(text("UPDATE nodes SET last_seen_at = now() WHERE id = :i"), {"i": str(node.id)})
+            audit.append(d2, "runbook.executed", actor_name="worker", resource="node", resource_id=str(node.id),
+                         details={"runbook": m.runbook, "params": params, "agent_status": resp.get("status", "error"), "agent_code": code,
+                                  "job_id": jid, "nonce": req["nonce"]})
+            d2.commit()
+    if resp.get("status") != "ok":
+        raise AgentRejected(f"agent {resp.get('status')}: {code}")
+    out = {"runbook": m.runbook, "params": params, "agent_result": audit.sanitize(resp.get("result")), "verified": None, "verification": ""}
+    if m.check_id:
+        t0 = time.monotonic()
+        while True:
+            state, o = monitor.run_and_record(rt, m.check_id, remediate=False)
+            if state == "ok" or time.monotonic() - t0 >= m.verify_timeout_seconds:
+                break
+            time.sleep(3)
+        out["verified"] = state == "ok"
+        out["verification"] = (f"check recovered: state ok after {int(time.monotonic() - t0)} s" if state == "ok"
+                               else f"check still {state} after {int(time.monotonic() - t0)} s: {o.message}")[:300]
+    return out
+
+
 _EXEC = {ActionType.endpoint_register: _exec_register, ActionType.inventory_refresh: _exec_refresh,
-         ActionType.user_create: _exec_user_create, ActionType.user_set_role: _exec_user_set_role}
+         ActionType.user_create: _exec_user_create, ActionType.user_set_role: _exec_user_set_role,
+         ActionType.node_enroll: _exec_node_enroll, ActionType.check_create: _exec_check_create,
+         ActionType.check_set_enabled: _exec_check_set_enabled, ActionType.check_bind_remediation: _exec_check_bind,
+         ActionType.maintenance_create: _exec_maintenance, ActionType.alert_channel_create: _exec_channel_create,
+         ActionType.alert_channel_test: _exec_channel_test, ActionType.incident_ack: _exec_ack, ActionType.runbook_execute: _exec_runbook}

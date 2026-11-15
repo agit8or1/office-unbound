@@ -24,7 +24,7 @@ from sqlalchemy.orm import Session
 
 GENESIS = "0" * 64
 _SECRET_KEYS = ("secret", "password", "token", "totp", "key", "cookie", "csrf")
-_ALLOWED_TOKENISH = {"token_id"}  # an identifier, not a credential
+_ALLOWED_TOKENISH = {"token_id", "agent_key_fingerprint_sha256"}  # an identifier, not a credential
 _LOCK_ID = 7_001_001
 _PVE_TOKEN_RE = re.compile(r"PVEAPIToken=\S*", re.IGNORECASE)
 _MAX_INT = 2**53

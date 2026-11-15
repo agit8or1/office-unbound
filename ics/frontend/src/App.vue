@@ -12,10 +12,14 @@ import Inventory from './views/Inventory.vue'
 import Users from './views/Users.vue'
 import Audit from './views/Audit.vue'
 import Preview from './views/Preview.vue'
+import Checks from './views/Checks.vue'
+import Incidents from './views/Incidents.vue'
 
 const pages: { id: string; label: string; min: Role; comp: unknown }[] = [
   { id: 'overview', label: 'Overview', min: 'viewer', comp: Overview },
   { id: 'endpoints', label: 'Endpoints', min: 'viewer', comp: Endpoints },
+  { id: 'checks', label: 'Checks', min: 'viewer', comp: Checks },
+  { id: 'incidents', label: 'Incidents', min: 'viewer', comp: Incidents },
   { id: 'plans', label: 'Plans', min: 'viewer', comp: Plans },
   { id: 'jobs', label: 'Jobs', min: 'viewer', comp: Jobs },
   { id: 'inventory', label: 'Inventory', min: 'viewer', comp: Inventory },

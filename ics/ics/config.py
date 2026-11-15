@@ -31,6 +31,7 @@ class Settings:
     database_url: str
     vault_key_file: str
     audit_key_file: str
+    signing_key_file: str | None = None  # Ed25519 key (32 raw bytes) that signs ICS->agent requests; root:ics 0640
     cookie_secure: bool = True
     worker_enabled: bool = True
     enable_docs: bool = False
@@ -53,6 +54,14 @@ class Settings:
     pve_max_response_bytes: int = 16 * 1024 * 1024
     snapshot_retention: int = 50
     allow_loopback_endpoints: bool = False  # SSRF guard: tests/lab only
+    monitor_enabled: bool = True
+    monitor_parallelism: int = 8
+    check_result_retention_days: int = 14
+    agent_request_ttl_seconds: int = 60          # signed-request validity (agent enforces <= 120)
+    agent_deadline_seconds: float = 90.0
+    notify_max_attempts: int = 5
+    incident_renotify_seconds: int = 3600        # re-notify unacknowledged incidents; 0 = never
+    allow_loopback_agents: bool = False
 
 
 def load_settings() -> Settings:
@@ -67,6 +76,8 @@ def load_settings() -> Settings:
             database_url=env["ICS_DATABASE_URL"],
             vault_key_file=env["ICS_VAULT_KEY_FILE"],
             audit_key_file=env["ICS_AUDIT_KEY_FILE"],
+            signing_key_file=env.get("ICS_SIGNING_KEY_FILE") or None,
+            monitor_enabled=b("ICS_MONITOR_ENABLED", True),
             cookie_secure=b("ICS_COOKIE_SECURE", True),
             worker_enabled=b("ICS_WORKER_ENABLED", True),
             enable_docs=b("ICS_ENABLE_DOCS", False),

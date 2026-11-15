@@ -17,6 +17,7 @@ Security review 2026-11-15 findings are remediated; see `docs/status/security-re
 | `ics.env` | `root:ics 0640` | app config: `ICS_DATABASE_URL` (**ics_app** role), `ICS_VAULT_KEY_FILE`, `ICS_AUDIT_KEY_FILE`, optional `ICS_COOKIE_SECURE`, `ICS_WORKER_ENABLED`, `ICS_ENABLE_DOCS` (default false), `ICS_ALLOW_LOOPBACK_ENDPOINTS` (default false), `ICS_LOGIN_MAX_FAILURES` |
 | `ics-migrate.env` | `root:root 0600` | `ICS_MIGRATE_DATABASE_URL` (**ics_owner**). Read only by Alembic / `ics.migrate`; `load_settings()` never reads it and the app process cannot |
 | `vault.key` | `root:ics 0640` | 32 raw bytes, AES-256 key for stored secrets. Losing it loses all stored secrets. `Vault.from_file` refuses symlinks, non-regular files, and world-accessible/group-writable files |
+| `ics-signing.key` | `root:ics 0640` | 32 raw bytes, Ed25519 private key that signs ICS->node-agent requests (`ICS_SIGNING_KEY_FILE`). Same file checks as the vault key. Public half is given to each agent at enrollment; rotating it means re-enrolling agents |
 | `audit.key` | `root:ics 0640` | >= 32 bytes, HMAC key for audit entries (never stored in the database) |
 | `ics-test.env` | `root:administrator 0640` | test-only DB credentials for database `ics_test` (roles `ics_test_owner`, `ics_test_app`; no access to the `ics` database) |
 
@@ -85,15 +86,39 @@ Roles: viewer < operator < approver < admin. Every response carries CSP (`defaul
 - `POST users {username,role}` (admin; viewer/operator only; returns `{invite:true}`)
 - `GET actions` (catalog), `POST plans {action,params}` (operator; `user.*` admin), `POST plans/{id}/approve|reject` (approver), `GET plans`, `GET jobs`, `GET jobs/{id}`
   - `endpoint.register`, `user.create`, `user.set_role`: high risk (2 approvers). `inventory.refresh`: low risk, auto-approved, job queued at once.
-- `GET endpoints`, `GET endpoints/{id}/inventory`, `GET endpoints/{id}/inventory/snapshots` (viewer)
+- `GET users` (admin), `GET plans[?status&limit]` (adds `params_hash`, `requested_by_username`, `approval_count`, `approvers`, `approvals_required`), `GET jobs[?status&limit]`, `GET audit[?limit&before_seq]`, `auth/me` and login return the user `id`
+- `GET endpoints`, `GET endpoints/{id}/inventory/refresh-state`, `GET endpoints/{id}/inventory`, `GET endpoints/{id}/inventory/snapshots` (viewer)
 - `POST plans/preview {blueprint_yaml}` (operator) -> `{valid, errors}` or `{valid, plan}`; dry run only
 - `GET audit`, `GET audit/verify` (approver)
 - `GET /healthz`, `GET /readyz` (booleans only: database, worker heartbeat, audit tail check; 503 when not ready)
+
+## Monitoring, alerting, node agent (slice 2)
+All **mutations are typed plans** (catalog via `GET actions`); the views below are read-only (viewer):
+`GET nodes|checks|checks/{id}/results|checks/{id}/remediation|incidents[?status=open|acked|recovered|active]|incidents/{id}|alert-channels|maintenance`.
+
+| action | risk | notes |
+|---|---|---|
+| `check.create` | low | kinds `http`, `tcp_tls`, `imap_login`, `smtp_banner`, `ews_getfolder`; interval 5 s..24 h; `fail_threshold` (flap damping), `recover_threshold`; optional `remediation` policy. TLS checks require exactly one trust anchor (CA bundle or SHA-256 pin) like Proxmox endpoints. Mailbox/EWS password is vault-encrypted with AAD bound to check id + config hash (changing the host in the DB makes it undecryptable). Destination guard as for endpoints |
+| `check.set_enabled`, `check.bind_remediation`, `maintenance.create` (<= 8 h), `incident.ack`, `alert_channel.test` | low | auto-approved, still plan + job + audit |
+| `alert_channel.create` | **high** (2 approvers) | `email` (SMTP relay: STARTTLS/implicit TLS verified by CA or pin; `tls=none` only with explicit `allow_plaintext`, never with credentials), `webhook` (https, HMAC-SHA256: `X-OU-Timestamp`, `X-OU-Signature: v1=hex(hmac(key, ts + "." + body))`, 5 min replay window), `pushover` and `sms`: interface + config validation only, **always disabled** (third-party paid services, ADR-0007: a plan with `enabled=true` is refused and `send` raises `ChannelDisabled`) |
+| `node.enroll` | **high** | see node agent |
+| `runbook.execute` | low, **high** for `service.restart mariadb` | `service.restart`, `service.status`, `disk.usage` only; ICS validates against the capabilities the agent reported at enrollment, the agent re-validates against its own root-owned allowlist |
+
+**State machine** (worker thread, same loop as jobs): `unknown -> ok | warning | critical`. A bad state needs `fail_threshold` consecutive identical bad results, return to ok needs `recover_threshold` consecutive ok results. Results go to `check_results` (retention 14 days, pruned hourly). **Incidents** open on the first non-ok state (one active incident per check, enforced by a partial unique index), severity changes and recovery update the same incident; `ack` stops reminders; maintenance windows (global or per check) mark notifications `suppressed` and block remediation. Notifications go through a durable outbox (`notifications`): 5 attempts with exponential backoff, then `failed` (audited).
+**Remediation policy** (per check): `{node_id, runbook, unit|path, mode auto|approval, max_attempts, window_seconds, backoff_seconds, verify_timeout_seconds}`. Starts when the check turns critical. Each attempt = a `runbook.execute` plan + job + audit; at most one in flight; exponential backoff; at most `max_attempts` per sliding window, then **escalation** (incident `escalated_at`, notification, audit) and nothing more until the window slides. After the agent call the job re-runs the check until it is ok or `verify_timeout_seconds` passes and records `verified` true/false. High-risk runbooks (`mariadb` restart) cannot be `auto`: the policy creates a pending 2-approver plan instead.
+
+### Node agent (`ics/agent/`, stdlib + `cryptography`)
+- **Push model**: ICS -> `https://<node lab IP>:8443`. Lab machines cannot reach host services, and ICS keeps its API bound to 127.0.0.1, so there is no agent->ICS channel. Agent TLS cert is self-signed and **pinned by SHA-256** at enrollment; there is no client certificate: mutual authentication is application-layer Ed25519 inside TLS.
+- **Enrollment**: on the node console `ou-agent init` generates the agent Ed25519 key + TLS cert and prints a one-time token (1 h, single use, burned after 5 bad guesses, stored hashed) plus two fingerprints. The operator puts address, token and both fingerprints in a `node.enroll` plan (2 approvers). The job checks the TLS pin and that the agent public key matches the supplied fingerprint *before* sending the token, then sends the ICS public key; the agent stores it and replies with a response signed by its key. ICS records the agent public key. Re-enrolling needs a deliberate action on the node.
+- **Requests** `{v, action, params, node_id, job_id, issued_at, expires_at, nonce}` signed Ed25519 (`ou-agent-req-v1\n` + canonical JSON). Agent: signature -> strict field/type check (no floats, unknown fields refused) -> node id -> window <= 120 s, expiry, future skew <= 120 s -> **nonce and job id recorded O_EXCL+fsync in a journal before anything runs** (survives restarts; a job id never runs twice) -> allowlist (exact string match of unit/path; params must be exactly `{unit}` or `{path}`) -> execute with `systemctl` argv (no shell). Responses are signed by the agent key and must echo nonce/job/node; ICS rejects anything else. ICS also records each request in `agent_requests` (unique job id and nonce).
+- **Privilege**: the agent runs as unprivileged user `ou-agent` (hardened unit: NoNewPrivileges, ProtectSystem=strict, empty capability set, ...). Its only privilege is a **polkit rule generated from the root-owned `/etc/ou-agent/agent.json`**: `restart` on exactly the allowlisted `*.service` units for user `ou-agent`; every other `org.freedesktop.systemd1.*` action is denied for that user (checked: `stop console-getty` -> Access denied). `status` needs no privilege. No sudo, no setuid. The allowlist is read from a root-owned file (the agent refuses to start if it is not root-owned or is group/world-writable).
+- Install on a node (as root, on the node): `sh deploy/install-agent.sh <bind-ip> <hostname>`; the demo `scripts/lab_monitoring_demo.py` and `scripts/lab_agent_proofs.py` drive/prove it on `ou-gw1`.
+- Limits: one agent exec at a time; request body 16 KiB; ICS response cap 64 KiB; no streaming output; `disk.usage` is the only non-service runbook. The worker runs checks and jobs on one thread: a 90 s verification blocks other jobs/checks for that time.
 
 ## Not implemented yet
 - Any Proxmox mutation / deployment execution (only read-only inventory and dry-run preview exist); no mutation token handling.
 - Separate privileged executor process (ADR-0001); the worker is an in-process thread (abandoned timed-out job threads cannot be killed, only prevented from committing).
 - Off-host audit head export/checkpoint signing (see above).
-- Password change, user disable/list endpoints, session listing UI; TLS termination (put a proxy in front and then set forwarded-allow-ips deliberately).
+- Password change, user disable endpoint, session listing UI; TLS termination (put a proxy in front and then set forwarded-allow-ips deliberately).
 - Pin the DNS answer between the destination check and connect (TLS pin / CA+hostname verification covers rebinding for now).
 - TOTP still accepts one step of clock skew in both directions.

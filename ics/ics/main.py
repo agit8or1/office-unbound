@@ -191,7 +191,7 @@ def create_app(settings: Settings | None = None, runtime: Runtime | None = None)
         token, csrf, user = auth.login(db, rt, body.username, body.password, body.totp_code, client_ip(request))
         response.set_cookie(cookie_name(rt), token, httponly=True, secure=rt.settings.cookie_secure, samesite="strict",
                             max_age=rt.settings.session_absolute_seconds, path="/")
-        return {"csrf_token": csrf, "user": {"username": user.username, "role": user.role}}
+        return {"csrf_token": csrf, "user": {"id": str(user.id), "username": user.username, "role": user.role}}
 
     @app.post(f"{API}/auth/logout")
     def logout(request: Request, response: Response, user: User = Depends(auth.current_user), db: Session = Depends(get_db)):
@@ -218,7 +218,7 @@ def create_app(settings: Settings | None = None, runtime: Runtime | None = None)
 
     @app.get(f"{API}/auth/me")
     def me(user: User = Depends(auth.current_user)):
-        return {"username": user.username, "role": user.role, "csrf_token": user.csrf}
+        return {"id": str(user.id), "username": user.username, "role": user.role, "csrf_token": user.csrf}
 
     @app.post(f"{API}/users", status_code=201)
     def add_user(body: UserIn, request: Request, user: User = Depends(require("admin")), db: Session = Depends(get_db)):
@@ -235,10 +235,16 @@ def create_app(settings: Settings | None = None, runtime: Runtime | None = None)
             raise HTTPException(409, "could not create user (duplicate username?)") from e
         return {"username": body.username, "role": body.role, "invite": True}
 
+    @app.get(f"{API}/users")
+    def list_users(user: User = Depends(require("admin")), db: Session = Depends(get_db)):
+        rows = db.execute(text("SELECT u.id, u.username, u.role, u.enrolled, u.disabled, u.created_at, cu.username AS created_by_username "
+                               "FROM users u LEFT JOIN users cu ON cu.id = u.created_by ORDER BY u.username")).all()
+        return [_row(r) for r in rows]
+
     # ---- plans / jobs ----
     @app.get(f"{API}/actions")
     def catalog(user: User = Depends(require("viewer"))):
-        return [{"action": a.value, "risk": s["risk"], "params_schema": s["model"].model_json_schema()} for a, s in CATALOG.items()]
+        return [{"action": a.value, "risk": s["risk"] if isinstance(s["risk"], str) else "by_runbook", "params_schema": s["model"].model_json_schema()} for a, s in CATALOG.items()]
 
     @app.post(f"{API}/plans", status_code=201)
     def post_plan(body: PlanIn, request: Request, user: User = Depends(require("operator")), db: Session = Depends(get_db)):
@@ -266,14 +272,32 @@ def create_app(settings: Settings | None = None, runtime: Runtime | None = None)
         return _decide(plan_id, False, request, user, db)
 
     @app.get(f"{API}/plans")
-    def list_plans(user: User = Depends(require("viewer")), db: Session = Depends(get_db)):
-        rows = db.execute(text("SELECT id, action, params, risk, status, requested_by, decided_by, decided_at, created_at "
-                               "FROM plans ORDER BY created_at DESC LIMIT 200")).all()
-        return [_row(r) for r in rows]
+    def list_plans(status: str | None = None, limit: int = 200, user: User = Depends(require("viewer")), db: Session = Depends(get_db)):
+        if status is not None and status not in ("pending_approval", "approved", "rejected"):
+            raise HTTPException(422, "status must be pending_approval, approved or rejected")
+        rows = db.execute(text(
+            "SELECT p.id, p.action, p.params, p.params_hash, p.risk, p.status, p.requested_by, ru.username AS requested_by_username, "
+            "p.decided_by, du.username AS decided_by_username, p.decided_at, p.created_at, "
+            "(SELECT count(*) FROM plan_approvals a WHERE a.plan_id = p.id) AS approval_count, "
+            "COALESCE((SELECT array_agg(u.username ORDER BY a.at) FROM plan_approvals a JOIN users u ON u.id = a.approver_id "
+            "WHERE a.plan_id = p.id), ARRAY[]::text[]) AS approvers "
+            "FROM plans p JOIN users ru ON ru.id = p.requested_by LEFT JOIN users du ON du.id = p.decided_by "
+            "WHERE (CAST(:s AS text) IS NULL OR p.status = :s) ORDER BY p.created_at DESC LIMIT :n"),
+            {"s": status, "n": min(max(limit, 1), 500)}).all()
+        out = []
+        for r in rows:
+            d = _row(r)
+            d["approvals_required"] = rt.settings.required_approvals_high if r.risk == "high" else 1
+            out.append(d)
+        return out
 
     @app.get(f"{API}/jobs")
-    def list_jobs(user: User = Depends(require("viewer")), db: Session = Depends(get_db)):
-        return [_row(r) for r in db.execute(text("SELECT * FROM jobs ORDER BY created_at DESC LIMIT 200")).all()]
+    def list_jobs(status: str | None = None, limit: int = 200, user: User = Depends(require("viewer")), db: Session = Depends(get_db)):
+        if status is not None and status not in ("queued", "running", "succeeded", "failed"):
+            raise HTTPException(422, "status must be queued, running, succeeded or failed")
+        rows = db.execute(text("SELECT * FROM jobs WHERE (CAST(:s AS text) IS NULL OR status = :s) ORDER BY created_at DESC LIMIT :n"),
+                          {"s": status, "n": min(max(limit, 1), 500)}).all()
+        return [_row(r) for r in rows]
 
     @app.get(f"{API}/jobs/{{job_id}}")
     def get_job(job_id: UUID, user: User = Depends(require("viewer")), db: Session = Depends(get_db)):
@@ -303,6 +327,21 @@ def create_app(settings: Settings | None = None, runtime: Runtime | None = None)
                                "ORDER BY collected_at DESC LIMIT 100"), {"e": str(endpoint_id)}).all()
         return [{"snapshot_id": r.id, "collected_at": r.collected_at.isoformat()} for r in rows]
 
+    @app.get(f"{API}/endpoints/{{endpoint_id}}/inventory/refresh-state")
+    def refresh_state(endpoint_id: UUID, user: User = Depends(require("viewer")), db: Session = Depends(get_db)):
+        """State of the most recent inventory.refresh job for this endpoint (none|queued|running|succeeded|failed) + last snapshot time."""
+        if db.execute(text("SELECT 1 FROM endpoints WHERE id = :e"), {"e": str(endpoint_id)}).first() is None:
+            raise HTTPException(404, "endpoint not found")
+        j = db.execute(text(
+            "SELECT j.id, j.plan_id, j.status, j.created_at, j.started_at, j.finished_at, j.error FROM jobs j JOIN plans p ON p.id = j.plan_id "
+            "WHERE p.action = 'inventory.refresh' AND p.params->>'endpoint_id' = :e ORDER BY j.created_at DESC LIMIT 1"),
+            {"e": str(endpoint_id)}).first()
+        snap = db.execute(text("SELECT max(collected_at) FROM inventory_snapshots WHERE endpoint_id = :e"), {"e": str(endpoint_id)}).scalar()
+        return {"state": j.status if j else "none", "job_id": str(j.id) if j else None, "plan_id": str(j.plan_id) if j else None,
+                "queued_at": _iso(j.created_at) if j else None, "started_at": _iso(j.started_at) if j else None,
+                "finished_at": _iso(j.finished_at) if j else None,
+                "error": (j.error or {}).get("message") if j and j.error else None, "last_snapshot_at": _iso(snap)}
+
     # ---- deployment plan preview (dry-run only) ----
     @app.post(f"{API}/plans/preview")
     def plan_preview(body: PreviewIn, request: Request, user: User = Depends(require("operator")), db: Session = Depends(get_db)):
@@ -318,11 +357,95 @@ def create_app(settings: Settings | None = None, runtime: Runtime | None = None)
         db.commit()
         return out
 
+    # ---- monitoring (read-only views; every mutation is a typed plan) ----
+    def _strip_cfg(cfg: dict) -> dict:
+        return {k: ("[pem]" if k == "ca_pem" else v) for k, v in cfg.items()}
+
+    @app.get(f"{API}/nodes")
+    def list_nodes(user: User = Depends(require("viewer")), db: Session = Depends(get_db)):
+        rows = db.execute(text("SELECT id, name, address, port, tls_fingerprint_sha256, agent_key_fp, capabilities, agent_version, status, "
+                               "last_seen_at, created_at FROM nodes ORDER BY name")).all()
+        return [_row(r) for r in rows]
+
+    @app.get(f"{API}/checks")
+    def list_checks(user: User = Depends(require("viewer")), db: Session = Depends(get_db)):
+        rows = db.execute(text(
+            "SELECT c.id, c.name, c.kind, c.config, (c.secret_enc IS NOT NULL) AS has_secret, c.interval_seconds, c.fail_threshold, "
+            "c.recover_threshold, c.enabled, c.state, c.consecutive_bad, c.last_run_at, c.next_run_at, c.last_state_change_at, c.last_message, "
+            "c.last_latency_ms, c.remediation, c.created_at, "
+            "(SELECT i.id FROM incidents i WHERE i.check_id = c.id AND i.status IN ('open','acked')) AS active_incident_id "
+            "FROM checks c ORDER BY c.name")).all()
+        out = []
+        for r in rows:
+            d = _row(r)
+            d["config"] = _strip_cfg(d["config"])
+            out.append(d)
+        return out
+
+    @app.get(f"{API}/checks/{{check_id}}/results")
+    def check_results(check_id: UUID, limit: int = 100, before_id: int | None = None, user: User = Depends(require("viewer")),
+                      db: Session = Depends(get_db)):
+        rows = db.execute(text("SELECT id, at, status, latency_ms, message FROM check_results WHERE check_id = :c "
+                               "AND (CAST(:b AS bigint) IS NULL OR id < :b) ORDER BY id DESC LIMIT :n"),
+                          {"c": str(check_id), "b": before_id, "n": min(max(limit, 1), 1000)}).all()
+        return [{**_row(r), "id": r.id} for r in rows]
+
+    @app.get(f"{API}/checks/{{check_id}}/remediation")
+    def check_remediation(check_id: UUID, user: User = Depends(require("viewer")), db: Session = Depends(get_db)):
+        rows = db.execute(text("SELECT * FROM remediation_attempts WHERE check_id = :c ORDER BY at DESC LIMIT 100"), {"c": str(check_id)}).all()
+        return [{**_row(r), "id": r.id} for r in rows]
+
+    @app.get(f"{API}/incidents")
+    def list_incidents(status: str | None = None, limit: int = 100, user: User = Depends(require("viewer")), db: Session = Depends(get_db)):
+        if status is not None and status not in ("open", "acked", "recovered", "active"):
+            raise HTTPException(422, "status must be open, acked, recovered or active")
+        rows = db.execute(text(
+            "SELECT i.id, i.check_id, c.name AS check_name, i.severity, i.status, i.title, i.message, i.opened_at, i.acked_at, "
+            "au.username AS acked_by_username, i.ack_note, i.recovered_at, i.escalated_at, i.notify_count FROM incidents i "
+            "JOIN checks c ON c.id = i.check_id LEFT JOIN users au ON au.id = i.acked_by "
+            "WHERE (CAST(:s AS text) IS NULL OR i.status = :s OR (:s = 'active' AND i.status IN ('open','acked'))) "
+            "ORDER BY i.opened_at DESC LIMIT :n"), {"s": status, "n": min(max(limit, 1), 500)}).all()
+        return [_row(r) for r in rows]
+
+    @app.get(f"{API}/incidents/{{incident_id}}")
+    def get_incident(incident_id: UUID, user: User = Depends(require("viewer")), db: Session = Depends(get_db)):
+        i = db.execute(text("SELECT i.*, c.name AS check_name, c.state AS check_state FROM incidents i JOIN checks c ON c.id = i.check_id "
+                            "WHERE i.id = :i"), {"i": str(incident_id)}).first()
+        if i is None:
+            raise HTTPException(404, "incident not found")
+        notes = db.execute(text("SELECT n.id, n.event, n.status, n.attempts, n.last_error, n.detail, n.created_at, n.sent_at, ch.name AS channel, "
+                                "ch.kind AS channel_kind FROM notifications n JOIN alert_channels ch ON ch.id = n.channel_id "
+                                "WHERE n.incident_id = :i ORDER BY n.id"), {"i": str(incident_id)}).all()
+        att = db.execute(text("SELECT * FROM remediation_attempts WHERE incident_id = :i ORDER BY at"), {"i": str(incident_id)}).all()
+        return {**_row(i), "notifications": [{**_row(n), "id": n.id} for n in notes], "remediation": [{**_row(a), "id": a.id} for a in att]}
+
+    @app.get(f"{API}/alert-channels")
+    def list_channels(user: User = Depends(require("viewer")), db: Session = Depends(get_db)):
+        rows = db.execute(text("SELECT id, name, kind, config, (secret_enc IS NOT NULL) AS has_secret, enabled, created_at "
+                               "FROM alert_channels ORDER BY name")).all()
+        out = []
+        for r in rows:
+            d = _row(r)
+            d["config"] = _strip_cfg(d["config"])
+            d["delivery_available"] = r.kind not in ("pushover", "sms")
+            out.append(d)
+        return out
+
+    @app.get(f"{API}/maintenance")
+    def list_maintenance(user: User = Depends(require("viewer")), db: Session = Depends(get_db)):
+        rows = db.execute(text("SELECT m.id, m.name, m.check_id, c.name AS check_name, m.starts_at, m.ends_at, m.reason, "
+                               "(m.starts_at <= now() AND m.ends_at > now()) AS active FROM maintenance_windows m "
+                               "LEFT JOIN checks c ON c.id = m.check_id ORDER BY m.starts_at DESC LIMIT 100")).all()
+        return [_row(r) for r in rows]
+
     # ---- audit ----
     @app.get(f"{API}/audit")
-    def list_audit(limit: int = 100, user: User = Depends(require("approver")), db: Session = Depends(get_db)):
+    def list_audit(limit: int = 100, before_seq: int | None = None, user: User = Depends(require("approver")),
+                   db: Session = Depends(get_db)):
+        """Newest first; pass the smallest `seq` you have as `before_seq` to get the next (older) page."""
         rows = db.execute(text("SELECT seq, id, at, action, actor_name, ip, resource, resource_id, details, hash FROM audit_events "
-                               "ORDER BY seq DESC LIMIT :n"), {"n": min(max(limit, 1), 500)}).all()
+                               "WHERE (CAST(:b AS bigint) IS NULL OR seq < :b) ORDER BY seq DESC LIMIT :n"),
+                          {"n": min(max(limit, 1), 500), "b": before_seq}).all()
         return [_row(r) for r in rows]
 
     @app.get(f"{API}/audit/verify")

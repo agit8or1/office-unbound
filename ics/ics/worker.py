@@ -3,6 +3,7 @@ import threading
 
 from sqlalchemy import text
 
+from . import monitor
 from .actions import claim_job, reap_expired, run_job
 from .runtime import Runtime
 
@@ -47,6 +48,8 @@ class Worker(threading.Thread):
             try:
                 while run_once(self.rt):
                     pass
+                if self.rt.settings.monitor_enabled:
+                    monitor.tick(self.rt)
             except Exception:  # noqa: BLE001
                 log.exception("worker loop error")
             self._stop_evt.wait(self.interval)
