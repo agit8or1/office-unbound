@@ -32,7 +32,7 @@ def main():
         "TAG_OBJECT": s.get("tag_object", ""), "COMMIT": s["commit"], "UPSTREAM_VERSION": ver,
         "SIGFPR": r.get("verification", {}).get("signer_fingerprint", ""),
         "VERKIND": r.get("verification", {}).get("kind", "sha-pin"),
-        "PREFETCH": r.get("prefetch", ""), "PACKAGES": " ".join(r["packages"]),
+        "PREFETCH": r.get("prefetch", ""), "OU_REVISION_C": r.get("ou_revision", ""), "PACKAGES": " ".join(r["packages"]),
     }
     for k, v in out.items():
         print(f"{k}={shlex.quote(str(v))}")

@@ -78,6 +78,10 @@ def lock_pkgs(srcdir):
                         n = v.get("name") or k.split("node_modules/")[-1]
                         lic = v.get("license")
                         res.append(("npm", n, v["version"], lic if isinstance(lic, str) else None))
+            elif f == "yarn.lock":      # no licence data in yarn.lock: NOASSERTION
+                txt = open(p, encoding="utf8").read()
+                for n, v in sorted(set(re.findall(r'^"?(@?[^@\s"]+)@[^\n]*:\n  version "([^"]+)"', txt, re.M))):
+                    res.append(("npm", n, v, None))
             elif f == "composer.lock":
                 for v in json.load(open(p)).get("packages", []):
                     res.append(("composer", v["name"], v["version"].lstrip("v"), " AND ".join(v.get("license") or []) or None))

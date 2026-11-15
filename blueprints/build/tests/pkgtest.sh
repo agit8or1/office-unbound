@@ -43,4 +43,10 @@ inm "bash /root/pkgtest-guest.sh verify" || rc=1
 echo "== 4. smoke test"
 inm "bash /root/pkgtest-guest.sh smoke" || rc=1
 echo "== done rc=$rc"
+# the test records what it REALLY installed (M7): ou-* packages installed in the tester, matched to the pool .debs of this suite by name_version
+if [ "$rc" = 0 ] || [ "${OU_RECORD_FAIL:-0}" = 1 ]; then
+  res=pass; [ "$rc" = 0 ] || res=fail
+  inst=$(inm "dpkg-query -W -f='\${Package}_\${Version}\n' 'ou-*' 2>/dev/null" | tr -d '\r' | sed 's/^[0-9]*://' | tr '\n' ' ')
+  "$BUILD/repo/repo.sh" record-installed "$SUITE" install-smoke "$res" "$LOG" $inst || true
+fi
 exit $rc

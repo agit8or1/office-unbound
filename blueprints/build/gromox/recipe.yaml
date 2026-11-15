@@ -28,7 +28,10 @@ licenses:    # source-eval section 1; mixed licence, see docs/status/third-party
   - BSD-3-Clause
   - ICU
 inventory_match: "gromox"
-patches: []        # no functional patches: no licence/user-cap logic exists in Gromox (source-eval section 2.2)
+ou_revision: ou2   # ou1 = unpatched 3.13; ou2 = + the two patches below
+patches:           # no licence/user-cap logic exists in Gromox (source-eval section 2.2); these are hardening/lifecycle patches
+  - 0001-authmgr-bearer-claims.patch      # bearer token alg/exp/nbf/email checks + bearer_issuer / bearer_audience
+  - 0002-imap-event-user-kick.patch       # gromox-event USER-KICK verb + gromox-imap ends the sessions of one user
 branding: >
   Product/binary names (gromox-*) and the "Gromox" name are kept (nominative use, "built from grommunio source");
   pending the trademark review (inventory open lawyer item 2). Copyright/SPDX headers untouched.

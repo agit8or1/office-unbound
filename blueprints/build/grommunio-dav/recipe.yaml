@@ -13,9 +13,8 @@ verification:
   note: tag is annotated but unsigned; commit SHA pin is the only control. composer.lock pins dependency versions and dist hashes.
 # builder step with network, before the network-less compile: install the locked, production-only dependency tree.
 prefetch: |
-  export HOME=/root COMPOSER_HOME=/root/.composer COMPOSER_ALLOW_SUPERUSER=1
   composer config autoloader-suffix OUDav --no-interaction   # composer's random autoloader class suffix would make builds non-reproducible
-  HOME=/root COMPOSER_HOME=/root/.composer COMPOSER_ALLOW_SUPERUSER=1 composer install --no-dev -a --no-interaction --no-scripts
+  composer install --no-dev -a --no-interaction --no-scripts
 packages: [ou-grommunio-dav]
 bundles_lock_packages: true
 licenses: [AGPL-3.0-only, AGPL-3.0-or-later, MIT, BSD-3-Clause, Apache-2.0]

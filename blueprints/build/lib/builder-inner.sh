@@ -28,6 +28,8 @@ EOF
     apt-get update -q >/dev/null
     apt-get install -y -q --no-install-recommends "nodejs=$NODE_PKG_VERSION" >/dev/null
   fi
+  # unprivileged user for the network-enabled dependency fetch (npm/yarn/composer/pip run upstream-controlled code: never as root, M9)
+  id obuild >/dev/null 2>&1 || useradd --system --create-home --home-dir /home/obuild --shell /bin/bash --uid 1500 obuild
   mkdir -p $BUILD/in $BUILD/out $BUILD/localrepo
   dpkg-query -W -f='${Package} ${Version} ${Architecture}\n' | sort > $BUILD/builder-manifest.txt
   echo "builder ready: $(wc -l < $BUILD/builder-manifest.txt) packages, manifest sha256 $(sha256sum < $BUILD/builder-manifest.txt | cut -c1-16)"
@@ -70,7 +72,11 @@ EOF
   # source package first, from the pristine tree (prefetch below adds untracked dependency trees)
   ( cd "$D" && dpkg-source -b . > "$OUT/dpkg-source.log" 2>&1 ) || { cat "$OUT/dpkg-source.log"; exit 1; }
   if [ -n "${PREFETCH:-}" ]; then   # network allowed ONLY here (lockfile-pinned npm/composer fetch)
-    ( cd "$D" && bash -ec "$PREFETCH" ) > "$OUT/prefetch.log" 2>&1 || { tail -30 "$OUT/prefetch.log"; exit 1; }
+    # unprivileged user, own HOME, no root; npm/yarn run with --ignore-scripts (see the recipes). The tree is handed back to root afterwards.
+    chown -R obuild:obuild "$D"
+    printf '%s\n' "$PREFETCH" > "$W/prefetch.sh"; chmod 0644 "$W/prefetch.sh"
+    su obuild -s /bin/bash -c "cd '$D' && export HOME=/home/obuild COMPOSER_HOME=/home/obuild/.composer SOURCE_DATE_EPOCH='$SOURCE_DATE_EPOCH' && bash -e '$W/prefetch.sh'" > "$OUT/prefetch.log" 2>&1 \
+      || { tail -30 "$OUT/prefetch.log"; exit 1; }
   fi
   # binary build runs with NO network (own empty network namespace)
   ( cd "$D" && DEB_BUILD_OPTIONS="parallel=$JOBS" unshare -n -- \

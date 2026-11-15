@@ -14,7 +14,7 @@ verification:
 # builder step before the network-less compile. composer.json has no external requires; this only regenerates
 # the optimized autoloader (classmap over /usr/share/php-mapi from ou-mapi-header-php).
 prefetch: |
-  HOME=/root COMPOSER_HOME=/root/.composer COMPOSER_ALLOW_SUPERUSER=1 composer dump-autoload --no-dev -a --no-interaction
+  composer dump-autoload --no-dev -a --no-interaction
 packages: [ou-grommunio-sync]
 licenses: [AGPL-3.0-only, AGPL-3.0-or-later, MIT, BSD-3-Clause, GPL-3.0-only, LGPL-2.1-or-later, Apache-2.0, ISC]
 inventory_match: "grommunio-sync"

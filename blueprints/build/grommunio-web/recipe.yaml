@@ -13,7 +13,8 @@ verification:
   note: tag is annotated but unsigned; commit SHA pin is the only control. package-lock.json pins every npm dependency with integrity hashes (npm ci verifies them).
 # builder step with network, before the network-less compile: install exactly the locked npm tree
 prefetch: |
-  HOME=/root npm ci --no-audit --no-fund
+  # runs as the unprivileged builder user (no root, M9); lifecycle scripts are NOT executed (--ignore-scripts)
+  npm ci --no-audit --no-fund --ignore-scripts
 packages: [ou-grommunio-web]
 bundles_lock_packages: true
 licenses:    # bundled third-party code reviewed in docs/status/groupware-source-eval.md section 1.1

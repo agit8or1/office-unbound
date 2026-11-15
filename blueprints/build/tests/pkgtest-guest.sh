@@ -119,6 +119,14 @@ verify() {
     out=$(cd $A && PYTHONPATH=/usr/lib/ou-admin-api/site-packages python3 -c "import tools.license as l; print(l.getLicense().users, l.getLicense().product)" 2>&1 | tail -1)
     [ "$out" = "0 Office Unbound" ] && ok "admin-api: default licence reports users=0 (unlimited), product 'Office Unbound'" || echo "INFO  admin-api python import check: $out"
   fi
+  if dpkg -s ou-python3-pyexmdb >/dev/null 2>&1; then
+    out=$(python3 -c "import pyexmdb; print(hasattr(pyexmdb, 'ExmdbQueries'))" 2>&1 | tail -1)
+    [ "$out" = "True" ] && ok "pyexmdb: module imports, ExmdbQueries present (admin-api EXMDB operations)" || no "pyexmdb import: $out"
+  fi
+  if [ -d /usr/share/grommunio-admin-web ]; then
+    grep -q "Office Unbound Admin" /usr/share/grommunio-admin-web/index.html && ok "admin-web: index.html title rebranded" || no "admin-web: title not rebranded"
+    ls /usr/share/grommunio-admin-web/static/js/*.js >/dev/null 2>&1 && ok "admin-web: compiled bundle present" || no "admin-web: no compiled bundle"
+  fi
   W=/usr/share/grommunio-web
   if [ -d $W ]; then
     grep -q "Office Unbound Web" $W/manifest.webmanifest && ok "web: manifest says Office Unbound Web" || no "web: manifest not rebranded"

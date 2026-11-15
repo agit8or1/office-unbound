@@ -1076,7 +1076,7 @@ def exec_disable(rt: Runtime, db, m: UserDisable, plan, known: list[str]) -> dic
             _step(steps, "gromox.suspend", t, sync=[x["action"] for x in g.get("sync", [])], at=round(time.monotonic() - t_lock, 1))
             t = time.monotonic()
             gk = _gromox(rt, stack, "gromox.kill_sessions", uid, known)  # USER-KICK: the (patched) gromox-imap closes the user's open sessions
-            _step(steps, "gromox.kill_sessions", t, kick_sent=gk.get("kick_sent"), at=round(time.monotonic() - t_lock, 1))
+            _step(steps, "gromox.kill_sessions", t, kick_sent=gk.get("kick_sent"), kick_event_sent=gk.get("kick_event_sent"), kick_error=gk.get("error"), at=round(time.monotonic() - t_lock, 1))
             t = time.monotonic()
             gq = _gromox(rt, stack, "gromox.kick_user", uid, known)  # freeze store + unload midb + chmod 000: ends access of open IMAP sessions
             _step(steps, "gromox.quarantine_mailbox", t, frozen=gq.get("frozen"), midb_unloaded=gq.get("midb_unloaded"),

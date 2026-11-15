@@ -84,6 +84,14 @@ def scan_tree(root):
     return found, files
 
 
+YARN_ENTRY = re.compile(r'^"?(@?[^@\s"]+)@[^\n]*:\n  version "([^"]+)"', re.M)
+
+
+def yarn_lock_packages(p, root):
+    txt = open(p, encoding="utf8").read()
+    return [("npm-yarn", n, v, [], os.path.relpath(p, root)) for n, v in sorted(set(YARN_ENTRY.findall(txt)))]
+
+
 def lock_packages(root):
     """Bundled third-party packages from lock files: [(ecosystem, name, version, [licences])]."""
     out = []
@@ -101,6 +109,8 @@ def lock_packages(root):
                     if isinstance(lic, dict):
                         lic = lic.get("type")
                     out.append(("npm", name, v.get("version", ""), [lic] if lic else [], os.path.relpath(p, root)))
+            elif f == "yarn.lock":      # yarn classic: names + versions only, NO licence data (see the warning in main())
+                out.extend(yarn_lock_packages(p, root))
             elif f == "composer.lock":
                 d = json.load(open(p))
                 for sec in ("packages", "packages-dev"):
@@ -139,7 +149,12 @@ def main():
 
     bundled = lock_packages(root)
     seen = {}
+    ny = sum(1 for b in bundled if b[0] == "npm-yarn")
+    if ny:
+        warnings.append(f"{ny} yarn.lock packages: the lock file has no licence data, per-package licences NOT scanned (open point)")
     for eco, name, ver, lics, src in bundled:
+        if eco == "npm-yarn":
+            continue
         if not lics:
             if name in excepted:
                 continue

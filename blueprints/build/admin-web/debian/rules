@@ -1,0 +1,19 @@
+#!/usr/bin/make -f
+include /usr/share/dpkg/pkg-info.mk
+PKG=debian/ou-admin-web
+%:
+	dh $@
+
+# node_modules was installed from yarn.lock (--frozen-lockfile) by the recipe prefetch step (no network from here on)
+override_dh_auto_build:
+	CI=false GENERATE_SOURCEMAP=false NODE_OPTIONS=--max-old-space-size=2048 REACT_APP_BUILD_VERSION=$(DEB_VERSION_UPSTREAM) \
+	  node_modules/.bin/react-scripts build
+
+override_dh_auto_test:
+override_dh_auto_clean:
+	rm -rf build
+
+override_dh_auto_install:
+	mkdir -p $(PKG)/usr/share/grommunio-admin-web
+	cp -a build/. $(PKG)/usr/share/grommunio-admin-web/
+	install -D -m0644 conf/web.conf $(PKG)/usr/share/doc/ou-admin-web/examples/admin-web.conf

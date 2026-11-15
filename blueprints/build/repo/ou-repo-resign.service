@@ -1,0 +1,8 @@
+[Unit]
+Description=Office Unbound apt repository: re-sign all suites (Valid-Until must not lapse) and republish to the read-only repo machine
+
+[Service]
+Type=oneshot
+User=administrator
+# the checkout path is the deployed one; the signer itself is reached through the fixed sudoers rule (sudo -u ou-release ou-release-sign)
+ExecStart=/bin/bash -c '/home/administrator/office-unbound/blueprints/build/repo/repo.sh resign-all && /home/administrator/office-unbound/blueprints/build/repo/repo.sh serve'
