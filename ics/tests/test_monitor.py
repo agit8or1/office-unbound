@@ -555,3 +555,32 @@ def test_viewer_can_read_but_not_mutate(env, mk_user, login):
         assert v.get(f"{H}/{p}").status_code == 200
     assert v.post(f"{H}/plans", json={"action": "incident.ack", "params": {"incident_id": "00000000-0000-0000-0000-000000000000"}},
                   headers=vh).status_code == 403
+
+
+def test_approval_mode_waits_for_a_human_even_for_low_risk_units(env, fake_agent):
+    """Review H2: mode=approval on a low-risk unit must NOT auto-execute; one approver other than the requester."""
+    nid, _ = enroll(env, fake_agent)
+    rem = {"node_id": nid, "runbook": "service.restart", "unit": "gromox-imap", "mode": "approval", "max_attempts": 2,
+           "backoff_seconds": 0, "verify_timeout_seconds": 0}
+    cid = smtp_check(env, 9, name="imap-approval", fail_threshold=1, remediation=rem)
+    feed(env, cid, "critical", remediate=True)
+    att = env.q("SELECT status, plan_id, job_id FROM remediation_attempts")[0]
+    assert att.status == "pending_approval" and att.plan_id and att.job_id is None
+    env.run_jobs()
+    assert fake_agent.calls() == []                                    # nothing ran unattended
+    plan = env.q("SELECT risk, status FROM plans WHERE id = :p", p=att.plan_id)[0]
+    assert plan.risk == "normal" and plan.status == "pending_approval"
+    a, ah = env.ap1
+    assert a.post(f"{H}/plans/{att.plan_id}/approve", headers=ah).status_code == 200
+    env.run_jobs()
+    assert "restart gromox-imap.service" in fake_agent.calls()[0]
+
+
+def test_auto_mode_low_risk_still_auto_executes(env, fake_agent):
+    nid, _ = enroll(env, fake_agent)
+    rem = {"node_id": nid, "runbook": "service.restart", "unit": "gromox-imap", "mode": "auto", "max_attempts": 2,
+           "backoff_seconds": 0, "verify_timeout_seconds": 0}
+    cid = smtp_check(env, 9, name="imap-auto", fail_threshold=1, remediation=rem)
+    feed(env, cid, "critical", remediate=True)
+    env.run_jobs()
+    assert "restart gromox-imap.service" in fake_agent.calls()[0]

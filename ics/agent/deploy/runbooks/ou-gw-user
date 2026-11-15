@@ -1,0 +1,113 @@
+#!/usr/bin/python3
+"""Root helper for the ou-agent identity runbooks on the Gromox node. Started ONLY by the fixed template units ou-rb-gromox-*@<uid>.service.
+usage: ou-gw-user sync|quarantine|state <uid>      (uid is validated again here; nothing is read from the environment or stdin)
+Writes /run/ou-rb/gromox-<cmd>-<uid>.json (what the agent returns to the ICS).
+  sync        gw-ldap-sync.py --user <uid>@<mail_domain> (create / suspend / reactivate); a reactivated mailbox is released from quarantine
+  quarantine  only for an already SUSPENDED user: gromox-mbop freeze (exmdb rejects the store), midb X-UNLD, chmod 000 on the maildir.
+              Effect on an IMAP session opened BEFORE the suspension: SEARCH -> NO, FETCH returns no content (measured, results doc)
+  state       read-only SQL status + maildir mode
+"""
+import json, os, re, socket, subprocess, sys, time
+
+UID_RE = re.compile(r"^[a-z][a-z0-9._-]{1,31}$")
+CFG = "/etc/ou-rb/gromox.json"
+OUT = "/run/ou-rb"
+SYNC = "/usr/local/sbin/gw-ldap-sync.py"
+USERDIR = "/var/lib/gromox/user"
+
+
+def readcfg(path):
+    d = {}
+    for ln in open(path):
+        ln = ln.strip()
+        if ln and not ln.startswith("#") and "=" in ln:
+            k, v = ln.split("=", 1); d[k.strip()] = v.strip()
+    return d
+
+
+def sql_state(mail):
+    import pymysql
+    m = readcfg("/etc/gromox/mysql_adaptor.cfg")
+    db = pymysql.connect(unix_socket="/run/mysqld/mysqld.sock", user=m["mysql_username"], password=m["mysql_password"], database=m["mysql_dbname"])
+    cur = db.cursor()
+    cur.execute("SELECT id, externid, address_status FROM users WHERE username=%s", (mail,))
+    r = cur.fetchone(); db.close()
+    if r is None:
+        return {"exists": False}
+    return {"exists": True, "externid": r[1].decode() if r[1] else None, "address_status": int(r[2])}
+
+
+def mode(path):
+    try:
+        return "%04o" % (os.stat(path).st_mode & 0o7777)
+    except OSError:
+        return None
+
+
+def midb_unload(d):
+    s = socket.create_connection(("::1", 5555), timeout=10)
+    f = s.makefile("rw", newline="")
+    if f.readline().strip() != "OK":
+        raise RuntimeError("midb greeting")
+    f.write("X-UNLD %s\r\n" % d); f.flush()
+    return f.readline().strip().startswith("TRUE")
+
+
+def mbop(d, verb, *extra):
+    return subprocess.run(["/usr/sbin/gromox-mbop", "-d", d, verb, *extra], capture_output=True, text=True, timeout=40, stdin=subprocess.DEVNULL).returncode == 0
+
+
+def release(d):
+    os.chmod(d, 0o770)
+    return mbop(d, "thaw")
+
+
+def main():
+    if len(sys.argv) != 3 or sys.argv[1] not in ("sync", "quarantine", "state") or not UID_RE.match(sys.argv[2]):
+        print("usage: ou-gw-user sync|quarantine|state <uid>", file=sys.stderr); return 2
+    cmd, uid = sys.argv[1], sys.argv[2]
+    domain = json.load(open(CFG))["mail_domain"]
+    mail = "%s@%s" % (uid, domain)
+    d = "%s/%s" % (USERDIR, mail)
+    res = {"uid": uid, "mail": mail, "cmd": cmd, "ts": int(time.time())}
+    rc = 0
+    if cmd == "sync":
+        p = subprocess.run([SYNC, "--user", mail, "--json"], capture_output=True, text=True, timeout=50, stdin=subprocess.DEVNULL)
+        try:
+            j = json.loads(p.stdout)
+            res["sync"] = [{"action": r["action"], "detail": r["detail"]} for r in j["results"]]
+            res["sync_errors"] = j["errors"]
+        except (ValueError, KeyError):
+            res["sync"], res["sync_errors"] = [], 1
+        rc = p.returncode
+        st = sql_state(mail)
+        res["state"] = st
+        if st.get("exists") and st["address_status"] == 0 and mode(d) == "0000":
+            res["released"] = release(d)
+    elif cmd == "quarantine":
+        st = sql_state(mail)
+        res["state"] = st
+        if not st.get("exists") or st["address_status"] == 0:
+            res["error"] = "refused: user is unknown or not suspended"; rc = 3
+        else:
+            res["frozen"] = mbop(d, "freeze", "--no-wait")
+            try:
+                res["midb_unloaded"] = midb_unload(d)
+            except (OSError, RuntimeError):
+                res["midb_unloaded"] = False
+            os.chmod(d, 0o000)
+            res["maildir_mode"] = mode(d)
+    else:
+        res["state"] = sql_state(mail)
+        res["maildir_mode"] = mode(d)
+    os.makedirs(OUT, mode=0o755, exist_ok=True)
+    tmp = "%s/.%s-%s.tmp" % (OUT, cmd, uid)
+    with open(tmp, "w") as f:
+        json.dump(res, f)
+    os.chmod(tmp, 0o644)
+    os.replace(tmp, "%s/gromox-%s-%s.json" % (OUT, cmd, uid))
+    return rc
+
+
+if __name__ == "__main__":
+    sys.exit(main())

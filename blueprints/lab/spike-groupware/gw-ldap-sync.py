@@ -18,6 +18,7 @@ config + systemd + licence-cap patch, and is not the interface we want. This scr
 
 Usage (as root on the gromox host):
   gw-ldap-sync.py [--dry-run] [--user mail@dom] [--create-domain] [--adopt] [--json]
+  (--user for an address that no longer exists in LDAP suspends its linked Gromox user: used by the ICS delete action)
 Exit code 0 = reconciled without errors, 1 = errors, 2 = configuration problem.
 AGPL note: no admin-api code is used; behaviour was cross-checked against its orm/tools sources only.
 """
@@ -173,9 +174,12 @@ def main():
         except Exception as e:
             db.rollback(); errors += 1
             res.append(dict(user=mail, action="error", detail="%s: %s" % (type(e).__name__, e)))
-    # users linked to LDAP (externid set) that vanished from LDAP -> suspend
-    if not a.user:
-        cur.execute("SELECT id,username,address_status FROM users WHERE externid IS NOT NULL")
+    # users linked to LDAP (externid set) that vanished from LDAP -> suspend (full run, or the single --user that is gone)
+    if not a.user or not people:
+        if a.user:
+            cur.execute("SELECT id,username,address_status FROM users WHERE externid IS NOT NULL AND username=%s", (a.user.lower(),))
+        else:
+            cur.execute("SELECT id,username,address_status FROM users WHERE externid IS NOT NULL")
         for uid, un, st in cur.fetchall():
             if un not in seen and st == ACTIVE:
                 if not a.dry_run:

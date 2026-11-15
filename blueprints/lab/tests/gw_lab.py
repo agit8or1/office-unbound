@@ -2,9 +2,16 @@
 Config: /etc/office-unbound/lab/gw1-users.env (OU_GW1_PW_<user>=...), CA at gw1-ca.crt; override with
 OU_GW1_ENV / OU_GW1_CA. Host gw1.ou-lab.internal must resolve (we add it to /etc/hosts on the ICS).
 Never prints passwords. TLS is always verified against the lab CA."""
-import os, sys, uuid
+import os, socket, sys, uuid
 HOST = os.environ.get("OU_GW1_HOST", "gw1.ou-lab.internal")
 DOMAIN = HOST
+# OU_GW1_RESOLVE=<ip>: connect to that IP for HOST (and autodiscover.HOST) while keeping the real name for SNI, Host header and
+# certificate verification (restore drills: test a restored node by IP without touching /etc/hosts; same effect as curl --resolve).
+_RES = os.environ.get("OU_GW1_RESOLVE")
+if _RES:
+    _orig_gai = socket.getaddrinfo
+    def _gai(host, *a, **k): return _orig_gai(_RES if host in (HOST, "autodiscover." + HOST) else host, *a, **k)
+    socket.getaddrinfo = _gai
 CA = os.environ.get("OU_GW1_CA", "/etc/office-unbound/lab/gw1-ca.crt")
 ENV = os.environ.get("OU_GW1_ENV", "/etc/office-unbound/lab/gw1-users.env")
 RUN = uuid.uuid4().hex[:10]

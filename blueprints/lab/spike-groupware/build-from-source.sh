@@ -3,6 +3,8 @@
 # Runs INSIDE the lab machine (Debian 12 bookworm, systemd-nspawn ou-gw1), as root.
 # Usage: sh build-from-source.sh [stage...]   stages: deps libhx wmime gromox sync dav web
 set -eu
+HERE=$(cd "$(dirname "$0")" && pwd)
+. "${PKGENV:-$HERE/../common/packages.env}"
 SRC=${SRC:-/usr/src/ou}
 JOBS=${JOBS:-6}   # nspawn MemoryMax=6G: -j$(nproc) (48) OOM-killed wmime
 LIBHX_TAG=v4.28; WMIME_TAG=wmime-1.2.0; GROMOX_TAG=gromox-3.13
@@ -11,15 +13,12 @@ export DEBIAN_FRONTEND=noninteractive
 mkdir -p "$SRC"; cd "$SRC"
 clone() { # url tag dir
   [ -d "$3" ] || git clone -q --depth 1 --branch "$2" "$1" "$3"
-  echo "PIN $3 $2 $(git -C "$3" rev-parse HEAD)"
+  echo "PIN $3 $2 $(git -C "$3" rev-parse HEAD)" | tee -a "$SRC/PINS"
 }
 stage_deps() {
   apt-get update -q
-  apt-get install -y -q --no-install-recommends ca-certificates git build-essential autoconf automake libtool \
-    pkg-config cmake make m4 perl libfmt-dev libjsoncpp-dev libxml2-dev libzstd-dev libmariadb-dev \
-    libldap-dev libssl-dev libsqlite3-dev libtinyxml2-dev zlib1g-dev php-dev php-cli libcurl4-openssl-dev \
-    libpam0g-dev libxxhash-dev libc-ares-dev libkrb5-dev libgsasl-dev libgnutls28-dev libidn2-dev \
-    curl unzip xz-utils sqlite3 zstd gettext
+  # shellcheck disable=SC2086  # GW_PKGS is a word list (common/packages.env)
+  apt-get install -y -q --no-install-recommends $GW_PKGS
 }
 stage_libhx() {
   clone https://github.com/jengelh/libhx "$LIBHX_TAG" libhx

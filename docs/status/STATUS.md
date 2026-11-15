@@ -9,6 +9,7 @@
 | ICS backend (auth/TOTP, vault, HMAC hash-chained audit, typed actions, 2-approver plans, jobs, PVE read-only client) | Tested (unit/integration, 79 tests) | security-review-ics-2026-11-15.md incl. remediation; service `ics` on 127.0.0.1:8088 |
 | ICS console (Vue) | Integrated in lab | /ui, vitest 7/7, headless browser smoke |
 | ICS monitoring, alerts, node agent, remediation | Implementing | ics-monitoring-results.md (pending) |
+| ICS identity lifecycle (create / update_groups / disable+VERIFY / enable / delete / reconcile) | Integrated in lab | user-lifecycle-results.md: acceptance script PASS (all paths refused <= 7 s), pytest suite; open gaps: OpenCloud app tokens resurrect on enable, ActiveSync wipe, Gromox open-session kill is a quarantine workaround |
 | Proxmox inventory vs real cluster | Blocked (owner: no Proxmox now) | fixtures + TLS-pinning mock tests only |
 | Groupware: own source build of gromox 3.13 + sync/dav/web | Integrated in lab | groupware-lab-results.md — 57 automated checks pass (lead re-run): MAPI/HTTP Connect, EWS, ActiveSync, Autodiscover, IMAP/SMTP, CalDAV/CardDAV, shared mailbox, restart, export/import restore; 7 users (no cap) |
 | Groupware ↔ OpenLDAP single user store | Implementing | groupware-ldap-results.md (pending) |
@@ -36,7 +37,7 @@
 
 ## Next tasks
 - Integrate monitoring/remediation demo (acceptance 15–16), Collabora own build, Gromox↔LDAP.
-- ICS provisioning action: one user lifecycle (LDAP → Keycloak/OpenCloud/Gromox) incl. revoke.
+- ~~ICS provisioning action: one user lifecycle~~ done (user-lifecycle-results.md); next: OpenCloud app-token revoke path, ActiveSync wipe, mailbox purge/export action, clean-room re-run.
 - Restore drill for groupware tier to separate machine; clean-room reinstall (22).
 - Fix monitoring security review findings (security-review-ics-monitoring-2026-11-15.md: H1 agent idle-connection DoS, H2 approval mode ineffective, M1–M5) once user-lifecycle work lands.
 - Rebranding patch queues + package recipes for gromox stack (ADR-0008).

@@ -1,9 +1,11 @@
 #!/bin/sh
-# Install the node agent inside a node (run as root ON the node). Usage: sh install-agent.sh <bind-address> <hostname>
+# Install the node agent inside a node (run as root ON the node). Usage: sh install-agent.sh <bind-address> <hostname> [config.json]
+# [config.json] defaults to ./agent.json (Gromox node); use agent-files.json for the OpenCloud node. Identity runbook helpers in ./runbooks/ are installed
+# when the config enables a gromox.* / opencloud.* runbook. Re-running upgrades code, allowlist and polkit rule and restarts the agent (enrollment is kept).
 # Expects ./ou_agent/, ./agent.json, ./ou-agent.service, ./render_polkit.py next to this script. Prints the enrollment
 # token and the two fingerprints ONCE on the console; hand them to the ICS operator out of band.
 set -eu
-ADDR="$1"; HOST="$2"; D="$(cd "$(dirname "$0")" && pwd)"
+ADDR="$1"; HOST="$2"; CFGSRC="${3:-agent.json}"; D="$(cd "$(dirname "$0")" && pwd)"
 export DEBIAN_FRONTEND=noninteractive
 dpkg -s python3-cryptography >/dev/null 2>&1 || apt-get install -y -qq python3-cryptography
 dpkg -s polkitd >/dev/null 2>&1 || apt-get install -y -qq polkitd
@@ -11,11 +13,20 @@ getent passwd ou-agent >/dev/null || useradd --system --no-create-home --home-di
 install -d -o root -g root -m 0755 /opt/ou-agent /etc/ou-agent
 rm -rf /opt/ou-agent/ou_agent && cp -r "$D/ou_agent" /opt/ou-agent/ou_agent && chown -R root:root /opt/ou-agent && chmod -R go-w /opt/ou-agent
 find /opt/ou-agent -name __pycache__ -prune -exec rm -rf {} +
-python3 - "$D/agent.json" "$ADDR" > /etc/ou-agent/agent.json <<'PY'
+python3 - "$D/$CFGSRC" "$ADDR" > /etc/ou-agent/agent.json <<'PY'
 import json, sys
 c = json.load(open(sys.argv[1])); c["listen"]["address"] = sys.argv[2]; print(json.dumps(c, indent=2))
 PY
 chown root:root /etc/ou-agent/agent.json; chmod 0644 /etc/ou-agent/agent.json
+if grep -q '"gromox\.\|"opencloud\.' /etc/ou-agent/agent.json; then
+  install -d -o root -g root -m 0755 /etc/ou-rb
+  for fam in gromox opencloud; do
+    grep -q "\"$fam\\." /etc/ou-agent/agent.json && for f in "$D"/runbooks/ou-rb-$fam-*@.service; do install -m 0644 "$f" /etc/systemd/system/; done
+  done
+  grep -q '"gromox\.' /etc/ou-agent/agent.json && install -m 0755 -o root -g root "$D/runbooks/ou-gw-user" /usr/local/sbin/ou-gw-user
+  grep -q '"opencloud\.' /etc/ou-agent/agent.json && install -m 0755 -o root -g root "$D/runbooks/ou-oc-check" /usr/local/sbin/ou-oc-check
+  [ -n "${OU_MAIL_DOMAIN:-}" ] && printf '{"mail_domain": "%s"}\n' "$OU_MAIL_DOMAIN" > /etc/ou-rb/gromox.json
+fi
 python3 "$D/render_polkit.py" /etc/ou-agent/agent.json > /etc/polkit-1/rules.d/50-ou-agent.rules
 chmod 0644 /etc/polkit-1/rules.d/50-ou-agent.rules
 install -d -o ou-agent -g ou-agent -m 0700 /var/lib/ou-agent
@@ -27,3 +38,4 @@ if [ ! -f /var/lib/ou-agent/agent_key.pem ]; then
     python3 -m ou_agent init --hostname "$HOST"
 fi
 systemctl enable --now ou-agent.service
+systemctl restart ou-agent.service

@@ -67,7 +67,7 @@ def rt(base_settings, owner_engine):
     with owner_engine.connect() as c:
         c.execute(text("TRUNCATE users, sessions, login_attempts, audit_events, endpoints, plans, jobs, "
                        "worker_heartbeat, inventory_snapshots, plan_approvals, nodes, agent_requests, checks, check_results, incidents, "
-                       "maintenance_windows, alert_channels, notifications, remediation_attempts RESTART IDENTITY CASCADE"))
+                       "maintenance_windows, alert_channels, notifications, remediation_attempts, idm_stacks, idm_users, idm_enrollments, idm_reconcile_runs RESTART IDENTITY CASCADE"))
     r = Runtime(base_settings)
     yield r
     r.engine.dispose()
@@ -133,7 +133,7 @@ def other_vault():
 class FakeAgent:
     """A REAL ou_agent (HTTPS server + signed protocol + journal) on 127.0.0.1 with a stub `systemctl` that logs its argv."""
 
-    def __init__(self, tmp_path, units=("gromox-imap", "nginx", "mariadb"), paths=("/",)):
+    def __init__(self, tmp_path, units=("gromox-imap", "nginx", "mariadb"), paths=("/",), extra=None):
         from cryptography.hazmat.primitives import serialization
         from cryptography.hazmat.primitives.asymmetric.ed25519 import Ed25519PrivateKey
         from ou_agent import cli, runbooks, server
@@ -153,7 +153,7 @@ class FakeAgent:
         self.tls_fp = cli.make_tls(self.state, "127.0.0.1", "localhost")
         self.cfg = {"listen": {"address": "127.0.0.1", "port": 0},
                     "runbooks": {"service.restart": {"units": list(units)}, "service.status": {"units": list(units)},
-                                 "disk.usage": {"paths": list(paths)}}}
+                                 "disk.usage": {"paths": list(paths)}, **(extra or {})}}
         self.token = cli.arm_enroll(self.state)
         _, self.key_fp = cli.fingerprints(self.state)
         self.srv, self.agent = server.build_server(self.cfg, self.state)

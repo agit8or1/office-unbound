@@ -13,7 +13,7 @@ from pydantic import BaseModel, Field, ValidationError
 from sqlalchemy import text
 from sqlalchemy.orm import Session
 
-from . import audit, auth
+from . import audit, auth, identity
 from .actions import CATALOG, ActionType, PlanError, create_plan, decide_plan
 from .auth import ROLES, User, client_ip, cookie_name, get_db, require
 from .blueprint import preview
@@ -45,6 +45,13 @@ class EnrollConfirmIn(BaseModel):
     username: str = Field(max_length=64)
     token: str = Field(max_length=200)
     totp_code: str = Field(max_length=32)
+
+
+class IdmEnrollIn(BaseModel):
+    stack: str = Field(max_length=63)
+    uid: str = Field(max_length=32)
+    token: str = Field(max_length=120)
+    password: str = Field(max_length=1024)
 
 
 class PlanIn(BaseModel):
@@ -437,6 +444,57 @@ def create_app(settings: Settings | None = None, runtime: Runtime | None = None)
                                "(m.starts_at <= now() AND m.ends_at > now()) AS active FROM maintenance_windows m "
                                "LEFT JOIN checks c ON c.id = m.check_id ORDER BY m.starts_at DESC LIMIT 100")).all()
         return [_row(r) for r in rows]
+
+    # ---- identity lifecycle (mutations are typed plans idm.*; these are the one-time enrollment flow and read-only views) ----
+    enroll_hits: dict[str, list[float]] = {}
+
+    @app.post(f"{API}/identity/enrollments/{{plan_id}}/reveal")
+    def idm_reveal(plan_id: UUID, request: Request, user: User = Depends(require("operator")), db: Session = Depends(get_db)):
+        """Shows the one-time enrollment token of a user.create/user.enable plan to ITS REQUESTER, once. Hand it to the new user out of band."""
+        r = identity.reveal_enrollment(db, rt, user, plan_id)
+        if not r:
+            raise HTTPException(404, "no unrevealed, unexpired enrollment for this plan and requester")
+        return r
+
+    @app.post(f"{API}/identity/enroll")
+    def idm_enroll(body: IdmEnrollIn, request: Request, db: Session = Depends(get_db)):
+        """The new user sets their OWN initial password with the one-time token (never stored, never logged). Unauthenticated by design."""
+        import time as _t
+        ip = client_ip(request) or "?"
+        hits = [x for x in enroll_hits.get(ip, []) if _t.monotonic() - x < 60]
+        if len(hits) >= 20 or len(enroll_hits) > 5000:
+            raise HTTPException(429, "too many attempts")
+        enroll_hits[ip] = hits + [_t.monotonic()]
+        try:
+            identity.redeem_enrollment(db, rt, body.stack, body.uid, body.token, body.password, ip)
+        except identity.EnrollRefused:
+            raise HTTPException(403, "invalid or expired enrollment token")
+        except ValueError as e:
+            raise HTTPException(422, str(e))
+        except identity.IdentityError:
+            raise HTTPException(502, "directory unavailable; try again later")
+        return {"ok": True}
+
+    @app.get(f"{API}/identity/stacks")
+    def idm_stacks(user: User = Depends(require("viewer")), db: Session = Depends(get_db)):
+        rows = db.execute(text("SELECT id, name, config, last_reconcile_at, created_at FROM idm_stacks ORDER BY name")).all()
+        hide = {"identity_ca_pem", "mail_ca_pem"}
+        return [{**_row(r, "config"), "config": {k: v for k, v in r.config.items() if k not in hide}} for r in rows]
+
+    @app.get(f"{API}/identity/users")
+    def idm_users(stack: str | None = None, user: User = Depends(require("viewer")), db: Session = Depends(get_db)):
+        rows = db.execute(text(
+            "SELECT u.id, s.name AS stack, u.uid, u.entry_uuid, u.mail, u.display_name, u.groups, u.state, u.created_at, u.disabled_at, "
+            "u.last_verification FROM idm_users u JOIN idm_stacks s ON s.id = u.stack_id WHERE (CAST(:s AS text) IS NULL OR s.name = :s) "
+            "ORDER BY u.uid LIMIT 500"), {"s": stack}).all()
+        return [_row(r) for r in rows]
+
+    @app.get(f"{API}/identity/reconcile")
+    def idm_reconcile_runs(stack: str | None = None, limit: int = 10, user: User = Depends(require("viewer")), db: Session = Depends(get_db)):
+        rows = db.execute(text(
+            "SELECT r.id, s.name AS stack, r.at, r.trigger, r.ok, r.findings FROM idm_reconcile_runs r JOIN idm_stacks s ON s.id = r.stack_id "
+            "WHERE (CAST(:s AS text) IS NULL OR s.name = :s) ORDER BY r.at DESC LIMIT :n"), {"s": stack, "n": min(max(limit, 1), 100)}).all()
+        return [{**_row(r), "id": r.id} for r in rows]
 
     # ---- audit ----
     @app.get(f"{API}/audit")

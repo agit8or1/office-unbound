@@ -1,22 +1,39 @@
 """Fixed runbook allowlist. The allowlist comes from a root-owned config file the agent user cannot modify.
 No shell, no string commands: systemctl is called with an argv list and the unit must equal an allowlisted name exactly."""
+import json
 import os
 import re
 import subprocess
+import time
 
 from .proto import Reject
 
 SYSTEMCTL = "/usr/bin/systemctl"
 UNIT_RE = re.compile(r"^[a-z0-9][a-z0-9_.@-]{0,62}$")
 RUNBOOKS = ("service.restart", "service.status", "disk.usage")
+# Per-user identity runbooks: fixed systemd oneshot TEMPLATE units (installed root-owned on the node) started with the validated uid as the
+# instance name. The privileged work is done by a fixed root helper that validates the uid again; the agent never builds a command line from
+# anything but the regex-checked uid. Result: JSON file written by the helper into RESULT_DIR (root-owned, world readable).
+USER_RUNBOOKS = {
+    "gromox.sync_user": ("ou-rb-gromox-sync", "gromox-sync"),         # reconcile the directory user into Gromox (create / suspend / reactivate)
+    "gromox.kick_user": ("ou-rb-gromox-quarantine", "gromox-quarantine"),  # lock the (already suspended) mailbox for already-open sessions
+    "gromox.user_state": ("ou-rb-gromox-state", "gromox-state"),      # read-only: SQL status + mailbox lock state
+    "opencloud.check_user": ("ou-rb-opencloud-check", "opencloud-check"),  # can OpenCloud still resolve this user (1 s app token probe)
+}
+UID_RE = re.compile(r"^[a-z][a-z0-9._-]{1,31}$")
+RESULT_DIR = "/run/ou-rb"
+MAX_RESULT = 8192
 _ENV = {"PATH": "/usr/bin:/bin", "LANG": "C"}
 
 
 def validate_config(cfg: dict) -> dict:
     """Shape of /etc/ou-agent/agent.json: {"listen": {"address","port"}, "runbooks": {name: {"units":[...]} | {"paths":[...]}}}"""
     rb = cfg.get("runbooks")
-    if not isinstance(rb, dict) or set(rb) - set(RUNBOOKS):
-        raise ValueError("runbooks must be a subset of " + ", ".join(RUNBOOKS))
+    if not isinstance(rb, dict) or set(rb) - set(RUNBOOKS) - set(USER_RUNBOOKS):
+        raise ValueError("runbooks must be a subset of " + ", ".join(RUNBOOKS + tuple(USER_RUNBOOKS)))
+    for name in USER_RUNBOOKS:
+        if name in rb and rb[name] != {"enabled": True}:
+            raise ValueError(f"{name} takes exactly {{\"enabled\": true}}")
     for name in ("service.restart", "service.status"):
         for u in rb.get(name, {}).get("units", []):
             if not UNIT_RE.match(u):
@@ -29,8 +46,15 @@ def validate_config(cfg: dict) -> dict:
 
 def capabilities(cfg: dict) -> dict:
     rb = cfg["runbooks"]
-    return {k: {"units": sorted(v.get("units", []))} if k.startswith("service") else {"paths": sorted(v.get("paths", []))}
-            for k, v in rb.items()}
+    out = {}
+    for k, v in rb.items():
+        if k in USER_RUNBOOKS:
+            out[k] = {"enabled": True}
+        elif k.startswith("service"):
+            out[k] = {"units": sorted(v.get("units", []))}
+        else:
+            out[k] = {"paths": sorted(v.get("paths", []))}
+    return out
 
 
 def check_allowed(cfg: dict, action: str, params: dict) -> dict:
@@ -38,6 +62,10 @@ def check_allowed(cfg: dict, action: str, params: dict) -> dict:
     spec = cfg["runbooks"].get(action)
     if spec is None:
         raise Reject("not_allowed", "action is not an allowlisted runbook")
+    if action in USER_RUNBOOKS:
+        if set(params) != {"user"} or not isinstance(params["user"], str) or not UID_RE.match(params["user"]):
+            raise Reject("bad_params", "params must be exactly {user} (lowercase uid)")
+        return {"user": params["user"]}
     if action.startswith("service."):
         if set(params) != {"unit"} or not isinstance(params["unit"], str):
             raise Reject("bad_params", "params must be exactly {unit}")
@@ -65,8 +93,31 @@ def _show(unit: str) -> dict:
     return out
 
 
+def _user_runbook(action: str, uid: str) -> dict:
+    unit, stem = USER_RUNBOOKS[action]
+    started = int(time.time())
+    r = _systemctl("start", "--wait", f"{unit}@{uid}.service", timeout=100)
+    out = {"user": uid, "returncode": r.returncode}
+    path = os.path.join(RESULT_DIR, f"{stem}-{uid}.json")
+    try:
+        if os.stat(path).st_size > MAX_RESULT:
+            raise ValueError("result too large")
+        with open(path) as f:
+            data = json.load(f)
+        if not isinstance(data, dict) or data.get("uid") != uid or int(data.get("ts", 0)) < started - 2:
+            raise ValueError("stale or foreign result")
+        out["result"] = data
+    except (OSError, ValueError):
+        out["result"] = None
+        if r.returncode != 0:
+            out["stderr"] = r.stderr.strip()[:300]
+    return out
+
+
 def execute(action: str, params: dict) -> dict:
     """Run an already allowlisted runbook. Returns a small JSON-safe dict."""
+    if action in USER_RUNBOOKS:
+        return _user_runbook(action, params["user"])
     if action == "service.status":
         s = _show(params["unit"])
         return {"unit": params["unit"], "active_state": s.get("ActiveState"), "sub_state": s.get("SubState"),

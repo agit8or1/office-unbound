@@ -3,6 +3,9 @@
   "runbooks": {
     "service.restart": {"units": ["gromox-http", "gromox-imap", "gromox-delivery", "nginx", "php8.2-fpm", "postfix", "mariadb"]},
     "service.status":  {"units": ["gromox-http", "gromox-imap", "gromox-delivery", "nginx", "php8.2-fpm", "postfix", "mariadb"]},
-    "disk.usage":      {"paths": ["/", "/var/lib/mysql", "/var/lib/gromox"]}
+    "disk.usage":      {"paths": ["/", "/var/lib/mysql", "/var/lib/gromox"]},
+    "gromox.sync_user": {"enabled": true},
+    "gromox.kick_user": {"enabled": true},
+    "gromox.user_state": {"enabled": true}
   }
 }

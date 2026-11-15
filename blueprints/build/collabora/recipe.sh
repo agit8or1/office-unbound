@@ -37,6 +37,9 @@ do_deps() {
     libxml2-utils libxrandr-dev bison flex autoconf automake libtool pkg-config python3-dev \
     python3-venv meson ninja-build curl ca-certificates fonts-wqy-zenhei fonts-wqy-microhei fonts-droid-fallback fonts-noto-cjk \
     libpoco-dev- 2>&1 | tail -3
+  # meson/ninja (bundled harfbuzz) ignores make's -j and spawns nproc+2 compilers -> OOM in an 8G machine; cap it
+  printf '#!/bin/sh\nexec /usr/bin/ninja -j${NINJA_JOBS:-4} "$@"\n' > /usr/local/bin/ninja
+  chmod +x /usr/local/bin/ninja
 }
 
 do_fetch() {

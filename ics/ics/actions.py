@@ -17,7 +17,8 @@ from pydantic import BaseModel, ConfigDict, Field, SecretStr, field_validator, m
 from sqlalchemy import text
 from sqlalchemy.orm import Session
 
-from . import agentclient, alerts, audit, auth, checks as checkmod, monitor
+from . import agentclient, alerts, audit, auth, checks as checkmod, identity, monitor
+from .identity import IdentityError
 from .agentclient import AgentError
 from .proxmox import ProxmoxError, ProxmoxReadClient, check_destination, normalize_fingerprint
 from .runtime import Runtime
@@ -40,6 +41,13 @@ class ActionType(StrEnum):
     alert_channel_test = "alert_channel.test"
     incident_ack = "incident.ack"
     runbook_execute = "runbook.execute"
+    idm_stack_register = "idm.stack.register"
+    idm_user_create = "idm.user.create"
+    idm_user_update_groups = "idm.user.update_groups"
+    idm_user_disable = "idm.user.disable"
+    idm_user_enable = "idm.user.enable"
+    idm_user_delete = "idm.user.delete"
+    idm_reconcile = "idm.reconcile"
 
 
 class EndpointRegister(BaseModel):
@@ -223,6 +231,7 @@ class RunbookExecute(BaseModel):
     check_id: UUID | None = Field(default=None, description="re-run this check after the runbook and record verified recovery")
     attempt_id: int | None = None
     verify_timeout_seconds: int = Field(default=0, ge=0, le=45)
+    require_approval: bool = Field(default=False, description="policy mode=approval: never auto-approve (review H2)")
 
     @model_validator(mode="after")
     def _chk(self) -> Self:
@@ -234,7 +243,9 @@ class RunbookExecute(BaseModel):
 
 
 def _runbook_risk(p: RunbookExecute) -> str:
-    return monitor.runbook_risk(p.runbook, p.unit)
+    base = monitor.runbook_risk(p.runbook, p.unit)
+    # Review H2: an "approval" policy must wait for a human even for low-risk units ("normal" = 1 approver ≠ requester).
+    return "normal" if p.require_approval and base == "low" else base
 
 
 CATALOG: dict[ActionType, dict] = {
@@ -251,7 +262,16 @@ CATALOG: dict[ActionType, dict] = {
     ActionType.alert_channel_test: {"model": AlertChannelTest, "risk": "low", "secrets": ()},
     ActionType.incident_ack: {"model": IncidentAck, "risk": "low", "secrets": ()},
     ActionType.runbook_execute: {"model": RunbookExecute, "risk": _runbook_risk, "secrets": ()},
+    # identity lifecycle (identity.py). "risk" here is the catalog default; create_plan computes the real tier (privileged groups raise it to high)
+    ActionType.idm_stack_register: {"model": identity.StackRegister, "risk": "high", "secrets": identity.SECRETS["idm.stack.register"]},
+    ActionType.idm_user_create: {"model": identity.UserCreate, "risk": "normal", "secrets": ()},
+    ActionType.idm_user_update_groups: {"model": identity.UserUpdateGroups, "risk": "normal", "secrets": ()},
+    ActionType.idm_user_disable: {"model": identity.UserDisable, "risk": "normal", "secrets": ()},
+    ActionType.idm_user_enable: {"model": identity.UserEnable, "risk": "normal", "secrets": ()},
+    ActionType.idm_user_delete: {"model": identity.UserDelete, "risk": "high", "secrets": ()},
+    ActionType.idm_reconcile: {"model": identity.Reconcile, "risk": "low", "secrets": ()},
 }
+_IDM = {a for a in ActionType if a.value.startswith("idm.")}
 
 
 class PlanIntegrityError(Exception):
@@ -387,6 +407,16 @@ def create_plan(db: Session, rt: Runtime, user, action: ActionType, params: dict
     risk = spec["risk"](p) if callable(spec["risk"]) else spec["risk"]
     binding = None
     extra: dict = {}
+    if action in _IDM:
+        try:
+            extra.update(identity.precheck(db, rt, action.value, p))
+            risk = identity.risk_for(db, action.value, p)
+        except KeyError as e:
+            raise PlanError(404, str(e.args[0])) from None
+        except LookupError as e:
+            raise PlanError(409, str(e)) from None
+        except (ValueError, IdentityError) as e:
+            raise PlanError(422, str(e)) from None
     if action == ActionType.inventory_refresh:
         binding = _ep_binding(db, p.endpoint_id)
         if binding is None:
@@ -425,7 +455,7 @@ def create_plan(db: Session, rt: Runtime, user, action: ActionType, params: dict
         job_id = _enqueue(db, pid, action, user, ip, auto=True)
     db.commit()
     return {"plan_id": str(pid), "status": "approved" if auto else "pending_approval", "risk": risk, "job_id": job_id,
-            "params_hash": digest, "approvals_required": 1 if auto else rt.settings.required_approvals_high, **extra}
+            "params_hash": digest, "approvals_required": rt.settings.required_approvals_high if risk == "high" else 1, **extra}
 
 
 def _enqueue(db: Session, plan_id, action, user, ip, auto: bool = False) -> str:
@@ -551,7 +581,7 @@ def reap_expired(rt: Runtime) -> int:
     return n
 
 
-_SAFE_ERRORS = (ProxmoxError, VaultError, PlanIntegrityError, JobTimeout, AgentError)
+_SAFE_ERRORS = (ProxmoxError, VaultError, PlanIntegrityError, JobTimeout, AgentError, IdentityError)
 
 
 def _error_dict(e: BaseException, known: list[str]) -> dict:
@@ -868,4 +898,5 @@ _EXEC = {ActionType.endpoint_register: _exec_register, ActionType.inventory_refr
          ActionType.node_enroll: _exec_node_enroll, ActionType.check_create: _exec_check_create,
          ActionType.check_set_enabled: _exec_check_set_enabled, ActionType.check_bind_remediation: _exec_check_bind,
          ActionType.maintenance_create: _exec_maintenance, ActionType.alert_channel_create: _exec_channel_create,
-         ActionType.alert_channel_test: _exec_channel_test, ActionType.incident_ack: _exec_ack, ActionType.runbook_execute: _exec_runbook}
+         ActionType.alert_channel_test: _exec_channel_test, ActionType.incident_ack: _exec_ack, ActionType.runbook_execute: _exec_runbook,
+         **{ActionType(k): v for k, v in identity.EXECUTORS.items()}}

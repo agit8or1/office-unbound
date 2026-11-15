@@ -1,0 +1,21 @@
+#!/usr/bin/python3
+"""Root-started (as user opencloud by the unit) helper: can OpenCloud still resolve this user? usage: ou-oc-check <uid>
+Runs `opencloud auth-app create --user-name <uid> --expiration 1s` (argv, no shell) and DISCARDS the token: the CLI impersonates the user
+through the OpenCloud gateway, which looks the user up in the directory with OpenCloud's own LDAP filter (locked/removed users are not found).
+Result file: /run/ou-rb/opencloud-check-<uid>.json  {resolved: bool, ...}. A 1 s token expires before it could be used."""
+import json, os, re, subprocess, sys, time
+if len(sys.argv) != 2 or not re.fullmatch(r"[a-z][a-z0-9._-]{1,31}", sys.argv[1]):
+    print("usage: ou-oc-check <uid>", file=sys.stderr); sys.exit(2)
+uid = sys.argv[1]
+p = subprocess.run(["/usr/local/bin/opencloud", "auth-app", "create", "--user-name", uid, "--expiration", "1s"],
+                   capture_output=True, text=True, timeout=40, stdin=subprocess.DEVNULL)
+res = {"uid": uid, "cmd": "check", "ts": int(time.time()), "resolved": p.returncode == 0, "returncode": p.returncode}
+if p.returncode != 0:
+    res["error"] = (p.stderr.strip().splitlines() or p.stdout.strip().splitlines() or [""])[-1][:160]
+os.makedirs("/run/ou-rb", mode=0o755, exist_ok=True)
+tmp = "/run/ou-rb/.oc-%s.tmp" % uid
+with open(tmp, "w") as f:
+    json.dump(res, f)
+os.chmod(tmp, 0o644)
+os.replace(tmp, "/run/ou-rb/opencloud-check-%s.json" % uid)
+sys.exit(0)

@@ -115,6 +115,24 @@ All **mutations are typed plans** (catalog via `GET actions`); the views below a
 - Install on a node (as root, on the node): `sh deploy/install-agent.sh <bind-ip> <hostname>`; the demo `scripts/lab_monitoring_demo.py` and `scripts/lab_agent_proofs.py` drive/prove it on `ou-gw1`.
 - Limits: one agent exec at a time; request body 16 KiB; ICS response cap 64 KiB; no streaming output; `disk.usage` is the only non-service runbook. The worker runs checks and jobs on one thread: a 90 s verification blocks other jobs/checks for that time.
 
+## Identity lifecycle (slice 3): provision -> change -> deprovision for one customer stack
+Typed actions (all through plans; `GET actions` lists them). Details, measurements and gaps: `docs/status/user-lifecycle-results.md`.
+
+| action | risk | notes |
+|---|---|---|
+| `idm.stack.register` | **high** (2 approvers) | wires one customer stack: LDAP (ldaps, CA-verified incl. hostname) + Keycloak realm + Gromox/OpenCloud nodes + probe settings. The LDAP bind password and the Keycloak client secret go to the vault (AAD = stack id + config hash: re-pointing the stack voids them). Hosts pass the SSRF guard at plan time and at use |
+| `idm.user.create` | **normal** (1 approver, never the requester) | LDAP entry + groups; the directory's immutable `entryUUID` is recorded as the user's stable id (`idm_users`); Gromox mailbox sync (`externid = entryUUID`, verified); OpenCloud visibility check; one-time enrollment token. Refuses to adopt an unmanaged directory entry. Group changes touching `privileged_groups` make the plan **high** |
+| `idm.user.update_groups` | normal (high for privileged groups) | add/remove members of allow-listed groups; entitlement change re-syncs Gromox; removals end the Keycloak SSO session so tokens do not keep old roles |
+| `idm.user.disable` | normal | LDAP lock (+ optional credential rotation), Keycloak disable + logout + consent/offline-token revoke, Gromox suspend + **mailbox quarantine** (ends already-open IMAP sessions), then **VERIFY**: every credential path is probed once per second and the seconds until refusal are recorded (target <= 60 s). A path that stays valid FAILS the job loudly (the user stays disabled) |
+| `idm.user.enable` | normal | unlock, Keycloak enable, Gromox reactivate + release; the old password is replaced by a random one and a NEW one-time enrollment is issued |
+| `idm.user.delete` | **high** (2 approvers) | only after disable; LDAP entry + Keycloak user removed; **mailbox data is retained** (suspended, mode 0000; there is no purge action) so the uid/mail cannot be reused |
+| `idm.reconcile` | low (read only) | compares LDAP <-> Keycloak <-> Gromox <-> OpenCloud for every managed user; also runs periodically per stack (`reconcile_interval_seconds`). **Reports only**: destructive drift (a disabled user that still has access, entryUUID swap, ...) is never auto-repaired |
+
+Credentials are never broad: the stack uses `cn=svc-ics` (LDAP: write under `ou=people`, `member` of existing groups only, cannot read `userPassword`) and the Keycloak client `ou-ics` (service account: `manage-users`, `view-users`, `query-clients`; no realm admin). Gromox/OpenCloud are driven by the **node agent** with new fixed runbooks (`gromox.sync_user`, `gromox.kick_user`, `gromox.user_state`, `opencloud.check_user`): params exactly `{user: <lowercase uid>}`, started as `systemctl start --wait ou-rb-<name>@<uid>.service` (template units, root-owned helper that validates again); the polkit rule generated from the root-owned `agent.json` allows exactly those start verbs.
+**No initial password exists.** `create`/`enable` issue a one-time enrollment token (24 h, 5 wrong guesses burn it, stored as sha256 + vault ciphertext). Only the plan's REQUESTER can `POST identity/enrollments/{plan_id}/reveal` (once; the ciphertext is wiped); the new user redeems it with `POST identity/enroll {stack, uid, token, password}` (unauthenticated, rate limited, one generic error) and chooses their own password. Tokens/passwords never reach audit, plans or job results (tested).
+API additions: `GET identity/stacks|users|reconcile` (viewer), `POST identity/enrollments/{plan_id}/reveal` (operator), `POST identity/enroll`. Plan risk tier `normal` (migration 0005): approval by one approver who is not the requester.
+Lab proof: `scripts/lab_user_lifecycle.py {setup|lifecycle|cleanup|all}`.
+
 ## Not implemented yet
 - Any Proxmox mutation / deployment execution (only read-only inventory and dry-run preview exist); no mutation token handling.
 - Separate privileged executor process (ADR-0001); the worker is an in-process thread (abandoned timed-out job threads cannot be killed, only prevented from committing).

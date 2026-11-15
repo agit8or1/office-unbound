@@ -266,7 +266,7 @@ def maybe_remediate(db: Session, rt: Runtime, check_id) -> str | None:
                           "VALUES (:c, :i, :r, :n, 'queued') RETURNING id"),
                      {"c": str(check.id), "i": str(inc.id) if inc else None, "r": pol.runbook, "n": n + 1}).scalar()
     params = {"node_id": str(pol.node_id), "runbook": pol.runbook, "check_id": str(check.id), "attempt_id": aid,
-              "verify_timeout_seconds": pol.verify_timeout_seconds}
+              "verify_timeout_seconds": pol.verify_timeout_seconds, "require_approval": pol.mode == "approval"}
     params.update({"unit": pol.unit} if pol.unit else {"path": pol.path})
     user = SimpleNamespace(id=owner.id, username=f"{owner.username}(remediation)", role=owner.role)
     try:

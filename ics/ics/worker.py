@@ -3,7 +3,7 @@ import threading
 
 from sqlalchemy import text
 
-from . import monitor
+from . import identity, monitor
 from .actions import claim_job, reap_expired, run_job
 from .runtime import Runtime
 
@@ -50,6 +50,7 @@ class Worker(threading.Thread):
                     pass
                 if self.rt.settings.monitor_enabled:
                     monitor.tick(self.rt)
+                    identity.reconcile_due(self.rt)
             except Exception:  # noqa: BLE001
                 log.exception("worker loop error")
             self._stop_evt.wait(self.interval)
