@@ -77,9 +77,15 @@ class Handler(http.server.BaseHTTPRequestHandler):
         self._send(200, json.loads((FIX / f"{n}.json").read_text()))
 
     def _send(self, code, obj):
-        b = json.dumps(obj).encode()
+        b = getattr(self.server, "raw_body", None) or json.dumps(obj).encode()
+        gz = getattr(self.server, "gzip_responses", False) and "gzip" in self.headers.get("Accept-Encoding", "")
+        if gz:  # real PVE (pveproxy) gzips bodies when the client accepts it — found against PVE 9.2 (2026-11-15)
+            import gzip
+            b = b if getattr(self.server, "raw_body_is_gzip", False) else gzip.compress(b)
         self.send_response(code)
         self.send_header("Content-Type", "application/json")
+        if gz:
+            self.send_header("Content-Encoding", "gzip")
         self.send_header("Content-Length", str(len(b)))
         self.end_headers()
         self.wfile.write(b)

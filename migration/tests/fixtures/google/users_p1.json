@@ -1,0 +1,7 @@
+{"kind": "admin#directory#users", "etag": "\"abc\"", "nextPageToken": "TOKEN2", "users": [
+  {"kind": "admin#directory#user", "id": "100000000000000000001", "primaryEmail": "carol@example.test", "name": {"fullName": "Carol Chen"},
+   "isAdmin": true, "isDelegatedAdmin": false, "suspended": false, "archived": false, "aliases": ["c.chen@example.test"],
+   "creationTime": "2019-05-01T00:00:00.000Z", "lastLoginTime": "2026-11-12T08:00:00.000Z", "isEnrolledIn2Sv": true},
+  {"kind": "admin#directory#user", "id": "100000000000000000002", "primaryEmail": "dave@example.test", "name": {"fullName": "Dave Diaz"},
+   "isAdmin": false, "suspended": false, "creationTime": "2020-05-01T00:00:00.000Z", "lastLoginTime": "2026-11-11T08:00:00.000Z", "isEnrolledIn2Sv": false}
+]}

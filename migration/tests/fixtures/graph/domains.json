@@ -1,0 +1,5 @@
+{"value": [
+  {"authenticationType": "Managed", "availabilityStatus": null, "isAdminManaged": true, "isDefault": true, "isInitial": false, "isRoot": true, "isVerified": true, "id": "contoso.example", "supportedServices": ["Email", "OfficeCommunicationsOnline"]},
+  {"authenticationType": "Managed", "availabilityStatus": null, "isAdminManaged": true, "isDefault": false, "isInitial": true, "isRoot": true, "isVerified": true, "id": "contosoexample.onmicrosoft.com", "supportedServices": ["Email"]},
+  {"authenticationType": "Managed", "availabilityStatus": null, "isAdminManaged": true, "isDefault": false, "isInitial": false, "isRoot": true, "isVerified": false, "id": "pending.example", "supportedServices": []}
+]}

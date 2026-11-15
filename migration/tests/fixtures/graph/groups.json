@@ -1,0 +1,6 @@
+{"@odata.context": "https://graph.microsoft.com/v1.0/$metadata#groups",
+ "value": [
+  {"id": "g-1", "displayName": "All Staff", "mail": "allstaff@contoso.example", "mailEnabled": true, "securityEnabled": false, "groupTypes": [], "resourceProvisioningOptions": [], "membershipRule": null},
+  {"id": "g-2", "displayName": "Project Falcon", "mail": "falcon@contoso.example", "mailEnabled": true, "securityEnabled": false, "groupTypes": ["Unified"], "resourceProvisioningOptions": ["Team"], "membershipRule": null},
+  {"id": "g-3", "displayName": "Sales (dynamic)", "mail": null, "mailEnabled": false, "securityEnabled": true, "groupTypes": ["DynamicMembership"], "resourceProvisioningOptions": [], "membershipRule": "(user.department -eq \"Sales\")"}
+ ]}

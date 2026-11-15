@@ -8,6 +8,7 @@ import time
 import uuid
 from datetime import datetime, timezone
 from enum import StrEnum
+from types import SimpleNamespace
 from typing import Literal, Self
 from urllib.parse import urlparse
 from uuid import UUID
@@ -18,6 +19,8 @@ from sqlalchemy import text
 from sqlalchemy.orm import Session
 
 from . import agentclient, alerts, audit, auth, checks as checkmod, identity, monitor
+from .deploy import ops as deploy_ops
+from .deploy.ports import DeployError
 from .identity import IdentityError
 from .agentclient import AgentError
 from .proxmox import ProxmoxError, ProxmoxReadClient, check_destination, normalize_fingerprint
@@ -32,6 +35,11 @@ class ActionType(StrEnum):
     inventory_refresh = "inventory.refresh"
     user_create = "user.create"
     user_set_role = "user.set_role"
+    user_invite = "user.invite"
+    user_revoke_invite = "user.revoke_invite"
+    user_disable = "user.disable"
+    user_enable = "user.enable"
+    user_revoke_sessions = "user.revoke_sessions"
     node_enroll = "node.enroll"
     check_create = "check.create"
     check_set_enabled = "check.set_enabled"
@@ -48,6 +56,9 @@ class ActionType(StrEnum):
     idm_user_enable = "idm.user.enable"
     idm_user_delete = "idm.user.delete"
     idm_reconcile = "idm.reconcile"
+    deployment_create = "deployment.create"
+    deployment_change = "deployment.change"
+    deployment_destroy = "deployment.destroy"
 
 
 class EndpointRegister(BaseModel):
@@ -110,16 +121,47 @@ class InventoryRefresh(BaseModel):
     endpoint_id: UUID
 
 
+USERNAME_PAT = r"^[A-Za-z0-9][A-Za-z0-9._@-]{0,63}$"
+PRIVILEGED = ("approver", "admin")
+
+
 class UserCreate(BaseModel):
     model_config = ConfigDict(extra="forbid")
-    username: str = Field(pattern=r"^[A-Za-z0-9][A-Za-z0-9._@-]{0,63}$")
+    username: str = Field(pattern=USERNAME_PAT)
     role: Literal["viewer", "operator", "approver", "admin"]
+    justification: str | None = Field(default=None, max_length=500)  # shown to approvers; part of the approved digest
 
 
 class UserSetRole(BaseModel):
     model_config = ConfigDict(extra="forbid")
-    username: str = Field(pattern=r"^[A-Za-z0-9][A-Za-z0-9._@-]{0,63}$")
+    username: str = Field(pattern=USERNAME_PAT)
     role: Literal["viewer", "operator", "approver", "admin"]
+    justification: str | None = Field(default=None, max_length=500)
+
+
+class UserInvite(BaseModel):
+    """Same semantics as user.create (an invite carries no credentials); a written justification is mandatory for approver/admin."""
+    model_config = ConfigDict(extra="forbid")
+    username: str = Field(pattern=USERNAME_PAT)
+    role: Literal["viewer", "operator", "approver", "admin"]
+    justification: str | None = Field(default=None, max_length=500)
+
+    @model_validator(mode="after")
+    def _just(self):
+        if self.role in PRIVILEGED and len((self.justification or "").strip()) < 10:
+            raise ValueError("a justification (10+ characters) is required for approver/admin accounts")
+        return self
+
+
+class UserTarget(BaseModel):
+    """revoke_invite / enable / revoke_sessions."""
+    model_config = ConfigDict(extra="forbid")
+    username: str = Field(pattern=USERNAME_PAT)
+    reason: str | None = Field(default=None, max_length=500)
+
+
+class UserDisable(UserTarget):
+    pass
 
 
 NAME_RE = r"^[A-Za-z0-9][A-Za-z0-9_.-]{0,62}$"
@@ -230,7 +272,7 @@ class RunbookExecute(BaseModel):
     path: str | None = Field(default=None, pattern=r"^/[A-Za-z0-9_./-]{0,200}$")
     check_id: UUID | None = Field(default=None, description="re-run this check after the runbook and record verified recovery")
     attempt_id: int | None = None
-    verify_timeout_seconds: int = Field(default=0, ge=0, le=45)
+    verify_timeout_seconds: int = Field(default=0, ge=0, le=monitor.MAX_VERIFY_TIMEOUT)
     require_approval: bool = Field(default=False, description="policy mode=approval: never auto-approve (review H2)")
 
     @model_validator(mode="after")
@@ -253,6 +295,11 @@ CATALOG: dict[ActionType, dict] = {
     ActionType.inventory_refresh: {"model": InventoryRefresh, "risk": "low", "secrets": ()},
     ActionType.user_create: {"model": UserCreate, "risk": "high", "secrets": (), "admin_only": True},
     ActionType.user_set_role: {"model": UserSetRole, "risk": "high", "secrets": (), "admin_only": True},
+    ActionType.user_invite: {"model": UserInvite, "risk": lambda p: "high" if p.role in PRIVILEGED else "low", "secrets": (), "admin_only": True},
+    ActionType.user_revoke_invite: {"model": UserTarget, "risk": "low", "secrets": (), "admin_only": True},
+    ActionType.user_disable: {"model": UserDisable, "risk": "normal", "secrets": (), "admin_only": True},  # high for approver/admin targets
+    ActionType.user_enable: {"model": UserTarget, "risk": "normal", "secrets": (), "admin_only": True},    # high for approver/admin targets
+    ActionType.user_revoke_sessions: {"model": UserTarget, "risk": "low", "secrets": (), "admin_only": True},
     ActionType.node_enroll: {"model": NodeEnroll, "risk": "high", "secrets": ("enrollment_token",)},
     ActionType.check_create: {"model": CheckCreate, "risk": "low", "secrets": ("password",)},
     ActionType.check_set_enabled: {"model": CheckSetEnabled, "risk": "low", "secrets": ()},
@@ -270,8 +317,13 @@ CATALOG: dict[ActionType, dict] = {
     ActionType.idm_user_enable: {"model": identity.UserEnable, "risk": "normal", "secrets": ()},
     ActionType.idm_user_delete: {"model": identity.UserDelete, "risk": "high", "secrets": ()},
     ActionType.idm_reconcile: {"model": identity.Reconcile, "risk": "low", "secrets": ()},
+    # deployment engine (deploy/ops.py). "risk" is the catalog default; create_plan takes the real tier from the change diff (override => high)
+    ActionType.deployment_create: {"model": deploy_ops.DeploymentCreate, "risk": "high", "secrets": ()},
+    ActionType.deployment_change: {"model": deploy_ops.DeploymentChange, "risk": "normal", "secrets": ()},
+    ActionType.deployment_destroy: {"model": deploy_ops.DeploymentDestroy, "risk": "high", "secrets": ()},
 }
 _IDM = {a for a in ActionType if a.value.startswith("idm.")}
+_DEPLOY = {a for a in ActionType if a.value.startswith("deployment.")}
 
 
 class PlanIntegrityError(Exception):
@@ -314,9 +366,13 @@ def _guard(rt: Runtime, host: str | None) -> list[str]:
         raise PlanError(422, str(e)) from None
 
 
-def _validate_remediation(db: Session, rem) -> None:
+def _validate_remediation(db: Session, rem, rt: Runtime | None = None) -> None:
     if rem is None:
         return
+    if rt is not None and (rem.backoff_seconds < rt.settings.remediation_min_backoff_seconds
+                           or rem.window_seconds < rt.settings.remediation_min_window_seconds):
+        raise PlanError(422, f"remediation needs backoff_seconds >= {rt.settings.remediation_min_backoff_seconds} "
+                             f"and window_seconds >= {rt.settings.remediation_min_window_seconds}")
     node = db.execute(text("SELECT capabilities FROM nodes WHERE id = :i"), {"i": str(rem.node_id)}).first()
     if node is None:
         raise PlanError(404, "remediation node not found (enroll it first)")
@@ -343,7 +399,13 @@ def _pre_node_enroll(db, rt, p: NodeEnroll):
 def _pre_check_create(db, rt, p: CheckCreate):
     if db.execute(text("SELECT 1 FROM checks WHERE name = :n"), {"n": p.name}).first():
         raise PlanError(409, "check name already exists")
-    _validate_remediation(db, p.remediation)
+    s = rt.settings
+    if db.execute(text("SELECT count(*) FROM checks")).scalar() >= s.max_checks:
+        raise PlanError(409, f"check limit reached ({s.max_checks}); remove unused checks first")
+    floor = s.check_min_interval_credentialed_seconds if p.kind in checkmod.NEEDS_PASSWORD else s.check_min_interval_seconds
+    if p.interval_seconds < floor:
+        raise PlanError(422, f"interval_seconds must be >= {floor} for {p.kind} checks")
+    _validate_remediation(db, p.remediation, rt)
     return {"resolved_ips": _guard(rt, checkmod.config_host(p.kind, p.config))}
 
 
@@ -353,7 +415,7 @@ def _pre_check_set_enabled(db, rt, p: CheckSetEnabled):
 
 def _pre_check_bind(db, rt, p: CheckBindRemediation):
     _need(db, "checks", p.check_id, "check")
-    _validate_remediation(db, p.remediation)
+    _validate_remediation(db, p.remediation, rt)
 
 
 def _pre_maintenance(db, rt, p: MaintenanceCreate):
@@ -392,6 +454,46 @@ _PRECHECK = {ActionType.node_enroll: _pre_node_enroll, ActionType.check_create: 
              ActionType.alert_channel_test: _pre_channel_test, ActionType.incident_ack: _pre_ack, ActionType.runbook_execute: _pre_runbook}
 
 
+_USER_TARGET_ACTIONS = {ActionType.user_set_role, ActionType.user_revoke_invite, ActionType.user_disable, ActionType.user_enable,
+                        ActionType.user_revoke_sessions}
+_SELF_TARGET = {a.value for a in _USER_TARGET_ACTIONS}  # the target user may never decide these plans
+
+
+def _active_admins_except(db: Session, username: str) -> int:
+    return db.execute(text("SELECT count(*) FROM users WHERE role = 'admin' AND enrolled AND NOT disabled AND username <> :u"),
+                      {"u": username}).scalar()
+
+
+def _user_precheck(db: Session, user, action: ActionType, p, risk: str) -> str:
+    t = db.execute(text("SELECT role, enrolled, disabled FROM users WHERE username = :u"), {"u": p.username}).first()
+    if t is None:
+        raise PlanError(404, "user not found")
+    if p.username == user.username:
+        raise PlanError(422, "you cannot target your own account; ask another admin")
+    last_admin = t.role == "admin" and t.enrolled and not t.disabled and _active_admins_except(db, p.username) == 0
+    if action == ActionType.user_set_role:
+        if t.role == p.role:
+            raise PlanError(409, f"user already has role {p.role}")
+        if last_admin and p.role != "admin":
+            raise PlanError(409, "refusing to demote the last active admin")
+    elif action == ActionType.user_revoke_invite:
+        if t.enrolled or t.disabled:
+            raise PlanError(409, "only a pending invitation can be revoked")
+    elif action == ActionType.user_disable:
+        if not t.enrolled:
+            raise PlanError(409, "account has not completed enrollment; revoke the invitation instead")
+        if t.disabled:
+            raise PlanError(409, "account is already disabled")
+        if last_admin:
+            raise PlanError(409, "refusing to disable the last active admin")
+        risk = "high" if t.role in PRIVILEGED else "normal"
+    elif action == ActionType.user_enable:
+        if not t.disabled or not t.enrolled:
+            raise PlanError(409, "only a disabled, enrolled account can be re-enabled")
+        risk = "high" if t.role in PRIVILEGED else "normal"
+    return risk
+
+
 def create_plan(db: Session, rt: Runtime, user, action: ActionType, params: dict, ip: str | None) -> dict:
     spec = CATALOG[action]
     if spec.get("admin_only") and auth.RANK[user.role] < auth.RANK["admin"]:
@@ -405,6 +507,7 @@ def create_plan(db: Session, rt: Runtime, user, action: ActionType, params: dict
             full[k] = p.__dict__[k].get_secret_value()
     secret_part = {k: full.pop(k) for k in spec["secrets"] if k in full}
     risk = spec["risk"](p) if callable(spec["risk"]) else spec["risk"]
+    risk = _silencing_risk(db, rt, action, p, user, risk)
     binding = None
     extra: dict = {}
     if action in _IDM:
@@ -417,6 +520,16 @@ def create_plan(db: Session, rt: Runtime, user, action: ActionType, params: dict
             raise PlanError(409, str(e)) from None
         except (ValueError, IdentityError) as e:
             raise PlanError(422, str(e)) from None
+    if action in _DEPLOY:
+        try:
+            extra.update(deploy_ops.precheck(db, rt, action.value, p))
+            risk = extra.pop("risk")
+        except KeyError as e:
+            raise PlanError(404, str(e.args[0])) from None
+        except LookupError as e:
+            raise PlanError(409, str(e)) from None
+        except ValueError as e:
+            raise PlanError(422, str(e)) from None
     if action == ActionType.inventory_refresh:
         binding = _ep_binding(db, p.endpoint_id)
         if binding is None:
@@ -428,12 +541,11 @@ def create_plan(db: Session, rt: Runtime, user, action: ActionType, params: dict
             raise PlanError(422, str(e)) from None
         if db.execute(text("SELECT 1 FROM endpoints WHERE name = :n"), {"n": p.name}).first():
             raise PlanError(409, "endpoint name already exists")
-    elif action == ActionType.user_create:
+    elif action in (ActionType.user_create, ActionType.user_invite):
         if db.execute(text("SELECT 1 FROM users WHERE username = :u"), {"u": p.username}).first():
             raise PlanError(409, "username already exists")
-    elif action == ActionType.user_set_role:
-        if not db.execute(text("SELECT 1 FROM users WHERE username = :u"), {"u": p.username}).first():
-            raise PlanError(404, "user not found")
+    elif action in _USER_TARGET_ACTIONS:
+        risk = _user_precheck(db, user, action, p, risk)
     elif action in _PRECHECK:
         extra.update(_PRECHECK[action](db, rt, p) or {})
     pid = uuid.uuid4()
@@ -456,6 +568,37 @@ def create_plan(db: Session, rt: Runtime, user, action: ActionType, params: dict
     db.commit()
     return {"plan_id": str(pid), "status": "approved" if auto else "pending_approval", "risk": risk, "job_id": job_id,
             "params_hash": digest, "approvals_required": rt.settings.required_approvals_high if risk == "high" else 1, **extra}
+
+
+_RISK_ORDER = {"low": 0, "normal": 1, "high": 2}
+
+
+def _silencing_risk(db: Session, rt: Runtime, action: ActionType, p, user, risk: str) -> str:
+    """Review M4: one operator must not be able to silence alerting alone. A global or long maintenance window needs two approvers;
+    disabling a check needs one (not the requester); a burst of acknowledgements needs one."""
+    new = risk
+    if action == ActionType.maintenance_create and (p.check_id is None or p.duration_minutes > rt.settings.maintenance_max_unapproved_minutes):
+        new = "high"
+    elif action == ActionType.check_set_enabled and not p.enabled:
+        new = "normal"
+    elif action == ActionType.incident_ack:
+        n = db.execute(text("SELECT count(*) FROM plans WHERE action = 'incident.ack' AND requested_by = :u AND created_at > now() - interval '1 hour'"),
+                       {"u": user.id}).scalar()
+        if n >= rt.settings.ack_burst_limit:
+            new = "normal"
+    return new if _RISK_ORDER[new] > _RISK_ORDER[risk] else risk
+
+
+def _stale_remediation(db: Session, params: dict) -> str | None:
+    """Review M3: a remediation plan is only valid while its check is still critical and its attempt was not superseded."""
+    aid = params.get("attempt_id")
+    if aid is None:
+        return None
+    r = db.execute(text("SELECT a.status, c.state, c.enabled FROM remediation_attempts a JOIN checks c ON c.id = a.check_id WHERE a.id = :a"),
+                   {"a": aid}).first()
+    if r is None or r.status == "superseded" or r.state != "critical" or not r.enabled:
+        return "remediation is stale: the check is no longer critical (or was disabled); nothing was executed"
+    return None
 
 
 def _enqueue(db: Session, plan_id, action, user, ip, auto: bool = False) -> str:
@@ -505,7 +648,7 @@ def decide_plan(db: Session, rt: Runtime, user, plan_id: UUID, approve: bool, ip
     if _provenance_conflict(db, user.id, plan.requested_by):
         _refuse(db, user, ip, plan_id, "plan.provenance_rejected",
                 "this approver was created or elevated by the requester and cannot decide the requester's plans")
-    if plan.action == ActionType.user_set_role.value and plan.params.get("username") == user.username:
+    if plan.action in _SELF_TARGET and plan.params.get("username") == user.username:
         _refuse(db, user, ip, plan_id, "plan.self_decision_rejected", "cannot decide a plan that changes your own role")
     if plan.status != "pending_approval":
         raise PlanError(409, f"plan is already {plan.status}")
@@ -514,6 +657,11 @@ def decide_plan(db: Session, rt: Runtime, user, plan_id: UUID, approve: bool, ip
         audit.append(db, "plan.expired", actor_name="system", resource="plan", resource_id=str(plan_id))
         db.commit()
         raise PlanError(409, "plan expired")
+    if approve and plan.action == ActionType.runbook_execute.value and (why := _stale_remediation(db, plan.params)):
+        db.execute(text("UPDATE plans SET status = 'rejected', decided_at = now(), secret_enc = NULL WHERE id = :i"), {"i": str(plan_id)})
+        audit.append(db, "plan.superseded", actor_name="system", resource="plan", resource_id=str(plan_id), details={"reason": why})
+        db.commit()
+        raise PlanError(409, why)
     if not approve:
         db.execute(text("UPDATE plans SET status = 'rejected', decided_by = :u, decided_at = now(), secret_enc = NULL WHERE id = :i"),
                    {"u": user.id, "i": str(plan_id)})
@@ -581,7 +729,7 @@ def reap_expired(rt: Runtime) -> int:
     return n
 
 
-_SAFE_ERRORS = (ProxmoxError, VaultError, PlanIntegrityError, JobTimeout, AgentError, IdentityError)
+_SAFE_ERRORS = (ProxmoxError, VaultError, PlanIntegrityError, JobTimeout, AgentError, IdentityError, DeployError)
 
 
 def _error_dict(e: BaseException, known: list[str]) -> dict:
@@ -720,18 +868,72 @@ def _exec_refresh(rt: Runtime, db: Session, m: InventoryRefresh, plan, known: li
 
 def _exec_user_create(rt: Runtime, db: Session, m: UserCreate, plan, known: list[str]) -> dict:
     """Creates an *invited* account: no credentials exist. The enrollment token is issued on the host by the CLI."""
-    uid = auth.create_invite(db, rt, m.username, m.role, created_by=plan.requested_by, actor="worker", commit=False)
+    uid = auth.create_invite(db, rt, m.username, m.role, created_by=plan.requested_by, actor="worker", commit=False,
+                            extra={"plan_id": str(plan.id), "justification": getattr(m, "justification", None)})
     return {"user_id": uid, "invite": True, "role": m.role}
 
 
 def _exec_user_set_role(rt: Runtime, db: Session, m: UserSetRole, plan, known: list[str]) -> dict:
+    old = db.execute(text("SELECT role FROM users WHERE username = :u FOR UPDATE"), {"u": m.username}).first()
+    if old is None:
+        raise PlanIntegrityError("user not found")
     r = db.execute(text("UPDATE users SET role = :r, role_set_by = :by, role_set_at = now() WHERE username = :u RETURNING id"),
                    {"r": m.role, "by": str(plan.requested_by), "u": m.username}).first()
+    audit.append(db, "user.role_set", actor_name="worker", resource="user", resource_id=str(r.id),
+                 details={"username": m.username, "role": m.role, "previous_role": old.role, "requested_by": str(plan.requested_by),
+                          "plan_id": str(plan.id), "justification": m.justification})
+    return {"user_id": str(r.id), "role": m.role}
+
+
+def _lock_target(db: Session, username: str):
+    r = db.execute(text("SELECT id, role, enrolled, disabled FROM users WHERE username = :u FOR UPDATE"), {"u": username}).first()
     if r is None:
         raise PlanIntegrityError("user not found")
-    audit.append(db, "user.role_set", actor_name="worker", resource="user", resource_id=str(r.id),
-                 details={"username": m.username, "role": m.role, "requested_by": str(plan.requested_by)})
-    return {"user_id": str(r.id), "role": m.role}
+    return r
+
+
+def _exec_user_revoke_invite(rt, db, m: UserTarget, plan, known) -> dict:
+    t = _lock_target(db, m.username)
+    if t.enrolled or t.disabled:
+        raise PlanIntegrityError("not a pending invitation")
+    db.execute(text("UPDATE users SET disabled = true, enrollment_token_hash = NULL, enrollment_expires_at = NULL, "
+                    "password_hash = NULL, totp_secret_enc = NULL WHERE id = :i"), {"i": t.id})
+    audit.append(db, "user.invite_revoked", actor_name="worker", resource="user", resource_id=str(t.id),
+                 details={"username": m.username, "requested_by": str(plan.requested_by), "plan_id": str(plan.id), "reason": m.reason})
+    return {"user_id": str(t.id), "revoked": True}
+
+
+def _exec_user_disable(rt, db, m: UserDisable, plan, known) -> dict:
+    t = _lock_target(db, m.username)
+    if not t.enrolled or t.disabled:
+        raise PlanIntegrityError("account cannot be disabled in its current state")
+    if t.role == "admin" and _active_admins_except(db, m.username) == 0:
+        raise PlanIntegrityError("refusing to disable the last active admin")
+    db.execute(text("UPDATE users SET disabled = true WHERE id = :i"), {"i": t.id})
+    n = db.execute(text("DELETE FROM sessions WHERE user_id = :i"), {"i": t.id}).rowcount
+    audit.append(db, "user.disabled", actor_name="worker", resource="user", resource_id=str(t.id),
+                 details={"username": m.username, "requested_by": str(plan.requested_by), "plan_id": str(plan.id),
+                          "reason": m.reason, "sessions_ended": n})
+    return {"user_id": str(t.id), "disabled": True, "sessions_ended": n}
+
+
+def _exec_user_enable(rt, db, m: UserTarget, plan, known) -> dict:
+    t = _lock_target(db, m.username)
+    if not t.disabled or not t.enrolled:
+        raise PlanIntegrityError("account cannot be enabled in its current state")
+    db.execute(text("UPDATE users SET disabled = false WHERE id = :i"), {"i": t.id})
+    audit.append(db, "user.enabled", actor_name="worker", resource="user", resource_id=str(t.id),
+                 details={"username": m.username, "requested_by": str(plan.requested_by), "plan_id": str(plan.id), "reason": m.reason})
+    return {"user_id": str(t.id), "disabled": False}
+
+
+def _exec_user_revoke_sessions(rt, db, m: UserTarget, plan, known) -> dict:
+    t = _lock_target(db, m.username)
+    n = db.execute(text("DELETE FROM sessions WHERE user_id = :i"), {"i": t.id}).rowcount
+    audit.append(db, "user.sessions_revoked", actor_name="worker", resource="user", resource_id=str(t.id),
+                 details={"username": m.username, "requested_by": str(plan.requested_by), "plan_id": str(plan.id),
+                          "reason": m.reason, "sessions": n})
+    return {"user_id": str(t.id), "sessions_revoked": n}
 
 
 # ---- executors: monitoring / nodes -------------------------------------------------------------------------
@@ -782,6 +984,12 @@ def _exec_check_create(rt: Runtime, db: Session, m: CheckCreate, plan, known: li
 def _exec_check_set_enabled(rt, db, m: CheckSetEnabled, plan, known) -> dict:
     db.execute(text("UPDATE checks SET enabled = :e, next_run_at = now() WHERE id = :i"), {"e": m.enabled, "i": str(m.check_id)})
     audit.append(db, "check.enabled_set", actor_name="worker", resource="check", resource_id=str(m.check_id), details={"enabled": m.enabled})
+    if not m.enabled:
+        inc = db.execute(text("SELECT id FROM incidents WHERE check_id = :c AND status IN ('open','acked')"), {"c": str(m.check_id)}).first()
+        if inc:
+            who = db.execute(text("SELECT username FROM users WHERE id = :u"), {"u": str(plan.requested_by)}).scalar()
+            monitor.enqueue_notifications(db, SimpleNamespace(id=m.check_id), inc.id, "check_disabled",
+                                          detail=f"disabled by {who} while the incident is open", force=True)
     return {"check_id": str(m.check_id), "enabled": m.enabled}
 
 
@@ -801,6 +1009,11 @@ def _exec_maintenance(rt, db, m: MaintenanceCreate, plan, known) -> dict:
         {"n": m.name, "c": str(m.check_id) if m.check_id else None, "d": m.duration_minutes, "r": m.reason, "u": str(plan.requested_by)}).scalar()
     audit.append(db, "maintenance.created", actor_name="worker", resource="maintenance", resource_id=str(wid),
                  details={"name": m.name, "check_id": str(m.check_id) if m.check_id else None, "minutes": m.duration_minutes, "reason": m.reason})
+    who = db.execute(text("SELECT username FROM users WHERE id = :u"), {"u": str(plan.requested_by)}).scalar()
+    scope = db.execute(text("SELECT name FROM checks WHERE id = :c"), {"c": str(m.check_id)}).scalar() if m.check_id else "ALL checks"
+    detail = (f"Maintenance window '{m.name}' started by {who} for {m.duration_minutes} min; scope: {scope}; reason: {m.reason or '-'}. "
+              "Alerts and automatic remediation for this scope are suppressed until it ends.")
+    monitor.enqueue_notifications(db, SimpleNamespace(id=None), None, "maintenance_started", re.sub(r"[^\x20-\x7e]", "?", detail)[:400], force=True)
     return {"maintenance_id": str(wid)}
 
 
@@ -829,7 +1042,7 @@ def _exec_channel_test(rt, db, m: AlertChannelTest, plan, known) -> dict:
 
 
 def _exec_ack(rt, db, m: IncidentAck, plan, known) -> dict:
-    r = db.execute(text("UPDATE incidents SET status = 'acked', acked_by = :u, acked_at = now(), ack_note = :n "
+    r = db.execute(text("UPDATE incidents SET status = 'acked', acked_by = :u, acked_at = now(), ack_note = :n, escalated_at = NULL "
                         "WHERE id = :i AND status = 'open' RETURNING id"), {"u": str(plan.requested_by), "n": m.note, "i": str(m.incident_id)}).first()
     if r is None:
         raise PlanIntegrityError("incident is not open")
@@ -843,6 +1056,8 @@ class AgentRejected(AgentError):
 
 
 def _exec_runbook(rt: Runtime, db: Session, m: RunbookExecute, plan, known: list[str]) -> dict:
+    if m.attempt_id is not None and (why := _stale_remediation(db, {"attempt_id": m.attempt_id})):
+        raise PlanIntegrityError(why)
     node = db.execute(text("SELECT * FROM nodes WHERE id = :i"), {"i": str(m.node_id)}).first()
     if node is None:
         raise PlanIntegrityError("node not found")
@@ -895,8 +1110,12 @@ def _exec_runbook(rt: Runtime, db: Session, m: RunbookExecute, plan, known: list
 
 _EXEC = {ActionType.endpoint_register: _exec_register, ActionType.inventory_refresh: _exec_refresh,
          ActionType.user_create: _exec_user_create, ActionType.user_set_role: _exec_user_set_role,
+         ActionType.user_invite: _exec_user_create, ActionType.user_revoke_invite: _exec_user_revoke_invite,
+         ActionType.user_disable: _exec_user_disable, ActionType.user_enable: _exec_user_enable,
+         ActionType.user_revoke_sessions: _exec_user_revoke_sessions,
          ActionType.node_enroll: _exec_node_enroll, ActionType.check_create: _exec_check_create,
          ActionType.check_set_enabled: _exec_check_set_enabled, ActionType.check_bind_remediation: _exec_check_bind,
          ActionType.maintenance_create: _exec_maintenance, ActionType.alert_channel_create: _exec_channel_create,
          ActionType.alert_channel_test: _exec_channel_test, ActionType.incident_ack: _exec_ack, ActionType.runbook_execute: _exec_runbook,
-         **{ActionType(k): v for k, v in identity.EXECUTORS.items()}}
+         **{ActionType(k): v for k, v in identity.EXECUTORS.items()},
+         **{ActionType(k): v for k, v in deploy_ops.EXECUTORS.items()}}

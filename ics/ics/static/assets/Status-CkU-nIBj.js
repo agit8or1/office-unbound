@@ -1,0 +1,1 @@
+import{H as e,M as t,R as n}from"./index-BvIfINt3.js";import{t as r}from"./StatusBadge-BdDIIJK2.js";var i=n({__name:`Status`,props:{s:{}},setup(n){return(i,a)=>(e(),t(r,{s:n.s},null,8,[`s`]))}});export{i as t};

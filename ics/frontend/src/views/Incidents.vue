@@ -4,6 +4,12 @@ import { ApiError, get, post, type IncidentDetail, type Incident, type PlanCreat
 import { fmtTime, go, hasRole, route, short, useLoad } from '../store'
 import ErrorBox from '../components/ErrorBox.vue'
 import Status from '../components/Status.vue'
+import PageHeader from '../ui/PageHeader.vue'
+import EmptyState from '../ui/EmptyState.vue'
+import Skeleton from '../ui/Skeleton.vue'
+import Segmented from '../ui/Segmented.vue'
+import Button from '../ui/Button.vue'
+import { nextAction } from '../incidents'
 
 const filter = ref<'active' | 'recovered' | ''>('active')
 const list = useLoad(() => get<Incident[]>('incidents' + (filter.value ? `?status=${filter.value}` : '')), 5000)
@@ -26,16 +32,13 @@ const secs = (a: string, b: string | null) => (b ? Math.round((+new Date(b) - +n
 </script>
 <template>
   <div class="page">
-    <div class="head"><h1>Incidents</h1>
-      <div class="seg" role="group" aria-label="Filter">
-        <button :aria-pressed="filter === 'active'" @click="setFilter('active')">Active</button>
-        <button :aria-pressed="filter === 'recovered'" @click="setFilter('recovered')">Recovered</button>
-        <button :aria-pressed="filter === ''" @click="setFilter('')">All</button>
-      </div>
-    </div>
+    <PageHeader title="Incidents" sub="Problems detected by health checks, with severity, duration and the recommended next step." help="An incident opens when a check fails repeatedly and closes automatically when it recovers.">
+      <template #actions><Segmented :model-value="filter" :options="[{ value: 'active', label: 'Active' }, { value: 'recovered', label: 'Recovered' }, { value: '', label: 'All' }]" label="Filter" @update:model-value="setFilter($event as 'active' | 'recovered' | '')" /></template>
+    </PageHeader>
+    <Skeleton v-if="!list.data.value && !list.error.value" />
     <ErrorBox :error="list.error.value" />
     <div class="split">
-      <section class="panel fill">
+      <section class="card flush">
         <div class="scroll">
           <table v-if="list.data.value?.length">
             <thead><tr><th>Check</th><th>Severity</th><th>Status</th><th>Opened</th><th>Recovered</th></tr></thead>
@@ -44,11 +47,11 @@ const secs = (a: string, b: string | null) => (b ? Math.round((+new Date(b) - +n
               <td><Status :s="i.severity" /></td><td><Status :s="i.status" /></td><td>{{ fmtTime(i.opened_at) }}</td><td>{{ fmtTime(i.recovered_at) }}</td>
             </tr></tbody>
           </table>
-          <p v-else-if="list.data.value" class="empty">{{ filter === 'active' ? 'No active incidents.' : 'No incidents.' }}</p>
+          <EmptyState v-else-if="list.data.value" icon="check" :title="filter === 'active' ? 'No active incidents' : 'No incidents'" text="Everything monitored is healthy." />
         </div>
       </section>
-      <section v-if="selId" class="panel detail" aria-label="Incident details">
-        <div class="head"><h2>Incident {{ short(selId) }}</h2><button class="ghost" @click="go('incidents')">Close</button></div>
+      <section v-if="selId" class="card detail" aria-label="Incident details">
+        <div class="head"><h2>Incident {{ short(selId) }}</h2><Button size="sm" variant="ghost" icon="x" @click="go('incidents')">Close</Button></div>
         <ErrorBox :error="sel.error.value" />
         <template v-if="sel.data.value">
           <dl class="kv">
@@ -60,6 +63,7 @@ const secs = (a: string, b: string | null) => (b ? Math.round((+new Date(b) - +n
             <dt v-if="sel.data.value.escalated_at">Escalated</dt><dd v-if="sel.data.value.escalated_at">{{ fmtTime(sel.data.value.escalated_at) }}: automatic remediation exhausted</dd>
             <dt>First message</dt><dd class="wrap">{{ sel.data.value.message }}</dd>
           </dl>
+          <div class="alert info"><span><b>Next step:</b> {{ nextAction(sel.data.value) }}</span></div>
           <template v-if="sel.data.value.status === 'open' && hasRole('operator')">
             <h3>Acknowledge</h3>
             <div v-if="ok" class="alert ok" role="status">{{ ok }}</div>

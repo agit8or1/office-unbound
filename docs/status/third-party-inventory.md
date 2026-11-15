@@ -26,6 +26,13 @@ Conventions: "OU-UNASSIGNED" = no Office Unbound maintenance owner is named in a
 | St0r code to adapt (`drills/proxmox.ts` pattern, Python port planned) | St0r clone under `reference/` (commit not recorded) | UNVERIFIED | MIT (per reuse audit) | Source: concept/port, not yet done | Pinned-fingerprint TLS pattern only | Keep MIT notice | MIT permits | None (snapshot) | Not adopted | OU-UNASSIGNED | UNCLEAR (not adopted; commit unpinned) |
 | rem0te audit hash-chain algorithm (`apps/api/src/audit/chain.ts`, port planned) | rem0te clone under `reference/` (commit not recorded) | UNVERIFIED | MIT (per reuse audit) | Source: algorithm port, not yet done | None | Keep MIT notice | MIT permits | None (snapshot) | Not adopted | OU-UNASSIGNED | UNCLEAR (not adopted; commit unpinned) |
 
+### 1a. Console frontend (ics/frontend, bundled at build time; nothing loaded at runtime from a CDN, ADR-0002)
+
+| Component | Repository | Pinned version | License | Use | Notes | Gate |
+|---|---|---|---|---|---|---|
+| vue-router | npmjs `vue-router` (github.com/vuejs/router) | 4.6.5 (lockfile) | MIT | Hash-history routing and a route registry (`src/routes.ts`) so wizards can register routes | Chosen over a hand-rolled router because nested detail routes, lazy chunks and guards are needed; adds ~10 kB gzip | PASS |
+| Charts (in-repo, no library) | `ics/frontend/src/charts/` | n/a | Office Unbound code | SVG line/area and donut charts | Evaluated uPlot (MIT) and Chart.js (MIT). Rejected both: the console needs only line/area, donut and bars; Chart.js is canvas-based (about 70 kB gzip) and uPlot sets inline styles that conflict with the CSP (`style-src 'self'`); own SVG uses attributes and classes only, themes through CSS variables, and the geometry is unit-tested. Revisit if heatmaps or dense zoomable series are needed (uPlot is the candidate) | PASS |
+
 ## 2. Groupware (grommunio / Gromox stack; ADR-0003)
 
 | Component | Repository | Pinned version | License (as found in source) | Build method | Runtime/user/connection restrictions | Branding obligations | Commercial use / redistribution | Update source | Fork/patch status | Maintenance owner | Gate |
@@ -79,6 +86,18 @@ Conventions: "OU-UNASSIGNED" = no Office Unbound maintenance owner is named in a
 | axe-core + `@axe-core/playwright` (accessibility checks in `ics/e2e`) | npm `axe-core`, `@axe-core/playwright` (Deque Systems) | 4.14.0 / 4.14.0 (lockfile pinned) | MPL-2.0 (package.json). File-level copyleft; used unmodified as a test tool, no source embedded in shipped code | Vendor pkg (npm). Test-only, not shipped | None | None | Not shipped | npm | None | Upstream; OU-UNASSIGNED | PASS (not shipped) |
 | TypeScript, `@types/node` (typechecking of `ics/e2e`) | npm | 5.9.3 (Apache-2.0) / 22.20.5 (MIT) | as stated | Vendor pkg (npm). Test-only, not shipped | None | None | Not shipped | npm | None | Upstream; OU-UNASSIGNED | PASS (not shipped) |
 | Reference source clones (Depl0y, St0r, rem0te, clientst0r, Collabora, grommunio, ONLYOFFICE) | `reference/` (gitignored) | Various (see component rows) | MIT for Depl0y, St0r, rem0te, clientst0r (per reuse audit); AGPL/MPL per rows above for the rest | Read-only analysis. Not shipped | n/a | n/a | Not shipped | Snapshots | None (unmodified) | OU-UNASSIGNED | n/a (not shipped) |
+
+## 7. Migration assessment tooling (`migration/`, Phase 7 step 1)
+
+Runtime code is stdlib-only (urllib, http.client, csv, socket, ssl) except `cryptography` (RS256 signing of the Google service-account JWT). Hashes: `migration/requirements.lock`, `migration/requirements-dev.lock` (copied from `ics/requirements.lock`, same versions as the ICS). Licenses below are as recorded for the same pins in ICS inventory/package metadata; re-verify with the license scan of ADR-0008 when it exists (status: recorded, not independently scanned).
+
+| Component | Repository | Pinned version | License (as found in source) | Build method | Runtime/user/connection restrictions | Branding obligations | Commercial use / redistribution | Update source | Fork/patch status | Maintenance owner | Gate |
+|---|---|---|---|---|---|---|---|---|---|---|---|
+| cryptography | PyPI `cryptography` | 50.0.2 (see also section 1 entry; ICS lock pins this version) | Apache-2.0 OR BSD-3-Clause | Vendor wheel (hash-pinned) | None found | None | Permitted (either licence) | PyPI | None | Upstream; OU-UNASSIGNED | PASS |
+| cffi (transitive) | PyPI `cffi` | 2.1.1 | MIT (metadata; UNVERIFIED by file scan) | Vendor wheel (hash-pinned) | None | None | Permitted | PyPI | None | Upstream; OU-UNASSIGNED | PASS |
+| pycparser (transitive) | PyPI `pycparser` | 3.12 | BSD-3-Clause (metadata; UNVERIFIED by file scan) | Vendor wheel (hash-pinned) | None | None | Permitted | PyPI | None | Upstream; OU-UNASSIGNED | PASS |
+| pytest + iniconfig, packaging, pluggy, Pygments (test only) | PyPI | 9.2.0 / 2.3.1 / 26.3 / 1.7.0 / 2.21.0 | MIT / MIT / Apache-2.0 OR BSD-2-Clause / MIT / BSD-2-Clause (metadata; UNVERIFIED by file scan) | Vendor wheels | None | None | Not shipped | PyPI | None | Upstream; OU-UNASSIGNED | PASS (not shipped) |
+| Microsoft Graph API, Google Admin SDK / Reports / Gmail / Drive APIs | n/a (remote services of the customer's own source tenant) | n/a | Vendor API terms apply to the customer's existing subscription; no Office Unbound-held key, no per-call fee | n/a | Source tenants throttle (documented 429 / 403 rateLimitExceeded) | None | Used only against a customer-owned source tenant during migration; NOT a runtime dependency of any delivered stack | n/a | None | n/a | PASS (optional, customer-side; not a mandatory external API) |
 
 ## Not yet inventoried
 

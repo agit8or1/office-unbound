@@ -123,7 +123,7 @@ class ProxmoxReadClient:
                     raise ProxmoxError(f"GET {path} returned HTTP {r.status_code}")
                 if int(r.headers.get("content-length", "0") or 0) > self._max_bytes:
                     raise ProxmoxError(f"GET {path}: response too large")
-                for chunk in r.iter_raw():
+                for chunk in r.iter_bytes():  # decoded (PVE gzips larger bodies); cap applies to DECOMPRESSED size (bomb guard)
                     if time.monotonic() > end:
                         raise ProxmoxError(f"GET {path}: overall deadline of {self._deadline:g}s exceeded")
                     buf += chunk

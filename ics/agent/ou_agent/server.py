@@ -20,7 +20,10 @@ from .proto import Reject
 from .state import Journal
 
 MAX_BODY = 16 * 1024
-ENROLL_MAX_FAILURES = 5
+ENROLL_SOURCE_MAX_FAILURES = 5      # wrong guesses per source address within ENROLL_THROTTLE_SECONDS before that source is throttled
+ENROLL_GLOBAL_MAX_FAILURES = 60     # same, summed over all sources
+ENROLL_THROTTLE_SECONDS = 600
+ENROLL_FAIL_DELAY = 0.5             # seconds slept per wrong guess
 
 
 def load_config(path: str) -> dict:
@@ -52,6 +55,8 @@ class Agent:
         self.journal = Journal(os.path.join(state_dir, "journal"))
         self.exec_lock = threading.Lock()
         self.enroll_lock = threading.Lock()
+        self.enroll_fail_delay = ENROLL_FAIL_DELAY
+        self._enroll_fails: dict[str, list[float]] = {}   # source -> recent failure times (review L1)
         self.n = 0
 
     # ---- persisted trust ----
@@ -76,7 +81,18 @@ class Agent:
         return {"resp": resp, "sig": proto.sign(self.key, proto.RESP_PREFIX, resp)}
 
     # ---- enrollment ----
-    def enroll(self, body: dict) -> dict:
+    def _throttled(self, source: str, now: float) -> bool:
+        cut = now - ENROLL_THROTTLE_SECONDS
+        for k in list(self._enroll_fails):
+            self._enroll_fails[k] = [t for t in self._enroll_fails[k] if t > cut]
+            if not self._enroll_fails[k]:
+                del self._enroll_fails[k]
+        return (len(self._enroll_fails.get(source, ())) >= ENROLL_SOURCE_MAX_FAILURES
+                or sum(len(v) for v in self._enroll_fails.values()) >= ENROLL_GLOBAL_MAX_FAILURES)
+
+    def enroll(self, body: dict, source: str = "?") -> dict:
+        """Unauthenticated guesses never burn the token (review L1: that let anyone on the network deny enrollment). Instead each
+        source address is throttled after repeated wrong guesses, each wrong guess is slowed, and the token expires on its own."""
         with self.enroll_lock:
             if self.trust() is not None:
                 raise Reject("already_enrolled", "agent is already enrolled")
@@ -87,11 +103,13 @@ class Agent:
                 raise Reject("no_enrollment_token", "no enrollment token is armed on this node") from None
             if set(body) != {"token", "ics_pubkey", "node_id"} or not all(isinstance(body[k], str) for k in body):
                 raise Reject("bad_format")
-            if time.time() > en["expires_at"] or en["failures"] >= ENROLL_MAX_FAILURES:
-                raise Reject("token_expired", "enrollment token expired or burned; run `ou-agent arm-enroll` on the node")
+            if time.time() > en["expires_at"]:
+                raise Reject("token_expired", "enrollment token expired; run `ou-agent arm-enroll` on the node")
+            if self._throttled(source, time.time()):
+                raise Reject("throttled", "too many wrong enrollment guesses from this source; try again later")
             if not hmac.compare_digest(hashlib.sha256(body["token"].encode()).hexdigest(), en["token_sha256"]):
-                en["failures"] += 1
-                self._write("enroll.json", en)
+                self._enroll_fails.setdefault(source, []).append(time.time())
+                time.sleep(self.enroll_fail_delay)
                 raise Reject("bad_token", "enrollment token rejected")
             if not proto.UUID_RE.match(body["node_id"]):
                 raise Reject("bad_format", "node_id")
@@ -110,17 +128,20 @@ class Agent:
         tr = self.trust()
         base = {"v": 1, "type": "exec", "node_id": tr["node_id"] if tr else None, "job_id": None, "nonce": None, "at": now}
         req = body.get("req") if isinstance(body, dict) else None
-        if isinstance(req, dict):
-            for k in ("job_id", "nonce"):
-                if isinstance(req.get(k), str) and len(req[k]) <= 64:
-                    base[k] = req[k]
+        # Review L2: nothing is signed, and nothing attacker-chosen is echoed, until the request signature has verified.
+        if tr is None:
+            return 403, {"error": "not_enrolled"}
         try:
-            if tr is None:
-                raise Reject("not_enrolled", "agent is not enrolled")
-            if set(body) != {"req", "sig"} or not isinstance(body["sig"], str):
-                raise Reject("bad_format")
+            if set(body) != {"req", "sig"} or not isinstance(body["sig"], str) or not isinstance(req, dict):
+                return 403, {"error": "bad_format"}
             if not proto.verify(proto.pub_from_b64(tr["ics_pubkey"]), proto.REQ_PREFIX, req, body["sig"]):
-                raise Reject("bad_signature", "signature does not verify")
+                return 403, {"error": "bad_signature"}
+        except Exception:  # noqa: BLE001 - malformed key material / request: still unauthenticated
+            return 403, {"error": "bad_format"}
+        for k in ("job_id", "nonce"):   # authenticated now
+            if isinstance(req.get(k), str) and len(req[k]) <= 64:
+                base[k] = req[k]
+        try:
             proto.check_envelope(req, now=now, node_id=tr["node_id"])
             self.journal.accept(req["nonce"], req["job_id"])  # before anything else: replays and re-runs are impossible
             params = runbooks.check_allowed(self.cfg, req["action"], req["params"])
@@ -225,7 +246,7 @@ def make_handler(agent: Agent):
                 return self._send(code, resp)
             if self.path == "/v1/enroll":
                 try:
-                    return self._send(200, agent.enroll(body))
+                    return self._send(200, agent.enroll(body, self.client_address[0]))
                 except Reject as r:
                     return self._send(403, {"error": r.code, "message": r.msg})
             self._send(404, {"error": "not_found"})

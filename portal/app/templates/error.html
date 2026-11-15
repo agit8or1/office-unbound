@@ -1,0 +1,9 @@
+{% extends "base.html" %}
+{% block title %}{{ title }} · {{ cfg.org_name }}{% endblock %}
+{% block main %}
+<section class="hero narrow" role="alert">
+  <h1>{{ title }}</h1>
+  <p class="lead">{{ text }}</p>
+  <p>{% if retry %}<a class="btn primary" href="/login">Try again</a>{% else %}<a class="btn" href="/">Back to home</a>{% endif %}</p>
+</section>
+{% endblock %}

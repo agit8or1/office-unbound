@@ -1,0 +1,9 @@
+{"@odata.context": "https://graph.microsoft.com/v1.0/$metadata#users(id,userPrincipalName,displayName,mail)",
+ "value": [
+  {"id": "u-0003", "userPrincipalName": "support@contoso.example", "displayName": "Support", "mail": "support@contoso.example", "accountEnabled": false, "userType": "Member",
+   "proxyAddresses": ["SMTP:support@contoso.example"], "assignedLicenses": []},
+  {"id": "u-0004", "userPrincipalName": "alice_partner.example#EXT#@contoso.onmicrosoft.com", "displayName": "Alice (partner)", "mail": "alice@partner.example", "accountEnabled": true, "userType": "Guest",
+   "proxyAddresses": [], "assignedLicenses": []},
+  {"id": "u-0005", "userPrincipalName": "alice.second@contoso.example", "displayName": "Alice Second", "mail": "alice@other.example", "accountEnabled": true, "userType": "Member",
+   "proxyAddresses": ["SMTP:alice@other.example"], "assignedLicenses": [{"skuId": "x", "disabledPlans": []}]}
+ ]}

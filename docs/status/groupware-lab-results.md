@@ -26,7 +26,7 @@ newest public release tag on 2026-11-15 (gromox 3.13 matches `configure.ac` of t
 Reproduction: `blueprints/lab/spike-groupware/build-from-source.sh` (build stages: deps libhx wmime gromox mapihdr sync dav web),
 then `lab-configure.sh` (DB, TLS, users, postfix, gromox cfg), `lab-nginx.sh`, `lab-apps.sh` (sync/dav/web wiring).
 The scripts are the commands actually run, with the fixes found below folded in; the *combined* scripts were not re-run
-from a pristine machine end-to-end (stages were run incrementally and patched). A clean-room re-run is still to do.
+from a pristine machine end-to-end (stages were run incrementally and patched). **Update:** the clean-room re-run was done on `ou-gw-r1` (all 8 stages OK in 18.5 min, see restore-drill-results.md, groupware tier); it needed one fix, the missing package list (`GW_PKGS` in `common/packages.env`).
 
 ## 2. How it was configured (no admin-api)
 - MariaDB db `email` (utf8mb4), schema created by `gromox-dbop -C`; db user `gromox`@localhost and @127.0.0.1 (postfix is chrooted).

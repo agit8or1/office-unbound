@@ -1,0 +1,9 @@
+title = "office-unbound gitleaks config"
+
+[extend]
+useDefault = true
+
+[[allowlists]]
+description = "fake passwords/tokens in unit-test fixtures (in-process mocks and test databases, no real credentials)"
+targetRules = ["generic-api-key"]
+paths = ['''^ics/tests/.*\.py$''', '''^ics/frontend/src/.*\.test\.ts$''']

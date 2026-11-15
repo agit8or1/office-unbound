@@ -1,0 +1,6 @@
+{"kind": "admin#reports#usageReports", "usageReports": [
+  {"kind": "admin#reports#usageReport", "date": "2026-11-12", "etag": "\"x\"", "entity": {"type": "USER", "customerId": "C01abc234", "userEmail": "carol@example.test", "profileId": "100000000000000000001"},
+   "parameters": [{"name": "accounts:used_quota_in_mb", "intValue": "30720"}, {"name": "accounts:gmail_used_quota_in_mb", "intValue": "10240"}, {"name": "accounts:drive_used_quota_in_mb", "intValue": "20480"}]},
+  {"kind": "admin#reports#usageReport", "date": "2026-11-12", "entity": {"type": "USER", "customerId": "C01abc234", "userEmail": "dave@example.test", "profileId": "100000000000000000002"},
+   "parameters": [{"name": "accounts:used_quota_in_mb", "intValue": "2048"}, {"name": "accounts:gmail_used_quota_in_mb", "intValue": "1024"}, {"name": "accounts:drive_used_quota_in_mb", "intValue": "1024"}]}
+]}

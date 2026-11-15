@@ -4,6 +4,11 @@ import { ApiError, get, post, type AuditEvent, type Plan } from '../api'
 import { fmtTime, hasRole, pretty, route, session, short, useLoad, go } from '../store'
 import ErrorBox from '../components/ErrorBox.vue'
 import Status from '../components/Status.vue'
+import PageHeader from '../ui/PageHeader.vue'
+import EmptyState from '../ui/EmptyState.vue'
+import Skeleton from '../ui/Skeleton.vue'
+import Segmented from '../ui/Segmented.vue'
+import Button from '../ui/Button.vue'
 
 const plans = useLoad(() => get<Plan[]>('plans'), 10000)
 // params_hash and the requester name are only in the audit log (approver+), so look them up best-effort
@@ -31,15 +36,13 @@ async function decide(kind: 'approve' | 'reject') {
 </script>
 <template>
   <div class="page">
-    <div class="head"><h1>Plans</h1>
-      <div class="seg" role="group" aria-label="Filter">
-        <button :aria-pressed="filter === 'pending'" @click="filter = 'pending'">Pending</button>
-        <button :aria-pressed="filter === 'all'" @click="filter = 'all'">All</button>
-      </div>
-    </div>
+    <PageHeader title="Approvals" sub="Proposed changes waiting for review. High-risk plans need two distinct approvers." help="Every change is a plan first. Approvers review the parameters and decide; approved plans become jobs.">
+      <template #actions><Segmented v-model="filter" :options="[{ value: 'pending', label: 'Pending' }, { value: 'all', label: 'All plans' }]" label="Filter" /></template>
+    </PageHeader>
+    <Skeleton v-if="!plans.data.value && !plans.error.value" />
     <ErrorBox :error="plans.error.value" />
     <div class="split">
-      <section class="panel fill">
+      <section class="card flush">
         <div class="scroll">
           <table v-if="rows.length">
             <thead><tr><th>Action</th><th>Target</th><th>Risk</th><th>Status</th><th>Created</th></tr></thead>
@@ -51,11 +54,11 @@ async function decide(kind: 'approve' | 'reject') {
               </tr>
             </tbody>
           </table>
-          <p v-else-if="plans.data.value" class="empty">{{ filter === 'pending' ? 'No plans are waiting for approval.' : 'No plans yet.' }}</p>
+          <EmptyState v-else-if="plans.data.value" icon="shield" :title="filter === 'pending' ? 'Nothing waiting for approval' : 'No plans yet'" text="Proposed changes show up here for review." />
         </div>
       </section>
-      <section v-if="selId" class="panel detail" aria-label="Plan details">
-        <div class="head"><h2>Plan {{ short(selId) }}</h2><button class="ghost" @click="go('plans')">Close</button></div>
+      <section v-if="selId" class="card detail" aria-label="Plan details">
+        <div class="head"><h2>Plan {{ short(selId) }}</h2><Button size="sm" variant="ghost" icon="x" @click="go('plans')">Close</Button></div>
         <p v-if="!sel && plans.data.value" class="muted">Plan not found.</p>
         <template v-if="sel">
           <dl class="kv">

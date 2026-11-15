@@ -15,17 +15,19 @@ def _register(o, oh, ap, aph, ap2, aph2, pve, rt):
     return o.get(f"{H}/endpoints").json()[0]["id"]
 
 
-def test_users_list_is_admin_only_and_has_no_secrets(client, mk_user, login):
+def test_users_list_is_viewer_readable_ip_admin_only_and_has_no_secrets(client, mk_user, login):
     mk_user("viewer1", "viewer")
     o, oh = login(mk_user("op", "operator"))
     ad, adh = login(mk_user("adm", "admin"))
-    assert o.get(f"{H}/users").status_code == 403
+    assert o.get(f"{H}/users").status_code == 200 and "last_login_ip" not in o.get(f"{H}/users").json()[0]
     r = ad.get(f"{H}/users")
     assert r.status_code == 200
     names = {u["username"]: u for u in r.json()}
     assert set(names) == {"viewer1", "op", "adm"}
-    assert set(names["op"]) == {"id", "username", "role", "enrolled", "disabled", "created_at", "created_by_username"}
-    assert names["op"]["enrolled"] is True and names["op"]["role"] == "operator"
+    assert "last_login_ip" in names["op"]
+    forbidden = ("password", "totp", "token", "secret", "hash")
+    assert not any(f in k for k in names["op"] for f in forbidden)
+    assert names["op"]["status"] == "active" and names["op"]["role"] == "operator"
 
 
 def test_auth_me_and_login_include_id(client, mk_user, login):

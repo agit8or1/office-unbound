@@ -1,0 +1,18 @@
+name: large
+version: 1.0.0
+title: Large (up to 1000 users, 6 VMs)
+description: Medium layout with two office (document engine) workers, spread across nodes when possible.
+maturity: experimental
+max_users: 1000
+min_nodes: 1
+ha: false
+tenancy: single
+vms:
+  - {name: identity, components: [identity]}
+  - {name: edge, components: [edge]}
+  - {name: groupware, components: [groupware]}
+  - {name: files, components: [files]}
+  - {name: office, components: [office], replicas: 2}
+optional_components: [office]
+default_optional: [office]
+backup: {schedule: daily, retention_days: 30, snapshot_before_change: true, offsite: true}

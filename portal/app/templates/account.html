@@ -1,0 +1,57 @@
+{% extends "base.html" %}
+{% from "_icons.html" import icon %}
+{% block title %}Account · {{ cfg.org_name }}{% endblock %}
+{% block main %}
+<h1 class="greet">Your account</h1>
+{% for n in notices %}<p class="notice" role="status">{{ n }}</p>{% endfor %}
+{% if flash == 'ended' %}<p class="notice ok" role="status">Signed out everywhere else.</p>{% elif flash == 'failed' %}<p class="notice" role="status">That did not work. Please try again.</p>{% endif %}
+
+<section class="card" aria-labelledby="h-profile">
+  <h2 id="h-profile">Profile</h2>
+  <dl class="kv">
+    <dt>Name</dt><dd>{{ claims.get('name') or '—' }}</dd>
+    <dt>User name</dt><dd>{{ claims.get('preferred_username') or '—' }}</dd>
+    <dt>E-mail</dt><dd>{{ claims.get('email') or '—' }}</dd>
+    {% if roles %}<dt>Access</dt><dd>{% for r in roles %}<span class="pill">{{ r }}</span> {% endfor %}</dd>{% endif %}
+  </dl>
+  <p class="hint">Your details are managed by your organisation. To change them, ask your administrator.</p>
+</section>
+
+<section class="card" aria-labelledby="h-sec">
+  <h2 id="h-sec">Sign-in and security</h2>
+  <ul class="actions">
+    <li><a class="act" href="{{ links.password }}">{{ icon('key') }}<span><b>Change your password</b><small>Opens your organisation's account page</small></span></a></li>
+    <li><a class="act" href="{{ links.mfa }}">{{ icon('shield') }}<span><b>Two-step verification</b>
+      <small>{% if mfa is none %}Set up or manage a second sign-in step{% elif mfa %}Enabled. Manage your authenticator{% else %}Not set up yet. Add an authenticator app{% endif %}</small></span>
+      {% if mfa %}<span class="pill ok">On</span>{% elif mfa is not none %}<span class="pill warn">Off</span>{% endif %}</a></li>
+  </ul>
+</section>
+
+<section class="card" aria-labelledby="h-sess">
+  <h2 id="h-sess">Where you are signed in</h2>
+  {% if sessions %}
+  <div class="tablewrap">
+  <table>
+    <caption class="sr">Your most recent sign-ins</caption>
+    <thead><tr><th scope="col">Device</th><th scope="col">Apps</th><th scope="col">Address</th><th scope="col">Last active</th></tr></thead>
+    <tbody>
+    {% for s in sessions %}
+    <tr>
+      <th scope="row">{{ s.browser }}{% if s.id == current_sid %} <span class="pill ok">This device</span>{% endif %}</th>
+      <td>{{ s.clients | join(', ') }}</td><td>{{ s.ip }}</td><td><time datetime="{{ s.last.isoformat() }}">{{ s.last | ago }}</time></td>
+    </tr>
+    {% endfor %}
+    </tbody>
+  </table>
+  </div>
+  {% if total_sessions > sessions | length %}<p class="hint">Showing the {{ sessions | length }} most recent of {{ total_sessions }}.</p>{% endif %}
+  <form method="post" action="/account/sessions/end-others" class="inline">
+    <input type="hidden" name="csrf" value="{{ sess.csrf }}">
+    <button class="btn" type="submit">Sign out everywhere else</button>
+  </form>
+  <p class="hint"><a href="{{ links.activity }}">See full device activity</a></p>
+  {% else %}
+  <p class="empty">No session information available right now. <a href="{{ links.activity }}">Open device activity</a>.</p>
+  {% endif %}
+</section>
+{% endblock %}
