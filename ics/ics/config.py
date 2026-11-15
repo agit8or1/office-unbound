@@ -100,6 +100,8 @@ class Settings:
     guest_callback_pin_sha256: str | None = None # sha256 (hex) of the certificate (CA or leaf) the guests pin for that URL
     guest_bootstrap_ttl_seconds: int = 1800      # lifetime of a per-VM one-time bootstrap secret
     guest_keep_bootstrap_ssh: bool = False       # DEBUG ONLY: do not seal the bootstrap SSH access after enrollment (the guest's own timer still seals it after bootstrap_seal_seconds)
+    role: str = "primary"                        # ADR-0012: 'standby' = passive warm standby (no worker, no mutations, never signs agent requests)
+    standby_max_lag_seconds: int = 60            # /readyz replication check on a standby
     trusted_proxy: str | None = None             # exact IP of a local reverse proxy whose X-Forwarded-For is honoured (e.g. 127.0.0.1); None = ignore XFF
 
     def __post_init__(self):
@@ -130,6 +132,13 @@ def _csv(v: str | None) -> tuple[str, ...]:
     return tuple(x.strip() for x in (v or "").split(",") if x.strip())
 
 
+def _role(v: str | None) -> str:
+    v = (v or "primary").strip().lower()
+    if v not in ("primary", "standby"):
+        raise RuntimeError("ICS_ROLE must be 'primary' or 'standby'")
+    return v
+
+
 def load_settings() -> Settings:
     env = _load_env_file(os.environ.get("ICS_ENV_FILE", DEFAULT_ENV_FILE))
     env.update({k: v for k, v in os.environ.items() if k.startswith("ICS_")})
@@ -145,10 +154,11 @@ def load_settings() -> Settings:
             signing_key_file=env.get("ICS_SIGNING_KEY_FILE") or None,
             monitor_enabled=b("ICS_MONITOR_ENABLED", True),
             cookie_secure=b("ICS_COOKIE_SECURE", True),
-            worker_enabled=b("ICS_WORKER_ENABLED", True),
+            worker_enabled=b("ICS_WORKER_ENABLED", True) and _role(env.get("ICS_ROLE")) == "primary",
             enable_docs=b("ICS_ENABLE_DOCS", False),
             login_max_failures=int(env.get("ICS_LOGIN_MAX_FAILURES", 5)),
             allow_loopback_endpoints=b("ICS_ALLOW_LOOPBACK_ENDPOINTS", False),
+            role=_role(env.get("ICS_ROLE")),
             trusted_proxy=_trusted_proxy(env.get("ICS_TRUSTED_PROXY")),
             job_timeout_seconds=int(env.get("ICS_JOB_TIMEOUT_SECONDS", 180)),
             guest_agent_dir=env.get("ICS_GUEST_AGENT_DIR") or None,

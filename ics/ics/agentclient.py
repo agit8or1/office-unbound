@@ -73,10 +73,14 @@ def verify(pub: Ed25519PublicKey, prefix: bytes, obj, sig: str) -> bool:
 
 
 def build_request(priv, *, action: str, params: dict, node_id: str, job_id: str, ttl: int = 60, now: int | None = None,
-                  nonce: str | None = None) -> dict:
+                  nonce: str | None = None, epoch: int | None = None) -> dict:
+    """`epoch` is the controller epoch (ADR-0012): agents refuse a request whose epoch is lower than the highest they have seen.
+    None omits the field (pre-epoch wire format; accepted by agents only until they have seen any epoch)."""
     now = int(time.time()) if now is None else now
     req = {"v": 1, "action": action, "params": params, "node_id": node_id, "job_id": job_id,
            "issued_at": now, "expires_at": now + ttl, "nonce": nonce or secrets.token_urlsafe(24)}
+    if epoch is not None:
+        req["epoch"] = int(epoch)
     return {"req": req, "sig": sign(priv, REQ_PREFIX, req)}
 
 
@@ -132,6 +136,35 @@ def call(node, priv, *, action: str, params: dict, job_id: str, ttl: int = 60, d
     if getattr(node, "status", None) == "decommissioned":  # trust was revoked: no request may ever be sent again
         raise AgentError("node is decommissioned")
     body = req_override or build_request(priv, action=action, params=params, node_id=str(node.id), job_id=job_id, ttl=ttl)
+    nid = str(node.id)
+    if "epoch" in body["req"] and _legacy_until.get(nid, 0) > time.monotonic():
+        body = _without_epoch(priv, body)   # this node's agent predates the controller epoch
+    req, resp = _exchange(node, body, deadline, allow_loopback)
+    if ("epoch" in req and resp.get("status") == "rejected" and resp.get("code") == "bad_format"
+            and (resp.get("result") or {}).get("message") == "unexpected or missing fields"):
+        # Backward compatibility (ADR-0012): an agent deployed before the epoch field existed rejects ANY unknown request field. Retry
+        # once in the pre-epoch format (same nonce: such an agent recorded nothing for a malformed request) and remember it for a while,
+        # so the agent is re-probed after an upgrade and is fenced as soon as it understands the epoch.
+        _legacy_until[nid] = time.monotonic() + LEGACY_RECHECK_SECONDS
+        req, resp = _exchange(node, _without_epoch(priv, body), deadline, allow_loopback)
+    if resp.get("code") in ("stale_epoch", "epoch_required") and stale_epoch_hook is not None:
+        try:
+            stale_epoch_hook(resp.get("agent_epoch"))
+        except Exception:  # noqa: BLE001 - never mask the refusal itself
+            pass
+    return req, resp
+
+
+LEGACY_RECHECK_SECONDS = 300
+_legacy_until: dict[str, float] = {}   # node id -> monotonic time until which requests go out without an epoch
+
+
+def _without_epoch(priv, body: dict) -> dict:
+    req = {k: v for k, v in body["req"].items() if k != "epoch"}
+    return {"req": req, "sig": sign(priv, REQ_PREFIX, req)}
+
+
+def _exchange(node, body: dict, deadline: float, allow_loopback: bool) -> tuple[dict, dict]:
     code, d = _post(node.address, node.port, node.tls_fingerprint_sha256.strip(), "/v1/exec", body, allow_loopback=allow_loopback, deadline=deadline)
     resp, sig = d.get("resp"), d.get("sig")
     if code == 403 and isinstance(d.get("error"), str) and sig is None:   # pre-authentication refusal: deliberately unsigned (review L2)
@@ -146,6 +179,10 @@ def call(node, priv, *, action: str, params: dict, job_id: str, ttl: int = 60, d
     if resp.get("nonce") != req.get("nonce") or resp.get("job_id") != req.get("job_id") or resp.get("node_id") != str(node.id):
         raise AgentError("agent response does not match the request (nonce/job/node)")
     return req, resp
+
+
+# Set by Runtime: called with the agent's highest-seen epoch when an agent refuses us as stale (we were fenced).
+stale_epoch_hook = None
 
 
 def new_job_id() -> str:

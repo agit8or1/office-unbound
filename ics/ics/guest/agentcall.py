@@ -21,7 +21,7 @@ def execute(rt, node_id: str, action: str, params: dict, job_id: str | None = No
         raise ValueError("node does not offer this runbook")
     jid = job_id or agentclient.new_job_id()
     priv = agentclient.load_signing_key(rt.settings.signing_key_file)
-    body = agentclient.build_request(priv, action=action, params=params, node_id=str(node.id), job_id=jid, ttl=rt.settings.agent_request_ttl_seconds)
+    body = agentclient.build_request(priv, action=action, params=params, node_id=str(node.id), job_id=jid, ttl=rt.settings.agent_request_ttl_seconds, epoch=rt.agent_epoch())
     req = body["req"]
     with rt.session() as d2:
         d2.execute(text("INSERT INTO agent_requests (node_id, job_id, nonce, action, issued_at, expires_at) "
