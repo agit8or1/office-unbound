@@ -3,6 +3,8 @@ import { ref } from 'vue'
 import { ApiError, post, type Role } from '../api'
 import { go, session, setLoggedIn } from '../store'
 import ErrorBox from '../components/ErrorBox.vue'
+import Icon from '../ui/Icon.vue'
+import Button from '../ui/Button.vue'
 
 const username = ref(''), password = ref(''), totp = ref('')
 const err = ref<ApiError | null>(null), busy = ref(false)
@@ -18,19 +20,25 @@ async function submit() {
 }
 </script>
 <template>
-  <div class="center">
-    <form class="panel auth" @submit.prevent="submit" aria-labelledby="t">
-      <h1 id="t">Sign in</h1>
-      <p class="muted">Office Unbound ICS operator console</p>
-      <div v-if="session.expired" class="alert warn" role="status">Your session ended. Sign in again.</div>
-      <ErrorBox :error="err" />
-      <label>Username<input v-model="username" autocomplete="username" required maxlength="64" autofocus></label>
-      <label>Password<input v-model="password" type="password" autocomplete="current-password" required maxlength="1024"></label>
-      <label>Authenticator code
-        <input v-model="totp" inputmode="numeric" autocomplete="one-time-code" pattern="[0-9 ]{6,8}" required maxlength="8">
-      </label>
-      <button class="primary" :disabled="busy">{{ busy ? 'Signing in…' : 'Sign in' }}</button>
-      <p class="muted small">First login with an invite? <a href="#/enroll">Enroll your account</a>.</p>
-    </form>
+  <div class="authpage">
+    <div class="authside">
+      <div class="row"><span class="mark"><Icon name="cluster" /></span><strong>Office Unbound</strong></div>
+      <div><h2>Run your infrastructure with confidence.</h2><p>Plan, approve and observe every change across your Proxmox clusters and customer deployments, with a complete audit trail.</p></div>
+      <p class="small">Self-hosted. Your data stays yours.</p>
+    </div>
+    <div class="authform">
+      <div class="authbox">
+        <div><h1>Sign in</h1><p class="muted">Use your console account and authenticator code.</p></div>
+        <div v-if="session.expired" class="alert warn" role="status">Your session ended. Sign in again.</div>
+        <ErrorBox :error="err" />
+        <form @submit.prevent="submit">
+          <label>Username<input v-model="username" autocomplete="username" required maxlength="64" autofocus></label>
+          <label>Password<input v-model="password" type="password" autocomplete="current-password" required maxlength="1024"></label>
+          <label>Authenticator code<input v-model="totp" inputmode="numeric" autocomplete="one-time-code" pattern="[0-9 ]{6,8}" required maxlength="8" placeholder="123456"></label>
+          <Button variant="primary" type="submit" :loading="busy">{{ busy ? 'Signing in…' : 'Sign in' }}</Button>
+        </form>
+        <p class="muted small">Have an invite? <a href="#/enroll">Set up your account</a>.</p>
+      </div>
+    </div>
   </div>
 </template>

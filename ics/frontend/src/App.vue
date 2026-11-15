@@ -1,86 +1,115 @@
 <script setup lang="ts">
-import { computed, onMounted, ref, watchEffect } from 'vue'
-import { go, hasRole, loadSession, logout, route, session } from './store'
-import type { Role } from './api'
-import Login from './views/Login.vue'
-import Enroll from './views/Enroll.vue'
-import Overview from './views/Overview.vue'
-import Endpoints from './views/Endpoints.vue'
-import Plans from './views/Plans.vue'
-import Jobs from './views/Jobs.vue'
-import Inventory from './views/Inventory.vue'
-import Users from './views/Users.vue'
-import Audit from './views/Audit.vue'
-import Preview from './views/Preview.vue'
-import Checks from './views/Checks.vue'
-import Incidents from './views/Incidents.vue'
+import { computed, onMounted, onUnmounted, ref, watch } from 'vue'
+import { useRoute, useRouter } from 'vue-router'
+import { get, type Incident, type Plan } from './api'
+import { hasRole, loadSession, logout, session } from './store'
+import { crumbLabel } from './format'
+import { hasPath } from './router'
+import { NAV, isActive, type NavItem } from './nav'
+import Icon from './ui/Icon.vue'
+import ToastHost from './ui/ToastHost.vue'
 
-const pages: { id: string; label: string; min: Role; comp: unknown }[] = [
-  { id: 'overview', label: 'Overview', min: 'viewer', comp: Overview },
-  { id: 'endpoints', label: 'Endpoints', min: 'viewer', comp: Endpoints },
-  { id: 'checks', label: 'Checks', min: 'viewer', comp: Checks },
-  { id: 'incidents', label: 'Incidents', min: 'viewer', comp: Incidents },
-  { id: 'plans', label: 'Plans', min: 'viewer', comp: Plans },
-  { id: 'jobs', label: 'Jobs', min: 'viewer', comp: Jobs },
-  { id: 'inventory', label: 'Inventory', min: 'viewer', comp: Inventory },
-  { id: 'preview', label: 'Plan preview', min: 'operator', comp: Preview },
-  { id: 'users', label: 'Users & roles', min: 'viewer', comp: Users },
-  { id: 'audit', label: 'Audit', min: 'approver', comp: Audit },
-]
-const nav = computed(() => pages.filter((p) => hasRole(p.min)))
-const current = computed(() => pages.find((p) => p.id === route.value.page))
-const denied = computed(() => current.value && !hasRole(current.value.min))
+const route = useRoute()
+const router = useRouter()
 
-const theme = ref<string>('auto')
+const theme = ref<'auto' | 'light' | 'dark'>('auto')
 function applyTheme() {
   if (theme.value === 'auto') document.documentElement.removeAttribute('data-theme')
   else document.documentElement.setAttribute('data-theme', theme.value)
 }
-function cycleTheme() {
-  theme.value = { auto: 'light', light: 'dark', dark: 'auto' }[theme.value] ?? 'auto'
+const dark = () => theme.value === 'dark' || (theme.value === 'auto' && window.matchMedia('(prefers-color-scheme: dark)').matches)
+function toggleTheme() {
+  theme.value = dark() ? 'light' : 'dark'
   try { localStorage.setItem('ics-theme', theme.value) } catch { /* storage may be blocked */ }
   applyTheme()
 }
 
+// nav badges: active incidents and plans waiting for approval (real counts, refreshed every 20 s)
+const badges = ref({ incidents: 0, approvals: 0 })
+let timer: number | undefined
+async function refreshBadges() {
+  if (!session.user) return
+  try {
+    const [i, p] = await Promise.all([get<Incident[]>('incidents?status=active&limit=200'), get<Plan[]>('plans')])
+    badges.value = { incidents: i.length, approvals: p.filter((x) => x.status === 'pending_approval').length }
+  } catch { /* badges are best effort */ }
+}
 onMounted(async () => {
-  try { theme.value = localStorage.getItem('ics-theme') || 'auto' } catch { /* ignore */ }
+  try { theme.value = (localStorage.getItem('ics-theme') as typeof theme.value) || 'auto' } catch { /* ignore */ }
   applyTheme()
   await loadSession()
+  void refreshBadges()
+  timer = window.setInterval(() => { if (!document.hidden) void refreshBadges() }, 20000)
 })
-watchEffect(() => {
+onUnmounted(() => clearInterval(timer))
+
+// auth redirects
+const bare = computed(() => !!route.meta.bare)
+watch([() => session.ready, () => session.user, () => route.name], () => {
   if (!session.ready) return
-  const p = route.value.page
-  if (p === 'enroll') return
-  if (!session.user && p !== 'login') go('login')
-  else if (session.user && (p === 'login' || !p)) go('overview')
-})
+  if (route.name === 'enroll') return
+  if (!session.user && route.name !== 'login') void router.replace('/login')
+  else if (session.user && route.name === 'login') { void router.replace('/overview'); void refreshBadges() }
+}, { immediate: true })
+watch(() => route.fullPath, () => { navOpen.value = false; crumbLabel.value = '' })
+
+const denied = computed(() => !!route.meta.min && !hasRole(route.meta.min))
 const navOpen = ref(false)
+const groups = computed(() => NAV.map((g) => ({ ...g, items: g.items.filter((i) => (!i.min || hasRole(i.min)) && (!i.ifPath || hasPath(i.ifPath))) })).filter((g) => g.items.length))
+const count = (i: NavItem) => (i.badge ? badges.value[i.badge] : 0)
+
+const crumbs = computed(() => {
+  const out: { label: string; to?: string }[] = []
+  const m = route.meta
+  if (m.section) out.push({ label: m.section })
+  if (m.parent) { out.push({ label: m.parent.label, to: m.parent.to }); out.push({ label: crumbLabel.value || String(route.params.id ?? '').slice(0, 8) }) }
+  else if (route.params.id && typeof route.params.id === 'string') { out.push({ label: String(m.title), to: route.path.split('/').slice(0, 2).join('/') }); out.push({ label: crumbLabel.value || route.params.id.slice(0, 8) }) }
+  else out.push({ label: m.title ?? '' })
+  return out
+})
+watch(() => route.meta.title, (t) => { document.title = (t ? t + ' - ' : '') + 'Office Unbound' }, { immediate: true })
 </script>
 
 <template>
   <a class="skip" href="#main" @click.prevent="($refs.main as HTMLElement)?.focus()">Skip to content</a>
   <div v-if="!session.ready" class="center muted" role="status">Loading…</div>
-  <template v-else-if="route.page === 'enroll'"><Enroll /></template>
-  <template v-else-if="!session.user"><Login /></template>
+  <router-view v-else-if="bare || !session.user" />
   <div v-else class="shell">
-    <header class="top">
-      <button class="ghost navbtn" :aria-expanded="navOpen" aria-controls="nav" @click="navOpen = !navOpen">Menu</button>
-      <div class="brand"><span class="mark" aria-hidden="true"></span>Office Unbound <span class="muted">ICS</span></div>
-      <div class="who">
-        <span class="chip info" :title="'Role: ' + session.user.role">{{ session.user.role }}</span>
-        <span>{{ session.user.username }}</span>
-        <button class="ghost" @click="cycleTheme" :aria-label="'Theme: ' + theme + '. Click to change.'">Theme: {{ theme }}</button>
-        <button class="ghost" @click="logout">Sign out</button>
-      </div>
-    </header>
-    <nav id="nav" class="side" :class="{ open: navOpen }" aria-label="Main">
-      <a v-for="p in nav" :key="p.id" :href="'#/' + p.id" :aria-current="route.page === p.id ? 'page' : undefined"
-         @click="navOpen = false">{{ p.label }}</a>
-    </nav>
-    <main id="main" ref="main" tabindex="-1">
-      <div v-if="denied" class="alert bad" role="alert">Your role ({{ session.user.role }}) cannot open this page.</div>
-      <component :is="current.comp" v-else-if="current" :key="route.page" />
-      <div v-else class="alert warn">Unknown page.</div>
-    </main>
+    <aside class="side" :class="{ open: navOpen }">
+      <div class="brand"><span class="mark"><Icon name="cluster" /></span><div>Office Unbound<small>Control console</small></div></div>
+      <nav aria-label="Main">
+        <div v-for="(g, gi) in groups" :key="gi" class="navgroup">
+          <div v-if="g.title" class="navtitle">{{ g.title }}</div>
+          <template v-for="i in g.items" :key="i.label">
+            <span v-if="i.planned" class="navitem planned" :title="i.label + ' is planned'"><Icon :name="i.icon" />{{ i.label }}<span class="tag">Planned</span></span>
+            <router-link v-else :to="i.to!" class="navitem" :class="{ active: isActive(i, route.path) }" :aria-current="isActive(i, route.path) ? 'page' : undefined">
+              <Icon :name="i.icon" />{{ i.label }}<span v-if="count(i)" class="count" :class="{ soft: i.badge === 'approvals' }">{{ count(i) }}</span>
+            </router-link>
+          </template>
+        </div>
+      </nav>
+      <div class="foot">Signed in as {{ session.user.username }} ({{ session.user.role }})</div>
+    </aside>
+    <div class="scrim" :class="{ open: navOpen }" @click="navOpen = false"></div>
+    <div class="main-col">
+      <header class="top">
+        <button class="iconbtn menu-btn" aria-label="Open navigation" :aria-expanded="navOpen" @click="navOpen = !navOpen"><Icon name="menu" /></button>
+        <nav class="crumbs grow" aria-label="Breadcrumb">
+          <router-link to="/overview">Console</router-link>
+          <template v-for="(c, i) in crumbs" :key="i"><span class="sep">/</span>
+            <router-link v-if="c.to" :to="c.to">{{ c.label }}</router-link>
+            <span v-else :class="{ here: i === crumbs.length - 1 }">{{ c.label }}</span>
+          </template>
+        </nav>
+        <button class="iconbtn" :aria-label="dark() ? 'Switch to light theme' : 'Switch to dark theme'" @click="toggleTheme"><Icon :name="dark() ? 'sun' : 'moon'" /></button>
+        <div class="userchip"><span class="avatar" aria-hidden="true">{{ session.user.username.slice(0, 2) }}</span><span class="meta"><b>{{ session.user.username }}</b><span class="muted">{{ session.user.role }}</span></span></div>
+        <button class="iconbtn" aria-label="Sign out" title="Sign out" @click="logout"><Icon name="logout" /></button>
+      </header>
+      <main id="main" ref="main" tabindex="-1">
+        <div v-if="denied" class="alert bad" role="alert">Your role ({{ session.user.role }}) cannot open this page.</div>
+        <router-view v-else v-slot="{ Component }"><component :is="Component" :key="String(route.name)" /></router-view>
+      </main>
+    </div>
   </div>
+  <ToastHost />
 </template>

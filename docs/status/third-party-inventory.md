@@ -26,6 +26,13 @@ Conventions: "OU-UNASSIGNED" = no Office Unbound maintenance owner is named in a
 | St0r code to adapt (`drills/proxmox.ts` pattern, Python port planned) | St0r clone under `reference/` (commit not recorded) | UNVERIFIED | MIT (per reuse audit) | Source: concept/port, not yet done | Pinned-fingerprint TLS pattern only | Keep MIT notice | MIT permits | None (snapshot) | Not adopted | OU-UNASSIGNED | UNCLEAR (not adopted; commit unpinned) |
 | rem0te audit hash-chain algorithm (`apps/api/src/audit/chain.ts`, port planned) | rem0te clone under `reference/` (commit not recorded) | UNVERIFIED | MIT (per reuse audit) | Source: algorithm port, not yet done | None | Keep MIT notice | MIT permits | None (snapshot) | Not adopted | OU-UNASSIGNED | UNCLEAR (not adopted; commit unpinned) |
 
+### 1a. Console frontend (ics/frontend, bundled at build time; nothing loaded at runtime from a CDN, ADR-0002)
+
+| Component | Repository | Pinned version | License | Use | Notes | Gate |
+|---|---|---|---|---|---|---|
+| vue-router | npmjs `vue-router` (github.com/vuejs/router) | 4.6.5 (lockfile) | MIT | Hash-history routing and a route registry (`src/routes.ts`) so wizards can register routes | Chosen over a hand-rolled router because nested detail routes, lazy chunks and guards are needed; adds ~10 kB gzip | PASS |
+| Charts (in-repo, no library) | `ics/frontend/src/charts/` | n/a | Office Unbound code | SVG line/area and donut charts | Evaluated uPlot (MIT) and Chart.js (MIT). Rejected both: the console needs only line/area, donut and bars; Chart.js is canvas-based (about 70 kB gzip) and uPlot sets inline styles that conflict with the CSP (`style-src 'self'`); own SVG uses attributes and classes only, themes through CSS variables, and the geometry is unit-tested. Revisit if heatmaps or dense zoomable series are needed (uPlot is the candidate) | PASS |
+
 ## 2. Groupware (grommunio / Gromox stack; ADR-0003)
 
 | Component | Repository | Pinned version | License (as found in source) | Build method | Runtime/user/connection restrictions | Branding obligations | Commercial use / redistribution | Update source | Fork/patch status | Maintenance owner | Gate |
