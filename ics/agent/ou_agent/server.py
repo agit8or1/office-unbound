@@ -111,7 +111,7 @@ class Agent:
                 self._enroll_fails.setdefault(source, []).append(time.time())
                 time.sleep(self.enroll_fail_delay)
                 raise Reject("bad_token", "enrollment token rejected")
-            if not proto.UUID_RE.match(body["node_id"]):
+            if not proto.UUID_RE.fullmatch(body["node_id"]):
                 raise Reject("bad_format", "node_id")
             try:
                 proto.pub_from_b64(body["ics_pubkey"])

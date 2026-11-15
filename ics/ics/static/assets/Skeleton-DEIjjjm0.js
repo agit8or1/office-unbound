@@ -1,1 +1,0 @@
-import{C as e,c as t,et as n,n as r,p as i,x as a}from"./Icon-BOj2LBK0.js";var o={class:`page`,role:`status`,"aria-label":`Loading`},s=i({__name:`Skeleton`,props:{rows:{default:4}},setup(i){return(s,c)=>(a(),t(`div`,o,[(a(!0),t(r,null,e(i.rows,e=>(a(),t(`span`,{key:e,class:n([`skel`,e%2?``:`w70`])},null,2))),128))]))}});export{s as t};

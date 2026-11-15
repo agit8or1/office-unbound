@@ -129,6 +129,8 @@ def call(node, priv, *, action: str, params: dict, job_id: str, ttl: int = 60, d
          req_override: dict | None = None) -> tuple[dict, dict]:
     """Send one signed request and return (request_envelope, verified_response). `node` needs address, port, tls_fingerprint_sha256,
     agent_pubkey, id. A response that does not verify, or does not echo job id / nonce / node id, is an error."""
+    if getattr(node, "status", None) == "decommissioned":  # trust was revoked: no request may ever be sent again
+        raise AgentError("node is decommissioned")
     body = req_override or build_request(priv, action=action, params=params, node_id=str(node.id), job_id=job_id, ttl=ttl)
     code, d = _post(node.address, node.port, node.tls_fingerprint_sha256.strip(), "/v1/exec", body, allow_loopback=allow_loopback, deadline=deadline)
     resp, sig = d.get("resp"), d.get("sig")

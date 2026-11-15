@@ -12,7 +12,7 @@ import os
 import re
 import shlex
 import tarfile
-from typing import Literal
+from typing import Annotated, Literal
 
 import yaml
 from cryptography.hazmat.primitives import serialization
@@ -38,16 +38,17 @@ class OuRepo(BaseModel):
     """The Office Unbound signed apt repository (ADR-0008). Used ONLY by the agent's pkg.install_pinned runbook, from its own sources.list
     and keyring directory; the key is pinned by fingerprint, which the node re-checks before every install."""
     model_config = ConfigDict(extra="forbid")
-    url: str = Field(pattern=r"^(https://|file:///)[A-Za-z0-9._~/:-]{4,200}$")
-    suite: str = Field(pattern=r"^[a-z0-9-]{2,30}$")
-    components: list[str] = ["main"]
+    url: str = Field(pattern=r"^(https://[a-z0-9][A-Za-z0-9.-]{0,100}(:[0-9]{1,5})?(/[A-Za-z0-9._~-]+){0,10}/?|file:///[A-Za-z0-9._~-]+(/[A-Za-z0-9._~-]+){0,10})$")
+    suite: str = Field(pattern=r"^[a-z0-9][a-z0-9-]{1,29}$")
+    # review 3 M4: strict tokens (no whitespace, brackets, newlines or options) - a component is joined into a root-trusted sources.list line
+    components: list[Annotated[str, Field(pattern=r"^[a-z0-9][a-z0-9-]{0,30}$")]] = Field(default=["main"], min_length=1, max_length=8)
     key_armored: str = Field(max_length=20000)
     key_fingerprint: str                       # 40 hex, upper case: the pin
 
     @field_validator("key_fingerprint")
     @classmethod
     def _fpr(cls, v):
-        if not HEX40.match(v):
+        if not HEX40.fullmatch(v):
             raise ValueError("key_fingerprint must be 40 upper-case hex characters")
         return v
 
@@ -104,49 +105,49 @@ class GuestSpec(BaseModel):
     @field_validator("hostname")
     @classmethod
     def _h(cls, v):
-        if not LABEL_RE.match(v):
+        if not LABEL_RE.fullmatch(v):
             raise ValueError("hostname must be a lowercase RFC 1123 label")
         return v
 
     @field_validator("domain")
     @classmethod
     def _d(cls, v):
-        if v is not None and not DOMAIN_RE.match(v):
+        if v is not None and not DOMAIN_RE.fullmatch(v):
             raise ValueError("invalid domain")
         return v
 
     @field_validator("timezone")
     @classmethod
     def _tz(cls, v):
-        if not TZ_RE.match(v):
+        if not TZ_RE.fullmatch(v):
             raise ValueError("invalid timezone")
         return v
 
     @field_validator("ntp_servers")
     @classmethod
     def _ntp(cls, v):
-        if not all(isinstance(x, str) and re.match(r"^[a-z0-9]([a-z0-9.-]{0,120}[a-z0-9])?$", x) for x in v) or len(v) > 6:
+        if not all(isinstance(x, str) and re.fullmatch(r"[a-z0-9]([a-z0-9.-]{0,120}[a-z0-9])?", x) for x in v) or len(v) > 6:
             raise ValueError("invalid ntp server")
         return v
 
     @field_validator("break_glass_ssh_key")
     @classmethod
     def _k(cls, v):
-        if v is not None and not SSH_KEY_RE.match(v):
+        if v is not None and not SSH_KEY_RE.fullmatch(v):
             raise ValueError("break_glass_ssh_key must be a single public key line (no options, no newlines)")
         return v
 
     @field_validator("extra_packages", "pkg_allowlist")
     @classmethod
     def _p(cls, v):
-        if len(v) > 64 or not all(PKG_RE.match(x) for x in v):
+        if len(v) > 64 or not all(PKG_RE.fullmatch(x) for x in v):
             raise ValueError("invalid package name")
         return v
 
     @field_validator("image_registries")
     @classmethod
     def _r(cls, v):
-        if len(v) > 8 or not all(REGISTRY_RE.match(x) for x in v):
+        if len(v) > 8 or not all(REGISTRY_RE.fullmatch(x) for x in v):
             raise ValueError("invalid registry")
         return v
 
@@ -165,7 +166,7 @@ class GuestSpec(BaseModel):
     @field_validator("enroll_token_sha256", "agent_bundle_sha256")
     @classmethod
     def _hex(cls, v):
-        if not HEX64.match(v):
+        if not HEX64.fullmatch(v):
             raise ValueError("expected 64 lowercase hex characters")
         return v
 
@@ -174,7 +175,7 @@ class GuestSpec(BaseModel):
         if bool(self.image_registries) != bool(self.image_signing_pubkey_pem):
             raise ValueError("image_registries and image_signing_pubkey_pem go together (no unsigned registries)")
         if self.image_signing_pubkey_pem:
-            if self.image_signing_key_sha256 is None or not HEX64.match(self.image_signing_key_sha256):
+            if self.image_signing_key_sha256 is None or not HEX64.fullmatch(self.image_signing_key_sha256):
                 raise ValueError("image_signing_key_sha256 (pinned fingerprint) is required")
             try:
                 der = serialization.load_pem_public_key(self.image_signing_pubkey_pem.encode()).public_bytes(

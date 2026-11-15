@@ -106,6 +106,8 @@ def build_message(db: Session, n) -> alerts.Message:
         word = "STARTED" if ev == "maintenance_started" else "ENDED"
         return alerts.Message(ev, f"[OU-ICS] MAINTENANCE {word}", (n.detail or "") + "\n",
                               {"event": ev, "at": int(time.time()), "detail": n.detail})
+    if r is None and ev.startswith("credential."):  # credential expiry alerts carry their text in `detail` (no secrets)
+        return alerts.Message(ev, f"[OU-ICS] {ev}", (n.detail or ev) + "\n", {"event": ev, "at": int(time.time()), "message": n.detail})
     if r is None:
         return alerts.Message(ev, "[OU-ICS] test notification", "This is a test notification from Office Unbound ICS.",
                               {"event": ev, "test": True, "at": int(time.time())})

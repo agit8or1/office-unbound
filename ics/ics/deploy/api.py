@@ -107,6 +107,16 @@ def register_routes(app: FastAPI, rt) -> None:
         except (ValueError, ValidationError) as e:
             raise HTTPException(422, str(e)[:500])
 
+    @app.post(f"{API}/deployments/{{slug}}/destroy/preview")
+    def destroy_preview(slug: str, user: User = Depends(require("operator")), db: Session = Depends(get_db)):
+        """Dry run: the VMs a destroy would remove (applied revision + owned resources) and the plan_hash an approval binds to."""
+        try:
+            return ops.destroy_preview(db, slug)
+        except KeyError:
+            raise HTTPException(404, "deployment not found")
+        except LookupError as e:
+            raise HTTPException(409, str(e))
+
     @app.get(f"{API}/jobs/{{job_id}}/steps")
     def job_steps(job_id: UUID, user: User = Depends(require("viewer")), db: Session = Depends(get_db)):
         if db.execute(text("SELECT 1 FROM jobs WHERE id = :j"), {"j": str(job_id)}).first() is None:

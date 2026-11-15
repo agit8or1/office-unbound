@@ -70,7 +70,7 @@ def test_self_approval_rejected_and_full_flow(client, mk_user, login, pve, rt):
         dump = json.dumps([[str(c) for c in r] for r in db.execute(text("SELECT details FROM audit_events")).all()])
         dump += json.dumps(o.get(f"{H}/plans").json()) + json.dumps(o.get(f"{H}/jobs").json())
         assert db.execute(text("SELECT count(*) FROM plans WHERE secret_enc IS NOT NULL")).scalar() == 1  # only the unapproved 'other'
-        enc = db.execute(text("SELECT token_secret_enc FROM endpoints")).scalar()
+        enc = db.execute(text("SELECT secret_enc FROM credentials")).scalar()
     assert SEC not in dump and SEC.encode() not in bytes(enc)
     assert ap.get(f"{H}/audit/verify").json()["ok"] is True
 
