@@ -60,6 +60,13 @@ while IFS=$'\t' read -r user md; do
   [ -f "$md/exmdb/midb.sqlite3" ] || gromox-mkmidb "$user" >/dev/null
 done < <(mysql -N "$DBN" -e 'select username,maildir from users')
 chown -R gromox:gromox /var/lib/gromox; chmod -R g+rwX /var/lib/gromox
+# quarantined stores (dir mode 000, not exportable logically) come as raw sqlite online-backup copies: put them in before any daemon runs
+for f in mbx/*.exchange.sqlite3; do
+  [ -e "$f" ] || continue
+  u="$(basename "$f" .exchange.sqlite3)"; dir="$(mysql -N "$DBN" -e "select maildir from users where username='$u'")"
+  rm -f "$dir/exmdb/exchange.sqlite3"{,-wal,-shm}; install -m 0660 -o gromox -g gromox "$f" "$dir/exmdb/exchange.sqlite3"
+  rm -rf "$dir/cid"; tar -xf "mbx/$u.cid.tar" -C "$dir"; chown -R gromox:gromox "$dir/cid"; log "raw store restored for $u"
+done
 # --- services (the gromox units were installed by make install; the enable set is the one running on the original)
 systemctl daemon-reload
 systemctl enable --now redis-server php8.2-fpm
@@ -77,7 +84,7 @@ done
 # stores were written behind the daemons' back (ACL rows): restart the gromox frontends so no cached ACLs/midb state survives
 systemctl restart gromox-http gromox-zcore gromox-midb gromox-imap
 for i in $(seq 1 30); do ss -ltn | grep -q ':10080 ' && ss -ltn | grep -q ':993 ' && break; sleep 1; done
-while IFS=$'\t' read -r u; do gromox-mbop -u "$u" sync-midb -f all >/dev/null 2>&1 || true; done < <(grep -h '^mbx|' "$M" | cut -d'|' -f2)
+while IFS=$'\t' read -r u; do gromox-mbop -u "$u" sync-midb -f all >/dev/null 2>&1 || true; done < <(grep -h -E '^mbx(raw)?\|' "$M" | cut -d'|' -f2)
 # lifecycle quarantine (store dir mode) is filesystem-only state: re-apply it
 grep '^dirmode|' "$M" | while IFS='|' read -r _ u mode; do chmod "$mode" "$(mysql -N "$DBN" -e "select maildir from users where username='$u'")"; done
 # --- postfix / nginx last: only now does the node accept connections for the mail names it resolves to itself
@@ -93,7 +100,7 @@ while IFS='|' read -r _ u st total inbox cal _rest; do
   dir="$(mysql -N "$DBN" -e "select maildir from users where username='$u'")"
   got="$(cnt "$dir")"
   if [ "$got" = "$total $inbox $cal" ]; then n=$((n+1)); msgs=$((msgs+total)); else log "COUNT MISMATCH $u: restored '$got' manifest '$total $inbox $cal'"; bad=1; fi
-done < <(grep '^mbx|' "$M")
+done < <(grep -E '^mbx(raw)?\|' "$M")
 [ "$bad" = 0 ] || die "restored mailbox counts differ from manifest" 8
 log "VERIFIED: $n mailboxes, $msgs messages (IPM_SUBTREE), counts total/inbox/calendar identical to manifest"
 date -u +%FT%TZ > /root/ou-restore.done; rm -rf "$W" /root/ou-restore.MANIFEST /root/gw-ldap-sync.py

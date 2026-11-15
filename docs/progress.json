@@ -1,0 +1,470 @@
+{
+  "schema": "office-unbound-progress/1",
+  "schema_doc": "docs/progress-schema.md",
+  "project": "Office Unbound",
+  "repository": "https://github.com/agit8or1/office-unbound",
+  "updated": "2026-11-15",
+  "stage": "pre-alpha (lab)",
+  "summary": "Core platform components are integrated and tested in an isolated lab: own source build of Exchange-compatible groupware, single sign-on, file sync and browser document editing, backup/restore drills, and an infrastructure control server with monitoring and self-healing. Proxmox provisioning, the deployment wizard and the redesigned console are in progress.",
+  "status_values": {
+    "planned": "Planned",
+    "researching": "Researching",
+    "implementing": "Implementing",
+    "integrated_lab": "Integrated in lab",
+    "tested": "Tested",
+    "alpha": "Alpha",
+    "beta": "Beta",
+    "production": "Production supported",
+    "blocked": "Blocked"
+  },
+  "principles": [
+    "Zero mandatory third-party licensing cost; no artificial user, mailbox or connection limits (ADR-0007)",
+    "Own source builds where vendor packages are restricted (ADR-0008)",
+    "A feature is working only when demonstrated by executed tests"
+  ],
+  "phases": [
+    {
+      "id": "P0",
+      "name": "Discovery and architecture",
+      "status": "tested",
+      "items": [
+        {
+          "id": "P0.1",
+          "title": "Architecture decision records and zero-cost component strategy",
+          "status": "tested",
+          "evidence": [
+            "docs/ARCHITECTURE.md",
+            "docs/adr/"
+          ]
+        },
+        {
+          "id": "P0.2",
+          "title": "Source-level licensing evaluation of groupware and document engine",
+          "status": "tested",
+          "evidence": [
+            "docs/status/groupware-source-eval.md",
+            "docs/status/docengine-source-eval.md"
+          ]
+        },
+        {
+          "id": "P0.3",
+          "title": "Third-party software inventory",
+          "status": "implementing",
+          "evidence": [
+            "docs/status/third-party-inventory.md"
+          ]
+        }
+      ]
+    },
+    {
+      "id": "P1",
+      "name": "Control server foundation and core platform proof",
+      "status": "implementing",
+      "items": [
+        {
+          "id": "P1.1",
+          "title": "ICS: operator auth with MFA, encrypted vault, tamper-evident audit, approvals, durable jobs",
+          "status": "tested",
+          "evidence": [
+            "docs/status/security-review-ics-2026-11-15.md"
+          ]
+        },
+        {
+          "id": "P1.2",
+          "title": "ICS: service-level monitoring, incidents, alerts, signed node agents, bounded auto-remediation",
+          "status": "integrated_lab",
+          "evidence": [
+            "docs/status/ics-monitoring-results.md",
+            "docs/status/security-review-ics-monitoring-2026-11-15.md"
+          ]
+        },
+        {
+          "id": "P1.3",
+          "title": "Groupware: own source build of Gromox stack (MAPI/HTTP, EWS, ActiveSync, Autodiscover, IMAP/SMTP, CalDAV/CardDAV, webmail), no user cap",
+          "status": "integrated_lab",
+          "evidence": [
+            "docs/status/groupware-lab-results.md"
+          ]
+        },
+        {
+          "id": "P1.4",
+          "title": "Single user directory: OpenLDAP authoritative for Keycloak SSO, files and groupware",
+          "status": "integrated_lab",
+          "evidence": [
+            "docs/status/identity-files-lab-results.md",
+            "docs/status/groupware-ldap-results.md"
+          ]
+        },
+        {
+          "id": "P1.5",
+          "title": "Files: OpenCloud with WebDAV, versions, desktop sync engine (offline, conflicts)",
+          "status": "integrated_lab",
+          "evidence": [
+            "docs/status/identity-files-lab-results.md"
+          ]
+        },
+        {
+          "id": "P1.6",
+          "title": "Documents: browser editing via WOPI with verified save/reopen and restart persistence",
+          "status": "integrated_lab",
+          "evidence": [
+            "docs/status/identity-files-lab-results.md"
+          ],
+          "note": "Lab uses vendor CODE packages for functional tests only"
+        },
+        {
+          "id": "P1.7",
+          "title": "Documents: own unlimited, rebranded Collabora Online source build",
+          "status": "implementing",
+          "evidence": [
+            "docs/status/docengine-source-eval.md"
+          ]
+        },
+        {
+          "id": "P1.8",
+          "title": "User lifecycle: provision and deprovision across all services with measured revocation",
+          "status": "integrated_lab",
+          "evidence": [
+            "docs/status/user-lifecycle-results.md"
+          ],
+          "note": "Open gaps: OpenCloud app-token revocation, ActiveSync remote wipe, per-user IMAP session termination"
+        },
+        {
+          "id": "P1.9",
+          "title": "Backup and restore drills to separate machines (files, identity, ICS controller)",
+          "status": "integrated_lab",
+          "evidence": [
+            "docs/status/restore-drill-results.md",
+            "docs/runbooks/ics-recovery.md"
+          ]
+        },
+        {
+          "id": "P1.10",
+          "title": "Groupware restore to a separate machine and clean-room rebuild",
+          "status": "integrated_lab",
+          "evidence": [
+            "docs/status/restore-drill-results.md"
+          ],
+          "note": "Online logical backup; point-in-time consistency across mailboxes needs snapshots"
+        },
+        {
+          "id": "P1.11",
+          "title": "Real Outlook, Thunderbird and mobile client compatibility matrix",
+          "status": "planned",
+          "evidence": [
+            "blueprints/lab/tests/MANUAL-CHECKLIST.md"
+          ]
+        }
+      ]
+    },
+    {
+      "id": "P2",
+      "name": "Infrastructure orchestration and repeatable deployment",
+      "status": "implementing",
+      "items": [
+        {
+          "id": "P2.1",
+          "title": "Provider adapter with Proxmox VE as first provider (discovery, metrics, scoped VM lifecycle)",
+          "status": "implementing",
+          "evidence": [
+            "docs/adr/0009-infrastructure-orchestration.md"
+          ]
+        },
+        {
+          "id": "P2.2",
+          "title": "Deployment engine: profiles, sizing, dependency graph, plans, desired vs actual state, drift",
+          "status": "implementing",
+          "evidence": [
+            "docs/adr/0009-infrastructure-orchestration.md"
+          ]
+        },
+        {
+          "id": "P2.3",
+          "title": "Guest bootstrap: cloud-init, rootless Podman, signed digest-pinned images, agent enrollment",
+          "status": "implementing",
+          "evidence": []
+        },
+        {
+          "id": "P2.4",
+          "title": "Setup, deployment and change wizards backed by approval-gated plans",
+          "status": "implementing",
+          "evidence": []
+        },
+        {
+          "id": "P2.5",
+          "title": "Build and release pipeline for own distributions (signed packages/images, SBOM, staged channels)",
+          "status": "planned",
+          "evidence": [
+            "docs/adr/0008-build-release-pipeline.md"
+          ]
+        },
+        {
+          "id": "P2.6",
+          "title": "Continuous integration (tests, secret scanning, license checks)",
+          "status": "implementing",
+          "evidence": []
+        }
+      ]
+    },
+    {
+      "id": "P3",
+      "name": "First working user experience",
+      "status": "planned",
+      "items": [
+        {
+          "id": "P3.1",
+          "title": "Redesigned infrastructure console (dashboard, infrastructure views, operations, monitoring)",
+          "status": "implementing",
+          "evidence": []
+        },
+        {
+          "id": "P3.2",
+          "title": "Unified user portal (mail, calendar, contacts, files, documents) with SSO",
+          "status": "planned",
+          "evidence": []
+        },
+        {
+          "id": "P3.3",
+          "title": "Guided desktop and mobile onboarding",
+          "status": "planned",
+          "evidence": []
+        }
+      ]
+    },
+    {
+      "id": "P4",
+      "name": "MSP and organization administration",
+      "status": "planned",
+      "items": [
+        {
+          "id": "P4.1",
+          "title": "Two isolated customer stacks with cross-customer access-denial tests",
+          "status": "planned",
+          "evidence": []
+        },
+        {
+          "id": "P4.2",
+          "title": "Organization admin and MSP Control Center",
+          "status": "planned",
+          "evidence": []
+        },
+        {
+          "id": "P4.3",
+          "title": "Versioned MSP provisioning API",
+          "status": "planned",
+          "evidence": []
+        }
+      ]
+    },
+    {
+      "id": "P5",
+      "name": "Operational maturity",
+      "status": "planned",
+      "items": [
+        {
+          "id": "P5.1",
+          "title": "Patch rings, controlled upgrades and rollback",
+          "status": "planned",
+          "evidence": []
+        },
+        {
+          "id": "P5.2",
+          "title": "Capacity analytics and scaling plans",
+          "status": "planned",
+          "evidence": []
+        },
+        {
+          "id": "P5.3",
+          "title": "Encrypted off-host backups with measured RPO/RTO",
+          "status": "planned",
+          "evidence": []
+        }
+      ]
+    },
+    {
+      "id": "P6",
+      "name": "Chat, meetings and telephony",
+      "status": "researching",
+      "items": [
+        {
+          "id": "P6.1",
+          "title": "Zero-cost collaboration stack evaluation (Matrix, Jitsi/LiveKit, Asterisk)",
+          "status": "researching",
+          "evidence": [
+            "docs/status/collaboration-eval.md"
+          ]
+        }
+      ]
+    },
+    {
+      "id": "P7",
+      "name": "Migration Center (Microsoft 365, Google Workspace)",
+      "status": "planned",
+      "items": [
+        {
+          "id": "P7.1",
+          "title": "Read-only migration readiness assessment",
+          "status": "planned",
+          "evidence": []
+        },
+        {
+          "id": "P7.2",
+          "title": "Mail, calendar, contacts and file migration engine",
+          "status": "planned",
+          "evidence": []
+        }
+      ]
+    },
+    {
+      "id": "P8",
+      "name": "MSP pilot and production hardening",
+      "status": "planned",
+      "items": [
+        {
+          "id": "P8.1",
+          "title": "Deliverability, performance, security testing and support documentation",
+          "status": "planned",
+          "evidence": []
+        }
+      ]
+    }
+  ],
+  "acceptance": [
+    {
+      "id": "A1",
+      "title": "ICS deploys the required components into approved lab infrastructure",
+      "status": "implementing"
+    },
+    {
+      "id": "A2",
+      "title": "Services reachable through correctly configured TLS endpoints",
+      "status": "integrated_lab",
+      "note": "Lab CA"
+    },
+    {
+      "id": "A3",
+      "title": "Keycloak login and user provisioning",
+      "status": "integrated_lab"
+    },
+    {
+      "id": "A4",
+      "title": "User can enter the Office Unbound portal",
+      "status": "planned"
+    },
+    {
+      "id": "A5",
+      "title": "User can access mail",
+      "status": "integrated_lab"
+    },
+    {
+      "id": "A6",
+      "title": "Send and receive real test messages",
+      "status": "integrated_lab",
+      "note": "Within the lab; external deliverability not yet tested"
+    },
+    {
+      "id": "A7",
+      "title": "Calendar events created and synchronized",
+      "status": "integrated_lab"
+    },
+    {
+      "id": "A8",
+      "title": "Contacts created and synchronized",
+      "status": "integrated_lab"
+    },
+    {
+      "id": "A9",
+      "title": "Create a document",
+      "status": "integrated_lab"
+    },
+    {
+      "id": "A10",
+      "title": "Edit and save a document",
+      "status": "integrated_lab"
+    },
+    {
+      "id": "A11",
+      "title": "Content correct after close and reopen",
+      "status": "integrated_lab"
+    },
+    {
+      "id": "A12",
+      "title": "Content survives service restart",
+      "status": "integrated_lab"
+    },
+    {
+      "id": "A13",
+      "title": "Desktop sync upload/download and offline work",
+      "status": "integrated_lab",
+      "note": "Sync engine tested headless; GUI client not yet"
+    },
+    {
+      "id": "A14",
+      "title": "Groupware protocol tests report actual client compatibility",
+      "status": "implementing",
+      "note": "Protocol level done; real clients pending"
+    },
+    {
+      "id": "A15",
+      "title": "ICS detects a simulated service failure",
+      "status": "integrated_lab"
+    },
+    {
+      "id": "A16",
+      "title": "Approved recovery action succeeds",
+      "status": "integrated_lab"
+    },
+    {
+      "id": "A17",
+      "title": "Backup restored to a separate test machine",
+      "status": "integrated_lab",
+      "note": "Files, identity, groupware and ICS controller tiers restored to separate machines"
+    },
+    {
+      "id": "A18",
+      "title": "Tests identify unsupported functionality instead of concealing it",
+      "status": "integrated_lab"
+    },
+    {
+      "id": "A19",
+      "title": "User deprovisioning removes effective access",
+      "status": "integrated_lab",
+      "note": "Known gaps listed in P1.8"
+    },
+    {
+      "id": "A20",
+      "title": "Two isolated customer deployments pass access-denial tests",
+      "status": "planned"
+    },
+    {
+      "id": "A21",
+      "title": "Pinned upgrades and recovery demonstrated",
+      "status": "planned"
+    },
+    {
+      "id": "A22",
+      "title": "Installer can repeat the installation",
+      "status": "integrated_lab",
+      "note": "Groupware stack rebuilt from source on a fresh machine with byte-identical binary"
+    },
+    {
+      "id": "A23",
+      "title": "Monitoring and audit history survive restarts",
+      "status": "integrated_lab",
+      "note": "Audit chain verified after controller restore"
+    },
+    {
+      "id": "A24",
+      "title": "Administrator documentation describes real procedures",
+      "status": "implementing",
+      "evidence": [
+        "docs/runbooks/"
+      ]
+    }
+  ],
+  "known_limitations": [
+    "New Outlook for Windows and Outlook mobile cannot use MAPI/EWS against non-Microsoft servers (Microsoft limitation); IMAP/SMTP only",
+    "Lab currently runs in isolated containers on a single host; production topology is full VMs on Proxmox",
+    "No production releases exist yet"
+  ]
+}

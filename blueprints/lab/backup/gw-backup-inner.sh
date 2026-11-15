@@ -13,7 +13,7 @@ cd "$W"; mkdir mbx pub
 log() { echo "[gw-backup-inner] $*" >&2; }
 DBN=email
 # --- 1. database
-mysqldump --single-transaction --routines --triggers --events --default-character-set=utf8mb4 "$DBN" > db.sql
+mysqldump --single-transaction --skip-extended-insert --routines --triggers --events --default-character-set=utf8mb4 "$DBN" > db.sql
 log "db dump $(wc -c < db.sql) bytes"
 # --- 2. config
 CFG=(etc/gromox etc/ou-lab-tls etc/ou-lab-ldap etc/ldap/ldap.conf etc/nginx/nginx.conf etc/nginx/conf.d etc/nginx/ou-locations
@@ -40,18 +40,28 @@ cnt() { # store-dir -> "total inbox calendar" (non-FAI, non-deleted messages bel
   for p in mariadb-server nginx php8.2-fpm postfix redis-server; do echo "pkg.$p=$(dpkg-query -W -f='${Version}' $p 2>/dev/null)"; done
   echo "gromox_binary_sha256=$(sha256sum /usr/libexec/gromox/http | cut -d' ' -f1)"
   echo "domains=$(mysql -N "$DBN" -e 'select group_concat(domainname) from domains')"
-  echo "users_rows=$(mysql -N "$DBN" -e 'select count(*) from users')"
+  echo "users_rows=$(grep -c '^INSERT INTO `users` VALUES' db.sql)"   # rows IN THE DUMP (live users may change while we run)
 } > manifest.part
 n=0; skipped=0; INCOMPLETE=0
 while IFS=$'\t' read -r user dir status; do
+  # only users that are in the dump: a row created after the dump would have no DB row on the restore side
+  if ! grep '^INSERT INTO `users` VALUES' db.sql | grep -qF ",'$user',"; then log "$user created after the db dump: not in this backup"; continue; fi
   if [ ! -f "$dir/exmdb/exchange.sqlite3" ]; then log "no store for $user ($dir): skipped"; skipped=$((skipped+1)); continue; fi
   b="$(cnt "$dir")"
   mode="$(stat -c %a "$dir")"; [ "$mode" = 770 ] || echo "dirmode|$user|$mode" >> manifest.part   # e.g. 0 = quarantined by the user-lifecycle tooling (filesystem-only state!)
   if ! gromox-exm2mt -u "$user" -ars IPM_SUBTREE > "mbx/$user.mt" 2> "mbx/$user.err"; then
-    # exm2mt runs as the gromox user: a store dir with mode 000 (lifecycle quarantine) cannot be exported. Only acceptable when the store holds nothing.
+    # exm2mt runs as the gromox user: a store dir with mode 000 (lifecycle quarantine) cannot be exported logically. Empty store: nothing to save.
+    # Store with content: fall back to a RAW but consistent copy (sqlite online-backup API as root; attachment blobs from cid/).
     log "EXPORT FAILED for $user (store dir mode $mode, $b messages: total inbox calendar): $(tail -2 "mbx/$user.err")"
-    echo "mbx_failed|$user|$status|${b// /|}|dirmode $mode" >> manifest.part; rm -f "mbx/$user.mt" "mbx/$user.err"
-    [ "${b%% *}" = 0 ] || INCOMPLETE=1
+    rm -f "mbx/$user.mt" "mbx/$user.err"
+    if [ "${b%% *}" = 0 ]; then echo "mbx_failed|$user|$status|${b// /|}|dirmode $mode" >> manifest.part; continue; fi
+    if sqlite3 -readonly "$dir/exmdb/exchange.sqlite3" ".backup '$W/mbx/$user.exchange.sqlite3'" && tar -C "$dir" -cf "mbx/$user.cid.tar" cid 2>/dev/null; then
+      a="$(cnt "$dir")"
+      echo "mbxraw|$user|$status|${b// /|}|recount ${a// /,}|$(wc -c < "mbx/$user.exchange.sqlite3")|$(sha256sum < "mbx/$user.exchange.sqlite3" | cut -d' ' -f1)" >> manifest.part
+      log "  -> raw sqlite fallback stored for $user"
+    else
+      echo "mbx_failed|$user|$status|${b// /|}|dirmode $mode" >> manifest.part; INCOMPLETE=1
+    fi
     continue
   fi
   a="$(cnt "$dir")"
