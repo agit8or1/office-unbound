@@ -16,6 +16,8 @@ from datetime import datetime, timezone
 from sqlalchemy import text
 from sqlalchemy.orm import Session
 
+from ..tenancy import scope as tscope
+
 ORDER = {"ok": 0, "unmanaged": 0, "unknown": 1, "warning": 2, "critical": 3}
 
 
@@ -76,7 +78,7 @@ def summary(db: Session, stale_seconds: int) -> dict:
     reasons, statuses = [], []
     counts: dict = {}
     for table, (label, _) in _FNS.items():
-        rows = db.execute(text(f"SELECT * FROM {table}")).all()
+        rows = db.execute(text(f"SELECT * FROM {table} WHERE {tscope.endpoint_clause(db)}")).all()
         counts[label] = len(rows)
         for r in rows:
             h = with_health(r, table, now, stale_seconds)
@@ -86,7 +88,7 @@ def summary(db: Session, stale_seconds: int) -> dict:
             if h["status"] != "ok":
                 reasons.append({"resource": label, "id": str(r.id), "name": r.name, "status": h["status"], "reason": h["reason"]})
     eps = db.execute(text("SELECT e.id, e.name, e.enabled, e.detached_at, s.last_discovery_ok, s.last_discovery_at, s.last_error "
-                          "FROM endpoints e LEFT JOIN infra_collect_state s ON s.endpoint_id = e.id")).all()
+                          f"FROM endpoints e LEFT JOIN infra_collect_state s ON s.endpoint_id = e.id WHERE {tscope.clause(db, 'e.customer_id')}")).all()
     active = [e for e in eps if e.enabled and e.detached_at is None]
     for e in active:
         if e.last_discovery_at is None:

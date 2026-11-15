@@ -34,6 +34,7 @@ class Vault:
         if len(key) != 32:
             raise VaultError("vault key must be exactly 32 bytes")
         self._aes = AESGCM(key)
+        self.key = key  # only for key-id derivation and master-key rotation; never logged
 
     @classmethod
     def from_file(cls, path: str) -> "Vault":
