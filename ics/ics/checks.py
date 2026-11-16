@@ -24,9 +24,10 @@ from cryptography import x509
 from pydantic import BaseModel, ConfigDict, Field, field_validator, model_validator
 
 from .backups.ops import BackupCheckConfig
+from .inventory.infra_checks import InfraCheckConfig
 from .proxmox import ProxmoxError, build_ssl_context, check_destination, normalize_fingerprint
 
-KINDS = ("http", "tcp_tls", "imap_login", "smtp_banner", "ews_getfolder", "backup", "sip_options_tls", "jitsi_jwt")
+KINDS = ("http", "tcp_tls", "imap_login", "smtp_banner", "ews_getfolder", "backup", "sip_options_tls", "jitsi_jwt", "infra")
 HOST_RE = r"^[A-Za-z0-9]([A-Za-z0-9.-]{0,251}[A-Za-z0-9])?$"
 USER_RE = r"^[A-Za-z0-9][A-Za-z0-9._@+-]{0,127}$"
 MAX_BODY = 1024 * 1024
@@ -234,7 +235,7 @@ class JitsiJwtCheck(_Trust):
 
 MODELS: dict[str, type[BaseModel]] = {"http": HttpCheck, "tcp_tls": TcpTlsCheck, "imap_login": ImapLoginCheck,
                                       "smtp_banner": SmtpBannerCheck, "ews_getfolder": EwsGetFolderCheck, "backup": BackupCheckConfig,
-                                      "sip_options_tls": SipOptionsTlsCheck, "jitsi_jwt": JitsiJwtCheck}
+                                      "sip_options_tls": SipOptionsTlsCheck, "jitsi_jwt": JitsiJwtCheck, "infra": InfraCheckConfig}
 NEEDS_PASSWORD = {"imap_login", "ews_getfolder"}
 
 
@@ -243,8 +244,8 @@ def validate_config(kind: str, cfg: dict) -> dict:
 
 
 def config_host(kind: str, cfg: dict) -> str | None:
-    if kind == "backup":
-        return None    # evaluated from recorded runs: no network destination
+    if kind in ("backup", "infra"):
+        return None    # evaluated from recorded runs / collected inventory: no network destination
     m = MODELS[kind].model_validate(cfg)
     return m.host  # type: ignore[attr-defined]
 

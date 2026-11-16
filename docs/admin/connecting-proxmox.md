@@ -6,21 +6,21 @@ Evidence: [provider-proxmox-real.md](../status/provider-proxmox-real.md) (real P
 
 ## 0. Recommended: sign in and pick (Connect a cluster / Manage access)
 
-*Infrastructure › Proxmox clusters › Connect a cluster.* Design and limitations: [ADR-0016](../adr/0016-proxmox-connection-wizard.md). **State: simulator-tested only; no real-cluster evidence yet (pve06 pending).**
+*Infrastructure › Proxmox clusters › Connect a cluster.* Design and limitations: [ADR-0016](../adr/0016-proxmox-connection-wizard.md). **State: simulator-tested; the first real connection (pve.agit8or.net, publicly trusted certificate) reached the Review step and is pending.**
 
 1. **Connect.** Enter the address, user name, realm (default `pam`) and password.
    - A publicly trusted certificate is accepted automatically.
    - For a self-signed certificate, compare the fingerprint shown with the one under *node › System › Certificates*, or paste the cluster CA (`/etc/pve/pve-root-ca.pem`).
    - If the account has two-factor, enter the authenticator code or a recovery key. Security keys (WebAuthn) cannot be answered outside the Proxmox web page.
    - Only a Proxmox session ticket is kept, encrypted, for at most 30 minutes. Your password and code are never stored.
-2. **Discover.** You see the cluster overview and the full node › guest tree.
-   - Tick the **existing** VMs and containers Office Unbound may see and operate. Ticking a node never selects its guests.
+2. **Discover.** You see the cluster overview and its nodes. Tick the **hypervisor nodes** Office Unbound may use. Existing VMs and containers are counted, never selectable, and never shared.
+   - **Monitoring scope:** *only the selected nodes* (default) or *the whole cluster, read-only*. The second grants an audit-only role (`Sys.Audit`, `VM.Audit`, `Datastore.Audit`, `Pool.Audit`) at `/` to the **read token only**. Office Unbound can then see and alert on every node, VM, container and storage, including ones it did not create, but cannot change any of them.
    - If the account lacks a setup privilege, the page names it and gives the narrowest `pveum` fix.
-3. **Deployment targets** (optional): the nodes, pool, storage, networks and templates for **new** guests.
-4. **Permissions:** Monitoring, Operations (start / shut down / reboot the ticked guests) or Deployment. Deleting foreign guests, changing storage, network, cluster or permissions, consoles and guest commands are never granted.
-5. **Review.** The exact Proxmox changes are calculated: users, tokens, roles and ACLs, plus what Proxmox enforces and what only Office Unbound enforces.
-   - *Request approval* creates a high-risk plan. Two other people approve it.
-   - The job creates the restricted `ics-svc@pve` account and privilege-separated tokens, verifies them, stores them in the vault, and destroys your sign-in.
+3. **Deployment targets:** Office Unbound proposes its own new pool `office-unbound`, the disk storage with the most free space on the chosen nodes, and the bridge they share. Templates are not needed: *Administration › Images* imports its signed image into the pool. Bridges and VLANs are never created.
+4. **Permissions:** *Monitoring (read-only)* or *Deployment + Monitoring*. The page lists what Office Unbound **can observe**, what it **can modify**, and what is **never allowed**. Each line says who enforces it (see the table in section 9).
+5. **Review.** *Calculate the exact Proxmox changes* is a **dry run**: it reads Proxmox and lists the account, tokens, roles, pool and ACLs it would create. Nothing changes yet. A failed calculation shows the server's reason, and the ICS log records it (field names only).
+   - *Request approval and connect* then creates the plan. With `ICS_APPROVAL_MODE=single_admin` you approve it yourself (*Approve and run*); otherwise another approver does.
+   - The job creates the restricted `ics-svc@pve` account and privilege-separated tokens. It verifies their effective rights (any extra right fails the job), stores the tokens in the vault, and destroys your sign-in.
 
 **Later changes:** open the cluster and choose **Manage access**. It is the same wizard, with the current choices pre-selected, new guests marked *New*, and missing ones listed.
 - Adding or removing guests, nodes, storage, networks or pools changes only the affected ACLs. The account and tokens are kept.
@@ -138,6 +138,19 @@ Console: **Infrastructure > Providers > Proxmox** (list, connect wizard, dashboa
 **Customer-owned clusters** can require the customer's approval of the permission design before anything is applied: see [Customers and approvals](customers-and-approvals.md#6-customer-approval-links-customers-have-no-ics-login). Limit: a Mode A plan waiting on a customer link outlives its 15-minute credential and must be re-planned; Mode B is the intended path.
 
 ## 9. What is enforced where
+What the connection wizard shows, line by line:
+
+| Office Unbound … | Enforced by | How |
+|---|---|---|
+| cannot change storage, network or cluster configuration | **Proxmox** | the tokens hold no `Sys.Modify`, `Datastore.Allocate`, `SDN.Allocate` |
+| cannot change Proxmox users or permissions, or raise its own rights | **Proxmox** | no `User.Modify`, `Permissions.Modify`, `Realm.*`; the account is created once, with your sign-in |
+| cannot open consoles or run commands in guests | **Proxmox** | no `VM.Console`, `Sys.Console`, guest-agent command privileges |
+| cannot see or touch anything outside the approved scope | **Proxmox** | ACLs only on the chosen paths; verified after setup and on every drift check. With cluster monitoring, read-only audit rights at `/` for the read token only |
+| uses only the chosen storage and bridge | **Proxmox** | `Datastore.AllocateSpace` / `SDN.Use` on exactly those |
+| creates guests only on the chosen node(s) | **Proxmox + Office Unbound** | pool rights are not node-specific in Proxmox; node-local storage limits it, and the ICS refuses other nodes |
+| deletes only its own guests, only after your approval | **Office Unbound** | `VM.Allocate` on a pool also allows destroy. The ICS requires a deployment record and a fresh identity check, shows what is removed, and needs approval |
+| refuses a VM someone else moved into its pool | **Office Unbound** | ownership comes from deployment records, never from names or VMIDs |
+
 | Rule | Enforced by |
 |---|---|
 | Pool, storage and bridge allowlists, clone sources, token privilege separation | Proxmox ACLs |

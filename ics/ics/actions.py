@@ -282,7 +282,7 @@ class CheckCreate(BaseModel):
     model_config = ConfigDict(extra="forbid")
     customer_id: UUID | None = Field(default=None, description="owning customer (default: derived from the referenced object, else MSP-internal)")
     name: str = Field(pattern=NAME_RE)
-    kind: Literal["http", "tcp_tls", "imap_login", "smtp_banner", "ews_getfolder", "backup", "sip_options_tls", "jitsi_jwt"]
+    kind: Literal["http", "tcp_tls", "imap_login", "smtp_banner", "ews_getfolder", "backup", "sip_options_tls", "jitsi_jwt", "infra"]
     config: dict
     password: SecretStr | None = Field(default=None, description="mailbox/EWS password for imap_login / ews_getfolder (stored in the vault)")
     interval_seconds: int = Field(default=60, ge=5, le=86400)
@@ -564,6 +564,11 @@ def _pre_check_create(db, rt, p: CheckCreate):
         if db.execute(text("SELECT 1 FROM backup_policies WHERE name = :n"), {"n": p.config["policy"]}).first() is None:
             raise PlanError(404, "backup policy not found")
         return {}
+    if p.kind == "infra":    # evaluated from collected inventory: no network destination; the integration must exist
+        ep = db.execute(text("SELECT name, detached_at FROM endpoints WHERE id = :i"), {"i": str(p.config["endpoint_id"])}).first()
+        if ep is None or ep.detached_at is not None:
+            raise PlanError(404, "endpoint not found")
+        return {"endpoint_name": ep.name}
     return {"resolved_ips": _guard(rt, checkmod.config_host(p.kind, p.config))}
 
 
