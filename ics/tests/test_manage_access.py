@@ -142,3 +142,21 @@ def test_monitoring_a_node_only_connects_without_any_guest(w, owner, rt):  # noq
     with rt.session() as db:
         r = db.execute(text("SELECT allowed_nodes, managed_vmids, allowed_pools FROM endpoints WHERE id = :i"), {"i": j2["result"]["endpoint_id"]}).first()
     assert list(r.allowed_nodes) == ["pve06"] and list(r.managed_vmids) == [] and list(r.allowed_pools) == []
+
+
+def test_deployment_creates_its_own_pool_and_needs_no_template(w, owner, rt):  # noqa: F811
+    """Deployment level with a pool that does not exist yet and no template: the apply creates the pool; templates come later from image.import."""
+    assert "office-unbound" not in owner.sim.pools
+    s = sign_in(w, owner)
+    base = {"name": "owner", "base_url": owner.url, "fingerprint_sha256": owner.fingerprint, "admin_session": s["id"]}
+    pol = {"preset": "deploy", "scope_mode": "single_node", "scope": {"nodes": ["pve06"], "pools": ["office-unbound"], "storages": ["PVE06-Storage"],
+                                                                        "networks": ["vmbr0"], "protected_vmids": [126], "guest_types": ["qemu", "lxc"]}}
+    _, j = run_as_admin(w, "provider.provision.plan_preview", {**base, "policy": pol})
+    assert j["status"] == "succeeded", j
+    assert not j["result"]["plan"]["blocked"], j["result"]["plan"]["blocked"]
+    _, j2 = run_as_admin(w, "provider.provision.apply", {**base, "preview_id": j["result"]["preview_id"], "plan_hash": j["result"]["plan_hash"]})
+    assert j2["status"] == "succeeded", j2
+    assert "office-unbound" in owner.sim.pools
+    with rt.session() as db:
+        r = db.execute(text("SELECT allowed_pools, allowed_templates FROM endpoints WHERE id = :i"), {"i": j2["result"]["endpoint_id"]}).first()
+    assert list(r.allowed_pools) == ["office-unbound"]

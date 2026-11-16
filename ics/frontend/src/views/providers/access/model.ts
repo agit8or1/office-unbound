@@ -46,6 +46,28 @@ export function visibleNodes(sel: Selection, guests: InvGuest[]): string[] {
 
 export function deploysAnything(sel: Selection): boolean { return sel.level === 'deploy' }
 
+export const DEFAULT_POOL = 'office-unbound'
+export const POOL_NAME = /^[A-Za-z0-9][A-Za-z0-9_.-]{0,39}$/
+
+/** Deployment targets Office Unbound picks itself once deployment nodes are chosen; only EMPTY fields are filled, the administrator can change all of it.
+ *  Pool: its own new pool (created on apply). Storage: the disk storage on all chosen nodes with the most free space. Network: a bridge every chosen
+ *  node has (vmbr0 first). Bridges are never created: changing host networking can cut a node off. Templates: none (image.import creates its own). */
+export function suggestTargets(sel: Selection, inv: Pick<Inventory, 'storages' | 'networks'>): Partial<Pick<Selection, 'pools' | 'storages' | 'networks'>> {
+  if (!sel.nodes.length) return {}
+  const onAll = (nodes: string[]) => sel.nodes.every((n) => nodes.includes(n))
+  const out: Partial<Pick<Selection, 'pools' | 'storages' | 'networks'>> = {}
+  if (!sel.pools.length) out.pools = [DEFAULT_POOL]
+  if (!sel.storages.length) {
+    const st = inv.storages.filter((s) => s.content.split(',').includes('images') && onAll(s.nodes)).sort((a, b) => (b.total - b.used) - (a.total - a.used))[0]
+    if (st) out.storages = [st.storage]
+  }
+  if (!sel.networks.length) {
+    const br = inv.networks.filter((x) => onAll(x.nodes)).sort((a, b) => Number(b.name === 'vmbr0') - Number(a.name === 'vmbr0') || Number(a.kind !== 'bridge') - Number(b.kind !== 'bridge') || a.name.localeCompare(b.name))[0]
+    if (br) out.networks = [br.name]
+  }
+  return out
+}
+
 export function validate(sel: Selection, guests: InvGuest[]): Record<string, string> {
   const e: Record<string, string> = {}
   if (!sel.operate.length && !sel.nodes.length && !sel.watch.length) e.select = 'Select at least one node or one existing guest.'
@@ -53,6 +75,8 @@ export function validate(sel: Selection, guests: InvGuest[]): Record<string, str
   if (sel.level === 'deploy') {
     if (!sel.nodes.length) e.nodes = 'Choose at least one node where new guests may be created.'
     if (!sel.pools.length) e.pools = 'Choose the resource pool new guests are placed in.'
+    else if (!sel.pools.every((x) => POOL_NAME.test(x))) e.pools = 'A pool name uses letters, digits, - _ . (up to 40 characters).'
+    if (!sel.networks.length) e.networks = 'Choose the network new guests connect to.'
     if (!sel.storages.length) e.storages = 'Choose at least one storage for new disks.'
   }
   const prot = new Set(sel.protected)

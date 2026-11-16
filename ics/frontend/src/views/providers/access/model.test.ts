@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest'
 import type { InvGuest } from './api'
-import { apiUrl, diffSelection, emptySelection, filterGuests, toPolicy, toScopeTarget, validate, visibleNodes } from './model'
+import { apiUrl, diffSelection, emptySelection, filterGuests, suggestTargets, toPolicy, toScopeTarget, validate, visibleNodes } from './model'
 
 const g = (vmid: number, node: string, extra: Partial<InvGuest> = {}): InvGuest => ({ vmid, type: 'qemu', name: `vm${vmid}`, node, status: 'running', cpus: 2, cpu: 0, mem: 0,
   maxmem: 2 ** 31, maxdisk: 2 ** 33, pool: null, template: false, tags: '', ...extra })
@@ -57,6 +57,24 @@ describe('monitored nodes', () => {
     const p = toPolicy(s, GUESTS) as { scope: { nodes: string[]; managed_vmids: number[] } }
     expect(p.scope.nodes).toEqual(['pve06']); expect(p.scope.managed_vmids).toEqual([])
     expect(diffSelection(emptySelection(), s).added).toEqual(['Monitor node pve06'])
+  })
+})
+
+describe('deployment targets Office Unbound picks itself', () => {
+  const st = (storage: string, nodes: string[], free: number, content = 'images,rootdir') => ({ storage, type: 'lvmthin', content, shared: false, nodes, used: 0, total: free })
+  const net = (name: string, nodes: string[], kind: 'bridge' | 'vnet' = 'bridge') => ({ name, kind, zone: null, nodes })
+  const inv = { storages: [st('local', ['pve06'], 9e12, 'iso,vztmpl'), st('small', ['pve06'], 1e9), st('big', ['pve06'], 5e11), st('other', ['pve01'], 9e12)],
+                networks: [net('vmbr1', ['pve06']), net('vmbr0', ['pve06', 'pve01']), net('vn1', ['pve06'], 'vnet')] }
+  it('new pool, roomiest disk storage on the node, vmbr0; nothing before a node is chosen; never overrides a choice', () => {
+    expect(suggestTargets(emptySelection(), inv)).toEqual({})
+    expect(suggestTargets({ ...emptySelection(), nodes: ['pve06'] }, inv)).toEqual({ pools: ['office-unbound'], storages: ['big'], networks: ['vmbr0'] })
+    expect(suggestTargets({ ...emptySelection(), nodes: ['pve06'], pools: ['mine'], networks: ['vmbr1'] }, inv)).toEqual({ storages: ['big'] })
+  })
+  it('validates the pool name and asks for a network', () => {
+    const base = { ...emptySelection(), nodes: ['pve06'], storages: ['big'], level: 'deploy' as const }
+    expect(validate({ ...base, pools: ['bad name'], networks: ['vmbr0'] }, GUESTS).pools).toBeTruthy()
+    expect(validate({ ...base, pools: ['office-unbound'] }, GUESTS).networks).toBeTruthy()
+    expect(validate({ ...base, pools: ['office-unbound'], networks: ['vmbr0'] }, GUESTS)).toEqual({})
   })
 })
 

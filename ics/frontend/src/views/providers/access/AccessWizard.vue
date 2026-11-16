@@ -1,7 +1,7 @@
 <script setup lang="ts">
 // Connect → Discover → Select → Authorize → Done (new), and Manage access → Select changes → Apply → Done (edit, `id` = the integration).
 // The password and second-factor code go to the server once; only a short-lived Proxmox session (never the password) is kept there.
-import { computed, onBeforeUnmount, reactive, ref } from 'vue'
+import { computed, onBeforeUnmount, reactive, ref, watch } from 'vue'
 import { Banner, WizardShell, useWizard, type Errors, type StepDef } from '../../../wizards/kit'
 import { api, msg } from '../api'
 import { useRun } from '../run'
@@ -11,7 +11,7 @@ import type { PlanPreviewOut } from '../model'
 import InventoryTree from './InventoryTree.vue'
 import MaintenancePanel from './MaintenancePanel.vue'
 import { accessApi, type Inventory, type PveSession, type TlsLookup } from './api'
-import { LEVELS, NEVER, apiUrl, diffSelection, emptySelection, fromApproved, gib, pctOf, toPolicy, toScopeTarget, validate, visibleNodes, type Selection } from './model'
+import { DEFAULT_POOL, LEVELS, NEVER, apiUrl, suggestTargets, diffSelection, emptySelection, fromApproved, gib, pctOf, toPolicy, toScopeTarget, validate, visibleNodes, type Selection } from './model'
 import '../providers.css'
 
 const props = defineProps<{ id?: string }>()
@@ -43,6 +43,21 @@ const nodeStorages = computed(() => (inv.value?.storages ?? []).filter((s) => s.
   .filter((s) => !sel.nodes.length || s.nodes.some((n) => sel.nodes.includes(n))))
 const nodeNetworks = computed(() => (inv.value?.networks ?? []).filter((x) => !sel.nodes.length || x.nodes.some((n) => sel.nodes.includes(n))))
 const templates = computed(() => guests.value.filter((g) => g.template))
+// Deployment targets: Office Unbound fills empty choices itself (its own new pool, the roomiest disk storage, the shared bridge); everything stays editable.
+const newPool = ref(DEFAULT_POOL)
+const showTemplates = ref(false)
+const poolIsNew = computed(() => !(inv.value?.pools ?? []).includes(newPool.value.trim()))
+watch(() => sel.nodes.length, (n, o) => {
+  if (inv.value) Object.assign(sel, suggestTargets(sel, inv.value))
+  if (n && !o) sel.level = 'deploy'                                                        // choosing where to deploy means the Deployment level
+  if (!n && o && sel.level === 'deploy') sel.level = sel.operate.length ? 'operations' : 'monitoring'
+})
+watch(newPool, (n, o) => { const i = sel.pools.indexOf(o); if (i >= 0) sel.pools.splice(i, 1, n.trim()) })
+function toggleNewPool(on: boolean) {
+  const n = newPool.value.trim(), i = sel.pools.indexOf(n)
+  if (on && i < 0) sel.pools.push(n)
+  if (!on && i >= 0) sel.pools.splice(i, 1)
+}
 const newCount = computed(() => (edit.value ? guests.value.filter((g) => g.seen === false && !g.template).length : 0))
 
 const steps: StepDef<unknown>[] = [
@@ -223,19 +238,26 @@ function next() {
         <p class="muted">Optional. Leave everything empty if Office Unbound should only monitor or operate the guests you selected. You can add deployment targets later.</p>
         <InventoryTree :inv="inv" :sel="sel" :edit="edit" :deploy-nodes="true" />
         <template v-if="sel.nodes.length">
+          <Banner kind="info" title="Office Unbound picked these for you">Its own new pool, the disk storage with the most free space and the network your nodes share. Change anything you like.</Banner>
           <fieldset class="ax-set"><legend>Resource pool for new guests</legend>
-            <label v-for="p in inv.pools" :key="p" class="row"><input v-model="sel.pools" type="checkbox" :value="p" /> {{ p }}</label>
-            <p v-if="!inv.pools.length" class="muted small">No pools exist. Create one in Proxmox (Datacenter › Permissions › Pools), then Rescan.</p>
+            <label v-if="poolIsNew" class="row"><input type="checkbox" :checked="sel.pools.includes(newPool.trim())" @change="toggleNewPool(($event.target as HTMLInputElement).checked)" />
+              New pool <input v-model="newPool" class="ax-pool" aria-label="New pool name" autocomplete="off" /> <span class="muted small">created by Office Unbound; everything it deploys goes here</span></label>
+            <label v-for="p in inv.pools" :key="p" class="row"><input v-model="sel.pools" type="checkbox" :value="p" /> {{ p }} <span class="muted small">existing pool</span></label>
+            <p v-if="w.m.errors.pools || errs.pools" class="err" role="alert">{{ w.m.errors.pools || errs.pools }}</p>
           </fieldset>
           <fieldset class="ax-set"><legend>Storage for disks</legend>
             <label v-for="s in nodeStorages" :key="s.storage" class="row"><input v-model="sel.storages" type="checkbox" :value="s.storage" /> {{ s.storage }} <span class="muted small">{{ s.type }}{{ s.shared ? ' · shared' : '' }} · {{ gib(s.total - s.used) }} free</span></label>
           </fieldset>
-          <fieldset class="ax-set"><legend>Networks</legend>
+          <fieldset class="ax-set"><legend>Network new guests connect to</legend>
             <label v-for="x in nodeNetworks" :key="x.name" class="row"><input v-model="sel.networks" type="checkbox" :value="x.name" /> {{ x.name }} <span class="muted small">{{ x.kind }}{{ x.comment ? ' · ' + x.comment : '' }}</span></label>
+            <p class="muted small">Office Unbound uses an existing bridge and never creates or changes bridges or VLANs: a wrong host network change can cut a node off. To give it its own network, create a bridge or SDN VNet in Proxmox, then Rescan.</p>
           </fieldset>
-          <fieldset class="ax-set"><legend>Templates new guests may be cloned from</legend>
-            <label v-for="t in templates" :key="t.vmid" class="row"><input v-model="sel.templates" type="checkbox" :value="t.vmid" /> {{ t.vmid }} {{ t.name }} <span class="muted small">on {{ t.node }}</span></label>
-            <p v-if="!templates.length" class="muted small">No templates found. Import a signed image under Administration › Images after connecting.</p>
+          <fieldset class="ax-set"><legend>Templates</legend>
+            <p class="muted small">Not needed. After connecting, Office Unbound imports its own signed image as a template into its pool (Administration › Images).</p>
+            <button v-if="templates.length && !showTemplates" type="button" class="wz-btn ax-adv-toggle" @click="showTemplates = true">Also allow existing templates ({{ templates.length }})</button>
+            <template v-if="showTemplates || sel.templates.length">
+              <label v-for="t in templates" :key="t.vmid" class="row"><input v-model="sel.templates" type="checkbox" :value="t.vmid" /> {{ t.vmid }} {{ t.name }} <span class="muted small">on {{ t.node }}</span></label>
+            </template>
           </fieldset>
         </template>
       </section>
@@ -311,7 +333,7 @@ function next() {
 .fld { display: grid; gap: 4px; } .fld input, .fld select, .fld textarea { width: 100%; font: inherit; }
 .row { display: flex; flex-wrap: wrap; align-items: center; gap: 8px; }
 .mt { margin-top: 12px; }
-.ax-adv { display: grid; gap: 12px; } .ax-adv-toggle { justify-self: start; }
+.ax-adv { display: grid; gap: 12px; } .ax-pool { width: 14em; max-width: 100%; font: inherit; } .ax-adv-toggle { justify-self: start; }
 .ax-fp { word-break: break-all; padding: 8px; border-radius: 6px; background: var(--code-bg, rgba(0, 0, 0, .04)); }
 .ax-cards { display: grid; grid-template-columns: repeat(auto-fill, minmax(170px, 1fr)); gap: 10px; }
 .ax-card { display: grid; gap: 2px; padding: 12px; border: 1px solid var(--border, #d0d5dd); border-radius: 8px; }
