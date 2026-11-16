@@ -1,22 +1,48 @@
 #!/usr/bin/env python3
-"""ou-test-attest: the pipeline's own test runner identity (security review 5 H2). Runs as the system user `ou-testrunner` (sudo rule in install-signer.sh).
-It signs an ATTESTATION for one .deb: "the install smoke test <name> had result <pass|fail>, evidence log sha256 X". ou-release-sign only accepts
-test records that carry such a signature, so the release signer's caller can not type a test record any more; a promotion manifest then binds the
-attestation hash. The runner refuses packages that were never admitted to a ledger and results other than pass|fail.
-  attest <deb-sha256> <name> <pass|fail> <log-sha256>   prints {"attestation":{...},"sig":"..."} on stdout
-  keygen                                                creates the runner key (once) and prints the public key (base64 raw) for trust/test-runner.pub
-State: $OU_TESTRUNNER_STATE (default /var/lib/ou-testrunner)/key (32 raw bytes, 0400). Ledgers are read from $OU_RELEASE_STATE (default /var/lib/ou-release).
+"""ou-test-attest: the pipeline's test runner identity (security reviews 5 H2 and 7 H-3). Runs as the system user `ou-testrunner` (sudo rule in
+install-signer.sh). THE RUNNER RUNS THE TESTS ITSELF: the caller names an artifact and a test kind, nothing else. There is no way to supply a result,
+a log hash, a name or a digest of evidence; the build user can only ASK for a run.
+
+STABLE INTERFACE (consumed by ou-release-sign `record-test` and by ou-image-sign `record-test`; a change needs a new attestation version `v`):
+
+  ou-test-attest run <kind> <ref>
+      kind deb-install-smoke   ref = sha256 (64 hex) of a .deb that the release signer admitted. The runner fetches the bytes from the signer's blob store
+                               (<OU_RELEASE_STATE>/blobs/<sha256>), re-hashes them, copies them into its own private work directory and runs the FIXED program
+                               <lib>/smoke-deb on the copy (install in a throw-away container, no network; see nspawn-smoke).
+      kind image-first-boot    ref = absolute path of an image file below the image output directory (default /var/lib/ou-imgbuild/out, $OU_IMAGE_DIR).
+                               The runner copies it (no symlinks, regular file, hashes while copying), and runs the FIXED program <lib>/image-first-boot on
+                               the copy (boot it, wait for the guest callback; installed by install-image-signer.sh of the image signer).
+  Both programs are root-owned files in <lib> (default /usr/local/lib/ou-testrunner), not writable by the build user. Exit status 0 = pass, 1 = fail,
+  anything else (crash, timeout, missing program) = NO attestation is produced. The runner hashes the combined output of the program itself.
+  stdout (one JSON object):
+      {"attestation": {"v": 2, "kind": <kind>, "name": <"install-smoke"|"first-boot">, "sha256": <artifact sha256, computed by the runner>,
+                       "result": "pass"|"fail", "log_sha256": <sha256 of the log the runner captured>, "at": <unix seconds>, "run_id": <32 hex>},
+       "sig": <base64 Ed25519 over b"ou-test-attestation-v1\\n" + canonical JSON of the attestation>}
+  The log is kept in <state>/logs/<run_id>.log. The public key is trust/test-runner.pub of the signer state (root-owned).
+  ou-release-sign `record-test` accepts only kind deb-install-smoke; ou-image-sign `record-test` only image-first-boot. Both check v == 2, the signature,
+  that sha256 is the artifact they are about to sign/promote, and that `at` is newer than any earlier record for (sha256, name).
+  keygen        creates the runner key (once) and prints the public key (base64 raw) for trust/test-runner.pub
+State: $OU_TESTRUNNER_STATE (default /var/lib/ou-testrunner)/key (32 raw bytes, 0400).
 """
 import base64
+import hashlib
 import json
 import os
 import re
+import shutil
+import subprocess
 import sys
+import tempfile
 import time
 
 ST = os.environ.get("OU_TESTRUNNER_STATE", "/var/lib/ou-testrunner")
 REL = os.environ.get("OU_RELEASE_STATE", "/var/lib/ou-release")
+SANDBOX = os.environ.get("OU_RELEASE_SANDBOX") == "1"
+LIB = os.environ.get("OU_TESTRUNNER_LIB", "/usr/local/lib/ou-testrunner") if SANDBOX else "/usr/local/lib/ou-testrunner"
+IMGDIR = os.environ.get("OU_IMAGE_DIR", "/var/lib/ou-imgbuild/out") if SANDBOX else "/var/lib/ou-imgbuild/out"
 PREFIX = b"ou-test-attestation-v1\n"
+KINDS = {"deb-install-smoke": ("install-smoke", "smoke-deb", 900), "image-first-boot": ("first-boot", "image-first-boot", 1800)}
+LOGMAX = 4 * 1024 * 1024
 
 
 def die(m):
@@ -38,6 +64,99 @@ def pub(k):
     return base64.b64encode(k.public_key().public_bytes(serialization.Encoding.Raw, serialization.PublicFormat.Raw)).decode()
 
 
+def in_ledger(sha):
+    for s in ("dev", "staging", "stable"):
+        try:
+            if any(l.split()[0] == sha for l in open(os.path.join(REL, "ledger", s + ".sha256")) if l.strip()):
+                return True
+        except OSError:
+            pass
+    return False
+
+
+def fetch_deb(ref, work):
+    if not re.match(r"^[0-9a-f]{64}$", ref):
+        die("a .deb is named by its sha256 (64 hex)")
+    if not in_ledger(ref):
+        die("that .deb was never admitted to any channel")
+    src = os.path.join(REL, "blobs", ref)
+    dst = os.path.join(work, "artifact.deb")
+    h = hashlib.sha256()
+    fd = os.open(src, os.O_RDONLY | os.O_NOFOLLOW)
+    with os.fdopen(fd, "rb") as f, open(dst, "wb") as o:
+        for c in iter(lambda: f.read(1 << 20), b""):
+            h.update(c)
+            o.write(c)
+    if h.hexdigest() != ref:
+        die("the stored blob does not match its hash")
+    return dst, ref
+
+
+def fetch_image(ref, work):
+    base = os.path.realpath(IMGDIR)
+    if not os.path.isabs(ref):
+        die("an image is named by its absolute path below %s" % base)
+    real = os.path.realpath(ref)
+    if os.path.dirname(real) != base and not real.startswith(base + os.sep):
+        die("image must be below %s" % base)
+    if real != os.path.normpath(ref):
+        die("image path contains a symlink")
+    dst = os.path.join(work, "artifact.img")
+    h = hashlib.sha256()
+    fd = os.open(real, os.O_RDONLY | os.O_NOFOLLOW)
+    import stat as _st
+    if not _st.S_ISREG(os.fstat(fd).st_mode):
+        os.close(fd)
+        die("image is not a regular file")
+    with os.fdopen(fd, "rb") as f, open(dst, "wb") as o:
+        for c in iter(lambda: f.read(1 << 20), b""):
+            h.update(c)
+            o.write(c)
+    return dst, h.hexdigest()
+
+
+def program(name):
+    p = os.path.join(LIB, name)
+    try:
+        st = os.stat(p)
+        dst = os.stat(LIB)
+    except OSError:
+        die("test program %s is not installed (see install-signer.sh)" % name)
+    if st.st_mode & 0o022 or dst.st_mode & 0o022 or not os.access(p, os.X_OK):
+        die("test program %s or its directory is writable by others / not executable" % name)
+    if not SANDBOX and (st.st_uid != 0 or dst.st_uid != 0):
+        die("test program %s must be root-owned" % name)
+    return p
+
+
+def run(kind, ref):
+    if kind not in KINDS:
+        die("unknown test kind %r (known: %s)" % (kind, ", ".join(sorted(KINDS))))
+    name, prog, tmo = KINDS[kind]
+    p = program(prog)
+    os.makedirs(os.path.join(ST, "work"), mode=0o700, exist_ok=True)
+    os.makedirs(os.path.join(ST, "logs"), mode=0o755, exist_ok=True)
+    work = tempfile.mkdtemp(prefix="run-", dir=os.path.join(ST, "work"))
+    try:
+        art, sha = (fetch_deb if kind == "deb-install-smoke" else fetch_image)(ref, work)
+        env = {"PATH": "/usr/sbin:/usr/bin:/sbin:/bin", "LANG": "C", "OU_TEST_KIND": kind, "OU_TEST_WORK": work}
+        try:
+            r = subprocess.run([p, art], env=env, cwd=work, stdin=subprocess.DEVNULL, stdout=subprocess.PIPE, stderr=subprocess.STDOUT, timeout=tmo)
+        except subprocess.TimeoutExpired:
+            die("test timed out: no attestation")
+        if r.returncode not in (0, 1):
+            die("test program failed to run (exit %d): no attestation is made for an infrastructure error" % r.returncode)
+        log = r.stdout[-LOGMAX:]
+        run_id = os.urandom(16).hex()
+        with open(os.path.join(ST, "logs", run_id + ".log"), "wb") as f:
+            f.write(log)
+        att = {"v": 2, "kind": kind, "name": name, "sha256": sha, "result": "pass" if r.returncode == 0 else "fail",
+               "log_sha256": hashlib.sha256(log).hexdigest(), "at": int(time.time()), "run_id": run_id}
+        print(json.dumps({"attestation": att, "sig": base64.b64encode(key().sign(PREFIX + canon(att))).decode()}))
+    finally:
+        shutil.rmtree(work, ignore_errors=True)
+
+
 def main():
     a = sys.argv[1:]
     if a[:1] == ["keygen"]:
@@ -50,21 +169,10 @@ def main():
                 f.write(Ed25519PrivateKey.generate().private_bytes_raw())
         print(pub(key()))
         return
-    if len(a) != 5 or a[0] != "attest":
-        die("usage: attest <deb-sha256> <name> <pass|fail> <log-sha256> | keygen")
-    sha, name, res, logsha = a[1:]
-    if not re.match(r"^[0-9a-f]{64}$", sha) or not re.match(r"^[0-9a-f]{64}$", logsha) or res not in ("pass", "fail") or not re.match(r"^[a-z0-9-]{1,40}$", name):
-        die("bad arguments")
-    seen = False
-    for s in ("dev", "staging", "stable"):
-        try:
-            seen = seen or any(l.split()[0] == sha for l in open(os.path.join(REL, "ledger", s + ".sha256")) if l.strip())
-        except OSError:
-            pass
-    if not seen:
-        die("that .deb was never admitted to any channel")
-    att = {"v": 1, "sha256": sha, "name": name, "result": res, "log_sha256": logsha, "at": int(time.time())}
-    print(json.dumps({"attestation": att, "sig": base64.b64encode(key().sign(PREFIX + canon(att))).decode()}))
+    if len(a) == 3 and a[0] == "run":
+        run(a[1], a[2])
+        return
+    die("usage: run <kind> <ref> | keygen   (the runner takes no result, name or log from the caller; kinds: %s)" % ", ".join(sorted(KINDS)))
 
 
 main()

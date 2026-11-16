@@ -1,0 +1,5 @@
+#!/bin/bash
+# Fixed test program of ou-test-attest kind deb-install-smoke (review 7 H-3). Runs as ou-testrunner on a private COPY of the .deb ($1) and delegates to the
+# root-owned nspawn-smoke (one sudoers rule for ou-testrunner), which installs it inside a throw-away container. Exit 0 = pass, 1 = fail, other = infra error.
+set -u
+exec sudo -n /usr/local/lib/ou-testrunner/nspawn-smoke deb "$1"
