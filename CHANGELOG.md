@@ -13,6 +13,7 @@ isolated lab; nothing is production supported ([ROADMAP.md](ROADMAP.md)).
 Merged on integration branch `integration-5` (not yet released). The release-engineering pipeline branch (`release-ag`) is **not** included.
 
 ### Added
+- **ICS as a signed package (`ou-ics`)**: recipe through the ADR-0008 pipeline (annotated tag -> deterministic archive, hash-locked cp311/cp312 wheels vendored, installed offline with `--require-hashes`, SBOM/licence/OSV), `ics.cli upgrade-preflight`, backup-gated upgrade (`preinst`/`postinst` refuse to migrate without a verified backup), rollback = previous version + `ou-ics-rollback <backup>`, `bootstrap.sh --from-repo <channel>` with a pinned repository key. Proven on Ubuntu 24.04 and Debian 12 (install, upgrade with migration, rollback). [ics-package-results](docs/status/ics-package-results.md), [runbook](docs/runbooks/ics-upgrade-rollback.md)
 - **Provider scope modes**: `single_node` / `whole_cluster` permission plans and the `provider.scope.change` flow (Mode A/B), console UI. [provider-scope-modes](docs/status/provider-scope-modes.md)
 - **Telephony productization**: Asterisk 22 built from signed source (`ou-asterisk` recipe) and ICS telephony downstream: `idm.user.set_extension`, `idm.user.issue_sip_credential` (one-time SIP credentials, encrypted at rest until revealed), `pbx.*` agent runbooks, migration `0009`. [telephony-productization](docs/status/telephony-productization.md)
 - **Guest bootstrap v2**: no-SSH golden-image path with HMAC callback `POST /api/v1/guest-bootstrap/report`, `guest.await_callback` step, `image.import` verb, migration `0009b`; the SSH path is lab-only behind `ICS_LAB_SSH_BOOTSTRAP` (default off). [bootstrap-v2](docs/status/bootstrap-v2.md), [SSH bootstrap review](docs/status/review-ssh-bootstrap-2026-11-15.md)
@@ -26,6 +27,7 @@ Merged on integration branch `integration-5` (not yet released). The release-eng
 - Security review 4 findings still open on the release-engineering branch (M4-M6, M10, M11 partly, L-series): see [security review 4](docs/status/security-review-4-2026-11-15.md).
 
 ### Fixed
+- ICS failed to start on Debian 12 / Python 3.11 (`ics/actions.py` used a Python 3.12-only nested-quote f-string). [ics-package-results](docs/status/ics-package-results.md) finding 1.
 - Production monitor loop (`_next_vault`): failure-based worker health and thread joins on stop.
 
 ## [0.1.0] - 2026-11-15

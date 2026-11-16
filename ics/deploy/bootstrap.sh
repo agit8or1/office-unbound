@@ -174,6 +174,12 @@ if [ ${#MISSING[@]} -gt 0 ]; then
   changed "apt packages: ${MISSING[*]}"
 fi
 
+# the pinned repository key is verified BEFORE anything is provisioned (a refused key must leave the host unchanged apart from packages)
+if [ -n "$FROM_REPO" ]; then
+  got="$(gpg --show-keys --with-colons "$REPO_KEY" 2>/dev/null | awk -F: '/^fpr/{print $10; exit}')"
+  [ "$got" = "$REPO_FPR" ] || die "repository key fingerprint is ${got:-unreadable}, pinned ${REPO_FPR}: refusing to trust it"
+fi
+
 # ------------------------------------------------------------------------------------------------------------ helpers
 gen_secret() { python3 -I -c 'import secrets; print(secrets.token_urlsafe(32))'; }
 put() { # put SRC MODE OWNER:GROUP DST -> 0 when content changed (written), 1 when already identical (modes still enforced)
@@ -373,8 +379,6 @@ need_install=0
 if [ -n "$FROM_REPO" ]; then
   # ---- signed package path: pinned key -> apt source with signed-by -> apt-get install ou-ics (postinst: wheels, backup gate, migrations, start)
   KR=/usr/share/keyrings/ou-release.gpg
-  got="$(gpg --show-keys --with-colons "$REPO_KEY" 2>/dev/null | awk -F: '/^fpr/{print $10; exit}')"
-  [ "$got" = "$REPO_FPR" ] || die "repository key fingerprint is ${got:-unreadable}, pinned ${REPO_FPR}: refusing to trust it"
   gpg --dearmor < "$REPO_KEY" > "$TMP/ou-release.gpg"
   put "$TMP/ou-release.gpg" 0644 root:root "$KR" || true
   echo "deb [signed-by=$KR] $REPO_URL $FROM_REPO main" > "$TMP/ou.list"

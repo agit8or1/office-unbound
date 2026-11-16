@@ -49,7 +49,7 @@ install_v() {
   chk "service user ics exists (sysusers)" getent passwd ics
   chk "keys are root:ics 0640" test "$(stat -c '%a %U:%G' /etc/office-unbound/vault.key /etc/office-unbound/audit.key /etc/office-unbound/ics-signing.key | sort -u)" = "640 root:ics"
   chk "ics.env root:ics 0640, ics-migrate.env root:root 0600" test "$(stat -c '%a %U:%G' /etc/office-unbound/ics.env /etc/office-unbound/ics-migrate.env | tr '\n' ' ')" = "640 root:ics 600 root:root "
-  chk "conffile ics-tuning.env registered" dpkg-query -W -f='${Conffiles}' ou-ics | grep -q ics-tuning.env
+  chk "conffile ics-tuning.env registered" bash -c "dpkg-query -W -f='\${Conffiles}' ou-ics | grep -q ics-tuning.env"
   chk "units come from /usr/lib/systemd/system" test -f /usr/lib/systemd/system/ics.service
   chk "ics.service active, enabled" systemctl is-active -q ics.service
   chk "venv python matches the system python ABI" test "$("$OPT/.venv/bin/python" -c 'import sys;print(sys.version_info[:2])')" = "$(python3 -c 'import sys;print(sys.version_info[:2])')"
@@ -87,6 +87,8 @@ data() {
 
 backupfail() {
   v=$(dpkg-query -W -f='${Version}' ou-ics); sb=$(pgq 'select version_num from alembic_version')
+  apt-get -qq update; cand_v=$(apt-cache policy ou-ics | sed -n 's/^  Candidate: //p')
+  chk "a newer candidate ($cand_v) is visible to apt, so the refusal below is really exercised" test "$cand_v" != "$v"
   cp -p /usr/lib/ou-ics/ics-backup.sh /root/ics-backup.sh.orig
   printf '#!/bin/sh\necho simulated backup failure >&2\nexit 1\n' > /usr/lib/ou-ics/ics-backup.sh
   apt-get install -y -q --no-install-recommends ou-ics > /root/upgrade-refused.log 2>&1; rc=$?
@@ -137,7 +139,7 @@ rollback() {
   chk "version is $v" test "$(dpkg-query -W -f='${Version}' ou-ics)" = "$v"
   chk "schema moved: the old package left the ICS stopped and set the restore marker" test -f /var/lib/office-unbound/ics-needs-restore
   chk "ics is NOT running against the newer schema" test "$(systemctl is-active ics.service)" != active
-  cand=$(grep -o 'ou-ics-rollback /var/backups[^ ]*' /root/rollback.log | head -1 | cut -d' ' -f2)
+  cand=$(tr -d '\r' < /root/rollback.log | grep -o 'ou-ics-rollback /var/backups[^ ]*' | head -1 | cut -d' ' -f2)
   echo "-- postinst named the backup: $cand"
   chk "the named backup holds the pre-upgrade schema" test "$(sed -n 's/^alembic_head=//p' "$cand/MANIFEST")" = "$(sed -n 's/^SCHEMA=//p' /root/schema.before)"
   ou-ics-rollback "$cand" > /root/rollback-restore.log 2>&1; rc=$?; cat /root/rollback-restore.log

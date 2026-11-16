@@ -1,0 +1,9 @@
+component=ics
+repo=/tmp/claude-1000/-home-administrator/a1d917f8-7438-424e-a57a-793b46deb95e/scratchpad/icsrepo
+tag=v0.1.1-dev.1
+commit=d386ce7e8ffa5048e735ca4a46154d7e2d17f6bc
+source_date_epoch=1794793237
+signature=UNSIGNED (annotated tag only; no signing key configured, docs/RELEASING.md step 7)
+tag_object=ca263dae9f9037ec11469cd61b4a7ea708008925
+deb_upstream_version=0.1.1~dev.1
+orig_sha256=e2e13508265dba6f5befd893f0ef912f89c8cc01ef3eac8ea12f660273266019

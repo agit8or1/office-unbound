@@ -21,5 +21,7 @@ Weekly upstream release check per component; security-relevant commits flagged (
 ## Implementation status (2026-11-15)
 Built and exercised for the groupware stack (libHX, wmime, Gromox, mapi-header-php, sync, dav, web, admin-api): recipes, Debian 12 builder `ou-pkg1`, SBOM + licence + vulnerability scan, signed apt repo with dev/staging/stable and test-gated promotion, fresh-install and signature-enforcement tests. Details, observations and open work: `docs/status/package-pipeline-results.md`; code: `blueprints/build/`.
 
+Update 2026-11-16: The ICS itself ships as the signed `ou-ics` package through the same pipeline (recipe `blueprints/build/ics/`, upgrade preflight, backup-gated upgrade, restore-based rollback; proof in `docs/status/ics-package-results.md`).
+
 ## Not yet built
 Collabora recipe (script exists, not yet a recipe/.deb), offline signing key ceremony (the lab key is on the ICS host), dedicated builder host, ICS-driven approval/promotion, customer channel pinning and upgrade/rollback jobs, admin-web, libexmdbpp, grommunio-index.
