@@ -30,6 +30,9 @@ class CustomerCreate(_Policy):
     provisioning_mode: Mode | None = None
     contact_name: str | None = Field(default=None, max_length=100, pattern=r"^[^\x00-\x1f]*$")
     contact_email: str | None = Field(default=None, max_length=200, pattern=r"^[A-Za-z0-9._%+-]+@[A-Za-z0-9.-]+$")
+    slug: str | None = Field(default=None, pattern=r"^[a-z0-9][a-z0-9-]{1,30}$", description="deployment customer_id; derived from the name when omitted")
+    external_ref: str | None = Field(default=None, max_length=100, pattern=r"^[A-Za-z0-9][A-Za-z0-9._:/-]{0,99}$",
+                                     description="the MSP system's own id for this customer (e.g. a clientst0r organization id)")
 
     @model_validator(mode="after")
     def _m(self):
@@ -67,6 +70,10 @@ def precheck(db, rt, action: str, p) -> dict:
     if action == "customer.create":
         if db.execute(text("SELECT 1 FROM customers WHERE name = :n"), {"n": p.name}).first():
             raise PlanError(409, "customer name already exists")
+        if p.slug and db.execute(text("SELECT 1 FROM customers WHERE slug = :s"), {"s": p.slug}).first():
+            raise PlanError(409, "customer slug already exists")
+        if p.external_ref and db.execute(text("SELECT 1 FROM customers WHERE external_ref = :s"), {"s": p.external_ref}).first():
+            raise PlanError(409, "external_ref already linked to another customer")
     elif action == "customer.update":
         c = db.execute(text("SELECT * FROM customers WHERE id = :i"), {"i": str(p.customer_id)}).first()
         if c is None:
@@ -85,14 +92,31 @@ def precheck(db, rt, action: str, p) -> dict:
     return {}
 
 
+def slugify(name: str) -> str:
+    import re
+    s = re.sub(r"[^a-z0-9]+", "-", name.lower()).strip("-")[:28].strip("-")
+    return s if len(s) >= 2 else "c-" + s.ljust(2, "0")
+
+
+def _free_slug(db, base: str) -> str:
+    slug, n = base, 1
+    while db.execute(text("SELECT 1 FROM customers WHERE slug = :s"), {"s": slug}).first():
+        n += 1
+        slug = f"{base[:27]}-{n}"
+    return slug
+
+
 def exec_create(rt, db, m: CustomerCreate, plan, known):
-    cid = db.execute(text("INSERT INTO customers (name, msp_owned, provisioning_mode, extra_approvals, contact_name, contact_email, created_by) "
-                          "VALUES (:n, :o, :m, CAST(:x AS jsonb), :cn, :ce, :u) RETURNING id"),
+    slug = m.slug or _free_slug(db, slugify(m.name))
+    if db.execute(text("SELECT 1 FROM customers WHERE slug = :s"), {"s": slug}).first():
+        raise ValueError("customer slug already in use")
+    cid = db.execute(text("INSERT INTO customers (name, msp_owned, provisioning_mode, extra_approvals, contact_name, contact_email, created_by, slug, external_ref) "
+                          "VALUES (:n, :o, :m, CAST(:x AS jsonb), :cn, :ce, :u, :sl, :er) RETURNING id"),
                      {"n": m.name, "o": m.msp_owned, "m": m.provisioning_mode, "x": audit.canon(m.extra_approvals or {}),
-                      "cn": m.contact_name, "ce": m.contact_email, "u": str(plan.requested_by)}).scalar()
+                      "cn": m.contact_name, "ce": m.contact_email, "u": str(plan.requested_by), "sl": slug, "er": m.external_ref}).scalar()
     audit.append(db, "customer.created", actor_name="worker", resource="customer", resource_id=str(cid),
                  details={"name": m.name, "msp_owned": m.msp_owned, "provisioning_mode": m.provisioning_mode, "extra_approvals": m.extra_approvals or {}})
-    return {"customer_id": str(cid)}
+    return {"customer_id": str(cid), "slug": slug}
 
 
 def exec_update(rt, db, m: CustomerUpdate, plan, known):

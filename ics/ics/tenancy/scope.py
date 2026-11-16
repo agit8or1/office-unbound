@@ -72,4 +72,12 @@ def customer_of_params(db: Session, params: dict) -> str | None:
     if params.get("credential_id"):
         r = db.execute(text("SELECT customer_id FROM credentials WHERE id = :i"), {"i": str(params["credential_id"])}).first()
         return str(r.customer_id) if r else None
+    # deployment actions carry the customer slug (spec.customer_id) or the deployment slug; identity actions carry the stack name
+    slug = (params.get("spec") or {}).get("customer_id") if isinstance(params.get("spec"), dict) else None
+    if slug is None and params.get("deployment_id"):
+        r = db.execute(text("SELECT customer_id FROM deployments WHERE slug = :s"), {"s": str(params["deployment_id"])}).first()
+        slug = r.customer_id if r else None
+    if slug:
+        r = db.execute(text("SELECT id FROM customers WHERE slug = :s"), {"s": str(slug)}).first()
+        return str(r.id) if r else None
     return None
