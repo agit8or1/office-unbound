@@ -159,11 +159,11 @@ def stimulate(a):
 
 def state(_):
     with rt.session() as db:
-        st = db.execute(text("SELECT epoch, role, note FROM controller_state WHERE id = 1")).first()
+        st = db.execute(text("SELECT epoch, role, note, extract(epoch FROM changed_at) AS at FROM controller_state WHERE id = 1")).first()
         jobs = db.execute(text("SELECT status, count(*) FROM jobs GROUP BY 1")).all()
         rows = db.execute(text("SELECT count(*) FROM audit_events")).scalar()
         rec = db.execute(text("SELECT pg_is_in_recovery()")).scalar()
-    return {"epoch": st.epoch, "role": st.role, "note": st.note, "jobs": {r[0]: r[1] for r in jobs}, "audit_rows": rows, "in_recovery": rec}
+    return {"epoch": st.epoch, "role": st.role, "note": st.note, "changed_at": float(st.at), "jobs": {r[0]: r[1] for r in jobs}, "audit_rows": rows, "in_recovery": rec}
 
 
 def jobs(_):

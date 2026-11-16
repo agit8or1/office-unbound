@@ -169,11 +169,14 @@ class TS(socketserver.ThreadingMixIn, http.server.HTTPServer):
     allow_reuse_address = True
 
 
-cert_pem, key_pem, FP = make_cert()
 cf, kf = os.path.join(A.dir, "tls.crt"), os.path.join(A.dir, "tls.key")
-open(cf, "w").write(cert_pem)
-open(kf, "w").write(key_pem)
-os.chmod(kf, 0o600)
+if not (os.path.exists(cf) and os.path.exists(kf)):      # the certificate is PINNED by the controllers (provider endpoint, webhook channel, check): keep it across restarts
+    cert_pem, key_pem, _fp = make_cert()
+    open(cf, "w").write(cert_pem)
+    open(kf, "w").write(key_pem)
+    os.chmod(kf, 0o600)
+import hashlib   # noqa: E402
+FP = hashlib.sha256(ssl.PEM_cert_to_DER_cert(open(cf).read().split("-----END CERTIFICATE-----")[0] + "-----END CERTIFICATE-----\n")).hexdigest()
 ctx = ssl.SSLContext(ssl.PROTOCOL_TLS_SERVER)
 ctx.load_cert_chain(cf, kf)
 PVE_SRV = TS((A.bind, 8006), PveHandler)
