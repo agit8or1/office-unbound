@@ -73,7 +73,7 @@ const crumbs = computed(() => {
   const out: { label: string; to?: string }[] = []
   const m = route.meta
   if (m.section) out.push({ label: m.section })
-  if (m.parent) { out.push({ label: m.parent.label, to: m.parent.to }); out.push({ label: crumbLabel.value || String(route.params.id ?? '').slice(0, 8) }) }
+  if (m.parent) { out.push({ label: m.parent.label, to: m.parent.to }); out.push({ label: crumbLabel.value || (route.params.id ? String(route.params.id).slice(0, 8) : String(m.title ?? '')) }) }
   else if (route.params.id && typeof route.params.id === 'string') { out.push({ label: String(m.title), to: route.path.split('/').slice(0, 2).join('/') }); out.push({ label: crumbLabel.value || route.params.id.slice(0, 8) }) }
   else out.push({ label: m.title ?? '' })
   return out

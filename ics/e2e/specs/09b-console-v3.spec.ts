@@ -175,5 +175,5 @@ test.describe('guest bootstrap health', () => {
 
 test('scope-change approver counts come from the backend policy endpoint', async ({ page }) => {
   await gotoRoute(page, 'overview')
-  expect(await api(page, 'approvals/policy')).toEqual({ normal: 1, high: 2 })
+  expect(await api(page, 'approvals/policy')).toMatchObject({ normal: 1, high: 2, mode: 'two_person', self_approval: false })
 })

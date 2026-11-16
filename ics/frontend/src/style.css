@@ -79,7 +79,7 @@ ul.plain { list-style: none; padding: 0; margin: 6px 0; }
 .top { position: sticky; top: 0; z-index: 20; display: flex; align-items: center; gap: 12px; height: 56px; padding: 0 24px; background: color-mix(in srgb, var(--surface) 92%, transparent); backdrop-filter: blur(8px); border-bottom: 1px solid var(--line); }
 .top .grow { flex: 1; min-width: 0; }
 .crumbs { display: flex; align-items: center; gap: 6px; font-size: 13px; color: var(--muted); min-width: 0; overflow: hidden; white-space: nowrap; }
-.crumbs a { color: var(--muted); } .crumbs a:hover { color: var(--text); }
+.crumbs a { color: var(--muted); min-width: 0; flex: 0 1 auto; overflow: hidden; text-overflow: ellipsis; } .crumbs a:hover { color: var(--text); }
 .crumbs .sep { color: var(--faint); } .crumbs .here { color: var(--text); font-weight: 600; overflow: hidden; text-overflow: ellipsis; }
 .menu-btn { display: none; }
 .iconbtn { width: 36px; height: 36px; display: grid; place-items: center; border-radius: 10px; border: 1px solid transparent; background: transparent; color: var(--muted); cursor: pointer; padding: 0; min-height: 0; }
