@@ -62,7 +62,7 @@ Readiness is the weighted share of each area's beta requirements that are **test
 7. Follow-ups:
    - ~~R1~~ done (81a7d44): promotion fails in-flight replica jobs as `uncertain_after_promotion`.
    - ~~`wal_receiver_timeout` 5 s~~ done (81a7d44).
-   - Triage OSV findings so artifacts can be promoted to staging/stable.
+   - Triage OSV findings so artifacts can be promoted to staging/stable. **Triage 2026-11-16:** all 50 critical ids (same set in Keycloak and OpenCloud) are `UBUNTU-CVE-*` in the base image's openssl family, back to 2024: the base was built without the updates/security pockets. Containerfiles now refuse a base without `noble-security` and run `apt-get upgrade`. Next: rebuild both images on the lab build host, re-scan and re-sign (dev), then a two-approver `release.promote`.
 
 **Stage 2 must-do (found during integration-9) — DONE 2026-11-16 (0956d33, 0df8ae4: action + console Images page):** `image.import` was not wired to any approved action or executor step. The verb, verification (`golden.verify_for_import`) and DB floors exist and are tested, but nothing calls them. Add an `image.import` typed action (high risk; Settings trust; DB floor; `FloorStore.record` after success) and a deployment step that imports when the template is missing.
 

@@ -3,7 +3,9 @@
 ARG BASE=localhost/ou-base-noble:latest
 FROM ${BASE}
 ARG DEBIAN_FRONTEND=noninteractive
-RUN apt-get -o APT::Sandbox::User=root update && apt-get -o APT::Sandbox::User=root install -y --no-install-recommends openjdk-21-jre-headless ca-certificates \
+# OSV triage 2026-11-16: the base carried 2024-era openssl (50 critical UBUNTU-CVE ids): require the security pocket and take every update
+RUN grep -rqs 'noble-security' /etc/apt/sources.list /etc/apt/sources.list.d/ || { echo "base image has no noble-security pocket: refusing to build" >&2; exit 1; }
+RUN apt-get -o APT::Sandbox::User=root update && apt-get -o APT::Sandbox::User=root -y upgrade && apt-get -o APT::Sandbox::User=root install -y --no-install-recommends openjdk-21-jre-headless ca-certificates \
  && rm -rf /var/lib/apt/lists/* /var/cache/apt/archives/* \
  && groupadd -g 10130 keycloak && useradd -u 10130 -g 10130 -d /opt/keycloak -M -s /usr/sbin/nologin keycloak
 COPY kc/ /opt/keycloak/

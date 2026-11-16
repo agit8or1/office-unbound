@@ -3,7 +3,9 @@
 ARG BASE=localhost/ou-base-noble:latest
 FROM ${BASE}
 ARG DEBIAN_FRONTEND=noninteractive
-RUN apt-get -o APT::Sandbox::User=root update && apt-get -o APT::Sandbox::User=root install -y --no-install-recommends ca-certificates media-types inotify-tools \
+# OSV triage 2026-11-16: the base carried 2024-era openssl (50 critical UBUNTU-CVE ids): require the security pocket and take every update
+RUN grep -rqs 'noble-security' /etc/apt/sources.list /etc/apt/sources.list.d/ || { echo "base image has no noble-security pocket: refusing to build" >&2; exit 1; }
+RUN apt-get -o APT::Sandbox::User=root update && apt-get -o APT::Sandbox::User=root -y upgrade && apt-get -o APT::Sandbox::User=root install -y --no-install-recommends ca-certificates media-types inotify-tools \
  && rm -rf /var/lib/apt/lists/* /var/cache/apt/archives/* \
  && groupadd -g 10140 opencloud && useradd -u 10140 -g 10140 -d /var/lib/opencloud -M -s /usr/sbin/nologin opencloud && install -d -o opencloud -g opencloud /var/lib/opencloud /etc/opencloud
 COPY opencloud /usr/bin/opencloud
