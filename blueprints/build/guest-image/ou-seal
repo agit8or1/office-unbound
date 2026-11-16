@@ -1,0 +1,14 @@
+#!/bin/sh
+# Seals the bootstrap path after a SUCCESSFUL first boot (ExecStartPost of ou-bootstrap.service; owner requirement "bootstrap access automatically sealed").
+# Runs only when ExecStart succeeded. Effects: a `sealed` marker (the unit has ConditionPathExists=!sealed, so even a manual `systemctl start` is a no-op),
+# the unit is disabled (no wants symlink: it is not started on any later boot), and leftover bootstrap temp files are removed. Nothing here touches the
+# ICS or the agent. The SMBIOS values themselves live in firmware tables for the lifetime of the VM; the ICS clears them from the VM configuration and
+# wipes its copy of the secret when enrollment finishes (docs/status/golden-image-prod-results.md, limits).
+set -eu
+D=/var/lib/ou-bootstrap
+[ -e "$D/done" ] || { echo "ou-seal: refusing to seal: no done marker" >&2; exit 1; }
+: > "$D/sealed"
+chmod 0444 "$D/sealed"
+systemctl disable ou-bootstrap.service >/dev/null 2>&1 || rm -f /etc/systemd/system/multi-user.target.wants/ou-bootstrap.service
+rm -f "$D"/*.tmp 2>/dev/null || true
+exit 0

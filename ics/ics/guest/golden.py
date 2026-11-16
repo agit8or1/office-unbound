@@ -1,25 +1,54 @@
-"""Verification of a golden-image release before `image.import` (ADR-0008 step 8, docs/status/bootstrap-v2.md).
+"""Verification of a golden-image release before `image.import` (ADR-0008 step 8, docs/status/golden-image-prod-results.md s4).
 
-A release directory holds `ou-golden-<os>-<date>.qcow2`, its CycloneDX SBOM, `SHA256SUMS` and `SHA256SUMS.sig` (base64 DER ECDSA P-256 / SHA-256 over
-SHA256SUMS, made on the offline release host). The ICS holds only the PUBLIC key (a file whose SHA-256-of-SPKI pin the operator confirmed, the same
-convention as the container image signing key). Nothing is imported unless the manifest signature verifies, the image and SBOM hashes match it, and the
-file names are the closed form the provider verb accepts."""
+A release directory holds, for one image `ou-golden-<os>-<YYYYMMDD>.qcow2`:
+  manifest.json      canonical JSON (schema `ou-golden-manifest-v2`, written by blueprints/build/guest-image/manifest.py), signed by the release signer
+  manifest.json.sig  base64 DER ECDSA P-256 / SHA-256 over the EXACT bytes of manifest.json
+  <image>, <image>.sbom.cdx.json, <image>.packages.lock, <image>.provenance.json   the files the manifest binds by SHA-256
+The ICS holds only the PUBLIC release key (operator-confirmed SPKI pin) and the PUBLIC key of the independent test runner (ou-test-attest); both come from
+Settings, never from a request. Nothing is imported unless: the signature verifies; the manifest is canonical and closed-schema; every bound file matches
+its hash (image, SBOM, package list, provenance); the package list, provenance and manifest agree with each other; the boot-test attestation was made by
+the test runner (Ed25519, review 7 H-3: the runner ran the test itself) for THIS image hash, kind image-first-boot, result pass, and is not stale; and the
+version is not below the rollback floor kept in the ICS database (review 7 M-4: the floor is monotonic and lives here, not in Proxmox tags)."""
 import base64
 import hashlib
+import json
 import os
 import re
+import time
 from dataclasses import dataclass
 
 from cryptography.exceptions import InvalidSignature
 from cryptography.hazmat.primitives import hashes, serialization
 from cryptography.hazmat.primitives.asymmetric import ec
+from cryptography.hazmat.primitives.asymmetric.ed25519 import Ed25519PublicKey
 
-IMAGE_RE = re.compile(r"^ou-golden-(debian-12|ubuntu-24\.04)-\d{8}\.qcow2$")
-LINE_RE = re.compile(r"^([0-9a-f]{64})  (\S+)$")
+SCHEMA = "ou-golden-manifest-v2"
+MANIFEST, MANIFEST_SIG = "manifest.json", "manifest.json.sig"
+IMAGE_RE = re.compile(r"^ou-golden-(debian-12|ubuntu-24\.04)-(\d{8})\.qcow2$")
+ATT_PREFIX = b"ou-test-attestation-v1\n"
+HEX64 = re.compile(r"^[0-9a-f]{64}$")
+MAX_MANIFEST = 256 * 1024
+MAX_ATTESTATION_AGE = 90 * 86400
+TOP_KEYS = {"schema", "name", "os", "version", "created_at", "image", "packages", "sbom", "provenance", "boot_test"}
+ATT_KEYS = {"v", "kind", "name", "sha256", "result", "log_sha256", "at", "run_id"}
 
 
 class ReleaseError(Exception):
     """Operator-readable, secret-free."""
+
+
+@dataclass(frozen=True)
+class Floor:
+    version: int
+    image_sha256: str
+
+
+@dataclass(frozen=True)
+class Trust:
+    """Everything the verifier trusts, built ONLY from Settings by `trust_from_settings` (no field is ever taken from a request or a plan)."""
+    release_pubkey_pem: str
+    release_pin_sha256: str
+    attestor_pubkey_b64: str
 
 
 @dataclass(frozen=True)
@@ -29,23 +58,20 @@ class Release:
     os: str
     sha256: str
     sbom_path: str
+    version: int = 0
+    packages_path: str = ""
+    provenance_path: str = ""
+    manifest_sha256: str = ""
+    attestation_run_id: str = ""
+    created_at: int = 0
 
     @property
     def date(self) -> str:
         return self.name.rsplit("-", 1)[1].split(".")[0]
 
 
-REL_TAG = re.compile(r"(?:^|[;, ])ou-rel-(debian-12|ubuntu-24\.04)-(\d{8})(?:$|[;, ])")
-
-
-def newest_imported(tag_strings, os_id: str) -> str | None:
-    """Review 5 M7 (rollback protection): the newest release date already imported for this OS, read from the template tags the verb itself sets."""
-    best = None
-    for t in tag_strings:
-        for m in REL_TAG.finditer(";" + str(t) + ";"):
-            if m.group(1) == os_id and (best is None or m.group(2) > best):
-                best = m.group(2)
-    return best
+def canon(o) -> bytes:
+    return json.dumps(o, sort_keys=True, separators=(",", ":"), ensure_ascii=True, allow_nan=False).encode()
 
 
 def key_pin(pem: str) -> str:
@@ -61,7 +87,27 @@ def _sha256_file(path: str) -> str:
     return h.hexdigest()
 
 
-def verify_release(directory: str, pubkey_pem: str, pin_sha256: str) -> Release:
+def _no_dups(pairs):
+    d = {}
+    for k, v in pairs:
+        if k in d:
+            raise ValueError("duplicate key")
+        d[k] = v
+    return d
+
+
+def _bound_file(directory: str, spec, expect_name: str, label: str) -> str:
+    if not isinstance(spec, dict) or spec.get("file") != expect_name or not HEX64.match(str(spec.get("sha256", ""))):
+        raise ReleaseError(f"manifest entry for {label} is malformed")
+    p = os.path.join(directory, expect_name)
+    if not os.path.isfile(p) or os.path.islink(p) or _sha256_file(p) != spec["sha256"]:
+        raise ReleaseError(f"{expect_name} does not match the signed manifest")
+    return p
+
+
+def verify_release(directory: str, pubkey_pem: str, pin_sha256: str, *, attestor_pubkey_b64: str, floor: Floor | None = None, allow_downgrade: bool = False,
+                   now: float | None = None) -> Release:
+    now = time.time() if now is None else now
     try:
         pub = serialization.load_pem_public_key(pubkey_pem.encode())
     except ValueError:
@@ -71,27 +117,123 @@ def verify_release(directory: str, pubkey_pem: str, pin_sha256: str) -> Release:
     if key_pin(pubkey_pem) != pin_sha256.lower():
         raise ReleaseError("the release public key does not match the operator-confirmed pin")
     try:
-        with open(os.path.join(directory, "SHA256SUMS"), "rb") as f:
-            manifest = f.read(65536)
-        sig = base64.b64decode(open(os.path.join(directory, "SHA256SUMS.sig"), "rb").read(4096), validate=True)
-    except (OSError, ValueError):
-        raise ReleaseError("SHA256SUMS or SHA256SUMS.sig is missing or malformed") from None
+        att_pub = Ed25519PublicKey.from_public_bytes(base64.b64decode(attestor_pubkey_b64, validate=True))
+    except (ValueError, TypeError):
+        raise ReleaseError("the test-runner attestation key is missing or invalid (ICS_GUEST_GOLDEN_ATTESTOR_PUBKEY)") from None
     try:
-        pub.verify(sig, manifest, ec.ECDSA(hashes.SHA256()))
+        with open(os.path.join(directory, MANIFEST), "rb") as f:
+            raw = f.read(MAX_MANIFEST + 1)
+        sig = base64.b64decode(open(os.path.join(directory, MANIFEST_SIG), "rb").read(4096), validate=True)
+    except (OSError, ValueError):
+        raise ReleaseError("manifest.json or manifest.json.sig is missing or malformed") from None
+    if len(raw) > MAX_MANIFEST:
+        raise ReleaseError("manifest.json is too large")
+    try:
+        pub.verify(sig, raw, ec.ECDSA(hashes.SHA256()))
     except InvalidSignature:
         raise ReleaseError("the manifest signature does not verify against the release key") from None
-    entries = {}
-    for line in manifest.decode("ascii", "strict").splitlines():
-        m = LINE_RE.match(line)
-        if not m or "/" in m.group(2) or m.group(2) in entries:
-            raise ReleaseError("malformed manifest line")
-        entries[m.group(2)] = m.group(1)
-    images = [n for n in entries if IMAGE_RE.match(n)]
-    if len(images) != 1 or f"{images[0]}.sbom.cdx.json" not in entries or len(entries) != 2:
-        raise ReleaseError("the manifest must list exactly one ou-golden-<os>-<date>.qcow2 and its SBOM")
-    name = images[0]
-    for n in (name, name + ".sbom.cdx.json"):
-        p = os.path.join(directory, n)
-        if not os.path.isfile(p) or os.path.islink(p) or _sha256_file(p) != entries[n]:
-            raise ReleaseError(f"{n} does not match the signed manifest")
-    return Release(os.path.join(directory, name), name, IMAGE_RE.match(name).group(1), entries[name], os.path.join(directory, name + ".sbom.cdx.json"))
+    try:
+        m = json.loads(raw.decode("ascii"), object_pairs_hook=_no_dups)
+    except (ValueError, UnicodeDecodeError):
+        raise ReleaseError("manifest.json is not valid JSON") from None
+    if not isinstance(m, dict) or canon(m) + b"\n" != raw:
+        raise ReleaseError("manifest.json is not in canonical form")
+    if set(m) != TOP_KEYS or m["schema"] != SCHEMA:
+        raise ReleaseError("manifest schema is not ou-golden-manifest-v2 or has unexpected fields")
+    name = m["name"]
+    nm = IMAGE_RE.match(name) if isinstance(name, str) else None
+    if not nm or m["os"] != nm.group(1):
+        raise ReleaseError("manifest name/os are inconsistent or not a golden image name")
+    if type(m["version"]) is not int or m["version"] < 1 or type(m["created_at"]) is not int or m["created_at"] < 1_000_000_000:
+        raise ReleaseError("manifest version/created_at are not valid integers")
+    if m["created_at"] > now + 86400:
+        raise ReleaseError("manifest is dated in the future")
+    img = _bound_file(directory, m["image"], name, "image")
+    if m["image"].get("size") != os.path.getsize(img) or set(m["image"]) != {"file", "sha256", "size"}:
+        raise ReleaseError("image size does not match the manifest")
+    sbom = _bound_file(directory, m["sbom"], name + ".sbom.cdx.json", "SBOM")
+    pk = _bound_file(directory, m["packages"], name + ".packages.lock", "package list")
+    prov_spec = m["provenance"]
+    prov = _bound_file(directory, prov_spec, name + ".provenance.json", "provenance")
+    try:
+        bom = json.load(open(sbom, "rb"))
+        if bom["bomFormat"] != "CycloneDX" or not isinstance(bom.get("components"), list) or len(bom["components"]) < 50:
+            raise ValueError
+    except (OSError, ValueError, KeyError, TypeError):
+        raise ReleaseError("the SBOM is not a CycloneDX document with a component inventory") from None
+    lines = [l for l in open(pk, encoding="ascii", errors="strict").read().splitlines() if l.strip()]
+    if not lines or any(not re.fullmatch(r"[a-z0-9][a-z0-9+.\-]*=[A-Za-z0-9.+:~\-]+", l) for l in lines) or lines != sorted(set(lines)) or m["packages"].get("count") != len(lines):
+        raise ReleaseError("the package list is malformed, unsorted or its count does not match the manifest")
+    try:
+        pv = json.load(open(prov, "rb"))
+        if (pv["os"] != m["os"] or pv["source_date_epoch"] != m["created_at"] or prov_spec.get("source_date_epoch") != m["created_at"]
+                or pv["package_lock_sha256"] != m["packages"]["sha256"] or prov_spec.get("package_lock_sha256") != pv["package_lock_sha256"]
+                or pv["recipe_sha256"] != prov_spec.get("recipe_sha256") or not HEX64.match(str(pv["recipe_sha256"])) or not pv.get("archive_inrelease_sha256")):
+            raise ValueError
+    except (OSError, ValueError, KeyError, TypeError):
+        raise ReleaseError("the build provenance is missing or disagrees with the manifest (epoch, os, package list, recipe hash)") from None
+    bt = m["boot_test"]
+    if not isinstance(bt, dict) or set(bt) != {"attestation", "sig", "attestation_sha256"} or not isinstance(bt["attestation"], dict) or set(bt["attestation"]) != ATT_KEYS:
+        raise ReleaseError("the boot-test attestation is missing or has unexpected fields")
+    att = bt["attestation"]
+    try:
+        att_pub.verify(base64.b64decode(bt["sig"], validate=True), ATT_PREFIX + canon(att))
+    except (InvalidSignature, ValueError, TypeError):
+        raise ReleaseError("the boot-test attestation was not made by the configured test runner") from None
+    if hashlib.sha256(canon(att)).hexdigest() != bt["attestation_sha256"]:
+        raise ReleaseError("attestation hash does not match")
+    if (att["v"] != 2 or att["kind"] != "image-first-boot" or att["name"] != "first-boot" or att["sha256"] != m["image"]["sha256"] or att["result"] != "pass"
+            or not HEX64.match(str(att["log_sha256"])) or not re.fullmatch(r"[0-9a-f]{32}", str(att["run_id"])) or type(att["at"]) is not int):
+        raise ReleaseError("the boot-test attestation is not a passing image-first-boot attestation of this image")
+    if att["at"] < m["created_at"] or att["at"] > now + 300 or now - att["at"] > MAX_ATTESTATION_AGE:
+        raise ReleaseError("the boot-test attestation is older than the build, in the future, or stale (> 90 days)")
+    if floor is not None and not allow_downgrade:
+        if m["version"] < floor.version:
+            raise ReleaseError(f"release version {m['version']} is below the rollback floor {floor.version} for {m['os']}; a downgrade needs a separately approved plan")
+        if m["version"] == floor.version and floor.image_sha256 != m["image"]["sha256"]:
+            raise ReleaseError("a different image carries the version already accepted for this OS")
+    return Release(img, name, m["os"], m["image"]["sha256"], sbom, m["version"], pk, prov, hashlib.sha256(raw).hexdigest(), att["run_id"], m["created_at"])
+
+
+# ---- Settings + database floor -------------------------------------------------------------------------------------------------------------------
+
+def trust_from_settings(settings) -> Trust:
+    """The ONLY source of release trust: operator settings. Refuses when any of the three is missing."""
+    f, pin, att = settings.guest_golden_release_pubkey_file, settings.guest_golden_release_pin_sha256, settings.guest_golden_attestor_pubkey
+    if not (f and pin and att):
+        raise ReleaseError("golden image import is not configured (ICS_GUEST_GOLDEN_RELEASE_PUBKEY_FILE, ..._PIN_SHA256, ICS_GUEST_GOLDEN_ATTESTOR_PUBKEY)")
+    try:
+        pem = open(f, encoding="ascii").read()
+    except OSError:
+        raise ReleaseError("the release public key file cannot be read") from None
+    return Trust(pem, pin, att)
+
+
+def get_floor(rt, os_id: str) -> Floor | None:
+    from sqlalchemy import text
+    with rt.session() as db:
+        r = db.execute(text("SELECT version, image_sha256 FROM golden_image_floor WHERE os = :o"), {"o": os_id}).first()
+    return Floor(int(r[0]), r[1]) if r else None
+
+
+def advance_floor(rt, rel: Release) -> bool:
+    """Record an accepted release. Only ever raises the floor (the table's trigger refuses anything else). True when the floor moved."""
+    from sqlalchemy import text
+    with rt.session() as db:
+        r = db.execute(text(
+            "INSERT INTO golden_image_floor (os, version, image_sha256, image_name) VALUES (:o, :v, :s, :n) "
+            "ON CONFLICT (os) DO UPDATE SET version = EXCLUDED.version, image_sha256 = EXCLUDED.image_sha256, image_name = EXCLUDED.image_name, advanced_at = now() "
+            "WHERE golden_image_floor.version < EXCLUDED.version RETURNING version"),
+            {"o": rel.os, "v": rel.version, "s": rel.sha256, "n": rel.name}).first()
+        db.commit()
+    return r is not None
+
+
+def verify_for_import(rt, release_dir: str, *, allow_downgrade: bool = False) -> Release:
+    """Verification with trust from Settings and the floor from the database. The os is read from the (signed) manifest first, then the floor for that os
+    is applied. This is what an import plan step calls; the result is what ImageImportSpec carries."""
+    trust = trust_from_settings(rt.settings)
+    first = verify_release(release_dir, trust.release_pubkey_pem, trust.release_pin_sha256, attestor_pubkey_b64=trust.attestor_pubkey_b64, floor=None)
+    floor = get_floor(rt, first.os)
+    return verify_release(release_dir, trust.release_pubkey_pem, trust.release_pin_sha256, attestor_pubkey_b64=trust.attestor_pubkey_b64, floor=floor,
+                          allow_downgrade=allow_downgrade)

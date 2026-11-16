@@ -29,7 +29,10 @@ KEYS=${KEYS:-$HERE/keys}
 OU_REPO=${OU_REPO:-$WORK/ourrepo}                                  # the signed apt repo tree holding ou-node-agent (publish-dev.sh output)
 OU_RELEASE_PUB=${OU_RELEASE_PUB:-$HERE/../keys/ou-release-lab.pub.asc}
 OU_RELEASE_FPR=${OU_RELEASE_FPR:-$(cat "$HERE/../keys/ou-release-lab.FINGERPRINT")}
-export SOURCE_DATE_EPOCH=${SOURCE_DATE_EPOCH:-$(date +%s)}
+# REPRODUCIBILITY: SOURCE_DATE_EPOCH is REQUIRED (no wall clock fallback): it names the image and clamps every timestamp. Same recipe + same epoch +
+# same package lock (os/<os>.packages.lock) => same image bytes (see docs/status/golden-image-prod-results.md for what is and is not identical).
+SOURCE_DATE_EPOCH=${SOURCE_DATE_EPOCH:-0}; export SOURCE_DATE_EPOCH
+LOCK=${LOCK:-$HERE/os/$OS.packages.lock}
 STAMP=$(date -u -d "@$SOURCE_DATE_EPOCH" +%Y%m%d)
 IMG=ou-golden-$OS-$STAMP.qcow2
 mkdir -p "$WORK/up" "$OUT"
@@ -68,7 +71,8 @@ check_serial() {   # review 5 L7: dated pin + freshness + never backwards
 }
 
 do_fetch() {
-  case "$UPSTREAM_MODE" in
+  local MODE=${1:-$UPSTREAM_MODE}
+  case "$MODE" in
     bootstrap) echo "bootstrap mode: nothing to download here; packages are fetched by mmdebstrap and verified against the pinned archive keys in the build step"; pinned_keyring "$WORK/up/archive-pinned.gpg" ;;
     cloudimage)
       check_serial
@@ -80,8 +84,9 @@ do_fetch() {
 }
 
 do_verify() {
+  local MODE=${1:-$UPSTREAM_MODE}
   need gpg gnupg
-  case "$UPSTREAM_MODE" in
+  case "$MODE" in
     bootstrap) pinned_keyring "$WORK/up/archive-pinned.gpg"; echo "archive keys verified against the pinned fingerprints: $ARCHIVE_KEY_FPRS" ;;
     cloudimage)
       need sha256sum coreutils; cd "$WORK/up"
@@ -110,7 +115,8 @@ fetch_syft() {
 }
 
 do_build() {
-  [ "$UPSTREAM_MODE" = bootstrap ] || { echo "build for UPSTREAM_MODE=$UPSTREAM_MODE is not supported on an unprivileged builder (needs loop mount or libguestfs): see os/$OS.env" >&2; exit 5; }
+  [ "$SOURCE_DATE_EPOCH" -gt 1000000000 ] || { echo "set SOURCE_DATE_EPOCH (unix seconds): a golden image is built for an explicit epoch, never for 'now'" >&2; exit 3; }
+  [ "$UPSTREAM_MODE" = bootstrap ] || { echo "build for UPSTREAM_MODE=$UPSTREAM_MODE is not supported" >&2; exit 5; }
   for t in "mmdebstrap mmdebstrap" "systemd-repart systemd-repart" "mkfs.vfat dosfstools" "mkfs.ext4 e2fsprogs" "mcopy mtools" "syslinux syslinux" "sgdisk gdisk" "qemu-img qemu-utils" "sfdisk util-linux" "unshare util-linux"; do need ${t% *} ${t#* }; done
   do_verify
   fetch_syft
@@ -120,39 +126,58 @@ do_build() {
   [ -s "$OU_REPO/dists/dev/InRelease" ] || { echo "no signed Office Unbound repo at $OU_REPO (agent-deb/build-deb.sh + publish-dev.sh)" >&2; exit 3; }
   cp -r "$OU_REPO" "$PL/ourrepo"
   cp "$OU_RELEASE_PUB" "$PL/ou-release.pub.asc"; echo "$OU_RELEASE_FPR" > "$PL/ou-release.FINGERPRINT"
-  cp "$HERE/customize.sh" "$HERE/ou-bootstrap.service" "$HERE/ou-growroot.service" "$HERE/ou-growroot" "$HERE/ou-bootcfg" "$HERE/nftables.conf" "$PL/"
+  cp "$HERE/customize.sh" "$HERE/ou-bootstrap.service" "$HERE/ou-growroot.service" "$HERE/ou-growroot" "$HERE/ou-bootcfg" "$HERE/ou-seal" "$HERE/nftables.conf" "$PL/"
+  # cloud-init is NOT installed (absent, not merely disabled); no ssh server. See tests/ for what the independent boot tester asserts.
   local PKGS="systemd-sysv,systemd-resolved,systemd-timesyncd,udev,dbus,dbus-user-session,libpam-systemd,kmod,iproute2,iputils-ping,ca-certificates,gnupg,apt-utils,\
-linux-image-cloud-amd64,initramfs-tools,systemd-boot-efi,cloud-guest-utils,gdisk,fdisk,e2fsprogs,dosfstools,\
-podman,uidmap,passt,crun,netavark,aardvark-dns,systemd-container,nftables,polkitd,python3,python3-cryptography,unattended-upgrades,cloud-init,\
-netbase"
+$KERNEL_PKG,initramfs-tools,systemd-boot-efi,cloud-guest-utils,gdisk,fdisk,e2fsprogs,dosfstools,\
+podman,uidmap,passt,crun,netavark,aardvark-dns,systemd-container,nftables,polkitd,python3,python3-cryptography,unattended-upgrades,netbase"
   PKGS=$(echo "$PKGS" | tr -d '\\\n ')
   local KR=$WORK/up/archive-pinned.gpg
+  # package lock: when it exists every package of the image is pinned to the recorded version (apt preference, priority 1001). A pinned version that the
+  # archive no longer serves makes the build REFUSE (no silent drift); `OU_RELOCK=1` (or a missing lock) resolves afresh and writes the new lock.
+  local PREF=$WORK/ou-lock.pref; : > "$PREF"
+  if [ -s "$LOCK" ] && [ "${OU_RELOCK:-0}" != 1 ]; then
+    awk -F= 'NF==2{printf "Package: %s\nPin: version %s\nPin-Priority: 1001\n\n",$1,$2}' "$LOCK" > "$PREF"
+    echo "using package lock $LOCK ($(wc -l < "$LOCK") packages)"
+  else
+    echo "NO package lock in use: this build resolves the archive of the moment and writes a new lock (not reproducible against an older one)" >&2
+  fi
+  local MIRRORS=("deb [signed-by=$KR] $MIRROR $SUITE $COMPONENTS" "deb [signed-by=$KR] $MIRROR $SUITE-updates $COMPONENTS" "deb [signed-by=$KR] $SECURITY_MIRROR $SECURITY_SUITE $COMPONENTS")
   # a private mount namespace: mmdebstrap's chroot mounts must not leak into (or break) the builder's own cgroup/proc mounts
   unshare -m --propagation private mmdebstrap --mode=root --variant=minbase --skip=check/empty --keyring="$KR" --include="$PKGS" \
     --aptopt='Apt::Install-Recommends "false"' \
+    --setup-hook='mkdir -p "$1/etc/apt/preferences.d" && cp '"$PREF"' "$1/etc/apt/preferences.d/ou-lock"' \
+    --customize-hook='sha256sum "$1"/var/lib/apt/lists/*InRelease | sed "s|  .*/lists/|  |" | sort -k2 > '"$WORK"'/inrelease.sha256' \
     --customize-hook='copy-in '"$PL"' /tmp' \
-    --customize-hook='chroot "$1" env OU_OS='"$OS"' ROOT_UUID='"$ROOT_UUID"' ESP_UUID='"$ESP_UUID"' sh /tmp/payload/customize.sh' \
-    "$DEBIAN_SUITE" "$R" \
-    "deb [signed-by=$KR] $DEBIAN_MIRROR $DEBIAN_SUITE main" \
-    "deb [signed-by=$KR] $DEBIAN_MIRROR $DEBIAN_SUITE-updates main" \
-    "deb [signed-by=$KR] $DEBIAN_SECURITY_MIRROR $DEBIAN_SUITE-security main"
-  # shipped apt sources: the same three pinned-key entries (unattended-upgrades needs them), keyring = the pinned archive keyring
-  install -m 0644 "$KR" "$R/usr/share/keyrings/ou-debian-archive-pinned.gpg"
-  cat > "$R/etc/apt/sources.list.d/debian.sources" <<EOF
+    --customize-hook='chroot "$1" env OU_OS='"$OS"' ROOT_UUID='"$ROOT_UUID"' ESP_UUID='"$ESP_UUID"' UNATTENDED_ORIGIN='"'$UNATTENDED_ORIGIN'"' SOURCE_DATE_EPOCH='"$SOURCE_DATE_EPOCH"' sh /tmp/payload/customize.sh' \
+    "$SUITE" "$R" "${MIRRORS[@]}"
+  # shipped apt sources: the same pinned-key entries (unattended-upgrades needs them), keyring = the pinned archive keyring
+  install -m 0644 "$KR" "$R/usr/share/keyrings/ou-archive-pinned.gpg"
+  cat > "$R/etc/apt/sources.list.d/$DISTRO.sources" <<EOT
 Types: deb
-URIs: $DEBIAN_MIRROR
-Suites: $DEBIAN_SUITE $DEBIAN_SUITE-updates
-Components: main
-Signed-By: /usr/share/keyrings/ou-debian-archive-pinned.gpg
+URIs: $MIRROR
+Suites: $SUITE $SUITE-updates
+Components: $COMPONENTS
+Signed-By: /usr/share/keyrings/ou-archive-pinned.gpg
 
 Types: deb
-URIs: $DEBIAN_SECURITY_MIRROR
-Suites: $DEBIAN_SUITE-security
-Components: main
-Signed-By: /usr/share/keyrings/ou-debian-archive-pinned.gpg
-EOF
-  rm -f "$R/etc/apt/sources.list"
+URIs: $SECURITY_MIRROR
+Suites: $SECURITY_SUITE
+Components: $COMPONENTS
+Signed-By: /usr/share/keyrings/ou-archive-pinned.gpg
+EOT
+  rm -f "$R/etc/apt/sources.list" "$R/etc/apt/preferences.d/ou-lock"
   install -D -m 0644 /usr/lib/syslinux/modules/bios/ldlinux.c32 "$R/boot/syslinux/ldlinux.c32"
+  # ---- exact package list (the lock) of the FINAL tree; compare with the lock in use
+  dpkg-query --admindir="$R/var/lib/dpkg" -W -f '${Package}=${Version}\n' | LC_ALL=C sort > "$WORK/packages.lock.new"
+  if [ -s "$LOCK" ] && [ "${OU_RELOCK:-0}" != 1 ]; then
+    diff -u "$LOCK" "$WORK/packages.lock.new" >&2 || { echo "REFUSED: the built package set differs from $LOCK (see diff); refresh the lock deliberately with OU_RELOCK=1" >&2; exit 6; }
+  fi
+  # ---- reproducible normalisation of the tree: files that only carry build-time state are removed, every timestamp is clamped to SOURCE_DATE_EPOCH
+  rm -rf "$R/var/cache/ldconfig/aux-cache" "$R/var/cache/debconf"/*-old "$R/var/lib/dpkg"/*-old "$R/var/log/alternatives.log" "$R/var/log/dpkg.log" "$R/var/log/bootstrap.log" "$R/var/cache/apt"
+  awk -F: -v OFS=: -v d=$(( SOURCE_DATE_EPOCH / 86400 )) '$3 ~ /^[0-9]+$/ && $3 > d {$3=d} {print}' "$R/etc/shadow" > "$R/etc/shadow.new"
+  cat "$R/etc/shadow.new" > "$R/etc/shadow"; rm "$R/etc/shadow.new"
+  find "$R" -xdev -newermt "@$SOURCE_DATE_EPOCH" -exec touch -h --date="@$SOURCE_DATE_EPOCH" {} + 2>/dev/null || true
   # ---- tree -> partitioned raw image (no mount, no loop device)
   local D=$WORK/repart.d; rm -rf "$D"; mkdir -p "$D"
   printf '[Partition]\nType=esp\nUUID=%s\nLabel=ou-boot\nFormat=vfat\nCopyFiles=/boot:/\nSizeMinBytes=256M\nSizeMaxBytes=256M\n' "$ESP_UUID" > "$D/10-boot.conf"
@@ -163,34 +188,50 @@ EOF
   sgdisk -A 1:set:2 "$WORK/raw.img" >/dev/null
   local off; off=$(sfdisk -J "$WORK/raw.img" | python3 -I -c 'import json,sys;print(json.load(sys.stdin)["partitiontable"]["partitions"][0]["start"]*512)')
   syslinux --offset "$off" --directory /syslinux --install "$WORK/raw.img"
-  # SBOM (syft, pinned) + licence scan over the final tree
+  # SBOM (syft, pinned) + licence scan over the final tree; the two non-deterministic CycloneDX fields (random serialNumber, wall-clock timestamp) are
+  # replaced by values derived from the package lock and SOURCE_DATE_EPOCH
   "$WORK/tools/syft" scan "dir:$R" -o cyclonedx-json="$WORK/sbom.raw.json" -q
   python3 -I "$HERE/licensescan.py" "$WORK/sbom.raw.json" "$HERE/license-policy.yaml" "$OS" "$WORK/sbom.final.json" "$OUT/$IMG.licenses.json"
+  python3 -I "$HERE/sbom_normalise.py" "$WORK/sbom.final.json" "$WORK/packages.lock.new" "$SOURCE_DATE_EPOCH"
   qemu-img convert -O qcow2 -c "$WORK/raw.img" "$OUT/$IMG"
   mv "$WORK/sbom.final.json" "$OUT/$IMG.sbom.cdx.json"
+  cp "$WORK/packages.lock.new" "$OUT/$IMG.packages.lock"
+  if [ ! -s "$LOCK" ] || [ "${OU_RELOCK:-0}" = 1 ]; then cp "$WORK/packages.lock.new" "$LOCK"; echo "wrote package lock $LOCK" >&2; fi
+  python3 -I "$HERE/manifest.py" provenance --os "$OS" --epoch "$SOURCE_DATE_EPOCH" --recipe-dir "$HERE" --lock "$LOCK" --inrelease "$WORK/inrelease.sha256" \
+    --commit "${OU_RECIPE_COMMIT:-unknown}" --tool "mmdebstrap=$(mmdebstrap --version)" --tool "systemd-repart=$(systemd-repart --version | head -1)" \
+    --tool "mkfs.ext4=$(mkfs.ext4 -V 2>&1 | head -1)" --tool "qemu-img=$(qemu-img --version | head -1)" --tool "syft=$SYFT_VERSION" > "$OUT/$IMG.provenance.json"
   echo "built $OUT/$IMG ($(du -h "$OUT/$IMG" | cut -f1))"
 }
 
+# Manifest v2 (docs/status/golden-image-prod-results.md s4): ONE signed JSON document binding name, monotonic version, image / package-list / SBOM hashes,
+# build provenance and the boot-test attestation. Built here UNSIGNED from the build outputs and the attestation that ou-test-attest produced for THIS image
+# hash ($OUT/$IMG.attestation.json, never typed by hand). Version: OU_IMAGE_VERSION (integer, must exceed the last released one; the signer enforces it).
 do_manifest() {
   cd "$OUT"
   [ -f "$IMG" ] || IMG=$(ls ou-golden-"$OS"-*.qcow2 | tail -1)
-  sha256sum "$IMG" "$IMG.sbom.cdx.json" > SHA256SUMS
-  echo "manifest:"; cat SHA256SUMS
+  python3 -I "$HERE/manifest.py" build --image "$IMG" --sbom "$IMG.sbom.cdx.json" --packages "$IMG.packages.lock" --provenance "$IMG.provenance.json" \
+    --attestation "$IMG.attestation.json" --version "${OU_IMAGE_VERSION:?set OU_IMAGE_VERSION (monotonic integer)}" > manifest.json
+  echo "manifest.json:"; cat manifest.json
 }
 
-# Signing is NOT done with a key reachable from the builder. On the release host the dedicated signer program does it: it re-hashes the files, needs a
-# passing first-boot test record (ou-image-sign record-test) and prints SHA256SUMS + SHA256SUMS.sig. Lab usage (signer installed by install-image-signer.sh):
+# Signing is NOT done with a key reachable from the builder. The dedicated signer (signer/ou-image-sign, owned by the signer agent) must, for manifest v2,
+# re-hash image/SBOM/package list itself, verify the ou-test-attest signature + that the attested sha256 is the image, take the version from its own
+# monotonic state and sign the canonical manifest bytes (see docs/status/golden-image-prod-results.md "Signer contract"). Until that lands, the lab uses
+# `manifest.py lab-sign` with a throw-away lab key (NOT a release key).
 do_sign() {
   cd "$OUT"
-  [ -f "$IMG" ] || IMG=$(ls ou-golden-"$OS"-*.qcow2 | tail -1)
-  local SIGN=${OU_IMAGE_SIGN_CMD:-sudo -n -u ou-imgsign /usr/local/sbin/ou-image-sign}
-  tar --owner=0 --group=0 --numeric-owner --mtime=@0 -c "$IMG" "$IMG.sbom.cdx.json" | $SIGN sign > "$WORK/signed.tar"
-  tar -x -C "$OUT" -f "$WORK/signed.tar" --no-same-owner SHA256SUMS SHA256SUMS.sig
-  echo "signed: $(cat SHA256SUMS | wc -l) manifest lines, signature $(wc -c < SHA256SUMS.sig) bytes base64"
+  [ -f manifest.json ] || { echo "run the manifest step first" >&2; exit 3; }
+  if [ -n "${OU_IMAGE_SIGN_CMD:-}" ]; then
+    tar --owner=0 --group=0 --numeric-owner --mtime=@0 -c manifest.json "$IMG" "$IMG.sbom.cdx.json" "$IMG.packages.lock" "$IMG.provenance.json" "$IMG.attestation.json" | $OU_IMAGE_SIGN_CMD sign-manifest > "$WORK/signed.tar"
+    tar -x -C "$OUT" -f "$WORK/signed.tar" --no-same-owner manifest.json manifest.json.sig
+  else
+    python3 -I "$HERE/manifest.py" lab-sign --manifest manifest.json --key "${OU_LAB_SIGN_KEY:?OU_LAB_SIGN_KEY (lab ECDSA P-256 private key PEM)}" > manifest.json.sig
+  fi
+  echo "signed manifest.json ($(wc -c < manifest.json.sig) bytes base64 signature)"
 }
 
 case "$STEP" in
-  fetch) do_fetch ;; verify) do_verify ;; build) do_build ;; manifest) do_manifest ;; sign) do_sign ;;
-  all) do_fetch; do_verify; do_build; do_manifest; echo "now: boot proof (bootproof.sh), record-test, then recipe.sh $OS sign on the release host" ;;
+  fetch) do_fetch ;; verify) do_verify ;; fetch-upstream) do_fetch cloudimage ;; verify-upstream) do_verify cloudimage ;; build) do_build ;; manifest) do_manifest ;; sign) do_sign ;;
+  all) do_fetch; do_verify; do_build; echo "now: independent boot test (tests/image-first-boot via ou-test-attest), then manifest + sign on the release host" ;;
   *) echo "unknown step $STEP" >&2; exit 2 ;;
 esac

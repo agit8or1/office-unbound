@@ -1002,10 +1002,11 @@ class ProxmoxMutations(ProxmoxProvider):
         for st in (spec.import_storage, spec.target_storage):
             self._need_storage(st)
         from ...guest import golden     # late: guest.* imports providers
-        if not (spec.release_dir and spec.release_pubkey_pem and spec.release_pin_sha256):
-            raise ProviderError("invalid_request", "image import needs the signed release (directory, public key and pin); an unsigned image is never imported")
+        if not (spec.release_dir and isinstance(spec.trust, golden.Trust)):
+            raise ProviderError("invalid_request", "image import needs the signed release directory and the Settings-derived trust (golden.verify_for_import); an unsigned image is never imported")
         try:
-            rel = golden.verify_release(spec.release_dir, spec.release_pubkey_pem, spec.release_pin_sha256)
+            rel = golden.verify_release(spec.release_dir, spec.trust.release_pubkey_pem, spec.trust.release_pin_sha256, attestor_pubkey_b64=spec.trust.attestor_pubkey_b64,
+                                        floor=spec.floor, allow_downgrade=spec.allow_downgrade)
         except golden.ReleaseError as e:
             raise ProviderError("integrity", f"release verification failed: {e}; nothing was uploaded") from None
         if os.path.realpath(spec.file_path) != os.path.realpath(rel.path) or not hmac_equal(spec.sha256, rel.sha256):
@@ -1020,10 +1021,6 @@ class ProxmoxMutations(ProxmoxProvider):
         digest, size = _file_sha256(spec.file_path)
         if size == 0 or size > IMAGE_MAX_BYTES or not hmac_equal(digest, spec.sha256):
             raise ProviderError("integrity", "the image file does not match the verified checksum (or is empty/too large); nothing was uploaded")
-        newest = golden.newest_imported([g.get("tags") or "" for g in self._get("/cluster/resources?type=vm", self._w)], rel.os)
-        if newest and rel.date < newest and not spec.allow_downgrade:
-            raise ProviderError("downgrade", f"release {rel.date} is older than the newest imported {rel.os} image ({newest}); a downgrade needs an explicit, "
-                                "separately approved plan (allow_downgrade); nothing was uploaded")
         stor = {x["storage"]: x for x in self._get(f"/nodes/{_seg(spec.node)}/storage", self._w)}
         have_imp, have_img = stor.get(spec.import_storage), stor.get(spec.target_storage)
         if have_imp is None or "import" not in str(have_imp.get("content", "")).split(","):

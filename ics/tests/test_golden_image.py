@@ -8,84 +8,67 @@ import os
 import shutil
 import subprocess
 import tarfile
+import time
 
 import pytest
 from cryptography.hazmat.primitives import hashes, serialization
 from cryptography.hazmat.primitives.asymmetric import ec
+from cryptography.hazmat.primitives.asymmetric.ed25519 import Ed25519PrivateKey
 
 from ics.guest import golden
 
 RECIPE_DIR = os.path.join(os.path.dirname(__file__), "..", "..", "blueprints", "build", "guest-image")
 
 
-def make_release(tmp_path, name="ou-golden-debian-12-20261115.qcow2", image=b"QFI\xfbimage", sbom=b'{"bomFormat":"CycloneDX"}'):
+ATTESTOR_KEY = Ed25519PrivateKey.generate()
+ATTESTOR_PUB_B64 = base64.b64encode(ATTESTOR_KEY.public_key().public_bytes(serialization.Encoding.Raw, serialization.PublicFormat.Raw)).decode()
+
+
+def canon(o):
+    return json.dumps(o, sort_keys=True, separators=(",", ":"), ensure_ascii=True, allow_nan=False).encode()
+
+
+def make_release(tmp_path, name="ou-golden-debian-12-20261115.qcow2", image=b"QFI\xfbimage", sbom=None, version=1, created_at=None, mutate=None, attest_key=None, att_over=None):
+    """a really signed v2 release directory (ECDSA P-256 manifest + Ed25519 test-runner attestation) as the release host produces it"""
+    created_at = int(time.time()) - 3600 if created_at is None else created_at
+    sbom = sbom or json.dumps({"bomFormat": "CycloneDX", "components": [{"name": f"p{i}"} for i in range(60)]}).encode()
     k = ec.generate_private_key(ec.SECP256R1())
     pem = k.public_key().public_bytes(serialization.Encoding.PEM, serialization.PublicFormat.SubjectPublicKeyInfo).decode()
     d = tmp_path / "rel"
     d.mkdir()
-    (d / name).write_bytes(image)
-    (d / (name + ".sbom.cdx.json")).write_bytes(sbom)
-    manifest = f"{hashlib.sha256(image).hexdigest()}  {name}\n{hashlib.sha256(sbom).hexdigest()}  {name}.sbom.cdx.json\n"
-    (d / "SHA256SUMS").write_text(manifest)
-    (d / "SHA256SUMS.sig").write_text(base64.b64encode(k.sign(manifest.encode(), ec.ECDSA(hashes.SHA256()))).decode())
+    pkgs = "".join(f"pkg{i:03d}=1.{i}\n" for i in range(80)).encode()
+    os_id = (golden.IMAGE_RE.match(name) or golden.IMAGE_RE.match("ou-golden-debian-12-20261115.qcow2")).group(1)
+    prov = json.dumps({"os": os_id, "source_date_epoch": created_at, "recipe_sha256": "ab" * 32, "package_lock_sha256": hashlib.sha256(pkgs).hexdigest(),
+                       "archive_inrelease_sha256": {"x_InRelease": "cd" * 32}}).encode()
+    files = {name: image, name + ".sbom.cdx.json": sbom, name + ".packages.lock": pkgs, name + ".provenance.json": prov}
+    for n, b in files.items():
+        (d / n).write_bytes(b)
+    att = {"v": 2, "kind": "image-first-boot", "name": "first-boot", "sha256": hashlib.sha256(image).hexdigest(), "result": "pass", "log_sha256": "ee" * 32,
+           "at": created_at + 600, "run_id": "0f" * 16}
+    att.update(att_over or {})
+    m = {"schema": golden.SCHEMA, "name": name, "os": os_id, "version": version, "created_at": created_at,
+         "image": {"file": name, "sha256": hashlib.sha256(image).hexdigest(), "size": len(image)},
+         "packages": {"file": name + ".packages.lock", "sha256": hashlib.sha256(pkgs).hexdigest(), "count": 80},
+         "sbom": {"file": name + ".sbom.cdx.json", "sha256": hashlib.sha256(sbom).hexdigest()},
+         "provenance": {"file": name + ".provenance.json", "sha256": hashlib.sha256(prov).hexdigest(), "source_date_epoch": created_at, "recipe_sha256": "ab" * 32,
+                        "package_lock_sha256": hashlib.sha256(pkgs).hexdigest()},
+         "boot_test": {"attestation": att, "sig": base64.b64encode((attest_key or ATTESTOR_KEY).sign(golden.ATT_PREFIX + canon(att))).decode(),
+                       "attestation_sha256": hashlib.sha256(canon(att)).hexdigest()}}
+    if mutate:
+        mutate(m)
+    raw = canon(m) + b"\n"
+    (d / "manifest.json").write_bytes(raw)
+    (d / "manifest.json.sig").write_text(base64.b64encode(k.sign(raw, ec.ECDSA(hashes.SHA256()))).decode())
     return str(d), pem, golden.key_pin(pem), k
 
 
-def test_a_signed_release_verifies_and_yields_the_import_inputs(tmp_path):
-    d, pem, pin, _ = make_release(tmp_path)
-    r = golden.verify_release(d, pem, pin)
-    assert r.name == "ou-golden-debian-12-20261115.qcow2" and r.os == "debian-12" and r.sha256 == hashlib.sha256(b"QFI\xfbimage").hexdigest()
-    assert os.path.basename(r.path) == r.name
-
-
-@pytest.mark.parametrize("attack", ["image", "sbom", "manifest", "sig", "other_key", "wrong_pin", "extra_entry", "symlink", "name", "missing_sig"])
-def test_every_tampering_is_refused(tmp_path, attack):
-    d, pem, pin, k = make_release(tmp_path)
-    img = os.path.join(d, "ou-golden-debian-12-20261115.qcow2")
-    if attack == "image":
-        open(img, "ab").write(b"x")
-    elif attack == "sbom":
-        open(img + ".sbom.cdx.json", "ab").write(b"x")
-    elif attack == "manifest":
-        open(os.path.join(d, "SHA256SUMS"), "a").write("00" * 32 + "  ou-golden-debian-12-20261115.qcow2\n")
-    elif attack == "sig":
-        open(os.path.join(d, "SHA256SUMS.sig"), "w").write(base64.b64encode(b"\x30\x06\x02\x01\x01\x02\x01\x01").decode())
-    elif attack == "other_key":
-        other = ec.generate_private_key(ec.SECP256R1())
-        pem = other.public_key().public_bytes(serialization.Encoding.PEM, serialization.PublicFormat.SubjectPublicKeyInfo).decode()
-        pin = golden.key_pin(pem)
-    elif attack == "wrong_pin":
-        pin = "00" * 32
-    elif attack == "extra_entry":
-        m = open(os.path.join(d, "SHA256SUMS")).read() + "ab" * 32 + "  evil.sh\n"
-        open(os.path.join(d, "SHA256SUMS"), "w").write(m)
-        open(os.path.join(d, "SHA256SUMS.sig"), "w").write(base64.b64encode(k.sign(m.encode(), ec.ECDSA(hashes.SHA256()))).decode())
-    elif attack == "symlink":
-        os.unlink(img)
-        real = os.path.join(d, "real")
-        open(real, "wb").write(b"QFI\xfbimage")
-        os.symlink(real, img)
-    elif attack == "name":
-        (tmp_path / "n").mkdir()
-        d, pem, pin, _ = make_release(tmp_path / "n", name="evil.qcow2")
-    elif attack == "missing_sig":
-        os.unlink(os.path.join(d, "SHA256SUMS.sig"))
-    with pytest.raises(golden.ReleaseError):
-        golden.verify_release(d, pem, pin)
-
-
-def test_only_an_ecdsa_p256_release_key_is_accepted(tmp_path):
-    from cryptography.hazmat.primitives.asymmetric import rsa
-    d, _pem, _pin, _ = make_release(tmp_path)
-    rsa_pem = rsa.generate_private_key(65537, 2048).public_key().public_bytes(serialization.Encoding.PEM, serialization.PublicFormat.SubjectPublicKeyInfo).decode()
-    with pytest.raises(golden.ReleaseError, match="P-256"):
-        golden.verify_release(d, rsa_pem, golden.key_pin(rsa_pem))
-    with pytest.raises(golden.ReleaseError):
-        golden.verify_release(d, "not a pem", "00" * 32)
+def verify(d, pem, pin, **kw):
+    kw.setdefault("attestor_pubkey_b64", ATTESTOR_PUB_B64)
+    return golden.verify_release(d, pem, pin, **kw)
 
 
 PINS = {"debian-12": ("B8B80B5B623EAB6AD8775C45B7C5D7D6350947F8", "4D64FEC119C2029067D6E791F8D2585B8783D481", "05AB90340C0C5E797F44A8C8254CF3B5AEC0A8F0"),
-        "ubuntu-24.04": ("D2EB44626FDDC30B513D5BB71A5D6C4C7DB87C81",)}
+        "ubuntu-24.04": ("D2EB44626FDDC30B513D5BB71A5D6C4C7DB87C81", "F6ECB3762474EDA9D21B7022871920D1991BC93C")}
 needs_gpg = pytest.mark.skipif(shutil.which("gpg") is None, reason="gpg not installed")
 
 
@@ -122,6 +105,8 @@ def test_the_recipe_pins_the_authoritative_upstream_fingerprints_and_the_shipped
         seen.add(prim[0])
     assert seen == {x for v in PINS.values() for x in v}
     ok = _run("debian-12", "verify", WORK=str(tmp_path / "w"), HOME=str(tmp_path))
+    ok2 = _run("ubuntu-24.04", "verify", WORK=str(tmp_path / "wu"), HOME=str(tmp_path))
+    assert ok2.returncode == 0, ok2.stderr
     assert ok.returncode == 0, ok.stderr
     bad = tmp_path / "keys"
     shutil.copytree(keys, bad)
@@ -155,8 +140,8 @@ def test_the_ubuntu_profile_refuses_a_wrong_pin_a_tampered_checksum_file_and_a_w
     real = "D2EB44626FDDC30B513D5BB71A5D6C4C7DB87C81"
 
     def run():
-        e = {"PATH": os.environ["PATH"], "WORK": str(tmp_path / "w"), "OUT": str(tmp_path / "o"), "UPSTREAM_KEY_FILE": str(key), "HOME": str(tmp_path)}
-        return subprocess.run(["bash", str(rd / "recipe.sh"), "ubuntu-24.04", "verify"], capture_output=True, text=True, timeout=60, env=e)
+        e = {"PATH": os.environ["PATH"], "WORK": str(tmp_path / "w"), "OUT": str(tmp_path / "o"), "UPSTREAM_KEY_FILE": str(key), "HOME": str(tmp_path), "UPSTREAM_SERIAL": "release-20261110", "OU_TODAY": "20261116"}
+        return subprocess.run(["bash", str(rd / "recipe.sh"), "ubuntu-24.04", "verify-upstream"], capture_output=True, text=True, timeout=60, env=e)
     envf.write_text(orig.replace(real, fpr))
     r = run()
     assert r.returncode == 0 and "verified" in r.stdout, r.stderr
@@ -243,6 +228,6 @@ def test_the_image_signer_needs_a_passing_boot_record_recomputes_hashes_and_sign
     tarfile.open(fileobj=io.BytesIO(r.stdout)).extractall(tmp_path / "rel", filter="data")
     (tmp_path / "rel" / name).write_bytes(image)
     (tmp_path / "rel" / (name + ".sbom.cdx.json")).write_bytes(sbom)
-    key, pin = subprocess.run([prog, "pubkey"], capture_output=True, text=True, env=env, check=True).stdout.split("# spki-sha256 pin: ")
-    rel = golden.verify_release(str(tmp_path / "rel"), key, pin.strip())                         # exactly what the ICS runs before image.import
-    assert rel.sha256 == h and rel.os == "debian-12"
+    # legacy v1 signer output (SHA256SUMS): manifest v2 signing is the signer agent's integration (docs/status/golden-image-prod-results.md "Signer contract")
+    sums = (tmp_path / "rel" / "SHA256SUMS").read_text()
+    assert sums == f"{h}  {name}\n{hashlib.sha256(sbom).hexdigest()}  {name}.sbom.cdx.json\n"

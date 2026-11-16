@@ -1,0 +1,488 @@
+#!/usr/bin/env python3
+"""image-first-boot: the FIXED independent boot-and-hardening test suite for `kind=image-first-boot` (golden guest images).
+
+Contract with the attestor (blueprints/build/repo/ou-test-attest, review 7 H-3; interface read from branch fixes-r7): ou-test-attest copies the image to a private work
+directory, hashes it, and runs THIS program from its root-owned lib directory (<lib>/image-first-boot, installed by root from this repo, never from the builder's
+output) as `image-first-boot <image.qcow2>` with a scrubbed environment (OU_TEST_KIND, OU_TEST_WORK). Exit 0 = every check passed, 1 = at least one check failed,
+anything else = infrastructure error (NO attestation is produced for it). The attestor, not this program and not the builder, signs the result; this program
+prints a log that the attestor hashes. The builder only gets to ASK for a run and cannot influence a verdict: it supplies neither the expected values, nor the
+callback server, nor the SMBIOS secret (all are generated here, fresh, per run).
+
+What it does (all under qemu TCG, no KVM needed, user-mode network with `restrict=on`: the guest can reach only the throw-away ICS simulator through one guestfwd):
+  stage OFFLINE  static hardening checks over the extracted pristine image (tests/staticchecks.py)
+  stage A        boot 1 with a valid bootstrap record: probes while the callback is in flight (default-deny loaded, no ssh banner, agent not running), HMAC verified
+                 by the simulator, enrollment surface (pinned TLS fingerprint, one-time token, no unsigned / non-allowlisted execution), graceful shutdown,
+                 offline inspection of the disk and the persistent journal (secret and token absent everywhere; sealed; unit disabled)
+  stage B        reboot of the same disk with the SMBIOS values STILL present: the sealed bootstrap does not run and does not call the ICS a second time
+  stage C        wrong certificate pin in SMBIOS: no report is sent (the simulator sees a TLS handshake and zero HTTP requests), agent never starts
+  stage D        impostor ICS (right certificate, acknowledgement made with the wrong secret): the guest refuses it, never starts the agent
+  stage E        wrong HMAC secret in the guest (clone / stolen serial): the ICS side rejects the report, nothing is enrolled
+Requires: qemu-system-x86_64, qemu-img, openssl, debugfs (e2fsprogs), sfdisk, python3 + `cryptography`; journalctl is used when present (best effort)."""
+import base64
+import hashlib
+import http.client
+import json
+import os
+import re
+import shutil
+import socket
+import ssl
+import subprocess
+import sys
+import time
+import uuid
+
+HERE = os.path.dirname(os.path.abspath(__file__))
+sys.path.insert(0, HERE)
+import icssim  # noqa: E402
+import staticchecks  # noqa: E402
+
+DEADLINE = time.time() + int(os.environ.get("OU_TEST_BUDGET", "1650"))
+RESULTS = []
+STAGES = set()
+BOOT_TIMEOUT = 420
+SUITE_VERSION = "ou-image-hardening-suite-v1"
+
+
+def clean(s, n=200):
+    return re.sub(r"[^\x20-\x7e]", "?", str(s))[:n]
+
+
+def check(stage, cid, ok, detail=""):
+    RESULTS.append((stage, cid, bool(ok), clean(detail)))
+    print("%s %s/%s %s" % ("PASS" if ok else "FAIL", stage, cid, clean(detail)), flush=True)
+    return bool(ok)
+
+
+def infra(msg):
+    print("INFRA-ERROR: %s" % clean(msg, 300), flush=True)
+    sys.exit(2)
+
+
+def sh(cmd, **kw):
+    kw.setdefault("capture_output", True)
+    return subprocess.run(cmd, **kw)
+
+
+def need(tool):
+    if not shutil.which(tool):
+        infra("required tool missing: " + tool)
+
+
+# ------------------------------------------------------------------ disk helpers
+def to_raw(img, out):
+    r = sh(["qemu-img", "convert", "-O", "raw", img, out])
+    if r.returncode:
+        infra("qemu-img convert failed: " + r.stderr.decode()[-200:])
+
+
+def root_part(raw):
+    r = sh(["sfdisk", "-J", raw])
+    if r.returncode:
+        infra("sfdisk failed")
+    parts = json.loads(r.stdout)["partitiontable"]["partitions"]
+    # the ext4 root is the last partition (ou-root); the first is the FAT boot partition
+    return parts[-1]["start"] * 512, parts[-1]["size"] * 512
+
+
+def dump_fs(img, workdir, tag):
+    """extract the root filesystem of `img` (qcow2) into workdir/<tag>-tree WITHOUT mounting anything; returns (tree, rawpath)"""
+    raw = os.path.join(workdir, tag + ".raw")
+    to_raw(img, raw)
+    off, size = root_part(raw)
+    part = os.path.join(workdir, tag + ".part")
+    r = sh(["dd", "if=" + raw, "of=" + part, "bs=1M", "iflag=skip_bytes,count_bytes", "skip=%d" % off, "count=%d" % size, "status=none"])
+    if r.returncode:
+        infra("dd failed")
+    tree = os.path.join(workdir, tag + "-tree")
+    os.makedirs(tree, exist_ok=True)
+    r = sh(["debugfs", "-R", "rdump / " + tree, part])
+    if not os.path.isdir(os.path.join(tree, "etc")):
+        infra("debugfs rdump produced no tree: " + r.stderr.decode()[-200:])
+    os.unlink(part)
+    return tree, raw
+
+
+def raw_contains(raw, needles):
+    """streaming scan of a (sparse) raw disk for byte strings; returns the set of needles found"""
+    found, keep = set(), max(len(n) for n in needles) - 1
+    tail = b""
+    with open(raw, "rb") as f:
+        while True:
+            c = f.read(8 << 20)
+            if not c:
+                break
+            if c.count(b"\0") == len(c):
+                tail = b""
+                continue
+            buf = tail + c
+            for n in needles:
+                if n in buf:
+                    found.add(n)
+            tail = buf[-keep:]
+    return found
+
+
+# ------------------------------------------------------------------ vm
+class VM:
+    def __init__(self, tag, overlay, workdir, smbios, relay_port, fwd):
+        self.tag, self.workdir = tag, workdir
+        self.console = os.path.join(workdir, tag + ".console.log")
+        self.mon = os.path.join(workdir, tag + ".mon")
+        self.fwd = fwd           # {"agent": hostport, "ssh": hostport, "probe": hostport}
+        relay = "%s %s %d" % (sys.executable, os.path.join(HERE, "tcprelay.py"), relay_port)
+        nic = ("user,model=virtio-net-pci,restrict=on,guestfwd=tcp:10.0.2.100:%d-cmd:%s,hostfwd=tcp:127.0.0.1:%d-:8443,hostfwd=tcp:127.0.0.1:%d-:22,hostfwd=tcp:127.0.0.1:%d-:9999"
+               % (relay_port, relay, fwd["agent"], fwd["ssh"], fwd["probe"]))
+        cmd = ["qemu-system-x86_64", "-machine", "pc", "-accel", "tcg,thread=multi", "-cpu", "max", "-smp", "2", "-m", "1024", "-display", "none",
+               "-serial", "file:" + self.console, "-monitor", "unix:%s,server,nowait" % self.mon, "-no-reboot", "-nodefaults",
+               "-drive", "file=%s,if=none,id=d0,format=qcow2" % overlay, "-device", "virtio-scsi-pci,id=s0", "-device", "scsi-hd,drive=d0",
+               "-nic", nic, "-smbios", "type=1,serial=%s,sku=%s,family=%s" % (smbios["serial"], smbios["sku"], smbios["family"])]
+        self.err = open(os.path.join(workdir, tag + ".qemu.err"), "wb")
+        self.p = subprocess.Popen(cmd, stdout=self.err, stderr=self.err, stdin=subprocess.DEVNULL)
+        self.t0 = time.time()
+        time.sleep(1.5)
+        if self.p.poll() is not None:
+            infra("qemu did not start: " + open(os.path.join(workdir, tag + ".qemu.err"), "rb").read().decode("utf-8", "replace")[-300:])
+
+    def alive(self):
+        return self.p.poll() is None
+
+    def monitor(self, line):
+        s = socket.socket(socket.AF_UNIX)
+        s.settimeout(5)
+        try:
+            s.connect(self.mon)
+            s.recv(4096)
+            s.sendall(line.encode() + b"\n")
+            time.sleep(0.3)
+        except OSError:
+            pass
+        finally:
+            s.close()
+
+    def shutdown(self, grace=240):
+        """ACPI power button -> the guest shuts down cleanly (filesystem and journal are consistent for the offline inspection). Returns True if it did."""
+        self.monitor("system_powerdown")
+        end = time.time() + grace
+        while time.time() < end and self.alive():
+            time.sleep(1)
+        clean_exit = not self.alive()
+        if self.alive():
+            self.monitor("quit")
+            time.sleep(2)
+            if self.alive():
+                self.p.kill()
+        self.p.wait()
+        self.err.close()
+        return clean_exit
+
+    def console_text(self):
+        try:
+            return open(self.console, "rb").read().decode("utf-8", "replace").replace("\r", "")
+        except OSError:
+            return ""
+
+
+def wait_for(pred, timeout, step=1.0):
+    end = min(time.time() + timeout, DEADLINE)
+    while time.time() < end:
+        if pred():
+            return True
+        time.sleep(step)
+    return pred()
+
+
+# ------------------------------------------------------------------ network probes (host side, black box)
+def probe_banner(port, wait=4.0):
+    """connect to a forwarded guest port and classify: 'data:<bytes>' (service spoke), 'closed' (guest answered with a reset/EOF), 'silent' (packets are dropped)"""
+    s = socket.socket()
+    s.settimeout(3)
+    try:
+        s.connect(("127.0.0.1", port))
+    except OSError:
+        return "closed"
+    s.settimeout(wait)
+    try:
+        d = s.recv(64)
+        return "closed" if not d else "data:" + clean(d, 40)
+    except socket.timeout:
+        return "silent"
+    except OSError:
+        return "closed"
+    finally:
+        s.close()
+
+
+def tls_fingerprint(port, timeout=5.0):
+    ctx = ssl.SSLContext(ssl.PROTOCOL_TLS_CLIENT)
+    ctx.check_hostname = False
+    ctx.verify_mode = ssl.CERT_NONE
+    try:
+        with socket.create_connection(("127.0.0.1", port), timeout=timeout) as s:
+            with ctx.wrap_socket(s) as ws:
+                return hashlib.sha256(ws.getpeercert(binary_form=True)).hexdigest()
+    except (OSError, ssl.SSLError):
+        return None
+
+
+def agent_call(port, method, path, body=None, timeout=20):
+    ctx = ssl.SSLContext(ssl.PROTOCOL_TLS_CLIENT)
+    ctx.check_hostname = False
+    ctx.verify_mode = ssl.CERT_NONE
+    c = http.client.HTTPSConnection("127.0.0.1", port, timeout=timeout, context=ctx)
+    try:
+        data = json.dumps(body).encode() if body is not None else None
+        c.request(method, path, body=data, headers={"Content-Type": "application/json"} if data else {})
+        r = c.getresponse()
+        raw = r.read(65536)
+        try:
+            return r.status, json.loads(raw)
+        except ValueError:
+            return r.status, {}
+    except (OSError, http.client.HTTPException, ssl.SSLError):
+        return None, {}
+    finally:
+        c.close()
+
+
+def canon(o):
+    return json.dumps(o, sort_keys=True, separators=(",", ":"), ensure_ascii=True, allow_nan=False).encode()
+
+
+# ------------------------------------------------------------------ stages
+class Ctx:
+    pass
+
+
+def new_vm(c, tag, overlay, sim, relay_port, pin=None, serial=None):
+    fwd = {"agent": icssim.free_port(), "ssh": icssim.free_port(), "probe": icssim.free_port()}
+    sm = sim.smbios("10.0.2.100", relay_port, pin)
+    if serial:
+        sm["serial"] = serial
+    return VM(tag, overlay, c.work, sm, relay_port, fwd)
+
+
+def overlay_of(c, tag):
+    o = os.path.join(c.work, tag + ".qcow2")
+    r = sh(["qemu-img", "create", "-q", "-f", "qcow2", "-F", "qcow2", "-b", c.image, o])
+    if r.returncode:
+        infra("overlay failed")
+    return o
+
+
+def leak_checks(stage, c, tree, raw, sim, vm, extra_needles=()):
+    needles = [sim.secret.encode(), (sim.bid + sim.secret).encode()] + [t.encode() for t in sim.tokens_seen] + [n.encode() for n in extra_needles]
+    found = raw_contains(raw, needles)
+    check(stage, "L01-secret-and-token-not-on-disk", not found, "searched the whole disk (incl. free blocks and the journal) for the SMBIOS secret and the enrollment token: %d hits" % len(found))
+    ctext = vm.console_text()
+    check(stage, "L02-secret-and-token-not-on-console", not any(n.decode() in ctext for n in needles), "serial console log")
+    jd = os.path.join(tree, "var/log/journal")
+    jtext = ""
+    if shutil.which("journalctl") and os.path.isdir(jd):
+        r = sh(["timeout", "60", "journalctl", "--directory", jd, "--no-pager", "-o", "verbose", "--all"])
+        jtext = r.stdout.decode("utf-8", "replace")
+    check(stage, "L03-journal-persistent-and-nonempty", len(jtext) > 2000, "journal text %d bytes (persistent journal required)" % len(jtext))
+    check(stage, "L04-secret-and-token-not-in-journal", not any(n.decode() in jtext for n in needles), "decoded journal (covers compressed entries)")
+    return jtext
+
+
+def stage_offline(c):
+    st = "OFFLINE"
+    STAGES.add(st)
+    tree, raw = dump_fs(c.image, c.work, "pristine")
+    c.pristine_tree = tree
+    for cid, ok, d in staticchecks.check_tree(tree):
+        check(st, cid, ok, d)
+    c.pristine_nft = staticchecks.read(tree, "/etc/nftables.conf")
+    os.unlink(raw)
+
+
+def stage_a(c):
+    st = "A"
+    STAGES.add(st)
+    c.sim_a = sim = icssim.Sim(c.work, icssim.free_port(), mode="ok", hold=15.0)
+    sim.start()
+    c.overlay_a = ov = overlay_of(c, "a")
+    vm = new_vm(c, "a", ov, sim, sim.port)
+    check(st, "B01-guest-calls-back-once-with-valid-hmac", wait_for(lambda: sim.valid_reports >= 1, BOOT_TIMEOUT) and sim.valid_reports == 1,
+          "valid reports=%d rejected=%d after %ds" % (sim.valid_reports, sim.rejected, time.time() - vm.t0))
+    if sim.report is None:
+        vm.shutdown(30)
+        sim.stop()
+        return
+    rep = sim.report
+    # while the callback is in flight (the simulator holds its answer): nothing of the guest is reachable
+    p_agent, p_ssh, p_probe = tls_fingerprint(vm.fwd["agent"], 4), probe_banner(vm.fwd["ssh"]), probe_banner(vm.fwd["probe"])
+    check(st, "N01-agent-not-reachable-before-the-ICS-answered", p_agent is None, "TLS handshake to the agent port during the callback: %s" % ("none" if p_agent is None else "ANSWERED"))
+    check(st, "N02-no-ssh-banner-on-22", not str(p_ssh).startswith("data:"), "port 22: %s" % p_ssh)
+    check(st, "N03-default-deny-loaded-unlisted-port-is-dropped-not-reset", p_probe == "silent", "tcp 9999 with nothing listening: %s (silent = dropped by the loaded nftables policy, closed = reset)" % p_probe)
+    check(st, "B02-guest-reported-private-ipv4-and-fingerprints", re.fullmatch(r"10\.0\.2\.\d+", rep["address"]) is not None and rep["port"] == 8443, "reported %s:%s" % (rep["address"], rep["port"]))
+    # after the answer: the agent comes up with exactly the fingerprint it reported (pinned enrollment)
+    wait_for(lambda: sim.t_ack is not None, 60)
+    up = wait_for(lambda: tls_fingerprint(vm.fwd["agent"], 4) is not None, 240, 3)
+    check(st, "A01-agent-starts-only-after-the-authenticated-answer", up and sim.t_ack is not None, "agent TLS up %s" % ("yes" if up else "NO"))
+    fp = tls_fingerprint(vm.fwd["agent"], 6)
+    check(st, "A02-agent-tls-certificate-matches-the-reported-pin", fp is not None and fp == rep["tls_fingerprint_sha256"], "reported %s.. seen %s.." % (rep["tls_fingerprint_sha256"][:12], (fp or "none")[:12]))
+    code, ident = agent_call(vm.fwd["agent"], "GET", "/v1/identity")
+    akey = ident.get("agent_pubkey", "")
+    kfp = hashlib.sha256(base64.b64decode(akey)).hexdigest() if re.fullmatch(r"[A-Za-z0-9+/=]{44}", akey or "") else ""
+    check(st, "A03-agent-key-matches-reported-fingerprint-and-is-not-enrolled", code == 200 and kfp == rep["agent_key_fingerprint_sha256"] and ident.get("enrolled") is False,
+          "identity %s enrolled=%s keyfp-match=%s" % (code, ident.get("enrolled"), kfp == rep["agent_key_fingerprint_sha256"]))
+    # no command execution without enrollment / signature
+    code, r = agent_call(vm.fwd["agent"], "POST", "/v1/exec", {"req": {"action": "shell.exec", "params": {"cmd": "id"}}, "sig": "AAAA"})
+    check(st, "X01-unsigned-exec-refused-before-enrollment", code == 403 and r.get("error") in ("not_enrolled", "bad_format"), "POST /v1/exec: %s %s" % (code, r.get("error")))
+    for path in ("/v1/shell", "/v1/run", "/exec", "/"):
+        code, _ = agent_call(vm.fwd["agent"], "POST", path, {"cmd": "id"})
+        if code not in (404, 403, 400, None):
+            check(st, "X02-no-other-execution-endpoint", False, "%s answered %s" % (path, code))
+            break
+    else:
+        check(st, "X02-no-other-execution-endpoint", True, "unknown paths answer 404")
+    # one-time enrollment token
+    from cryptography.hazmat.primitives import serialization
+    from cryptography.hazmat.primitives.asymmetric.ed25519 import Ed25519PrivateKey
+    ics_key = Ed25519PrivateKey.generate()
+    pub = base64.b64encode(ics_key.public_key().public_bytes(serialization.Encoding.Raw, serialization.PublicFormat.Raw)).decode()
+    node = str(uuid.uuid4())
+    code, r = agent_call(vm.fwd["agent"], "POST", "/v1/enroll", {"token": "A" * 43, "ics_pubkey": pub, "node_id": node}, timeout=40)
+    check(st, "T01-wrong-enrollment-token-refused", code == 403 and r.get("error") == "bad_token", "%s %s" % (code, r.get("error")))
+    code, r = agent_call(vm.fwd["agent"], "POST", "/v1/enroll", {"token": rep["token"], "ics_pubkey": pub, "node_id": node}, timeout=40)
+    check(st, "T02-guest-generated-token-enrolls-once", code == 200 and r.get("resp", {}).get("agent_pubkey") == akey, "%s" % code)
+    code, r = agent_call(vm.fwd["agent"], "POST", "/v1/enroll", {"token": rep["token"], "ics_pubkey": pub, "node_id": node}, timeout=40)
+    check(st, "T03-token-cannot-be-used-twice", code == 403 and r.get("error") == "already_enrolled", "%s %s" % (code, r.get("error")))
+    now = int(time.time())
+
+    def signed(action, params, key):
+        req = {"v": 1, "action": action, "params": params, "node_id": node, "job_id": str(uuid.uuid4()), "issued_at": now, "expires_at": now + 60, "nonce": base64.urlsafe_b64encode(os.urandom(18)).decode().rstrip("=")}
+        return {"req": req, "sig": base64.b64encode(key.sign(b"ou-agent-req-v1\n" + canon(req))).decode()}
+    code, r = agent_call(vm.fwd["agent"], "POST", "/v1/exec", signed("shell.exec", {"cmd": "id"}, ics_key))
+    check(st, "X03-signed-but-not-allowlisted-action-refused", code == 403 and r.get("resp", {}).get("code") == "not_allowed", "%s %s" % (code, r.get("resp", {}).get("code")))
+    code, r = agent_call(vm.fwd["agent"], "POST", "/v1/exec", signed("guest.facts", {}, Ed25519PrivateKey.generate()))
+    check(st, "X04-request-signed-by-another-key-refused", code == 403 and r.get("error") == "bad_signature", "%s %s" % (code, r.get("error")))
+    check(st, "N04-no-ssh-banner-after-enrollment", not str(probe_banner(vm.fwd["ssh"])).startswith("data:"), "")
+    check(st, "N05-default-deny-still-drops-unlisted-ports", probe_banner(vm.fwd["probe"]) == "silent", "")
+    time.sleep(5)
+    check(st, "B03-exactly-one-valid-report-and-no-replay", sim.valid_reports == 1 and sim.replays == 0, "valid=%d replays=%d requests=%d" % (sim.valid_reports, sim.replays, sim.requests))
+    clean_exit = vm.shutdown()
+    check(st, "P01-guest-powers-off-cleanly", clean_exit, "ACPI power button")
+    c.vm_a_console = vm.console_text()
+    tree, raw = dump_fs(ov, c.work, "after-a")
+    D = "/var/lib/ou-bootstrap/"
+    check(st, "Z01-first-boot-completed-and-sealed", staticchecks.exists(tree, D + "done") and staticchecks.exists(tree, D + "sealed") and not staticchecks.exists(tree, D + "failed"), "done+sealed, no failed marker")
+    check(st, "Z02-bootstrap-unit-disabled-itself", "ou-bootstrap.service" not in staticchecks.enabled_units(tree), "no wants symlink left for ou-bootstrap.service")
+    check(st, "Z03-agent-enabled-by-the-bootstrap-only", "ou-agent.service" in staticchecks.enabled_units(tree), "")
+    check(st, "Z04-enrollment-token-consumed-at-rest", not staticchecks.exists(tree, "/var/lib/ou-agent/enroll.json") and staticchecks.exists(tree, "/var/lib/ou-agent/trust.json"), "enroll.json removed, trust.json written")
+    nft = staticchecks.read(tree, "/etc/nftables.conf") or ""
+    check(st, "Z05-firewall-now-ICS-authenticated-and-still-default-deny", nft != c.pristine_nft and "10.0.2.2" in nft and re.search(r"hook input[^;]*;\s*policy drop", nft) is not None and "dport 22" not in nft, "ruleset replaced, policy drop kept, no ssh")
+    check(st, "Z06-no-ssh-anything-after-boot", "openssh-server" not in staticchecks.installed_packages(tree) and not staticchecks.exists(tree, "/root/.ssh") and not [f for f in staticchecks.listdir(tree, "/etc/ssh") if f.startswith("ssh_host_")], "")
+    c.jtext_a = leak_checks(st, c, tree, raw, sim, vm)
+    jt = c.jtext_a
+    check(st, "Z07-journal-shows-bootstrap-ran-and-sealed", "ou-bootstrap" in jt and ("Deactivated successfully" in jt or "Finished" in jt), "journal mentions ou-bootstrap.service completing")
+    check(st, "Z08-hardening-regressions-absent-after-boot", all(ok for _i, ok, _d in staticchecks.check_tree(tree) if _i in ("S02-no-sshd-or-remote-shell-packages", "S07-root-locked", "S08-no-account-has-a-password-or-an-empty-password", "S19-cloud-init-absent-or-disabled", "S20-no-qemu-guest-agent-channel")), "rechecked on the booted disk")
+    os.unlink(raw)
+    shutil.rmtree(tree, ignore_errors=True)
+
+
+def stage_b(c):
+    st = "B"
+    STAGES.add(st)
+    sim = c.sim_a
+    before = (sim.requests, sim.handshakes, sim.valid_reports)
+    vm = new_vm(c, "b", c.overlay_a, sim, sim.port)
+    up = wait_for(lambda: tls_fingerprint(vm.fwd["agent"], 4) is not None, BOOT_TIMEOUT, 3)
+    check(st, "R01-enrolled-agent-comes-up-after-reboot", up, "agent TLS up after reboot: %s" % up)
+    code, ident = agent_call(vm.fwd["agent"], "GET", "/v1/identity")
+    check(st, "R02-enrollment-persisted", code == 200 and ident.get("enrolled") is True, "enrolled=%s" % ident.get("enrolled"))
+    time.sleep(25)    # a (wrongly) re-running bootstrap would have called by now: network-online precedes the agent
+    check(st, "R03-sealed-bootstrap-does-not-call-the-ICS-again", (sim.requests, sim.handshakes, sim.valid_reports) == before, "simulator counters before=%s after=%s" % (before, (sim.requests, sim.handshakes, sim.valid_reports)))
+    check(st, "R04-still-no-ssh-and-default-deny", not str(probe_banner(vm.fwd["ssh"])).startswith("data:") and probe_banner(vm.fwd["probe"]) == "silent", "")
+    check(st, "R05-secret-still-valid-secret-cannot-be-replayed-by-the-guest", sim.replays == 0, "")
+    vm.shutdown()
+    tree, raw = dump_fs(c.overlay_a, c.work, "after-b")
+    D = "/var/lib/ou-bootstrap/"
+    check(st, "R06-still-sealed-no-failed-marker", staticchecks.exists(tree, D + "sealed") and not staticchecks.exists(tree, D + "failed"), "")
+    leak_checks(st, c, tree, raw, sim, vm)
+    os.unlink(raw)
+    shutil.rmtree(tree, ignore_errors=True)
+    sim.stop()
+
+
+def negative(c, st, tag, mode, pin=None, serial_secret=None, wait_cb=True):
+    STAGES.add(st)
+    sim = icssim.Sim(c.work, icssim.free_port(), mode=mode)
+    sim.start()
+    ov = overlay_of(c, tag)
+    serial = (sim.bid + serial_secret) if serial_secret else None
+    vm = new_vm(c, tag, ov, sim, sim.port, pin=pin, serial=serial)
+    wait_for(lambda: sim.handshakes >= 1, BOOT_TIMEOUT)
+    seen = sim.handshakes >= 1
+    check(st, "C01-guest-reached-the-simulator", seen, "TLS handshakes=%d after %ds" % (sim.handshakes, time.time() - vm.t0))
+    time.sleep(40 if mode == "ok" else 30)
+    return sim, vm, ov
+
+
+def after_negative(c, st, sim, vm, ov, expect_requests):
+    check(st, "C03-agent-never-starts", tls_fingerprint(vm.fwd["agent"], 4) is None, "agent port silent")
+    check(st, "C04-no-ssh-and-default-deny", not str(probe_banner(vm.fwd["ssh"])).startswith("data:") and probe_banner(vm.fwd["probe"]) == "silent", "")
+    vm.shutdown()
+    tree, raw = dump_fs(ov, c.work, "after-" + vm.tag)
+    D = "/var/lib/ou-bootstrap/"
+    check(st, "C05-failed-closed-marker-and-no-done", staticchecks.exists(tree, D + "failed") and not staticchecks.exists(tree, D + "done") and not staticchecks.exists(tree, D + "sealed"), "failed marker written, never done")
+    check(st, "C06-firewall-unchanged-default-deny", (staticchecks.read(tree, "/etc/nftables.conf") or "") == c.pristine_nft, "shipped ruleset still in place")
+    check(st, "C07-agent-not-enabled-and-no-agent-keys", "ou-agent.service" not in staticchecks.enabled_units(tree) and not staticchecks.listdir(tree, "/var/lib/ou-agent"), "")
+    leak_checks(st, c, tree, raw, sim, vm)
+    os.unlink(raw)
+    shutil.rmtree(tree, ignore_errors=True)
+    sim.stop()
+
+
+def stage_c(c):
+    st = "C"
+    sim, vm, ov = negative(c, st, "c", "ok", pin=os.urandom(32).hex())
+    check(st, "C02-wrong-pin-no-report-is-sent", sim.requests == 0 and sim.valid_reports == 0, "TLS handshakes=%d, HTTP requests=%d (the guest checks the pin before sending a byte)" % (sim.handshakes, sim.requests))
+    after_negative(c, st, sim, vm, ov, 0)
+
+
+def stage_d(c):
+    st = "D"
+    sim, vm, ov = negative(c, st, "d", "badack")
+    check(st, "C02-impostor-ICS-ack-refused-by-the-guest", sim.valid_reports == 1, "the guest did send exactly one authenticated report (%d) and then refused the bad acknowledgement" % sim.valid_reports)
+    after_negative(c, st, sim, vm, ov, 1)
+
+
+def stage_e(c):
+    st = "E"
+    sim, vm, ov = negative(c, st, "e", "ok", serial_secret=os.urandom(32).hex())
+    check(st, "C02-wrong-secret-report-rejected-by-the-ICS", sim.requests >= 1 and sim.rejected >= 1 and sim.valid_reports == 0, "requests=%d rejected=%d valid=%d" % (sim.requests, sim.rejected, sim.valid_reports))
+    after_negative(c, st, sim, vm, ov, 0)
+
+
+def main():
+    if len(sys.argv) != 2 or not os.path.isfile(sys.argv[1]):
+        infra("usage: image-first-boot <image.qcow2>")
+    for t in ("qemu-system-x86_64", "qemu-img", "openssl", "debugfs", "sfdisk", "dd"):
+        need(t)
+    try:
+        import cryptography  # noqa: F401
+    except ImportError:
+        infra("python3 cryptography is required")
+    c = Ctx()
+    c.image = os.path.abspath(sys.argv[1])
+    c.work = os.path.join(os.environ.get("OU_TEST_WORK") or "/var/tmp", "ou-imgtest-%d" % os.getpid())
+    os.makedirs(c.work, mode=0o700, exist_ok=True)
+    print("%s image=%s sha256=%s" % (SUITE_VERSION, os.path.basename(c.image), hashlib.sha256(open(c.image, "rb").read()).hexdigest()), flush=True)
+    try:
+        for fn in (stage_offline, stage_a, stage_b, stage_c, stage_d, stage_e):
+            if time.time() > DEADLINE:
+                infra("time budget exhausted before stage %s" % fn.__name__)
+            fn(c)
+    finally:
+        shutil.rmtree(c.work, ignore_errors=True)
+    failed = [r for r in RESULTS if not r[2]]
+    complete = STAGES == {"OFFLINE", "A", "B", "C", "D", "E"} and len(RESULTS) >= 70
+    print("SUMMARY %s: %d checks, %d passed, %d failed, stages=%s complete=%s" % (SUITE_VERSION, len(RESULTS), len(RESULTS) - len(failed), len(failed), sorted(STAGES), complete), flush=True)
+    sys.exit(0 if not failed and complete else 1)
+
+
+if __name__ == "__main__":
+    main()

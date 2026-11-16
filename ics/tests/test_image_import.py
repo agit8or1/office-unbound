@@ -14,14 +14,15 @@ SCOPE = EndpointScope(pools=("ou-lab",), storage=("local-lvm", "local"), network
 BLOB = b"QFI\xfb" + b"\x00" * 4096 + b"golden"
 
 
-def release(tmp_path, date="20261115"):
+def release(tmp_path, date="20261115", version=1):
     """a really signed release directory (ECDSA P-256 manifest) as the offline release host produces it"""
-    from .test_golden_image import make_release
+    from ics.guest import golden
+    from .test_golden_image import ATTESTOR_PUB_B64, make_release
     sub = tmp_path / f"r{date}"
     sub.mkdir()
-    d, pem, pin, _k = make_release(sub, name=f"ou-golden-debian-12-{date}.qcow2", image=BLOB)
+    d, pem, pin, _k = make_release(sub, name=f"ou-golden-debian-12-{date}.qcow2", image=BLOB, version=version)
     return (os.path.join(d, f"ou-golden-debian-12-{date}.qcow2"), hashlib.sha256(BLOB).hexdigest(),
-            dict(release_dir=d, release_pubkey_pem=pem, release_pin_sha256=pin))
+            dict(release_dir=d, trust=golden.Trust(pem, pin, ATTESTOR_PUB_B64)))
 
 
 @pytest.fixture()
@@ -127,7 +128,8 @@ def test_m7_an_unsigned_or_unpinned_import_is_refused(sim, job, image, tmp_path)
     m = mutations(sim, scope=SCOPE)
     with pytest.raises(ProviderError, match="signed release"):
         m.import_image(spec((image[0], image[1])))                                   # a bare path + caller-supplied checksum: the pre-fix import path
-    wrong_pin = dict(image[2], release_pin_sha256="00" * 32)
+    from ics.guest import golden
+    wrong_pin = dict(image[2], trust=golden.Trust(image[2]["trust"].release_pubkey_pem, "00" * 32, image[2]["trust"].attestor_pubkey_b64))
     with pytest.raises(ProviderError, match="release verification failed"):
         m.import_image(spec((image[0], image[1], wrong_pin)))
     assert not hasattr(sim.sim, "uploaded_bytes")
@@ -135,29 +137,26 @@ def test_m7_an_unsigned_or_unpinned_import_is_refused(sim, job, image, tmp_path)
 
 def test_m7_a_release_with_a_forged_manifest_is_refused(sim, job, image):
     enable_import(sim)
-    open(os.path.join(image[2]["release_dir"], "SHA256SUMS"), "a").write("00" * 32 + "  ou-golden-debian-12-20261115.qcow2\n")
+    open(os.path.join(image[2]["release_dir"], "manifest.json"), "a").write(" ")
     with pytest.raises(ProviderError, match="release verification failed"):
         mutations(sim, scope=SCOPE).import_image(spec(image))
 
 
 def test_m7_older_releases_are_refused_unless_an_explicit_downgrade(sim, job, tmp_path):
+    """review 7 M-4: the floor is the ICS database's (passed in the spec by the caller), not Proxmox tags"""
+    from ics.guest import golden
     enable_import(sim)
     m = mutations(sim, scope=SCOPE)
-    new = release(tmp_path, "20261115")
-    r = m.import_image(spec(new))
-    assert f"ou-rel-debian-12-20261115" in sim.sim.vms[r.vmid]["cfg"]["tags"]
-    old = release(tmp_path, "20261001")
+    new = release(tmp_path, "20261115", version=5)
+    floor = golden.Floor(5, new[1])
+    r = m.import_image(spec(new, floor=floor))
+    assert "ou-rel-debian-12-20261115" in sim.sim.vms[r.vmid]["cfg"]["tags"]
+    old = release(tmp_path, "20261001", version=3)
     with pytest.raises(ProviderError) as e:
-        m.import_image(spec(old, name="ou-tpl-debian12-agent2"))
-    assert e.value.code == "downgrade" and "20261115" in e.value.message
-    ok = m.import_image(spec(old, name="ou-tpl-debian12-agent2", allow_downgrade=True))     # the explicit (high-risk) downgrade plan
+        m.import_image(spec(old, name="ou-tpl-debian12-agent2", floor=floor))
+    assert "rollback floor 5" in e.value.message
+    ok = m.import_image(spec(old, name="ou-tpl-debian12-agent2", floor=floor, allow_downgrade=True))     # the explicit (high-risk) downgrade plan
     assert sim.sim.vms[ok.vmid]["cfg"]["template"] == 1
-    newer = release(tmp_path, "20261120")
-    assert m.import_image(spec(newer, name="ou-tpl-debian12-agent3")).vmid                  # moving forward is fine
-
-
-def test_m7_newest_imported_reads_only_the_verbs_own_tags():
-    from ics.guest import golden
-    tags = ["ou-managed;ou-image;ou-rel-debian-12-20261001", "ou-rel-debian-12-20261115;ou-image", "ou-rel-ubuntu-24.04-20270101", "evil;ou-rel-debian-12-99999999x"]
-    assert golden.newest_imported(tags, "debian-12") == "20261115" and golden.newest_imported(tags, "ubuntu-24.04") == "20270101"
-    assert golden.newest_imported([], "debian-12") is None
+    newer = release(tmp_path, "20261120", version=6)
+    assert m.import_image(spec(newer, name="ou-tpl-debian12-agent3", floor=floor)).vmid                  # moving forward is fine
+    # deleting every template in Proxmox does not lower anything: the floor is not read from there any more
