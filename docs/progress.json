@@ -229,14 +229,10 @@
           "title": "ICS warm standby with fenced failover (epoch + lease/witness)",
           "status": "integrated_lab",
           "evidence": [
-            "docs/runbooks/ics-recovery.md",
-            "docs/adr/0012-ics-warm-standby.md",
-            "docs/status/ics-standby-results.md",
-            "ics/ics/lease.py",
-            "ics/ics/witness.py",
-            "docs/admin/security.md"
+            "docs/status/ha-partition-results.md",
+            "docs/status/ics-standby-results.md"
           ],
-          "note": "Two-controller partition proof (lab): with lease-based fencing all scenarios S1-S8b pass. After promotion the old primary made zero provider/agent/backup/webhook/enrollment calls and no job ran twice. Without the lease, S2/S2b/S7/S8 failed. Branch ha-proof, pending merge. Residual risk R1: jobs claimed in the replication gap need an 'uncertain' state at promotion."
+          "note": "Two-controller partition proof (lab): with lease fencing S1-S8b pass, zero side effects from the old primary after promotion, no job ran twice; residual R1 queued"
         }
       ]
     },
@@ -269,10 +265,10 @@
           "title": "Guest bootstrap: cloud-init, rootless Podman, signed digest-pinned images, agent enrollment",
           "status": "integrated_lab",
           "evidence": [
-            "docs/status/bootstrap-v2.md",
-            "docs/status/guest-bootstrap-results.md"
+            "docs/status/golden-image-prod-results.md",
+            "docs/status/bootstrap-v2.md"
           ],
-          "note": "Bootstrap v2 (no-SSH HMAC callback) on main; golden images Debian 12 + Ubuntu 24.04 with independent boot attestation on branch golden-prod (pending merge); real VM run on pve06 after owner onboarding"
+          "note": "Golden images Debian 12 + Ubuntu 24.04 built reproducibly from signed archives, independent boot suite 97/97 each, manifest v2 + DB version floor; image.import not yet wired to an approved action (Stage 2)"
         },
         {
           "id": "P2.4",
@@ -304,15 +300,20 @@
           "id": "P2.7",
           "title": "Connect with SSH: discover cluster, choose scope and rights, ICS creates its own Proxmox user/token and restricted SSH account",
           "status": "implementing",
-          "evidence": [],
-          "note": "Owner request 2026-11-16; owner will test against pve06 via pve.agit8or.net (branch ssh-onboard)"
+          "evidence": [
+            "docs/status/ssh-onboard-results.md",
+            "docs/adr/0014-ssh-onboarding.md"
+          ],
+          "note": "Connect with SSH merged to main (integration-9): own officeunbound@pve user/role/ACL/token + restricted ou-ics account and helper, host-key and API-certificate trust modes (incl. public CA), normal risk per owner; owner test against pve06 pending"
         },
         {
           "id": "P2.8",
           "title": "Signed artifact distribution to guests (apt repo + OCI registry, per-channel key pins)",
-          "status": "implementing",
-          "evidence": [],
-          "note": "Branch artifact-dist"
+          "status": "integrated_lab",
+          "evidence": [
+            "docs/status/artifact-dist-results.md"
+          ],
+          "note": "Signed apt repo + OCI registry for guests on the ICS host (port 8446), per-channel key pins in bootstrap metadata; lab proof incl. tamper/unsigned/wrong-key refusals"
         },
         {
           "id": "P2.9",

@@ -1,5 +1,4 @@
 # Owner actions: one batched list for the Dec 31 beta
-<!-- pending: docs/status/ssh-onboard-results.md -->
 
 This page lists what only the owner can do: infrastructure, credentials, DNS, signing keys and devices. Items are in the order they unblock the beta stages. Commands are copy-paste ready.
 
