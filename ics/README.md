@@ -156,3 +156,8 @@ Endpoint settings are typed plans: `endpoint.register|update|remove|disable|enab
 
 ## Lab demo credentials (review M5, accepted risk)
 `scripts/lab_*.py` read the throwaway demo accounts' passwords/TOTP secrets (`lab-op`, `lab-ap1`, `lab-ap2`) from the file named by `OU_DEMO_CREDS`, default `/etc/office-unbound/lab/demo-creds.json` (to be `root:administrator 0640`, directory `root:administrator 0750`). The file is created `0600` atomically by the setup step; the host owner moves an existing `/tmp/ou-demo-creds.json` there. These accounts stay enrolled for approval testing: whoever can read the file can satisfy every two-person rule, so treat it like a root-equivalent secret and delete the accounts before any real use.
+
+## Organization admin (tenant admin API), `/api/v1/tenant/*`
+A narrow API for a customer's own administrators, used only by that customer's portal; NOT the operator API (ADR-0002: no infrastructure rights).
+Every call carries `X-OU-Tenant-Key` (per-customer service credential, only its sha256 is stored; issued once by `POST /api/v1/customers/{id}/tenant-admin`, admin + all-customers scope, rotate with `.../rotate-key`) and, for anything about people, `X-OU-User-Token` (the admin's own Keycloak access token: RS256/ES256 signature against THAT customer's realm JWKS, issuer/azp taken from the ICS database, realm role `org-admin`, lifetime <= 15 min, live re-check of user+role in Keycloak for every change).
+Changes become ordinary `idm.*` plans requested by an unloginable per-customer principal, approved under the customer's policy (`tenant_admin_bindings.policy`: `self_service_auto`, `destructive_approval = second_admin | msp`) and audited with the end user's identity. See `docs/status/org-admin-results.md`.

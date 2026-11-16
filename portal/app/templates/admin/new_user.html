@@ -1,0 +1,32 @@
+{% extends "admin/base.html" %}
+{% block atitle %}Invite someone{% endblock %}
+{% block admin %}
+<p class="crumb"><a href="/admin/users">People</a> / New person</p>
+<h1>Invite someone</h1>
+<p class="sub">Three steps: tell us who they are, choose what they can use, then send them a one-time sign-up link. They choose their own password. We never create or see it.</p>
+{% if error %}<p class="notice" role="alert">{{ error }}</p>{% endif %}
+<form method="post" action="/admin/users/new" class="card form" autocomplete="off">
+  <input type="hidden" name="csrf" value="{{ sess.csrf }}">
+  <ol class="steps big">
+    <li>
+      <h2>Who is joining?</h2>
+      <div class="field"><label for="name">Full name</label><input id="name" name="name" required maxlength="100" value="{{ form.name }}" autocomplete="off"></div>
+      <div class="field"><label for="uid">User name</label><input id="uid" name="uid" maxlength="32" value="{{ form.uid }}" pattern="[a-z][a-z0-9._-]{1,31}" autocomplete="off" aria-describedby="uid-h">
+        <p class="hint" id="uid-h">Becomes their e-mail address, for example <code>anna.meyer@{{ cfg.mail_domain }}</code>. Leave empty to use the name. Lower-case letters, digits, dots and dashes.</p></div>
+    </li>
+    <li>
+      <h2>What can they use?</h2>
+      <fieldset class="checks"><legend class="sr">Apps</legend>
+      {% for key, a in apps.items() %}
+        <label class="check"><input type="checkbox" name="app_{{ key }}" {% if a.enabled %}checked{% endif %}><span><b>{{ a.label }}</b></span></label>
+      {% endfor %}
+      </fieldset>
+    </li>
+    <li>
+      <h2>Send them in</h2>
+      <p>Next you get a link that works once and expires. Send it to them yourself, in a message you trust. We do not send e-mails.</p>
+    </li>
+  </ol>
+  <p><button class="btn primary" type="submit">Add person and continue</button> <a class="btn" href="/admin/users">Cancel</a></p>
+</form>
+{% endblock %}

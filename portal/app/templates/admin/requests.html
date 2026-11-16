@@ -1,0 +1,7 @@
+{% extends "admin/base.html" %}
+{% block atitle %}Activity{% endblock %}
+{% block admin %}
+<h1>Activity</h1>
+<p class="sub">Every change made here, who asked for it and what happened. Changes by your service provider are not listed.</p>
+{% if rows %}{% include "admin/_requests_table.html" %}{% else %}<p class="empty">Nothing yet. Changes you make will appear here.</p>{% endif %}
+{% endblock %}

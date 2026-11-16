@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest'
 import type { DeploymentPlan } from '../api'
-import { assertSubmittable, buildCreateParams, buildRequest, newDeployModel, requestKey, validateOptions, validatePlacement, validatePlan, validateSizing } from './state'
+import { OPTIONAL_HELP, assertSubmittable, buildCreateParams, buildRequest, newDeployModel, optionalHelp, requestKey, validateOptions, validatePlacement, validatePlan, validateSizing } from './state'
 import type { DeployModel } from './state'
 
 const plan = (over: Partial<DeploymentPlan> = {}): DeploymentPlan => ({
@@ -62,5 +62,32 @@ describe('nothing is submitted without the review step', () => {
     expect(() => assertSubmittable(m, true)).toThrow(/out of date/)
     const blocked = model(); blocked.plan = plan({ errors: [{ message: 'too big' }] }); blocked.planKey = requestKey(blocked); blocked.confirmed = true
     expect(() => assertSubmittable(blocked, true)).toThrow(/blocking/)
+  })
+})
+
+describe('optional collaboration components', () => {
+  it('sends chat/meetings/telephony toggles and opt-in federation only while chat is on', () => {
+    const m = model()
+    Object.assign(m, { optionalAvailable: ['office', 'chat', 'meetings', 'telephony'], optional: ['office', 'chat', 'meetings'], federation: true })
+    const r = buildRequest(m)
+    expect(r.optional).toEqual({ chat: true, meetings: true, office: true, telephony: false })
+    expect(r.enabled_ports).toEqual(['chat:federation'])
+    m.optional = ['office', 'meetings']                      // chat switched off: the port flag must not be sent (backend would refuse it)
+    expect(buildRequest(m).enabled_ports).toBeUndefined()
+    m.optional = ['chat']; m.federation = false
+    expect(buildRequest(m).enabled_ports).toBeUndefined()
+  })
+  it('has plain-language help for each and prefers the catalog text', () => {
+    for (const id of ['chat', 'meetings', 'telephony']) expect(OPTIONAL_HELP[id].length).toBeGreaterThan(20)
+    expect(optionalHelp('chat', 'from catalog')).toBe('from catalog')
+    expect(optionalHelp('telephony')).toMatch(/emergency/)
+    expect(optionalHelp('unknown')).toBe('')
+  })
+  it('unpinned collaboration artifacts keep the plan blocked', () => {
+    const m = model()
+    m.plan = plan({ executable: false, errors: [{ code: 'artifact_unpinned', message: 'chat/synapse: OCI digest is the unpinned placeholder' }] })
+    m.planKey = requestKey(m)
+    expect(validatePlan(m).plan).toMatch(/blocking errors/)
+    expect(() => assertSubmittable({ ...m, confirmed: true }, true)).toThrow(/blocking errors/)
   })
 })

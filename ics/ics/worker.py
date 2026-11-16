@@ -5,6 +5,7 @@ import time
 from sqlalchemy import text
 
 from . import identity, monitor
+from .msp import events as msp_events
 from .credentials import expiry as cred_expiry
 from .tenancy import approvals as tapprovals
 from .backups import ops as backups_ops
@@ -132,9 +133,23 @@ class Worker(threading.Thread):
                 log.exception("inventory loop error")
             self._stop_evt.wait(self.interval)
 
+    def _msp_loop(self) -> None:
+        """MSP webhook delivery on its own thread: a slow or dead customer endpoint can never delay jobs, checks or the heartbeat."""
+        last_purge = 0.0
+        while not self._stop_evt.is_set():
+            try:
+                msp_events.tick(self.rt)
+                if time.monotonic() - last_purge > 3600:
+                    last_purge = time.monotonic()
+                    msp_events.purge(self.rt)
+            except Exception:  # noqa: BLE001
+                log.exception("msp webhook loop error")
+            self._stop_evt.wait(self.interval)
+
     def run(self) -> None:
         self.threads["jobs"] = threading.current_thread()
         self.threads["heartbeat"] = threading.Thread(target=self._beat, daemon=True, name="ics-heartbeat")
+        self.threads["msp-webhooks"] = threading.Thread(target=self._msp_loop, daemon=True, name="ics-msp-webhooks")
         if self.rt.settings.monitor_enabled:
             self.threads["monitor"] = threading.Thread(target=self._monitor_loop, daemon=True, name="ics-monitor")
             self.threads["inventory"] = threading.Thread(target=self._inventory_loop, daemon=True, name="ics-inventory")

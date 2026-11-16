@@ -1,0 +1,52 @@
+{% extends "admin/base.html" %}
+{% block head %}{% if working %}<meta http-equiv="refresh" content="3">{% endif %}{% endblock %}
+{% block atitle %}{{ r.summary }}{% endblock %}
+{% block admin %}
+<p class="crumb"><a href="/admin/requests">Activity</a> / {{ r.summary }}</p>
+<div class="pagehead"><h1>{{ r.summary }}</h1>
+  <span class="pill {% if r.state == 'done' %}ok{% elif r.state in ('failed', 'rejected') %}bad{% elif r.state != 'working' %}warn{% endif %}">{{ r.state_label }}</span></div>
+
+<section class="card" aria-live="polite">
+  {% if r.state == 'working' %}
+    <p class="progress"><span class="spin" aria-hidden="true"></span> This is being carried out. This page refreshes by itself.</p>
+  {% elif r.state == 'done' %}
+    <p>Done. {% if r.target_uid %}<a href="/admin/users/{{ r.target_uid }}">Open {{ r.target_uid }}</a>{% endif %}</p>
+  {% elif r.state == 'failed' %}
+    <p class="notice" role="alert">This did not complete. {{ r.error or 'Nothing further was changed by us. Please try again, or contact your service provider.' }}</p>
+  {% elif r.state == 'rejected' %}
+    <p>This was declined. Nothing was changed.</p>
+  {% elif r.state == 'waiting_admin' %}
+    <p>A second administrator of your organisation has to confirm this before it happens. It was asked by <b>{{ r.requested_by }}</b>.</p>
+    {% if r.can_decide %}
+    <form method="post" action="/admin/requests/{{ r.id }}/decide" class="inline row2">
+      <input type="hidden" name="csrf" value="{{ sess.csrf }}">
+      <button class="btn primary" name="decision" value="approve" type="submit">Confirm this change</button>
+      <button class="btn" name="decision" value="reject" type="submit">Decline</button>
+    </form>
+    {% else %}<p class="hint">You asked for this, so someone else has to confirm it.</p>{% endif %}
+  {% elif r.state == 'waiting_msp' %}
+    <p>Your service provider confirms this kind of change. You will see it here when they have.</p>
+  {% endif %}
+</section>
+
+{% if link %}
+<section class="card linkcard" aria-labelledby="h-link">
+  <h2 id="h-link">Send this link to {{ r.target_uid }}</h2>
+  <p>It works <b>once</b> and expires {{ expires.strftime('%-d %b %Y, %H:%M') if expires else 'soon' }}. Send it in a message or in person. It is shown here only now, and we do not e-mail it. {{ r.target_uid }} will choose their own password.</p>
+  <label class="sr" for="lnk">One-time sign-up link</label>
+  <input id="lnk" class="linkbox" readonly value="{{ link }}" size="60">
+  <p class="hint">Select the whole box and copy it. If you lose it, create a new link from the person's page.</p>
+</section>
+{% elif can_link %}
+<section class="card" aria-labelledby="h-mk">
+  <h2 id="h-mk">Next: send {{ r.target_uid }} their sign-up link</h2>
+  <p>The link lets them choose a password and sign in. It works once. We show it once and do not e-mail it, so you can pass it on safely yourself.</p>
+  <form method="post" action="/admin/requests/{{ r.id }}/link"><input type="hidden" name="csrf" value="{{ sess.csrf }}">
+    <button class="btn primary" type="submit">Create the sign-up link</button></form>
+</section>
+{% endif %}
+
+<section class="card"><h2>Details</h2>
+  <dl class="kv"><dt>Asked by</dt><dd>{{ r.requested_by }}</dd><dt>When</dt><dd><time datetime="{{ r.created_at }}">{{ r.created_at | isoago }}</time></dd>
+  {% if r.decided_by %}<dt>Confirmed by</dt><dd>{{ r.decided_by }}</dd>{% endif %}</dl></section>
+{% endblock %}

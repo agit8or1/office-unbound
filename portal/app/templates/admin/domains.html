@@ -1,0 +1,31 @@
+{% extends "admin/base.html" %}
+{% block atitle %}Domains{% endblock %}
+{% block admin %}
+<h1>Domains</h1>
+<p class="sub">{{ d.managed_by }} Your DNS records decide whether your mail arrives and is trusted. Check them any time.</p>
+{% for dom in d.domains %}
+<section class="card" aria-labelledby="h-{{ loop.index }}">
+  <div class="pagehead"><h2 id="h-{{ loop.index }}" class="h2like">{{ dom.name }}</h2>{% if dom.primary %}<span class="pill">Main domain</span>{% endif %}</div>
+  {% if not checked %}
+    <p>We can look up your public DNS and tell you what is missing.</p>
+    <form method="get" action="/admin/domains"><input type="hidden" name="check" value="1"><button class="btn primary" type="submit">Check my DNS now</button></form>
+  {% else %}
+    {% set recs = d.dns[dom.name] %}
+    <ul class="dns">
+    {% for r in recs %}
+      <li class="dnsrow {{ r.status }}">
+        <div class="dnshead"><b>{{ r.title }}</b>
+          {% if r.status == 'ok' %}<span class="pill ok">Looks right</span>{% elif r.status == 'unknown' %}<span class="pill warn">Could not check</span>{% elif r.status == 'differs' %}<span class="pill warn">Different from expected</span>{% else %}<span class="pill bad">Missing</span>{% endif %}</div>
+        <p class="muted">{{ r.how }}</p>
+        <dl class="kv small"><dt>Type and name</dt><dd><code>{{ r.type }}</code> <code>{{ r.name }}</code></dd>
+          <dt>Should be</dt><dd><code>{{ r.expected }}</code></dd>
+          <dt>We found</dt><dd>{% for f in r.found %}<code>{{ f }}</code> {% else %}<span class="muted">nothing</span>{% endfor %}</dd></dl>
+      </li>
+    {% endfor %}
+    </ul>
+    <form method="get" action="/admin/domains"><input type="hidden" name="check" value="1"><button class="btn" type="submit">Check again</button></form>
+    <p class="hint">DNS changes can take up to a few hours to show. This check reads public DNS only and changes nothing.</p>
+  {% endif %}
+</section>
+{% endfor %}
+{% endblock %}

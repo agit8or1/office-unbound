@@ -11,7 +11,7 @@ from sqlalchemy import text
 from ics.credentials import service as cred_service
 
 HERE = os.path.dirname(__file__)
-EXPECTED = ["0001", "0002", "0003", "0004", "0005", "0006d", "0006b", "0006a", "0007", "0007s3", "0007l", "0007m", "0008i", "0008", "0009", "0009b", "0009a", "0010", "0011"]
+EXPECTED = ["0001", "0002", "0003", "0004", "0005", "0006d", "0006b", "0006a", "0007", "0007s3", "0007l", "0007m", "0008i", "0008", "0009", "0009b", "0009a", "0010", "0011", "0012a", "0012b", "0012c", "0012d"]
 
 
 def _cfg(url):
@@ -24,7 +24,7 @@ def _cfg(url):
 
 def test_single_linear_chain():
     sd = ScriptDirectory(os.path.join(HERE, "..", "migrations"))
-    assert sd.get_heads() == ["0011"]
+    assert sd.get_heads() == ["0012d"]
     assert [s.revision for s in reversed(list(sd.walk_revisions()))] == EXPECTED
 
 
@@ -68,7 +68,7 @@ def test_upgrade_from_production_head_0008i(rt, base_settings, owner_engine):
     try:
         command.upgrade(cfg, "head")
         with owner_engine.connect() as c:
-            assert c.execute(text("SELECT version_num FROM alembic_version")).scalar() == "0011"
+            assert c.execute(text("SELECT version_num FROM alembic_version")).scalar() == "0012d"
             have = {r[0] for r in c.execute(text("SELECT table_name FROM information_schema.tables WHERE table_schema = 'public'"))}
             assert {"backup_policies", "idm_sip_credentials", "guest_bootstrap", "controller_state"} <= have
             assert c.execute(text("SELECT count(*) FROM information_schema.columns WHERE table_name = 'idm_users' AND column_name = 'extension'")).scalar() == 1
@@ -92,7 +92,7 @@ def test_upgrade_from_production_head_0008(rt, base_settings, owner_engine):
     try:
         command.upgrade(cfg, "head")
         with owner_engine.connect() as c:
-            assert c.execute(text("SELECT version_num FROM alembic_version")).scalar() == "0011"
+            assert c.execute(text("SELECT version_num FROM alembic_version")).scalar() == "0012d"
             have = {r[0] for r in c.execute(text("SELECT table_name FROM information_schema.tables WHERE table_schema = 'public'"))}
             assert {"backup_policies", "idm_sip_credentials", "guest_bootstrap", "controller_state"} <= have
             assert c.execute(text("SELECT count(*) FROM information_schema.columns WHERE table_name = 'idm_users' AND column_name = 'extension'")).scalar() == 1
@@ -131,3 +131,53 @@ def test_adopt_endpoint_binds_node_allowlist(rt, mk_user):
         ep = db.execute(text("SELECT * FROM endpoints WHERE id = :i"), {"i": eid}).first()
         with pytest.raises(CredentialUnavailable):   # widening the node allowlist outside an approved update releases nothing
             cred_service.endpoint_secret(rt, ep, "inventory")
+
+
+def test_m3_msp_migration_does_not_bind_deployments_by_name_derived_slug(rt, base_settings, owner_engine):
+    """Review 6 M3: a deployment whose customer_id equals what the OLD migration would have derived from a customer's name stays unbound."""
+    from tests.conftest import _test_env
+    cfg = _cfg(_test_env()["ICS_TEST_OWNER_DATABASE_URL"])
+    with owner_engine.connect() as c:
+        c.execute(text("DROP SCHEMA public CASCADE"))
+        c.execute(text("CREATE SCHEMA public"))
+    command.upgrade(cfg, "0012a")
+    try:
+        with owner_engine.connect() as c:
+            cid = c.execute(text("INSERT INTO customers (name, msp_owned, provisioning_mode) VALUES ('Lab', true, 'auto') RETURNING id")).scalar()
+            c.execute(text("INSERT INTO deployments (slug, customer_id, profile, profile_version, status, desired_spec) VALUES ('lab-prod', 'lab', 'small', '1', 'active', '{}')"))
+        command.upgrade(cfg, "0012b")
+        with owner_engine.connect() as c:
+            slug = c.execute(text("SELECT slug FROM customers WHERE id = :i"), {"i": cid}).scalar()
+            assert slug != "lab" and slug.startswith("c-")
+            assert c.execute(text("SELECT count(*) FROM deployments d JOIN customers cu ON cu.slug = d.customer_id")).scalar() == 0   # nothing bound implicitly
+            # and a customer inserted later gets an id-derived slug too
+            n = c.execute(text("INSERT INTO customers (name, msp_owned, provisioning_mode) VALUES ('Lab 2', true, 'auto') RETURNING slug")).scalar()
+            assert n.startswith("c-")
+    finally:
+        with owner_engine.connect() as c:
+            c.execute(text("DROP SCHEMA public CASCADE"))
+            c.execute(text("CREATE SCHEMA public"))
+        command.upgrade(cfg, "head")
+
+
+@pytest.mark.parametrize("start", ["0009b", "0011"])
+def test_upgrade_from_production_heads_0009b_and_0011(rt, base_settings, owner_engine, start):
+    """Production is at 0009b today and at 0011 after the pending deploy: the rest of the chain applies from either."""
+    from tests.conftest import _test_env
+    cfg = _cfg(_test_env()["ICS_TEST_OWNER_DATABASE_URL"])
+    with owner_engine.connect() as c:
+        c.execute(text("DROP SCHEMA public CASCADE"))
+        c.execute(text("CREATE SCHEMA public"))
+    command.upgrade(cfg, start)
+    try:
+        command.upgrade(cfg, "head")
+        with owner_engine.connect() as c:
+            head = ScriptDirectory(os.path.join(HERE, "..", "migrations")).get_current_head()
+            assert c.execute(text("SELECT version_num FROM alembic_version")).scalar() == head
+            assert c.execute(text("SELECT count(*) FROM information_schema.columns WHERE table_name = 'idm_stacks' AND column_name = 'customer_id'")).scalar() == 1
+            assert c.execute(text("SELECT count(*) FROM information_schema.tables WHERE table_name = 'backup_policies'")).scalar() == 1
+    finally:
+        with owner_engine.connect() as c:
+            c.execute(text("DROP SCHEMA public CASCADE"))
+            c.execute(text("CREATE SCHEMA public"))
+        command.upgrade(cfg, "head")

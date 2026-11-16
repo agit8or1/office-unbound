@@ -1,0 +1,19 @@
+# Office Unbound Jitsi JWT token service (blueprints/lab/spike-collab/meet-token/app.py, copied into app/ by build.sh). Non-root uid 10040.
+# Python deps are the noble distro packages (versions recorded in the build's dpkg list / SBOM); apt is the non-reproducible part (no snapshot mirror yet).
+ARG BASE=localhost/ou-base-noble:latest
+FROM ${BASE}
+ARG DEBIAN_FRONTEND=noninteractive
+RUN apt-get -o APT::Sandbox::User=root update && apt-get -o APT::Sandbox::User=root install -y --no-install-recommends \
+      python3 python3-fastapi python3-uvicorn python3-httpx python3-jwt ca-certificates \
+ && rm -rf /var/lib/apt/lists/* /var/cache/apt/archives/* \
+ && groupadd -g 10040 oumeet && useradd -u 10040 -g 10040 -d /opt/ou-meet-token -M -s /usr/sbin/nologin oumeet
+COPY app/app.py /opt/ou-meet-token/app.py
+COPY healthcheck.py /usr/local/bin/ou-healthcheck
+RUN chmod 0755 /usr/local/bin/ou-healthcheck
+ENV TOKEN_TTL=120 CLIENT_SECRET_FILE=/run/secrets/client-secret JWT_SECRET_FILE=/run/secrets/jwt-secret
+LABEL org.opencontainers.image.title="Office Unbound meet token service" org.opencontainers.image.version="0.1.0-ou1" org.opencontainers.image.licenses="LicenseRef-Office-Unbound-TBD"
+USER 10040:10040
+WORKDIR /opt/ou-meet-token
+EXPOSE 8090
+HEALTHCHECK --interval=30s --timeout=5s --start-period=10s --retries=3 CMD ["/usr/local/bin/ou-healthcheck", "http://127.0.0.1:8090/healthz"]
+ENTRYPOINT ["python3","-m","uvicorn","app:app","--host","0.0.0.0","--port","8090","--no-access-log"]

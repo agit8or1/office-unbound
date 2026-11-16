@@ -1,0 +1,36 @@
+{% extends "admin/base.html" %}
+{% block atitle %}{{ mb.display_name }}{% endblock %}
+{% block admin %}
+<p class="crumb"><a href="/admin/shared">Shared mailboxes</a> / {{ mb.display_name }}</p>
+<div class="pagehead"><h1>{{ mb.display_name }}</h1><span class="pill">{{ mb.mail }}</span></div>
+{% if error %}<p class="notice bad" role="alert">{{ error }}</p>{% endif %}
+{% for k in kinds %}
+<section class="card" aria-labelledby="h-{{ k.key }}">
+  <h2 id="h-{{ k.key }}" class="h2like">{{ k.label | capitalize }}</h2>
+  <p class="muted">{% if k.key == 'full_access' %}Can open the mailbox and read, move and delete its mail.{% elif k.key == 'send_as' %}Can send mail that appears to come from {{ mb.mail }}.{% else %}Can send mail on behalf of {{ mb.mail }}; recipients see both names.{% endif %}</p>
+  {% set members = mb.grants[k.key] %}
+  {% if members %}
+  <ul class="plain">{% for uid in members %}
+    <li><form method="post" action="/admin/shared/{{ mb.name }}/revoke" class="row2">
+      <input type="hidden" name="csrf" value="{{ sess.csrf }}"><input type="hidden" name="uid" value="{{ uid }}"><input type="hidden" name="kind" value="{{ k.key }}">
+      <span>{{ names.get(uid, uid) }} <span class="muted">({{ uid }})</span></span> <button class="btn" type="submit">Remove</button></form></li>
+  {% endfor %}</ul>
+  {% else %}<p class="muted">Nobody.</p>{% endif %}
+  <form method="post" action="/admin/shared/{{ mb.name }}/grant" class="row2">
+    <input type="hidden" name="csrf" value="{{ sess.csrf }}"><input type="hidden" name="kind" value="{{ k.key }}">
+    <label class="sr" for="p-{{ k.key }}">Person to add</label>
+    <select id="p-{{ k.key }}" name="uid">{% for p in people if p.uid not in members %}<option value="{{ p.uid }}">{{ p.display_name }} ({{ p.uid }})</option>{% endfor %}</select>
+    <button class="btn primary" type="submit">Add</button>
+  </form>
+</section>
+{% endfor %}
+<section class="card" aria-labelledby="h-del">
+  <h2 id="h-del" class="h2like">Delete this shared mailbox</h2>
+  <p>Everyone loses access and the mailbox stops receiving mail. Its content is kept safely on your mail server and the address cannot be used again. A second administrator has to confirm.</p>
+  <form method="post" action="/admin/shared/{{ mb.name }}/delete">
+    <input type="hidden" name="csrf" value="{{ sess.csrf }}">
+    <div class="field"><label for="rs">Reason (kept in the activity log)</label><input id="rs" name="reason" maxlength="200" autocomplete="off"></div>
+    <button class="btn dangerbtn" type="submit">Delete shared mailbox</button>
+  </form>
+</section>
+{% endblock %}

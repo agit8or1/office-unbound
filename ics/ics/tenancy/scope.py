@@ -66,9 +66,9 @@ def customer_of_params(db: Session, params: dict) -> str | None:
         return str(params["customer_id"])
     if params.get("endpoint_id"):
         return endpoint_customer(db, params["endpoint_id"])
-    if params.get("stack"):   # identity actions name the customer stack; its owning customer is in the stack config
-        r = db.execute(text("SELECT config->>'customer_id' AS c FROM idm_stacks WHERE name = :n"), {"n": str(params["stack"])}).first()
-        return r.c if r and r.c else None
+    if params.get("stack"):   # identity actions name the customer stack; idm_stacks.customer_id (NOT NULL, default MSP-internal) is the one owner
+        r = db.execute(text("SELECT customer_id FROM idm_stacks WHERE name = :n"), {"n": str(params["stack"])}).first()
+        return str(r.customer_id) if r else None
     if params.get("credential_id"):
         r = db.execute(text("SELECT customer_id FROM credentials WHERE id = :i"), {"i": str(params["credential_id"])}).first()
         return str(r.customer_id) if r else None
@@ -84,6 +84,14 @@ def customer_of_params(db: Session, params: dict) -> str | None:
     if isinstance(params.get("policy"), str):
         r = db.execute(text("SELECT customer_id FROM backup_policies WHERE name = :n"), {"n": params["policy"]}).first()
         return str(r.customer_id) if r else None
+    # deployment actions carry the customer slug (spec.customer_id) or the deployment slug; identity actions carry the stack name
+    slug = (params.get("spec") or {}).get("customer_id") if isinstance(params.get("spec"), dict) else None
+    if slug is None and params.get("deployment_id"):
+        r = db.execute(text("SELECT customer_id FROM deployments WHERE slug = :s"), {"s": str(params["deployment_id"])}).first()
+        slug = r.customer_id if r else None
+    if slug:
+        r = db.execute(text("SELECT id FROM customers WHERE slug = :s"), {"s": str(slug)}).first()
+        return str(r.id) if r else None
     return None
 
 

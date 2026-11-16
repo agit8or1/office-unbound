@@ -1,6 +1,6 @@
 {% extends "base.html" %}
 {% from "_icons.html" import icon %}
-{% block title %}Account · {{ cfg.org_name }}{% endblock %}
+{% block title %}Account · {{ brand.name }}{% endblock %}
 {% block main %}
 <h1 class="greet">Your account</h1>
 {% for n in notices %}<p class="notice" role="status">{{ n }}</p>{% endfor %}

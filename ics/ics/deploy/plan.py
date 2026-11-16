@@ -43,6 +43,7 @@ class PlanInput(_M):
     os_image: str | None = Field(default=None, pattern=r"^[a-z0-9][a-z0-9.-]{1,30}$")
     allowed_nodes: list[str] | None = Field(default=None, max_length=64)
     optional: dict[str, bool] = Field(default_factory=dict, description="override which optional components are enabled")
+    enabled_ports: list[str] = Field(default_factory=list, max_length=20, description="opt-in ports that are closed by default, as 'component:port-name' (e.g. chat:federation)")
     custom_layout: list[VmLayout] | None = Field(default=None, max_length=30)
     backup_retention_days: int | None = Field(default=None, ge=1, le=3650)
 
@@ -136,6 +137,10 @@ def _layout(inp: PlanInput, prof: Profile, errors: list[dict]) -> list[VmLayout]
     return list(prof.vms)
 
 
+def _port_open(cname: str, p, inp: "PlanInput") -> bool:
+    return p.default_enabled or f"{cname}:{p.name}" in inp.enabled_ports
+
+
 def _expand(inp: PlanInput, prof: Profile, cat: Catalog, errors: list[dict]) -> tuple[list[_Vm], set[str]]:
     layout = _layout(inp, prof, errors)
     enabled_opt = {o for o in prof.optional_components if inp.optional.get(o, o in prof.default_optional)}
@@ -164,14 +169,24 @@ def _expand(inp: PlanInput, prof: Profile, cat: Catalog, errors: list[dict]) -> 
                                lay.anti_affinity, users))
     present = {c for v in vms for c in v.components}
     every = [c for c in cat.components.values() if c.placement == "every_vm"]
+    known_ports = {f"{c.name}:{p.name}" for c in cat.components.values() for p in c.ports if not p.default_enabled}
+    for e in inp.enabled_ports:
+        if e not in known_ports:
+            errors.append(_err("unknown_enabled_port", f"{e!r} is not an opt-in port of the catalog (opt-in ports: {', '.join(sorted(known_ports)) or 'none'})"))
+    for e in inp.enabled_ports:
+        if e in known_ports and e.split(":")[0] not in present:
+            errors.append(_err("enabled_port_component_absent", f"{e!r} was enabled but its component is not in this deployment"))
     for v in vms:
-        seen: dict[tuple, str] = {}
+        seen: list[tuple[int, int, str, str]] = []
         for cn in [*v.components, *(c.name for c in every)]:
             for p in cat.components[cn].ports:
-                if (p.port, p.proto) in seen:
-                    errors.append(_err("port_conflict", f"{v.name}: {cn} and {seen[(p.port, p.proto)]} both listen on {p.proto}/{p.port}; "
-                                                        "put them on different VMs", vm=v.name))
-                seen[(p.port, p.proto)] = cn
+                if not _port_open(cn, p, inp):
+                    continue
+                for lo, hi, proto, other in seen:
+                    if proto == p.proto and p.port <= hi and lo <= p.last:
+                        errors.append(_err("port_conflict", f"{v.name}: {cn} and {other} both listen on {p.proto}/{p.port}"
+                                                            f"{'-' + str(p.last) if p.port_end else ''}; put them on different VMs", vm=v.name))
+                seen.append((p.port, p.last, p.proto, cn))
     for c in sorted(present):
         for d in cat.components[c].depends_on:
             if d not in present:
@@ -361,23 +376,25 @@ def _derive(vms: list[_Vm], inp: PlanInput, prof: Profile, cat: Catalog, warning
                 if a.kind == "oci":
                     containers.append({"name": f"{v.name}-{a.name}", "vm": v.name, "component": c.name, "image": a.image, "digest": a.digest,
                                        "version": a.version, "pinned": a.pinned, "runtime": "podman-rootless-quadlet",
-                                       "ports": [p.port for p in c.ports], "volumes": [x.path for x in c.volumes]})
+                                       "ports": [p.port for p in c.ports if _port_open(c.name, p, inp)], "volumes": [x.path for x in c.volumes]})
                 else:
                     services.append({"name": f"{v.name}-{a.name}", "vm": v.name, "component": c.name, "package": a.package,
                                      "version": a.version, "repo": a.repo})
             for p in c.ports:
+                if not _port_open(c.name, p, inp):
+                    continue
                 if p.exposure == "public":
-                    fw.add((v.name, p.port, p.proto, "any", f"{c.name}:{p.name}"))
+                    fw.add((v.name, p.port, p.proto, "any", f"{c.name}:{p.name}", p.port_end))
                 elif p.exposure == "ics":
-                    fw.add((v.name, p.port, p.proto, "ics-control", f"{c.name}:{p.name}"))
+                    fw.add((v.name, p.port, p.proto, "ics-control", f"{c.name}:{p.name}", p.port_end))
                 elif p.exposure == "edge":
                     for e in edge_vms:
                         if e.name != v.name and _scope_match(e.tenant, v.tenant):
-                            fw.add((v.name, p.port, p.proto, e.name, f"{c.name}:{p.name}"))
+                            fw.add((v.name, p.port, p.proto, e.name, f"{c.name}:{p.name}", p.port_end))
                 elif p.exposure == "internal":
                     for o in vms:
                         if o.name != v.name and _scope_match(o.tenant, v.tenant) and any(c.name in cat.components[x].depends_on for x in o.components):
-                            fw.add((v.name, p.port, p.proto, o.name, f"{c.name}:{p.name}"))
+                            fw.add((v.name, p.port, p.proto, o.name, f"{c.name}:{p.name}", p.port_end))
             if c.placement == "normal":
                 for r in c.dns:
                     tgt_vm = v
@@ -398,7 +415,7 @@ def _derive(vms: list[_Vm], inp: PlanInput, prof: Profile, cat: Catalog, warning
             for h in c.health_checks:
                 checks.append({"name": f"{v.name}-{c.name}-{h.name}", "component": c.name, "vm": v.name, "kind": h.kind,
                                "host": fqdn or f"vm:{v.name}", "port": h.port, "path": h.path, "expect_status": h.expect_status,
-                               "interval_seconds": h.interval_seconds})
+                               "interval_seconds": h.interval_seconds, **({"body_contains": h.body_contains} if h.body_contains else {})})
             vols = [x for x in c.volumes if x.backup]
             if c.backup.method != "stateless" and vols:
                 backups.append({"vm": v.name, "component": c.name, "method": c.backup.method, "quiesce": c.backup.quiesce,
@@ -406,8 +423,8 @@ def _derive(vms: list[_Vm], inp: PlanInput, prof: Profile, cat: Catalog, warning
                                 "offsite": prof.backup.offsite, "rpo_hours": c.backup.rpo_hours, "evidence": c.backup.evidence})
                 if c.backup.evidence.startswith("planned"):
                     warnings.append(_err("backup_not_drilled", f"{c.name}: backup/restore has not been drilled ({c.backup.evidence})"))
-    for r in sorted(fw):
-        firewall.append({"vm": r[0], "port": r[1], "proto": r[2], "from": r[3], "purpose": r[4]})
+    for r in sorted(fw, key=lambda r: (r[0], r[1], r[2], r[3], r[4], r[5] or 0)):
+        firewall.append({"vm": r[0], "port": r[1], "proto": r[2], "from": r[3], "purpose": r[4], **({"port_end": r[5]} if r[5] else {})})
     seen = set()
     dns_u = []
     for r in sorted(dns, key=lambda r: (r["name"], r["type"], r["value"])):
@@ -564,8 +581,20 @@ def generate_plan(inp: PlanInput, cap: Capacity, cat: Catalog | None = None, exi
     for cn in sorted(present):
         for a in cat.components[cn].artifacts:
             if not a.pinned:
-                errors.append(_err("artifact_unpinned", f"{cn}/{a.name}: OCI digest is the unpinned placeholder 'sha256:'; the artifact must be built/pinned before this plan can execute",
+                errors.append(_err("artifact_unpinned", f"{cn}/{a.name}: OCI digest is the unpinned placeholder 'sha256:'; the artifact must be built, signed and pinned before this plan can execute",
                                    component=cn, artifact=a.name))
+            elif getattr(a, "signed", True) is False:
+                errors.append(_err("artifact_unsigned", f"{cn}/{a.name}: the OCI image is built and pinned by digest but not signed through the hardened signing path; this plan cannot execute until it is signed",
+                                   component=cn, artifact=a.name))
+    for cn in sorted(present):
+        comp = cat.components[cn]
+        for n in comp.notices:
+            warnings.append(_err("component_notice", f"{cn}: {n}", component=cn))
+        if prof.ha and comp.ha_note:
+            warnings.append(_err("component_ha_note", f"{cn}: {comp.ha_note}", component=cn))
+        if osimg is not None and comp.os_images and osimg.id not in comp.os_images:
+            warnings.append(_err("component_os_unvalidated", f"{cn}: its packages were built and validated for {', '.join(comp.os_images)}, "
+                                                              f"not {osimg.id}; installation on {osimg.id} is an assumption", component=cn))
     assumed = sorted({f"{cn}.{k}" for cn in present for k in ("cores", "memory_mb", "disk_gb")
                       if "assum" in getattr(cat.components[cn].resources, k).source.lower()}
                      | {f"{cn}.volume.{x.name}" for cn in present for x in cat.components[cn].volumes if "assum" in x.size_gb.source.lower()})

@@ -29,6 +29,7 @@ _LOCK_ID = 7_001_001
 _PVE_TOKEN_RE = re.compile(r"PVEAPIToken=\S*", re.IGNORECASE)
 _MAX_INT = 2**53
 _audit_key: bytes | None = None
+_MSP_EVENT_ACTIONS = frozenset({"job.queued", "plan.reject", "plan.expired", "job.succeeded", "job.failed", "incident.opened", "incident.recovered"})
 
 
 def set_key(key: bytes | None) -> None:
@@ -160,6 +161,14 @@ def append(db: Session, action: str, *, actor_id=None, actor_name=None, ip=None,
         {"id": str(id_), "at": at, "action": action, "actor_id": str(actor_id) if actor_id else None, "actor_name": actor_name, "ip": ip,
          "resource": resource, "resource_id": resource_id, "details": details_canon, "dc": details_canon, "prev": prev, "hash": h,
          "mac": mac_for(h)})
+    if action in _MSP_EVENT_ACTIONS:  # MSP API webhook outbox (ics/msp/events.py); never allowed to break the audit write
+        try:
+            with db.begin_nested():
+                from .msp import events as _msp_events
+                _msp_events.on_audit(db, action, resource_id, details)
+        except Exception:  # noqa: BLE001
+            import logging
+            logging.getLogger("ics.msp").exception("msp event capture failed for %s", action)
     return h
 
 

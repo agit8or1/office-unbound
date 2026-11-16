@@ -53,7 +53,9 @@ def base_settings(tmp_path_factory):
 @pytest.fixture(scope="session")
 def owner_engine(base_settings):
     url = _test_env()["ICS_TEST_OWNER_DATABASE_URL"]
-    eng = create_engine(url, isolation_level="AUTOCOMMIT")
+    # lock_timeout: the TRUNCATE/DROP SCHEMA below need ACCESS EXCLUSIVE locks. Without a timeout a second pytest run on the same test DB (or an
+    # orphaned idle-in-transaction connection of a killed run) made them wait forever: the "hang" of tests/test_tenant_admin.py seen in security review 6.
+    eng = create_engine(url, isolation_level="AUTOCOMMIT", connect_args={"options": "-c lock_timeout=60000"})
     with eng.connect() as c:
         c.execute(text("DROP SCHEMA public CASCADE"))
         c.execute(text("CREATE SCHEMA public"))
@@ -71,7 +73,7 @@ def rt(base_settings, owner_engine):
         c.execute(text("TRUNCATE users, sessions, login_attempts, audit_events, endpoints, plans, jobs, "
                        "worker_heartbeat, inventory_snapshots, plan_approvals, nodes, agent_requests, checks, check_results, incidents, "
                        "maintenance_windows, alert_channels, notifications, remediation_attempts, idm_stacks, idm_users, idm_enrollments, idm_reconcile_runs, "
-                       "guest_bootstrap, customers, credentials, credential_events, credential_alerts, customer_approvals, operator_customers, backup_policies, backup_runs, backup_verifications RESTART IDENTITY CASCADE"))
+                       "guest_bootstrap, customers, credentials, credential_events, credential_alerts, customer_approvals, operator_customers, tenant_admin_bindings, tenant_requests, backup_policies, backup_runs, backup_verifications RESTART IDENTITY CASCADE"))
         c.execute(text("INSERT INTO customers (id, name, msp_owned, provisioning_mode) VALUES ('00000000-0000-0000-0000-00000000a001', 'MSP (internal)', true, 'auto')"))
     r = Runtime(base_settings)
     yield r

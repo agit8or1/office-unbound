@@ -19,7 +19,7 @@ from sqlalchemy import text
 from sqlalchemy.orm import Session
 
 from . import release as release_ops
-from . import agentclient, alerts, audit, auth, checks as checkmod, endpoint_actions, identity, monitor, removal
+from . import agentclient, alerts, audit, auth, checks as checkmod, endpoint_actions, identity, mailadmin, monitor, removal
 from .deploy import ops as deploy_ops
 from .deploy import ports as deploy_ports
 from .deploy.ports import DeployError
@@ -31,6 +31,7 @@ from .proxmox import ProxmoxError, ProxmoxReadClient, check_destination, normali
 from .providers.base import ProviderError, job_execution
 from .credentials import actions as cred_actions, service as cred_service
 from .runtime import Runtime
+from .msp import actions as msp_actions
 from .tenancy import actions as ten_actions, approvals as tapprovals, policy as tpolicy, scope as tscope
 from .vault import VaultError
 
@@ -66,10 +67,18 @@ class ActionType(StrEnum):
     idm_user_disable = "idm.user.disable"
     idm_user_enable = "idm.user.enable"
     idm_user_delete = "idm.user.delete"
+    idm_user_reset_credentials = "idm.user.reset_credentials"
     idm_reconcile = "idm.reconcile"
     idm_user_devices = "idm.user.devices"
     idm_user_set_extension = "idm.user.set_extension"
     idm_user_issue_sip_credential = "idm.user.issue_sip_credential"
+    idm_user_set_aliases = "idm.user.set_aliases"
+    idm_shared_mailbox_create = "idm.shared_mailbox.create"
+    idm_shared_mailbox_delete = "idm.shared_mailbox.delete"
+    idm_shared_mailbox_grant = "idm.shared_mailbox.grant"
+    idm_shared_mailbox_revoke = "idm.shared_mailbox.revoke"
+    idm_user_set_mail_quota = "idm.user.set_mail_quota"
+    idm_user_set_storage_quota = "idm.user.set_storage_quota"
     deployment_create = "deployment.create"
     deployment_change = "deployment.change"
     deployment_destroy = "deployment.destroy"
@@ -102,6 +111,11 @@ class ActionType(StrEnum):
     backup_verify = "backup.verify"
     backup_prune = "backup.prune"
     release_promote = "release.promote"
+    msp_client_create = "msp.client.create"
+    msp_client_set_permissions = "msp.client.set_permissions"
+    msp_client_rotate = "msp.client.rotate"
+    msp_client_revoke = "msp.client.revoke"
+    msp_stack_link = "msp.stack.link"
 
 
 class EndpointRegister(endpoint_actions.ScopeLists):
@@ -257,7 +271,7 @@ class CheckCreate(BaseModel):
     model_config = ConfigDict(extra="forbid")
     customer_id: UUID | None = Field(default=None, description="owning customer (default: derived from the referenced object, else MSP-internal)")
     name: str = Field(pattern=NAME_RE)
-    kind: Literal["http", "tcp_tls", "imap_login", "smtp_banner", "ews_getfolder", "backup"]
+    kind: Literal["http", "tcp_tls", "imap_login", "smtp_banner", "ews_getfolder", "backup", "sip_options_tls", "jitsi_jwt"]
     config: dict
     password: SecretStr | None = Field(default=None, description="mailbox/EWS password for imap_login / ews_getfolder (stored in the vault)")
     interval_seconds: int = Field(default=60, ge=5, le=86400)
@@ -387,10 +401,12 @@ CATALOG: dict[ActionType, dict] = {
     ActionType.idm_user_disable: {"model": identity.UserDisable, "risk": "normal", "secrets": ()},
     ActionType.idm_user_enable: {"model": identity.UserEnable, "risk": "normal", "secrets": ()},
     ActionType.idm_user_delete: {"model": identity.UserDelete, "risk": "high", "secrets": ()},
+    ActionType.idm_user_reset_credentials: {"model": identity.UserResetCredentials, "risk": "normal", "secrets": ()},
     ActionType.idm_reconcile: {"model": identity.Reconcile, "risk": "low", "secrets": ()},
     ActionType.idm_user_devices: {"model": identity.UserDevices, "risk": "low", "secrets": ()},
     ActionType.idm_user_set_extension: {"model": identity.UserSetExtension, "risk": "normal", "secrets": ()},
     ActionType.idm_user_issue_sip_credential: {"model": identity.IssueSipCredential, "risk": "normal", "secrets": ()},
+    **{ActionType(a): {"model": m, "risk": "high" if a == "idm.shared_mailbox.delete" else "normal", "secrets": ()} for a, m in mailadmin.MODELS.items()},
     # deployment engine (deploy/ops.py). "risk" is the catalog default; create_plan takes the real tier from the change diff (override => high)
     ActionType.deployment_create: {"model": deploy_ops.DeploymentCreate, "risk": "high", "secrets": ()},
     ActionType.deployment_change: {"model": deploy_ops.DeploymentChange, "risk": "normal", "secrets": ()},
@@ -412,7 +428,7 @@ CATALOG: dict[ActionType, dict] = {
 }
 CATALOG.update({ActionType(k): v for k, v in prov_actions.CATALOG.items()})   # provider provisioning (ics/provisioning/actions.py)
 _PROV = {ActionType(k) for k in prov_actions.CATALOG}
-CATALOG.update({ActionType(k): v for k, v in {**cred_actions.SPECS, **ten_actions.SPECS}.items()})
+CATALOG.update({ActionType(k): v for k, v in {**cred_actions.SPECS, **ten_actions.SPECS, **msp_actions.SPECS}.items()})
 _IDM = {a for a in ActionType if a.value.startswith("idm.")}
 _DEPLOY = {a for a in ActionType if a.value.startswith("deployment.")}
 _BACKUP = {a for a in ActionType if a.value.startswith("backup.")}
@@ -433,7 +449,10 @@ def endpoint_binding(base_url: str, token_id: str, fingerprint: str | None, ca_p
 
 def needed_approvals(rt: Runtime, plan) -> int:
     """Distinct ICS approvers required: risk tier + the customer policy's extra approvals for sensitive operations."""
-    return (rt.settings.required_approvals_high if plan.risk == "high" else 1) + (getattr(plan, "extra_approvals", 0) or 0)
+    tier = getattr(plan, "tenant_required", None)  # tenant-admin plans: the customer's own authority supplies the tier approval (tenant_admin.service)
+    if tier is None:
+        tier = rt.settings.required_approvals_high if plan.risk == "high" else 1
+    return tier + (getattr(plan, "extra_approvals", 0) or 0)
 
 
 def trust_binding(base_url: str, token_id: str, fingerprint: str | None, ca_pem: str | None, nodes=None) -> str:
@@ -565,7 +584,7 @@ _PRECHECK = {ActionType.node_enroll: _pre_node_enroll, ActionType.check_create: 
              ActionType.check_delete: removal.pre_check_delete, ActionType.alert_channel_delete: removal.pre_channel_delete,
              ActionType.node_decommission: removal.pre_node_decommission, ActionType.maintenance_cancel: removal.pre_maintenance_cancel,
              ActionType.maintenance_delete: removal.pre_maintenance_delete, ActionType.plan_archive: removal.pre_plan_archive, ActionType.release_promote: release_ops.precheck,
-**{ActionType(k): v for k, v in {**cred_actions.PRECHECK, **ten_actions.PRECHECK}.items()}}
+**{ActionType(k): v for k, v in {**cred_actions.PRECHECK, **ten_actions.PRECHECK, **msp_actions.PRECHECK}.items()}}
 
 
 _USER_TARGET_ACTIONS = {ActionType.user_set_role, ActionType.user_revoke_invite, ActionType.user_disable, ActionType.user_enable,
@@ -616,9 +635,15 @@ def _user_precheck(db: Session, user, action: ActionType, p, risk: str) -> str:
     return risk
 
 
-def create_plan(db: Session, rt: Runtime, user, action: ActionType, params: dict, ip: str | None) -> dict:
+def create_plan(db: Session, rt: Runtime, user, action: ActionType, params: dict, ip: str | None, *, commit: bool = True,
+                msp_auto=None) -> dict:
+    """`commit=False` leaves the transaction open (the MSP API stores its idempotency record in the same transaction).
+    `msp_auto(customer_id, risk) -> bool`, when given, replaces the implicit low-risk auto-approval (MSP API clients never auto-approve
+    unless their approved policy says so). `user.msp_client` marks an API principal (customer.create/update are allowed for it; the plan
+    is still high risk and needs human approvers)."""
     spec = CATALOG[action]
-    if spec.get("admin_only") and auth.RANK[user.role] < auth.RANK["admin"]:
+    msp_principal = getattr(user, "msp_client", None) is not None and action.value in ("customer.create", "customer.update")
+    if spec.get("admin_only") and auth.RANK[user.role] < auth.RANK["admin"] and not msp_principal:
         raise PlanError(403, "requires role admin")
     p = spec["model"].model_validate(params)  # ValidationError -> 422 at the API layer
     full = p.model_dump(mode="json")
@@ -701,6 +726,9 @@ def create_plan(db: Session, rt: Runtime, user, action: ActionType, params: dict
     cust = full.get("customer_id") or tscope.customer_of_params(db, full)
     if backup_cust:
         cust = backup_cust
+    if action in _IDM and not cust and full.get("stack"):  # identity stacks belong to one customer (0009a): scoped/tenant principals are bound through it
+        r = db.execute(text("SELECT customer_id FROM idm_stacks WHERE name = :n"), {"n": full["stack"]}).first()
+        cust = str(r.customer_id) if r else None
     if action == ActionType.endpoint_register and not cust:
         cust = full["customer_id"] = tscope.DEFAULT_CUSTOMER
     if action in _PROV:
@@ -708,7 +736,8 @@ def create_plan(db: Session, rt: Runtime, user, action: ActionType, params: dict
             cust = prov_actions.bind_customer(db, action.value, p, full, cust, spec["model"], tscope.DEFAULT_CUSTOMER)
         except ValueError as e:
             raise PlanError(409, str(e)) from None
-    if getattr(user, "customer_ids", None) is not None and (cust is None or action.value in ("customer.create", "customer.update", "operator.set_scope")):
+    if getattr(user, "customer_ids", None) is not None and (cust is None or action.value in ("customer.create", "customer.update", "operator.set_scope")) \
+            and not (msp_principal and action.value == "customer.update" and cust):
         raise PlanError(404, "not found")  # scoped operators may only act on objects of their customers
     if cust and not tscope.allowed(user, cust):
         raise PlanError(404, "not found")
@@ -736,6 +765,8 @@ def create_plan(db: Session, rt: Runtime, user, action: ActionType, params: dict
         enc = rt.vault.encrypt(json.dumps(secret_part).encode(), f"plan:{pid}") if secret_part else None
         digest = plan_digest(action.value, full, enc, binding)
     auto = risk == "low" and not decision.customer_approval and decision.extra_approvals == 0
+    if auto and msp_auto is not None:
+        auto = bool(msp_auto(cust, risk))
     db.execute(text(
         "INSERT INTO plans (id, action, params, secret_enc, risk, status, requested_by, decided_at, params_hash, customer_id, extra_approvals) "
         "VALUES (:id, :a, CAST(:p AS jsonb), :s, :r, :st, :u, :d, :h, :cu, :xa)"),
@@ -759,7 +790,10 @@ def create_plan(db: Session, rt: Runtime, user, action: ActionType, params: dict
         db.execute(text("INSERT INTO plan_approvals (plan_id, approver_id, params_hash) VALUES (:p, :u, :h)"),
                    {"p": str(pid), "u": user.id, "h": digest})
         job_id = _enqueue(db, pid, action, user, ip, auto=True)
-    db.commit()
+    if commit:
+        db.commit()
+    else:
+        db.flush()
     return {"plan_id": str(pid), "status": "approved" if auto else "pending_approval", "risk": risk, "job_id": job_id,
             "params_hash": digest, "approvals_required": (rt.settings.required_approvals_high if risk == "high" else 1) + decision.extra_approvals, **extra}
 
@@ -826,6 +860,30 @@ def _provenance_conflict(db: Session, approver_id, requester_id) -> bool:
     return False
 
 
+def _key_holder_conflict(db: Session, approver_id, requester_id) -> bool:
+    """Review 6 M1, the other direction: when the plan was submitted through an MSP API client, no human who holds (or ever held) its key may approve it.
+    Key holders: whoever requested the client, whoever requested/revealed any of its secrets, and everyone in the client principal's creation chain."""
+    c = db.execute(text("SELECT id, created_by FROM msp_clients WHERE user_id = :u"), {"u": str(requester_id)}).first()
+    if c is None:
+        return False
+    holders = {str(c.created_by)} if c.created_by else set()
+    for r in db.execute(text("SELECT requested_by, revealed_by FROM msp_client_reveals WHERE client_id = :c"), {"c": str(c.id)}).all():
+        holders |= {str(x) for x in (r.requested_by, r.revealed_by) if x}
+    frontier, seen = [requester_id], set()
+    for _ in range(10):   # the principal's own creation/elevation chain (created_by / role_set_by)
+        nxt = []
+        for uid in frontier:
+            row = db.execute(text("SELECT created_by, role_set_by FROM users WHERE id = :i"), {"i": str(uid)}).first()
+            for parent in ((row.created_by, row.role_set_by) if row else ()):
+                if parent is not None and parent not in seen:
+                    seen.add(parent)
+                    nxt.append(parent)
+        frontier = nxt
+        if not frontier:
+            break
+    return str(approver_id) in holders | {str(x) for x in seen}
+
+
 def _refuse(db, user, ip, plan_id, event: str, msg: str):
     audit.append(db, event, actor_id=user.id, actor_name=user.username, ip=ip, resource="plan", resource_id=str(plan_id))
     db.commit()
@@ -845,6 +903,9 @@ def decide_plan(db: Session, rt: Runtime, user, plan_id: UUID, approve: bool, ip
     if _provenance_conflict(db, user.id, plan.requested_by):
         _refuse(db, user, ip, plan_id, "plan.provenance_rejected",
                 "this approver was created or elevated by the requester and cannot decide the requester's plans")
+    if _key_holder_conflict(db, user.id, plan.requested_by):
+        _refuse(db, user, ip, plan_id, "plan.provenance_rejected",
+                "this plan was submitted through an API client whose key you requested, revealed or created; someone else must decide it")
     if plan.action in _SELF_TARGET and plan.params.get("username") == user.username:
         _refuse(db, user, ip, plan_id, "plan.self_decision_rejected", "cannot decide a plan that changes your own role")
     if plan.status != "pending_approval":
@@ -1358,9 +1419,10 @@ _EXEC = {ActionType.endpoint_register: endpoint_actions.exec_register, ActionTyp
          ActionType.node_decommission: removal.exec_node_decommission, ActionType.maintenance_cancel: removal.exec_maintenance_cancel,
          ActionType.maintenance_delete: removal.exec_maintenance_delete, ActionType.plan_archive: removal.exec_plan_archive,
          **{ActionType(k): v for k, v in identity.EXECUTORS.items()},
+         **{ActionType(k): v for k, v in mailadmin.EXECUTORS.items()},
          **{ActionType(k): v for k, v in deploy_ops.EXECUTORS.items()},
          **{ActionType(k): v for k, v in endpoint_actions.EXECUTORS.items()},
          **{ActionType(k): v for k, v in prov_actions.EXECUTORS.items()},
-         **{ActionType(k): v for k, v in {**cred_actions.EXECUTORS, **ten_actions.EXECUTORS}.items()},
          ActionType.release_promote: release_ops.exec_promote,
+         **{ActionType(k): v for k, v in {**cred_actions.EXECUTORS, **ten_actions.EXECUTORS, **msp_actions.EXECUTORS}.items()},
          **{ActionType(k): v for k, v in backup_ops.EXECUTORS.items()}}

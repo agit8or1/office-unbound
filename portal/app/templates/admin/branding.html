@@ -1,0 +1,20 @@
+{% extends "admin/base.html" %}
+{% block atitle %}Look and feel{% endblock %}
+{% block admin %}
+<h1>Look and feel</h1>
+<p class="sub">Your name, colour and logo appear for everyone who signs in to this portal.</p>
+{% if error %}<p class="notice" role="alert">{{ error }}</p>{% endif %}
+<form method="post" action="/admin/branding" enctype="multipart/form-data" class="card form">
+  <input type="hidden" name="csrf" value="{{ sess.csrf }}">
+  <div class="field"><label for="display_name">Organisation name</label><input id="display_name" name="display_name" maxlength="60" value="{{ b.display_name }}" required></div>
+  <div class="field"><label for="accent">Main colour</label>
+    <div class="colorrow"><input id="accent" name="accent" type="color" value="{{ b.accent or '#2f6f6a' }}" aria-describedby="accent-h"><code>{{ b.accent or '#2f6f6a' }}</code></div>
+    <p class="hint" id="accent-h">Used for buttons and links. It must be dark enough for white text to stay readable; we tell you if it is not.</p></div>
+  <div class="field"><label for="logo">Logo</label>
+    {% if b.has_logo %}<p><img class="logoprev" src="/branding/logo" alt="Your current logo" width="64" height="64"></p>{% endif %}
+    <input id="logo" name="logo" type="file" accept="image/png,image/jpeg,image/svg+xml">
+    <p class="hint">PNG, JPEG or plain SVG, under 200 KB. Square works best.</p>
+    {% if b.has_logo %}<label class="check"><input type="checkbox" name="remove_logo" value="1"><span>Remove the current logo</span></label>{% endif %}</div>
+  <p><button class="btn primary" type="submit">Save</button></p>
+</form>
+{% endblock %}

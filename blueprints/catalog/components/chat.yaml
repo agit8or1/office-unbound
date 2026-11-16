@@ -1,0 +1,44 @@
+name: chat
+version: 1.0.0
+title: Team chat (Matrix Synapse + MAS + Element Web)
+description: Team messaging. Synapse homeserver, Matrix Authentication Service (sign-in only through Keycloak, no local passwords) and the Element Web client, with its own PostgreSQL.
+artifacts:
+  # OCI images: synapse, element-web built by Office Unbound (blueprints/build/collab, 2026-11-15), pinned by digest but NOT signed (signed: false -> plan error artifact_unsigned). MAS stays unpinned (crates.io not authorized).
+  - {name: synapse, kind: oci, image: registry.ou.invalid/ou/synapse, digest: "sha256:542de3d410dc142cf45c69e42c13cbd970a497803dc7edb78c3e2b2ee5160a9d", version: "1.165.0", signed: false}
+  - {name: mas, kind: oci, image: registry.ou.invalid/ou/matrix-authentication-service, digest: "sha256:", version: "1.29.0"}
+  - {name: element-web, kind: oci, image: registry.ou.invalid/ou/element-web, digest: "sha256:3466abb4ade27ecaccf9d5f40bdd94525f2b8da86288b8854b1028696f3cba73", version: "1.12.35", signed: false}
+  - {name: postgresql, kind: package, package: postgresql-16, version: "16.15", repo: ubuntu-noble}
+  - {name: nginx, kind: package, package: nginx, version: "1.24.0", repo: ubuntu-noble}
+resources:
+  cores:     {base: 2,    per_user: 0.004, source: "ASSUMPTION: lab (collaboration-lab-results.md section 4) had no load test; 1 core per 250 users planning value"}
+  memory_mb: {base: 1536, per_user: 3,     source: "collaboration-lab-results.md section 4: ou-chat1 peak 1.27 GiB under MemoryMax 1.5G (idle 0.49 GiB; MAS 116 MB, Synapse 107 MB); 3 MB/user cache growth is an ASSUMPTION"}
+  disk_gb:   {base: 8,    per_user: 0,     source: "ASSUMPTION: OS + Synapse/MAS images + Element tarball; not measured"}
+volumes:
+  - {name: pgdata, path: /var/lib/postgresql, size_gb: {base: 5, per_user: 0.02, source: "ASSUMPTION: lab DB was tiny; 20 MB/user for events/state"}, backup: true}
+  - {name: media, path: /var/lib/matrix-synapse, size_gb: {base: 10, per_user: 0.5, source: "ASSUMPTION: 500 MB media per user; lab stored one 300 KB file"}, backup: true}
+  - {name: config, path: /etc/ou/chat, size_gb: {base: 1, per_user: 0, source: "signing key, homeserver and MAS config (MAS encryption secret)"}, backup: true}
+ports:
+  - {name: https, port: 443, proto: tcp, exposure: edge}
+  - {name: federation, port: 8448, proto: tcp, exposure: public, default_enabled: false}
+depends_on: [identity]
+dns:
+  - {host: matrix, type: A, target: edge}
+  - {host: chat, type: CNAME, target: matrix}
+  - {host: mas, type: CNAME, target: matrix}
+health_checks:
+  - {name: matrix-versions, kind: http, port: 443, path: /_matrix/client/versions, expect_status: 200, body_contains: versions}
+  - {name: matrix-login-flows, kind: http, port: 443, path: /_matrix/client/v3/login, expect_status: 200, body_contains: m.login.sso}
+  - {name: chat-tls, kind: tcp_tls, port: 443}
+backup:
+  method: online_dump
+  description: "pg_dump -Fc of the synapse and mas databases + media store + Synapse signing key + MAS config/secrets; the signing key and MAS secret are required to restore"
+  quiesce: online
+  rpo_hours: 24
+  evidence: "planned: not drilled (collaboration-lab-results.md section 6: Postgres+media+signing key backup/restore not drilled)"
+upgrade: {downtime_seconds: 120}
+notices:
+  - "Federation (port 8448) is OFF by default; enable it explicitly with enabled_ports chat:federation. No well-known/delegation design exists yet."
+  - "End-to-end encryption key backup/recovery for users is not evaluated (new devices ask for verification or a recovery key)."
+  - "Uses its own PostgreSQL (databases synapse and mas); it is not the identity database."
+ha_note: "Synapse/MAS/PostgreSQL replication (workers, streaming replication) is not implemented or validated; a second replica is a separate, independent server."
+os_images: [ubuntu-24.04]

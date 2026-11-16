@@ -1,0 +1,25 @@
+[Unit]
+Description=Office Unbound mailbox-administration runbook (gromox-mbx) request %i
+# Started only by the node agent through a polkit rule that allows exactly this template. Runs as the gromox service user (NOT root): it owns the
+# mailbox stores and may write the Gromox SQL database (credentials via group gromoxcf). Parameters are read from the agent's spool and re-validated.
+
+[Service]
+Type=oneshot
+User=gromox
+Group=gromox
+SupplementaryGroups=gromoxcf
+Environment=PYTHONPATH=/opt/ou-agent PYTHONDONTWRITEBYTECODE=1
+ExecStart=/usr/bin/python3 -m ou_agent.mbxhelper %i
+RuntimeDirectory=ou-rb-gromox-mbx
+RuntimeDirectoryMode=0755
+RuntimeDirectoryPreserve=yes
+UMask=0007
+TimeoutStartSec=90
+NoNewPrivileges=true
+PrivateTmp=true
+ProtectHome=true
+ProtectKernelModules=true
+ProtectKernelTunables=true
+ProtectControlGroups=true
+LockPersonality=true
+RestrictRealtime=true

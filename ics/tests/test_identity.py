@@ -221,8 +221,8 @@ def add_stack(rt, **over):
     sec = {"ldap_bind_password": LDAP_PW, "kc_client_secret": KC_SECRET, **({"mas_client_secret": MAS_SECRET} if m.mas_client_secret else {})}
     enc = rt.vault.encrypt(json.dumps(sec).encode(), identity.stack_aad(sid, cfg))
     with rt.session() as d:
-        d.execute(text("INSERT INTO idm_stacks (id, name, config, secret_enc) VALUES (:i, :n, CAST(:c AS jsonb), :s)"),
-                  {"i": sid, "n": cfg["name"], "c": json.dumps(cfg), "s": enc})
+        d.execute(text("INSERT INTO idm_stacks (id, name, config, secret_enc, customer_id) VALUES (:i, :n, CAST(:c AS jsonb), :s, COALESCE(CAST(:k AS uuid), '00000000-0000-0000-0000-00000000a001'))"),
+                  {"i": sid, "n": cfg["name"], "c": json.dumps(cfg), "s": enc, "k": cfg.get("customer_id")})
         d.commit()
     return sid
 
