@@ -2,7 +2,7 @@
 `UPDATE controller_state SET role='primary'` (a bug, a restore script, a stale replica rewind) silently un-fenced a superseded controller."""
 from alembic import op
 
-revision = "0012"
+revision = "0012r7"
 down_revision = "0011"
 
 FUNC = """

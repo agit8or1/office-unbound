@@ -3,8 +3,8 @@ Proxmox templates visible to the token, so deleting or re-tagging the newest tem
 from alembic import op
 from alembic import context
 
-revision = "0013"
-down_revision = "0012"
+revision = "0013r7"
+down_revision = "0012r7"
 
 TABLE = """
 CREATE TABLE image_floor (

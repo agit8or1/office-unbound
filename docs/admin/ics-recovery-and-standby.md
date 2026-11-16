@@ -27,7 +27,7 @@ Design: [ADR-0012](../adr/0012-ics-warm-standby.md). Lab results: [ics-standby-r
 
 **Set up (once per standby).**
 1. On the primary, as root: `sudo ics/deploy/standby/ics-standby-prepare-primary.sh --primary-ip <ip> --standby-ip <ip>`. It turns on PostgreSQL TLS for the standby address only, creates a replication-only role and a bounded slot, and writes an encrypted key bundle plus a separate passphrase file. Send the two by **different channels**.
-2. On a fresh Ubuntu 24.04 host: `sudo ics/deploy/bootstrap.sh --standby-of <primary-ip> --key-bundle <file> --bundle-passphrase-file <file> --listen-ip <ip> --allow-cidr <cidr>`.
+2. On a fresh Ubuntu 24.04 host: `sudo ics/deploy/bootstrap.sh --standby-of <primary-ip> --key-bundle <file> [--bundle-passphrase-file <file>] --listen-ip <ip> --allow-cidr <cidr>`.
 3. Re-run step 1 after every key rotation (`rewrap-master` or a signing key change), and re-bundle.
 **Watch it.** Standby `/readyz` shows `role`, `epoch` and a `replication` check (503 when the heartbeat is over 60 s old). On either host: `sudo ics/deploy/standby/ics-standby-status.sh`. `cd /opt/office-unbound/ics && sudo -u ics .venv/bin/python -m ics.cli controller-status` prints role, epoch and replication position. Alert on the standby's `/readyz`.
 
