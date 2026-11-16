@@ -375,7 +375,7 @@ class PveSim:
         g = r"(qemu|lxc)"
         return [
             R("GET", r"/version", self.r_version), R("GET", r"/cluster/status", self.r_cluster_status),
-            R("GET", r"/cluster/resources", self.r_resources), R("GET", r"/cluster/nextid", self.r_nextid),
+            R("GET", r"/cluster/resources", self.r_resources), R("GET", r"/cluster/nextid", self.r_nextid), R("GET", r"/cluster/log", self.r_cluster_log),
             R("GET", r"/nodes", self.r_nodes), R("GET", r"/pools/([^/]+)", self.r_pool), R("GET", r"/storage", self.r_storage_cfg),
             R("GET", r"/cluster/sdn/zones", self.r_zones), R("GET", r"/cluster/sdn/vnets", self.r_vnets),
             R("GET", r"/access/permissions", self.r_permissions),
@@ -785,7 +785,19 @@ class PveSim:
     def r_get_config(self, tid, q, f, node, kind, vmid):
         vm = self._find(node, int(vmid), kind)
         self.need(tid, "vm", vm["vmid"], "VM.Audit")
-        return {**vm["cfg"], "digest": "d" * 40}
+        if str(q.get("current", "0")) in ("1", "true"):
+            return {**vm["cfg"], "digest": "d" * 40}          # the ACTIVE config
+        eff = dict(vm["cfg"])                                   # real PVE default: pending changes applied
+        for k, v in vm.get("pending", {}).items():
+            if v is None:
+                eff.pop(k, None)
+            else:
+                eff[k] = v
+        return {**eff, "digest": "d" * 40}
+
+    def r_cluster_log(self, tid, q, f):
+        """Real PVE: any user reads its OWN entries (Sys.Syslog on / reads all). Entries are written by update_vm (see r_set_config)."""
+        return [e for e in getattr(self, "cluster_log", []) if e["user"] == tid][-int(q.get("max", 50) or 50):]
 
     def _series(self, timeframe, seed):
         n = {"hour": 60, "day": 288, "week": 168, "month": 240, "year": 366}.get(timeframe, 60)
@@ -874,6 +886,12 @@ class PveSim:
     def r_set_config(self, tid, q, f, node, kind, vmid):
         vm = self._find(node, int(vmid), kind)
         self._unlocked(vm)
+        # real PVE (qemu-server update_vm_api): the parameter values are written to the cluster log and syslog, only cipassword is masked
+        if not hasattr(self, "cluster_log"):
+            self.cluster_log = []
+        self.cluster_log.append({"user": tid, "pri": 6, "node": node, "tag": "pvedaemon",
+                                 "msg": f"update VM {vm['vmid']}: " + " ".join(f"-{k} {'<hidden>' if k == 'cipassword' else v}" for k, v in sorted(f.items()))})
+        running = vm["status"] == "running"
         for k, v in f.items():
             if k == "delete":
                 for dk in str(v).split(","):
@@ -881,7 +899,10 @@ class PveSim:
                         if re.fullmatch(rx, dk):
                             self.need(tid, "vm", vm["vmid"], pr)
                             break
-                    vm["cfg"].pop(dk, None)
+                    if running and dk == "smbios1":     # not hot-pluggable: stays in the active section until the VM restarts
+                        vm.setdefault("pending", {})[dk] = None
+                    else:
+                        vm["cfg"].pop(dk, None)
                 continue
             if k == "cicustom":
                 self.need(tid, "root", None, "Sys.Modify")  # PVE restricts cicustom to highly privileged users
@@ -910,7 +931,10 @@ class PveSim:
                         # real PVE: a template made from a cloud image already carries its drive; asking for another one fails
                         raise HTTPErr(500, f"lvcreate '{st}/vm-{vm['vmid']}-cloudinit' error: Logical Volume \"vm-{vm['vmid']}-cloudinit\" already exists")
                     v = f"{st}:vm-{vm['vmid']}-cloudinit,media=cdrom"
-            vm["cfg"][k] = _num(v)
+            if running and k == "smbios1":
+                vm.setdefault("pending", {})[k] = _num(v)
+            else:
+                vm["cfg"][k] = _num(v)
         return None
 
     def r_resize(self, tid, q, f, node, kind, vmid):
@@ -937,6 +961,9 @@ class PveSim:
             raise HTTPErr(500, "VM is not running")
 
         def done():
+            if op in ("start", "reboot", "stop", "shutdown"):      # real PVE applies pending changes on (re)start
+                for pk, pv in vm.pop("pending", {}).items():
+                    vm["cfg"].pop(pk, None) if pv is None else vm["cfg"].__setitem__(pk, pv)
             vm["status"] = "running" if op in ("start", "reboot") else "stopped"
         return self._task(node, {"start": "qmstart", "stop": "qmstop", "shutdown": "qmshutdown", "reboot": "qmreboot"}[op], str(vm["vmid"]), tid, done)
 

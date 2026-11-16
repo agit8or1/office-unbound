@@ -263,13 +263,18 @@ def h_provider_task(ctx: StepCtx) -> dict:
                             description=f"Office Unbound deployment {ctx.slug}: {ci.get('hostname', vm)}" if ci else None)
         done = _poll(ctx, prov.configure_vm(ref, spec), f"configure {vm}")
         leaked = False
-        if getattr(prov, "task_log_mentions", None) and (spec.smbios_serial or spec.sshkeys):
-            # review 5 M2: the one-time secret must not sit in PVE's task log either. The log is PVE's (not ours to edit): flag it so the operator purges
-            # the task, and keep the secret out of everything the ICS stores.
-            leaked = bool(prov.task_log_mentions(done, [x for x in (spec.smbios_serial, spec.smbios_sku) if x]))
+        if spec.smbios_serial or spec.sshkeys:
+            # review 5 M2 / hardening: PVE logs the parameter VALUES of every config update in the cluster log and the node syslog (docs/status/hardening-results.md);
+            # the log is PVE's (not ours to edit) and the value is the BASE64 form. Flag it so the operator knows; the secret is single-use and short-lived.
+            import base64
+            needles = [x for v in (spec.smbios_serial, spec.smbios_sku) if v for x in (v, base64.b64encode(v.encode()).decode())]
+            if getattr(prov, "cluster_log_mentions", None):
+                leaked = bool(prov.cluster_log_mentions(needles))
+            if not leaked and getattr(prov, "task_log_mentions", None):
+                leaked = bool(prov.task_log_mentions(done, needles))
             if leaked:
-                ctx.log(f"WARNING: the Proxmox task log of {vm}'s configuration contains bootstrap material; purge that task in Proxmox")
-        return {"configured": True, **({"pve_task_log_has_bootstrap_material": True} if leaked else {})}
+                ctx.log(f"WARNING: the Proxmox cluster log / task log of {vm}'s configuration contains bootstrap material (single use, expires); see docs/status/hardening-results.md")
+        return {"configured": True, **({"pve_log_has_bootstrap_material": True} if leaked else {})}
     if op == "power":
         want = p["op"]
         g = _owned_guest(ctx, ref, vm)

@@ -894,12 +894,41 @@ class ProxmoxMutations(ProxmoxProvider):
         up = self._do("put", f"/nodes/{_seg(ref.node)}/{_KIND_PATH[ref.kind]}/{int(ref.vmid)}/config", d)
         return self._task(ref.node, up, ref.vmid, "config", ref.deployment_id)
 
-    def bootstrap_material_present(self, ref: VmRef) -> bool:
-        """True while the VM config still carries first-contact material (SMBIOS serial/sku/family, sshkeys, ciuser). Read-only."""
+    def bootstrap_material_state(self, ref: VmRef) -> dict:
+        """Where the first-contact material (SMBIOS serial/sku/family, sshkeys, ciuser) is still held. Read-only.
+        `effective`: the config with pending changes applied (what GET .../config returns by default; what a restart would use).
+        `current`: the ACTIVE config (`current=1`). On a RUNNING VM smbios1 is not hot-pluggable, so a delete/rewrite of it is only stored in the
+        `pending` section (qemu-server PVE/API2/Qemu.pm update_vm_api: `$conf->{pending}->{$opt}`; vmconfig_hotplug_pending): the old secret stays
+        in the active section (qm config --current, vzdump of the running VM, snapshots) until the VM is stopped and started again."""
         require_job_execution()
         self._guest(ref)
-        cfg = self._cfg(ref)
-        return "sshkeys" in cfg or "ciuser" in cfg or bool(re.search(r"(?:^|,)(serial|sku|family)=", str(cfg.get("smbios1", ""))))
+        base = f"/nodes/{_seg(ref.node)}/{_KIND_PATH[ref.kind]}/{int(ref.vmid)}/config"
+
+        def has(cfg: dict) -> bool:
+            return "sshkeys" in cfg or "ciuser" in cfg or bool(re.search(r"(?:^|,)(serial|sku|family)=", str(cfg.get("smbios1", ""))))
+        eff = self._get(base, self._w)
+        cur = self._get(base + "?current=1", self._w)
+        return {"effective": has(eff), "current": has(cur)}
+
+    def bootstrap_material_present(self, ref: VmRef) -> bool:
+        """True while the VM config (effective or active) still carries first-contact material. Read-only."""
+        st = self.bootstrap_material_state(ref)
+        return st["effective"] or st["current"]
+
+    def cluster_log_mentions(self, needles: list[str], max_entries: int = 300) -> bool:
+        """True if the Proxmox CLUSTER LOG (GET /cluster/log: the caller sees its own entries) contains any needle. Never returns log text.
+        Every update_vm call logs `update VM <id>: -smbios1 <value> ...` there (and to the node's syslog) with the parameter values in clear
+        (only `cipassword` is masked): PVE/API2/Qemu.pm update_vm_api `PVE::Cluster::log_msg('info', $authuser, "update VM $vmid: ...")`.
+        The synchronous PUT creates no task, so the task log of the call does not exist; the cluster log is where the value lands."""
+        needles = [n for n in needles if n]
+        if not needles:
+            return False
+        try:
+            log = self._get(f"/cluster/log?max={int(max_entries)}", self._task_client())
+        except ProviderError:
+            return False
+        blob = "\n".join(str(x.get("msg", "")) for x in log if isinstance(x, dict))
+        return any(n in blob for n in needles)
 
     def guest_mac(self, ref: VmRef) -> str:
         """MAC of net0 of an owned guest (read-only; the ICS derives the guest's IPv6 link-local address from it for first contact)."""

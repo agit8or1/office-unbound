@@ -25,4 +25,5 @@ sudo -u postgres pg_restore --exit-on-error -d ics < ics.dump
   python3 -m venv /opt/office-unbound/ics/.venv
   /opt/office-unbound/ics/.venv/bin/pip install -q --require-hashes -r /opt/office-unbound/ics/requirements.lock )
 systemctl daemon-reload; systemctl start ics-migrate.service; systemctl start ics.service
+[ ! -f /etc/office-unbound/callback.env ] || systemctl enable --now ics-bootstrap.service
 rm -rf "$W" /root/ics-backup.tar

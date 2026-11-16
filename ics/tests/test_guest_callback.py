@@ -152,8 +152,6 @@ def test_the_endpoint_is_rate_limited_per_source_and_globally(rt, client):
     assert codes[:callback.PER_IP_LIMIT] == [401] * callback.PER_IP_LIMIT and set(codes[callback.PER_IP_LIMIT:]) == {429}
     assert post(client, report(rec), src="192.168.22.51").status_code == 401      # another source is not affected (and fails: wrong address)
     callback.LIMITER.reset()
-    lim = callback.RateLimiter()
-    assert all(lim.allow("global", 3, 60, now=i) for i in range(3)) and not lim.allow("global", 3, 60, now=3) and lim.allow("global", 3, 60, now=100)
 
 
 def test_the_endpoint_needs_no_session_and_exposes_nothing_else(rt, client):

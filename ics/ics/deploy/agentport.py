@@ -243,7 +243,15 @@ class GuestAgentPort:
             raise StepFailed(f"could not clear the bootstrap material from the VM config: {e.message[:200]}", "Retrying.", retryable=True) from None
         if rec is not None and rec.secret is not None:
             bootsecrets.delete_secrets(self.rt, rec.id, "sealed" if self.lab else "enrolled")
-            self._audit("guest.bootstrap_completed", vm, mode=self.mode, config_cleared=cleared, secrets_deleted=True)
+            # a RUNNING VM keeps the old smbios1 in its ACTIVE config until it is stopped and started again (the clear is only `pending`): say so
+            held = False
+            state = getattr(self.provider, "bootstrap_material_state", None)
+            if cleared and state is not None:
+                try:
+                    held = bool(state(ref)["current"])
+                except ProviderError:
+                    held = False
+            self._audit("guest.bootstrap_completed", vm, mode=self.mode, config_cleared=cleared, secrets_deleted=True, active_config_holds_material_until_restart=held)
 
     def _finish_resume(self, vm: str) -> None:
         """The node exists (a crash after enrollment, or a repeated step): make sure the guest is sealed (lab) and the material is gone (review H2)."""
