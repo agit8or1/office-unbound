@@ -50,7 +50,7 @@ export interface Identity {
   sudoers_path: string; sudoers: string; sudoers_sha256: string
 }
 export interface SshPreviewOut extends Omit<PlanPreviewOut, 'plan_hash'> {
-  bind_hash: string; commands: string[]; identity: Identity; blocked: string[]; rotates: string[]; approvals_required?: number; widening_note: string
+  bind_hash: string; risk: 'normal' | 'high'; commands: string[]; identity: Identity; blocked: string[]; rotates: string[]; approvals_required?: number; widening_note: string
   ssh: { host: string; port: number; username: string; host_key: string; api_url: string; api_trust: string; api_ca_sha256: string | null; api_leaf_pinned: string | null }
   plan: PlanPreviewOut['plan'] & { plan_hash: string }
 }

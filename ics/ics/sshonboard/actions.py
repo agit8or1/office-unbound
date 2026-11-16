@@ -101,7 +101,7 @@ class SshNarrow(BaseModel):
 CATALOG = {
     "provider.ssh.discover": {"model": SshDiscover, "risk": "low", "secrets": ()},
     "provider.ssh.preview": {"model": SshPreview, "risk": "low", "secrets": ()},
-    "provider.ssh_onboard": {"model": SshOnboard, "risk": "high", "secrets": ()},
+    "provider.ssh_onboard": {"model": SshOnboard, "risk": "normal", "secrets": ()},   # owner decision 2026-11-16; the preview raises it to high for widening / elevated plans
     "provider.ssh_offboard": {"model": SshOffboard, "risk": "high", "secrets": ()},
     "provider.ssh.helper": {"model": SshHelper, "risk": "low", "secrets": ()},
     "provider.ssh.narrow": {"model": SshNarrow, "risk": "normal", "secrets": ()},
@@ -110,6 +110,29 @@ SESSION_ACTIONS = {"provider.ssh.discover", "provider.ssh.preview", "provider.ss
 
 
 # ---------------------------------------------------------------------------------------------------- plan time
+_PRESET_RANK = {"monitoring": 0, "custom": 1, "deploy": 2, "full_admin": 3}
+
+
+def is_widening(old: Policy | None, new: Policy) -> bool:
+    """Re-running onboarding for an existing integration: does the new policy reach further than the stored one? (fixes-r5 rule: widening = high risk.)"""
+    if old is None:
+        return False
+    o, n = old.scope, new.scope
+    for a, b in ((o.nodes, n.nodes), (o.storages, n.storages), (o.pools, n.pools), (o.networks, n.networks), (o.template_vmids, n.template_vmids),
+                 (o.backup_storages, n.backup_storages)):
+        if set(b) - set(a):
+            return True
+    if old.mode() != "whole_cluster" and new.mode() == "whole_cluster":
+        return True
+    if new.preset != old.preset and (_PRESET_RANK[new.preset] > _PRESET_RANK[old.preset] and "custom" not in (old.preset, new.preset)):
+        return True
+    if set(new.capabilities) - set(old.capabilities) and old.preset == "custom":
+        return True
+    if (new.allow_migrate and not old.allow_migrate) or (new.allow_cicustom and not old.allow_cicustom) or set(new.approve_elevated) - set(old.approve_elevated):
+        return True
+    return False
+
+
 def customer_for(db: Session, action: str, p) -> str | None:
     """The customer an SSH action belongs to: the session's (admin credential is bound to it) or the endpoint's. Disagreement is refused."""
     from ..actions import PlanError
@@ -167,6 +190,7 @@ def precheck(db: Session, rt: Runtime, action: str, p, user) -> dict:
             raise PlanError(409, "the previewed plan is blocked: " + "; ".join(art.data["plan"]["blocked"]))
         if (art.data.get("endpoint_id") or None) != (str(p.endpoint_id) if p.endpoint_id else None) or (not p.endpoint_id and art.data.get("name") != p.name):
             raise PlanError(409, "name / endpoint do not match the preview")
+        extra["preview_risk"] = art.data.get("risk", "high")      # the plan takes max(catalog risk, preview risk)
         extra["onboard"] = {"commands": art.data["commands"], "identity": art.data["identity"], "plan_summary": prov._summary(art.data["plan"]),
                             "bind": art.data["bind"]}
     if action == "provider.ssh_offboard":
@@ -414,11 +438,16 @@ def exec_preview(rt: Runtime, db: Session, m: SshPreview, plan, known: list[str]
     data = {"purpose": "ssh_onboard", "ssh_session_id": str(r.id), "plan": pd, "policy": policy.model_dump(mode="json"), "commands": lines, "bind": bind,
             "identity": {**ident.summary(), "key_credential_id": key_cred, "pub_line": pub}, "name": m.name, "endpoint_id": str(m.endpoint_id) if m.endpoint_id else None,
             "rotates": rotates, "account": m.account, "ics_address": m.ics_address}
+    stored = prov._stored(db, ep.id) if ep else None
+    widening = is_widening(Policy.model_validate(stored.policy) if stored else None, policy)
+    risk = "high" if (pd["risk"] == "high" or widening) else "normal"
+    data["risk"], data["widening"] = risk, widening
     aid = prov._save_artifact(db, "plan", m.endpoint_id, bind_hash, data, plan.requested_by, plan.customer_id)
     audit.append(db, "provider.ssh.previewed", actor_name="worker", resource="plan", resource_id=str(plan.id),
                  details={"preview_id": aid, "bind_hash": bind_hash, "plan_hash": pd["plan_hash"], "blocked": pd["blocked"], "commands": len(lines),
                           "ssh_key_fingerprint": key_fp, "helper_sha256": A.sha(ident.helper)})
-    return {"preview_id": aid, "bind_hash": bind_hash, "risk": "high", "approvals_required": rt.settings.required_approvals_high, "plan": pd, "commands": lines, "identity": ident.summary(), "ssh": bind["ssh"],
+    return {"preview_id": aid, "bind_hash": bind_hash, "risk": risk, "widening": widening,
+            "approvals_required": rt.settings.required_approvals_high if risk == "high" else 1, "plan": pd, "commands": lines, "identity": ident.summary(), "ssh": bind["ssh"],
             "rotates": rotates, "blocked": pd["blocked"], "overview": _overview_safe(facts, cl),
             "widening_note": "Widening this access later (more nodes or privileges) needs an administrator's credentials again, or a Mode B package: "
                              "the ICS's own identities can only read, rotate their own token and narrow their own ACLs."}
@@ -470,6 +499,7 @@ def exec_onboard(rt: Runtime, db: Session, m: SshOnboard, plan, known: list[str]
     res = None
     ident = None
     installed = False
+    installed_sudo = False
     rolled = False
     try:
         adm = _connect(rt, db, r, known, f"job:{plan.id}")
@@ -478,13 +508,17 @@ def exec_onboard(rt: Runtime, db: Session, m: SshOnboard, plan, known: list[str]
         pl, d, pd, facts, cl, ident, rotates, lines, bind, bind_hash = _compute(
             rt, db, adm, r, policy, ep, (idata["pub_line"], idata["key_fingerprint"]), art.data["account"], art.data.get("ics_address"))
         if bind_hash != m.bind_hash or pl.blocked:
-            raise ProxmoxError("the cluster or the SSH binding changed since the plan was previewed and approved (the commands differ): nothing was applied; preview again")
+            old = art.data["bind"]
+            what = sorted([k for k in bind if bind[k] != old.get(k)] + ["ssh." + k for k in bind["ssh"] if bind["ssh"][k] != old.get("ssh", {}).get(k)])
+            raise ProxmoxError("the cluster or the SSH binding changed since the plan was previewed and approved (the commands differ): nothing was applied; preview again"
+                               + (f" [changed: {', '.join(what)}]" if what else ""))
         for t in rotates:
             u, _, n = t.partition("!")
             adm.token_delete(u, n)
         res = pp.apply_plan(adm, pl, d)
-        A.install_identity(adm, ident)
-        installed = True
+        installed = True                    # set first: a failure part-way must still remove what was created
+        sudo_state = A.install_identity(adm, ident)
+        installed_sudo = sudo_state["sudo_installed"]
         A.verify_files(adm, ident)
         verification = prov._verify_all(rt, _api_url(r), ca, fp, policy, d, dict(res.secrets), facts, known)
         node_check = _same_node(rt, r, t, dict(res.secrets), cl["local"])
@@ -512,7 +546,7 @@ def exec_onboard(rt: Runtime, db: Session, m: SshOnboard, plan, known: list[str]
                               "helper_verification": hv, "verification_ok": True, "admin_ssh_credential": "wiped"})
         S.wipe(db, r.id, "used", "worker", "onboarding job ended")       # same transaction as the result: the audit chain is single-writer
         return {"endpoint_id": eid, "bind_hash": m.bind_hash, "applied": res.log, "verification": prov._verif_public(verification), "ssh_identity": ident.summary(),
-                "helper_verification": hv, "node_check": node_check, "api_trust": t.mode, "admin_ssh_credential": "wiped"}
+                "helper_verification": hv, "sudo_installed": installed_sudo, "node_check": node_check, "api_trust": t.mode, "admin_ssh_credential": "wiped"}
     except BaseException:
         left: list[str] = []
         if adm is not None and not adm.discarded:
@@ -520,7 +554,7 @@ def exec_onboard(rt: Runtime, db: Session, m: SshOnboard, plan, known: list[str]
                 if res is not None:
                     left += pp.rollback_created(adm, res)
                 if ident is not None and installed:
-                    left += A.remove_identity(adm, ident.account)
+                    left += A.remove_identity(adm, ident.account, remove_sudo=installed_sudo)
             except Exception:  # noqa: BLE001
                 left.append("rollback itself failed")
         db.rollback()                       # release the audit-chain lock, then record the rollback and wipe the credential in an independent transaction

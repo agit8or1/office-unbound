@@ -27,7 +27,7 @@ LVS_ROWS = [  # the owner's real shape: a 10.91 TiB thin pool carrying 15.17 TiB
     {"lv_name": "root", "vg_name": "pve06vg", "lv_size": str(100 << 30), "data_percent": "", "metadata_percent": "", "pool_lv": "", "lv_attr": "-wi-ao----"},
 ]
 ZFS_TEXT = "\n".join(["rpool\t300000000000\t700000000000\t-\t-", "rpool/data\t200000000000\t700000000000\t-\t-", "rpool/data/vm-9-disk-0\t150000000000\t700000000000\t2000000000000\t0"]) + "\n"
-ALLOWED_TOOLS = {"lvs", "zfs", "pvesh", "pveum", "sudo", "install", "mv", "rm", "cat", "sha256sum", "visudo", "useradd", "usermod", "getent", "userdel", "usermod", "test"}
+ALLOWED_TOOLS = {"lvs", "zfs", "pvesh", "pveum", "sudo", "install", "mv", "rm", "cat", "sha256sum", "visudo", "useradd", "usermod", "getent", "userdel", "usermod", "test", "apt-get", "env"}
 PVEUM_OK = {("user", "add"), ("user", "delete"), ("user", "token", "add"), ("user", "token", "remove"), ("role", "add"), ("role", "modify"), ("role", "delete"),
             ("acl", "modify"), ("pool", "add"), ("pool", "delete")}
 
@@ -167,7 +167,8 @@ def test_discovery_overview_and_only_read_templates_ran(w, node, owner):
 # ======================================================================================= the full flow
 def test_end_to_end_onboarding(w, node, owner, rt, owner_engine):
     sid, pv, p, j = flow(w, node)
-    assert p["risk"] == "high" and p["approvals_required"] == 2
+    assert p["risk"] == "normal" and p["approvals_required"] == 1            # owner decision 2026-11-16: one approver (not the requester)
+    assert pv["risk"] == "normal" and pv["approvals_required"] == 1 and pv["widening"] is False
     ob = p["onboard"]
     assert any("pveum user add officeunbound@pve" in c for c in ob["commands"]) and any("useradd" in c for c in ob["commands"])
     assert ob["identity"]["key_fingerprint"].startswith("SHA256:") and "restrict" in ob["identity"]["authorized_keys_line"]
@@ -222,7 +223,7 @@ def test_session_api_never_returns_the_credential(w, node):
     s = new_session(w, node)
     blob = json.dumps(s) + w.o.get(f"{H}/ssh-sessions/{s['id']}", headers=w.oh).text
     assert body_of(node.admin_key) not in blob and "private_key" not in blob and "password" not in blob
-    assert w.o.get(f"{H}/ssh-sessions/{s['id']}", headers=w.vh).status_code in (403, 404)
+    assert w.v.get(f"{H}/ssh-sessions/{s['id']}", headers=w.vh).status_code in (403, 404)
     assert w.a1.get(f"{H}/ssh-sessions/{s['id']}", headers=w.a1h).status_code == 404            # bound to its creator
     bad = w.o.post(f"{H}/ssh-sessions", json={"host": "127.0.0.1", "username": "BAD USER", "password": "hunter2-secret-pass"}, headers=w.oh)
     assert bad.status_code == 422 and "hunter2" not in bad.text
@@ -637,3 +638,102 @@ def test_helper_reads_thin_pool_and_firewall_for_later_drift_checks(w, node, own
     assert j2["status"] == "succeeded" and j2["result"]["result"][0]["type"] == "in"
     r = w.o.post(f"{H}/plans", json={"action": "provider.ssh.helper", "params": {"endpoint_id": j["result"]["endpoint_id"], "op": "discover", "kind": "fw-rules"}}, headers=w.oh)
     assert r.status_code == 422
+
+
+# ======================================================================================= sudo is not shipped by Proxmox VE: an explicit, approved plan step
+def test_missing_sudo_is_installed_from_the_nodes_repositories_and_shown_in_the_plan(w, node, owner):
+    assert not node.has_sudo_package()
+    sid, pv, p, j = flow(w, node)
+    cmds = p["onboard"]["commands"]
+    assert any("sudo.install" in c or "apt-get install -y --no-install-recommends sudo" in c for c in cmds)     # approvers see it
+    assert any("apt-get update" in c for c in cmds)
+    assert j["status"] == "succeeded", j.get("error")
+    assert j["result"]["sudo_installed"] is True and node.has_sudo_package()
+    ex = [e for e in node.executed() if e[0] == "apt-get"]
+    assert [e[1] for e in ex] == ["install"]                          # no update needed when the first install works
+
+
+def test_present_sudo_is_not_touched(w, node, owner):
+    sudo = node.root / "usr/bin/sudo"
+    sudo.parent.mkdir(parents=True, exist_ok=True)
+    sudo.write_text("#!/bin/sh\n")
+    sudo.chmod(0o755)
+    sid, pv, p, j = flow(w, node)
+    assert j["status"] == "succeeded", j.get("error")
+    assert j["result"]["sudo_installed"] is False and not [e for e in node.executed() if e[0] == "apt-get"]
+
+
+def test_stale_package_lists_are_refreshed_once_and_the_install_retried(w, node, owner):
+    (node.root / "state" / "apt-fail-once").write_text("1")
+    sid, pv, p, j = flow(w, node)
+    assert j["status"] == "succeeded", j.get("error")
+    assert [e[1] for e in node.executed() if e[0] == "apt-get"] == ["install", "update", "install"] and node.has_sudo_package()
+
+
+def test_apt_failure_stops_with_a_clear_message_and_rolls_everything_back(w, node, owner, owner_engine):
+    (node.root / "state" / "apt-fail").write_text("1")
+    sid, pv, p, j = flow(w, node)
+    assert j["status"] == "failed" and "sudo is not installed on the node" in j["error"]["message"] and "apt install sudo" in j["error"]["message"]
+    st = pve_state(owner)
+    assert not st["users"] and not st["tokens"] and not st["roles"] and not st["acl"]
+    assert not node.has_account(node.user) and not node.has_sudo_package()
+    assert not node.file("/usr/local/sbin/ou-pve-helper").exists() and not node.file("/etc/sudoers.d/ou-ics").exists()
+    with owner_engine.connect() as c:
+        assert c.execute(text("SELECT purged_at IS NOT NULL FROM credentials WHERE id = :i"), {"i": sid}).scalar()
+
+
+def test_rollback_after_a_later_failure_removes_the_sudo_this_run_installed(w, node, owner, monkeypatch):
+    orig = A.verify_files
+
+    def boom(adm, i):
+        raise A.ProxmoxError("simulated verify failure")
+    monkeypatch.setattr(A, "verify_files", boom)
+    sid, pv, p, j = flow(w, node)
+    assert j["status"] == "failed"
+    assert not node.has_sudo_package() and not node.has_account(node.user)       # the sudo installed by THIS run is removed again
+    assert not pve_state(owner)["users"]
+
+
+# ======================================================================================= approval level (owner decision 2026-11-16)
+def test_onboarding_is_normal_risk_with_one_approver_who_is_not_the_requester(w, node, owner):
+    sid = connected(w, node)
+    discover(w, sid)
+    pv = preview(w, sid)
+    pl = w.plan("provider.ssh_onboard", {"ssh_session_id": sid, "preview_id": pv["preview_id"], "bind_hash": pv["bind_hash"], "name": "onb"})
+    assert pl["risk"] == "normal" and pl["approvals_required"] == 1 and pl["status"] == "pending_approval"
+    r = w.o.post(f"{H}/plans/{pl['plan_id']}/approve", headers=w.oh)          # the requester can never approve their own plan
+    assert r.status_code in (403, 409), r.text
+    assert w.a1.post(f"{H}/plans/{pl['plan_id']}/approve", headers=w.a1h).status_code == 200      # one other approver is enough
+
+
+def test_widening_an_existing_integration_is_high_risk_and_needs_two(w, node, owner):
+    narrow = json.loads(json.dumps(POL))
+    narrow["scope"]["template_vmids"] = [9612]
+    sid, pv, p, j = flow(w, node, policy=narrow)
+    assert j["status"] == "succeeded", j.get("error")
+    eid = j["result"]["endpoint_id"]
+    sid2 = connected(w, node)
+    discover(w, sid2)
+    same = preview(w, sid2, narrow, endpoint_id=eid)
+    assert same["risk"] == "normal" and same["widening"] is False            # a re-run that grants nothing new stays normal
+    sid3 = connected(w, node)
+    discover(w, sid3)
+    wide = preview(w, sid3, POL, endpoint_id=eid)                               # adds template 131
+    assert wide["risk"] == "high" and wide["widening"] is True and wide["approvals_required"] == 2
+    pl = w.plan("provider.ssh_onboard", {"ssh_session_id": sid3, "preview_id": wide["preview_id"], "bind_hash": wide["bind_hash"], "endpoint_id": eid})
+    assert pl["risk"] == "high" and pl["approvals_required"] == 2
+
+
+def test_is_widening_rules():
+    from ics.provisioning.model import Policy
+    from ics.sshonboard.actions import is_widening
+    base = Policy.model_validate(POL)
+    assert is_widening(None, base) is False and is_widening(base, base) is False
+    more = json.loads(json.dumps(POL))
+    more["scope"]["networks"] = ["vmbr0", "vmbr1"]
+    assert is_widening(base, Policy.model_validate(more)) is True
+    less = json.loads(json.dumps(POL))
+    less["scope"]["template_vmids"] = [131]
+    assert is_widening(base, Policy.model_validate(less)) is False
+    whole = Policy.model_validate({**POL, "scope_mode": "whole_cluster", "scope": {**POL["scope"], "nodes": []}})
+    assert is_widening(base, whole) is True and is_widening(whole, base) is False

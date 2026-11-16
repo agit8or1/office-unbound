@@ -698,6 +698,9 @@ def create_plan(db: Session, rt: Runtime, user, action: ActionType, params: dict
             risk = pr
     if action in _SSH:
         extra.update(ssh_actions.precheck(db, rt, action.value, p, user))
+        pr_ssh = extra.get("preview_risk")
+        if pr_ssh in _RISK_ORDER and _RISK_ORDER[pr_ssh] > _RISK_ORDER[risk]:
+            risk = pr_ssh
     # ---- customer scoping + policy (agent M) ----
     cust = full.get("customer_id") or tscope.customer_of_params(db, full)
     if action in _SSH:

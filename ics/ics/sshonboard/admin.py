@@ -7,6 +7,7 @@ import hashlib
 import json
 import re
 from dataclasses import dataclass, field
+from functools import lru_cache
 from importlib import resources
 from urllib.parse import parse_qsl, urlparse  # noqa: F401
 
@@ -162,7 +163,9 @@ class DryAdmin:
 
 
 # ------------------------------------------------------------------------------------------------ the ICS's own node identity
+@lru_cache(maxsize=1)
 def helper_source() -> bytes:
+    """Read once per process: the helper bytes the approvers saw (hash in the plan) are the bytes this process installs."""
     return resources.files("ics.sshonboard").joinpath("ou_pve_helper.py").read_bytes()
 
 
@@ -225,7 +228,7 @@ def build_identity(account: str, node: str, pub: str, key_fp: str, userid: str, 
 
 
 def install_commands(i: NodeIdentity) -> list[T.Cmd]:
-    return [T.sudo_present(), T.account_add(i.account, i.home), T.account_lock(i.account), T.ssh_dir(i.account, i.home), T.authorized_keys(i.account, i.home, i.authorized_line),
+    return [T.sudo_present(), T.sudo_install(), T.apt_update(), T.account_add(i.account, i.home), T.account_lock(i.account), T.ssh_dir(i.account, i.home), T.authorized_keys(i.account, i.home, i.authorized_line),
             T.conf_dir(), T.install_helper(i.helper), T.install_conf(i.conf), T.sudoers_stage(i.sudoers), T.sudoers_check(), T.sudoers_commit()]
 
 
@@ -233,15 +236,30 @@ def remove_commands(account: str) -> list[T.Cmd]:
     return [T.remove_file("sudoers"), T.sudoers_discard(), T.remove_file("helper"), T.remove_file("conf"), T.account_delete(account)]
 
 
-def install_identity(adm: SshAdmin, i: NodeIdentity) -> None:
-    """Idempotent: an existing account is reused (and its key/helper/config/sudoers replaced); anything missing is created."""
+def install_identity(adm: SshAdmin, i: NodeIdentity) -> dict:
+    """Idempotent: sudo is installed only if missing (apt, the node's own repositories; one retry after `apt-get update`), an existing account is reused (and its
+    key/helper/config/sudoers replaced); anything missing is created. Returns {"sudo_installed": bool} so a rollback can undo exactly what this run did."""
     exists = adm.run_rc(T.account_exists(i.account)) == 0
+    sudo_here = adm.run_rc(T.sudo_present()) == 0
+    installed_sudo = False
+    if not sudo_here:
+        try:
+            adm.run(T.sudo_install())
+        except ProxmoxError:
+            try:
+                adm.run_rc(T.apt_update())                  # exit status ignored: an unsubscribed enterprise repository fails the update but not the rest
+                adm.run(T.sudo_install())
+            except ProxmoxError:
+                raise ProxmoxError("sudo is not installed on the node and could not be installed from its configured package repositories "
+                                   "(apt-get install sudo failed, also after apt-get update). Install it yourself ('apt install sudo') and run the onboarding again. "
+                                   "Nothing was kept.") from None
+        installed_sudo = True
+        if adm.run_rc(T.sudo_present()) != 0:
+            raise ProxmoxError("sudo was installed but /usr/bin/sudo is still missing; nothing was kept")
     for c in install_commands(i):
-        if c.name == "sudo.present" and adm.run_rc(c) != 0:
-            raise ProxmoxError("sudo is not installed on the node (the ICS's restricted SSH account needs it): install it with 'apt install sudo' and retry")
-        if exists and c.name in ("account.add", "account.lock"):
+        if c.name in ("sudo.present", "sudo.install", "sudo.apt_update"):
             continue
-        if c.name == "sudo.present":
+        if exists and c.name in ("account.add", "account.lock"):
             continue
         try:
             adm.run(c)
@@ -252,6 +270,7 @@ def install_identity(adm: SshAdmin, i: NodeIdentity) -> None:
                 except ProxmoxError:
                     pass
             raise
+    return {"sudo_installed": installed_sudo}
 
 
 def verify_files(adm: SshAdmin, i: NodeIdentity) -> None:
@@ -261,9 +280,10 @@ def verify_files(adm: SshAdmin, i: NodeIdentity) -> None:
             raise ProxmoxError(f"installed {which} does not match the approved content")
 
 
-def remove_identity(adm: SshAdmin, account: str) -> list[str]:
+def remove_identity(adm: SshAdmin, account: str, remove_sudo: bool = False) -> list[str]:
     left = []
-    for c in remove_commands(account):
+    cmds = remove_commands(account) + ([T.sudo_remove()] if remove_sudo else [])
+    for c in cmds:
         try:
             adm.run(c)
         except ProxmoxError as e:

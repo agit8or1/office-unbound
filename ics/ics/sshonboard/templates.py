@@ -165,8 +165,27 @@ def account_add(account: str, home: str) -> Cmd:
                                "--comment", "Office Unbound ICS (forced command only)", _v(ACCOUNT, account, "account")))
 
 
+SUDO_BIN = "/usr/bin/sudo"
+_APT = ("env", "DEBIAN_FRONTEND=noninteractive", "apt-get")
+
+
 def sudo_present() -> Cmd:
-    return Cmd("sudo.present", ("test", "-x", "/usr/bin/sudo"))
+    return Cmd("sudo.present", ("test", "-x", SUDO_BIN))
+
+
+def sudo_install() -> Cmd:
+    """Proxmox VE does not ship sudo. Installed from the node's own configured repositories, only when missing."""
+    return Cmd("sudo.install", _APT + ("install", "-y", "--no-install-recommends", "sudo"))
+
+
+def apt_update() -> Cmd:
+    """Only run when the install above failed (stale package lists); a failing enterprise repository without subscription does not stop the retry."""
+    return Cmd("sudo.apt_update", _APT + ("update",))
+
+
+def sudo_remove() -> Cmd:
+    """Rollback of a sudo this run installed (configuration is kept)."""
+    return Cmd("sudo.remove", _APT + ("remove", "-y", "sudo"))
 
 
 def account_lock(account: str) -> Cmd:

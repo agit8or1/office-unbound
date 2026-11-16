@@ -143,6 +143,28 @@ def main():
         p = m(a[-1])
         txt = open(p).read() if os.path.exists(p) else ""
         sys.exit(0 if ("ALL=(root)" in txt and txt.endswith("\n")) else 1)
+    elif NAME == "test":
+        sys.exit(0 if os.access(m(a[1]), os.X_OK) else 1) if a[:1] == ["-x"] else sys.exit(1)
+    elif NAME == "apt-get":
+        if os.path.exists(state("apt-fail")):
+            sys.stderr.write("E: Unable to locate package sudo\n")
+            sys.exit(100)
+        once = state("apt-fail-once")
+        if a[:1] == ["install"] and os.path.exists(once):
+            os.remove(once)
+            sys.stderr.write("E: Package 'sudo' has no installation candidate\n")
+            sys.exit(100)
+        if a[:1] == ["install"]:
+            dst = ROOT + "/usr/bin/sudo"
+            os.makedirs(os.path.dirname(dst), exist_ok=True)
+            open(dst, "w").write("#!/bin/sh\n")
+            os.chmod(dst, 0o755)
+        elif a[:1] == ["remove"]:
+            if os.path.exists(ROOT + "/usr/bin/sudo"):
+                os.remove(ROOT + "/usr/bin/sudo")
+    elif NAME == "env":
+        rest = [x for x in a if "=" not in x.split("/")[0] or x.startswith("/")]
+        os.execvp(rest[0], rest)
     elif NAME in ("lvs", "zfs"):
         f = state("lvs.json" if NAME == "lvs" else "zfs.txt")
         if not os.path.exists(f):

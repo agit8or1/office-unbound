@@ -85,6 +85,9 @@ class SshNode:
         p = self.root / "executed.log"
         return [json.loads(x) for x in p.read_text().splitlines()] if p.exists() else []
 
+    def has_sudo_package(self) -> bool:
+        return (self.root / "usr/bin/sudo").exists()
+
     def set_lvs(self, rows: list[dict]):
         (self.root / "state" / "lvs.json").write_text(json.dumps({"report": [{"lv": rows}]}))
 

@@ -265,7 +265,8 @@ const policyPreview = computed(() => JSON.stringify(policyOf(sel.value), null, 1
         <button type="button" class="wz-btn primary" :disabled="runBusy || !name && !epId" @click="runPreview">{{ preview ? 'Preview again' : 'Preview the changes' }}</button>
         <RunPanel :run="run" what="Computing the permission plan" />
         <template v-if="preview && planForView">
-          <Banner kind="warn" title="High risk: needs approval">This changes accounts and permissions on your Proxmox node, so it needs {{ preview.approvals_required ?? 2 }} different approvers. Nothing runs before they approve.</Banner>
+          <Banner v-if="preview.risk === 'high'" kind="warn" title="High risk: needs approval">This plan widens an existing integration or carries an elevated privilege, so it needs {{ preview.approvals_required ?? 2 }} different approvers. Nothing runs before they approve.</Banner>
+          <Banner v-else kind="info" title="Normal risk: needs one approver">An approver other than you must approve before anything runs ({{ preview.approvals_required ?? 1 }} approver). Nothing is changed in Proxmox until then.</Banner>
           <PlanView :preview="planForView as never" />
           <h3>Office Unbound's own SSH access on {{ preview.identity.node }}</h3>
           <dl class="wz-dl">
