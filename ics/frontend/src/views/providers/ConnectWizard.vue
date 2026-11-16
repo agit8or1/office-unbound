@@ -56,6 +56,9 @@ const id = computed(() => w.current.value.id)
     <WizardShell title="Connect a Proxmox cluster" subtitle="A few minutes. You stay in control: nothing is changed in Proxmox until you have seen exactly what will happen."
       :steps="shellSteps" :index="w.m.index" :reached="w.m.reached" :next-label="id === 'review' ? (m.method === 'token' ? 'Continue' : 'Continue to ' + applyTitle.toLowerCase()) : id === 'verify' ? 'Finish' : 'Next'"
       :hide-next="last" :busy="run.busy.value" @next="onNext" @back="w.back()" @goto="w.goto($event)">
+      <Banner v-if="id === 'connect'" kind="info" title="Have SSH access to a node instead of an API token?">
+        <router-link to="/infrastructure/providers/proxmox/connect-ssh">Connect with SSH</router-link>: log in once, choose what Office Unbound may do, and it creates its own account, permissions and key. Your login is destroyed afterwards.
+      </Banner>
       <ConnectStep v-if="id === 'connect'" :m="m" :s="s" :errors="errs" @errors="setErrors" />
       <DiscoverStep v-else-if="id === 'discover'" :m="m" :s="s" :errors="errs" @errors="setErrors" />
       <div v-else-if="id === 'access'">

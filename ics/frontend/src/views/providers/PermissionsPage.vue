@@ -59,6 +59,8 @@ const tone = (t: string) => t
           <div class="row">
             <Button size="sm" :loading="checking" :disabled="!canOperate || !v.managed_by_provisioning" @click="validate">Run validation</Button>
             <Button size="sm" variant="primary" :disabled="!canAdmin || !v.managed_by_provisioning" @click="scopeFlow = true">Change scope</Button>
+            <Button size="sm" :disabled="!canAdmin" :to="`/infrastructure/providers/proxmox/connect-ssh?endpoint=${id}`">Change with SSH</Button>
+            <Button size="sm" :disabled="!canAdmin" :to="`/infrastructure/providers/proxmox/connect-ssh?endpoint=${id}&offboard=1`">Remove SSH-created access</Button>
             <Button size="sm" :disabled="!canAdmin || !v.managed_by_provisioning" @click="flow = 'change'">Change access</Button>
             <Button size="sm" :disabled="!canAdmin || !v.managed_by_provisioning" @click="flow = 'rotate'">Rotate tokens</Button>
             <Button size="sm" variant="danger" :disabled="!canAdmin || !v.managed_by_provisioning" @click="flow = 'revoke'">Revoke</Button>

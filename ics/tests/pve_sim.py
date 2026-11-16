@@ -85,6 +85,8 @@ class PveSim:
         self.acl_entries: list[dict] = []     # {"path","type":"user"|"token","ugid","roleid","propagate"}
         self.tickets: dict[str, str] = {}     # ticket -> userid
         self.changes: list[str] = []          # every REAL state change in the access-control model (idempotency tests)
+        self.fw_cluster: dict = {}            # GET /cluster/firewall/options
+        self.fw_nodes: dict = {}              # node -> {"options": {...}, "rules": [...]}
         self.write_calls: list[tuple[str, str]] = []   # every non-GET request that reached a route
 
     # ---------------- setup helpers ----------------
@@ -376,6 +378,9 @@ class PveSim:
         return [
             R("GET", r"/version", self.r_version), R("GET", r"/cluster/status", self.r_cluster_status),
             R("GET", r"/cluster/resources", self.r_resources), R("GET", r"/cluster/nextid", self.r_nextid),
+            R("GET", r"/cluster/firewall/options", lambda *a: dict(self.fw_cluster)),
+            R("GET", r"/nodes/([^/]+)/firewall/options", lambda tid, q, f, n: dict(self.fw_nodes.get(n, {}).get("options", {}))),
+            R("GET", r"/nodes/([^/]+)/firewall/rules", lambda tid, q, f, n: list(self.fw_nodes.get(n, {}).get("rules", []))),
             R("GET", r"/nodes", self.r_nodes), R("GET", r"/pools/([^/]+)", self.r_pool), R("GET", r"/storage", self.r_storage_cfg),
             R("GET", r"/cluster/sdn/zones", self.r_zones), R("GET", r"/cluster/sdn/vnets", self.r_vnets),
             R("GET", r"/access/permissions", self.r_permissions),
@@ -427,7 +432,7 @@ class PveSim:
         out = [{"type": "cluster", "name": self.cluster, "version": 3, "nodes": len(self.nodes), "quorate": int(self.quorate), "id": "cluster"}]
         for n in self.nodes.values():
             out.append({"type": "node", "name": n["node"], "id": f"node/{n['node']}", "online": int(n["status"] == "online"),
-                        "ip": n["ip"], "local": 0, "nodeid": 1, "level": ""})
+                        "ip": n["ip"], "local": 1 if n["node"] == getattr(self, "local_node", None) else 0, "nodeid": 1, "level": ""})
         return out
 
     def r_nodes(self, tid, q, f):
@@ -476,7 +481,8 @@ class PveSim:
 
     def r_storage_cfg(self, tid, q, f):
         return [{"storage": s["storage"], "type": s["type"], "content": s["content"], "shared": s["shared"],
-                 "nodes": ",".join(s["nodes"]) if len(s["nodes"]) != len(self.nodes) else None}
+                 "nodes": ",".join(s["nodes"]) if len(s["nodes"]) != len(self.nodes) else None,
+                 **{k: s[k] for k in ("vgname", "thinpool", "pool") if k in s}}
                 for s in self.storages.values() if self.can(tid, "storage", s["storage"], "Datastore.Audit", "Datastore.AllocateSpace")]
 
     def r_node_storage(self, tid, q, f, node):

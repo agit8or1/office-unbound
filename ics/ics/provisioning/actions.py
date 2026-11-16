@@ -1008,7 +1008,7 @@ def scrub_expired_credentials(db: Session) -> int:
                         "(created_at < now() - make_interval(secs => :t) OR status = 'rejected')"), {"t": TEMP_CRED_TTL})
     n = r.rowcount or 0
     rows = db.execute(text(
-        "SELECT c.id FROM credentials c LEFT JOIN plans p ON p.id = c.id WHERE c.purpose = 'temporary_provisioning' AND c.purged_at IS NULL AND "
+        "SELECT c.id FROM credentials c LEFT JOIN plans p ON p.id = c.id WHERE c.purpose = 'temporary_provisioning' AND c.provider <> 'pve-ssh' AND c.purged_at IS NULL AND "
         "(c.expires_at <= now() OR p.created_at < now() - make_interval(secs => :t) OR p.id IS NULL OR p.status = 'rejected' OR EXISTS (SELECT 1 FROM jobs j WHERE j.plan_id = p.id "
         "AND j.status IN ('succeeded', 'failed'))) FOR UPDATE OF c"), {"t": TEMP_CRED_TTL}).all()
     for c in rows:
