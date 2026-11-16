@@ -1,0 +1,13 @@
+#!/bin/bash
+# FIXED test program of kind image-first-boot (run by ou-test-attest as ou-testrunner; root-owned in /usr/local/lib/ou-testrunner). usage: image-first-boot <image copy>
+# <image copy> is /var/lib/ou-testrunner/work/run-*/artifact.img, the runner's own re-hashed copy of the image named by the caller. This program does NOT decide anything
+# itself: it asks the root-owned helper (the only program ou-testrunner may run as root for this: `image-boot-root`, no arguments, exact sudoers rule) to boot that copy in the
+# lab boot-proof machine and relays its verdict. exit 0 = the guest booted, called back, enrolled and its bootstrap secrets are gone; 1 = it did not; 2 = infrastructure.
+set -u
+img=${1:-}
+[[ "$img" =~ ^/var/lib/ou-testrunner/work/run-[A-Za-z0-9_]+/artifact\.img$ ]] || { echo "bad image path"; exit 2; }
+[ -f "$img" ] && [ ! -L "$img" ] || { echo "bad image file"; exit 2; }
+req=/var/lib/ou-testrunner/boot-request
+umask 077
+printf '%s\n' "$img" > "$req.$$" && mv -f "$req.$$" "$req" || exit 2
+exec sudo -n /usr/local/lib/ou-testrunner/image-boot-root

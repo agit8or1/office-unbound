@@ -5,8 +5,7 @@ description: Directory of record (OpenLDAP), OIDC provider (Keycloak) and its da
 artifacts:
   - {name: openldap, kind: package, package: slapd, version: "2.6.10", repo: ubuntu-noble}
   - {name: postgresql, kind: package, package: postgresql-16, version: "16.15", repo: ubuntu-noble}
-  # placeholder digest until the OB image is built and signed (ADR-0008); plans refuse to execute while unpinned
-  - {name: keycloak, kind: oci, image: registry.ou.invalid/ou/keycloak, digest: "sha256:", version: "26.8.2"}
+  - {name: keycloak, kind: oci, image: registry.ou.invalid/ou/keycloak, digest: "sha256:aaa428f432a6113e65acf6df9df124f153054b4e45a9fc4aaa5e8b9e028a50db", version: "26.8.2"}
 resources:
   cores:     {base: 2,    per_user: 0.004, source: "lab ou-id1: Keycloak java 0.65-0.87 GB RSS; +1 core per 250 users is a planning assumption (docs/status/identity-files-lab-results.md)"}
   memory_mb: {base: 2048, per_user: 2,     source: "identity-files-lab-results.md: ou-id1 MemoryMax 2G, machine total 0.87 GB idle; 2 MB/user JVM cache growth is an unmeasured assumption"}

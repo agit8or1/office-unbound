@@ -1,0 +1,86 @@
+#!/usr/bin/env python3
+"""oci-scan: the FIXED test program of kind oci-scan (run by ou-test-attest as ou-testrunner, root-owned in /usr/local/lib/ou-testrunner; the build user can not change or
+replace it). usage: oci-scan <oci layout dir>   (the runner pulled and re-hashed it; $OU_TEST_WORK is the runner's private work directory)
+Makes the SBOM with the pinned syft and scans it with the pinned osv-scanner (both root-owned next to this file), writes sbom.cdx.json and details.json into
+$OU_TEST_WORK. Exit 0 = the SBOM describes exactly this manifest digest (metadata.component.version) and the scan RAN; 1 = it did not; anything else = infrastructure.
+Findings are recorded, not judged: critical_groups = OSV groups rated CVSS >= 9.0, critical_unwaived = those not covered by a reasoned, unexpired entry of the root-owned
+/etc/office-unbound/oci-vuln-waivers.json ({"waivers": [{"id", "reason", "expires": "YYYY-MM-DD"}]}); ou-oci-sign refuses staging/stable while critical_unwaived > 0."""
+import json
+import os
+import re
+import subprocess
+import sys
+import time
+
+HERE = os.path.dirname(os.path.abspath(__file__))
+WAIVERS = os.environ.get("OU_WAIVERS_FILE", "/etc/office-unbound/oci-vuln-waivers.json") if os.environ.get("OU_RELEASE_SANDBOX") == "1" else "/etc/office-unbound/oci-vuln-waivers.json"
+SANDBOX = os.environ.get("OU_RELEASE_SANDBOX") == "1"
+
+
+def fail(msg, code=2):
+    print("oci-scan: " + msg)
+    sys.exit(code)
+
+
+def waivers():
+    try:
+        st = os.stat(WAIVERS)
+        if not SANDBOX and (st.st_uid != 0 or st.st_mode & 0o022):
+            fail("%s must be root-owned and not writable by others" % WAIVERS)
+        doc = json.load(open(WAIVERS))
+    except OSError:
+        return set()
+    except ValueError:
+        fail("%s is not valid JSON" % WAIVERS)
+    today = time.strftime("%Y-%m-%d", time.gmtime())
+    return {w["id"] for w in doc.get("waivers", []) if isinstance(w, dict) and w.get("id") and str(w.get("reason", "")).strip() and str(w.get("expires", "")) >= today}
+
+
+def main():
+    lay = sys.argv[1]
+    work = os.environ["OU_TEST_WORK"]
+    idx = json.load(open(os.path.join(lay, "index.json")))
+    digest = idx["manifests"][0]["digest"]
+    man = json.load(open(os.path.join(lay, "blobs", "sha256", digest[7:])))
+    cfg = man["config"]["digest"]
+    env = {"PATH": "/usr/bin:/bin", "HOME": work, "SYFT_CHECK_FOR_APP_UPDATE": "false"}
+    sb = subprocess.run([os.path.join(HERE, "syft"), "oci-dir:" + lay, "-o", "cyclonedx-json", "-q"], capture_output=True, env=env, timeout=1200)
+    if sb.returncode != 0:
+        fail("syft failed: " + sb.stderr.decode()[-300:])
+    sp = os.path.join(work, "sbom.cdx.json")
+    open(sp, "wb").write(sb.stdout)
+    try:
+        bom = json.loads(sb.stdout)
+        ncomp, subject = len(bom["components"]), bom["metadata"]["component"]["version"]
+    except (ValueError, KeyError, TypeError):
+        fail("syft produced no usable SBOM")
+    osv = subprocess.run([os.path.join(HERE, "osv-scanner"), "scan", "source", "--sbom", sp, "--format", "json", "--no-ignore"], capture_output=True, env=env, timeout=1200)
+    if osv.returncode not in (0, 1):                                 # 1 = vulnerabilities found
+        fail("osv-scanner failed (%s): %s" % (osv.returncode, osv.stderr.decode()[-300:]))
+    try:
+        results = json.loads(osv.stdout)["results"]
+    except (ValueError, KeyError, TypeError):
+        fail("osv-scanner produced no report")
+    ids, worst, crit = set(), 0.0, []
+    for r in results:
+        for pk in (r.get("packages") or []):
+            ids.update(str(v.get("id")) for v in (pk.get("vulnerabilities") or []))
+            for g in (pk.get("groups") or []):
+                try:
+                    sv = float(g.get("max_severity") or 0)
+                except (TypeError, ValueError):
+                    continue
+                worst = max(worst, sv)
+                if sv >= 9.0:
+                    crit.append(sorted(str(i) for i in (g.get("ids") or []) + (g.get("aliases") or [])))
+    waived = waivers()
+    unwaived = [c for c in crit if not (set(c) & waived)]
+    det = {"config_digest": cfg, "sbom_components": ncomp, "sbom_subject": subject, "vuln_ids": len(ids), "max_cvss": worst, "critical_groups": len(crit),
+           "critical_unwaived": len(unwaived), "critical_ids": sorted({i for c in unwaived for i in c})[:50]}
+    json.dump(det, open(os.path.join(work, "details.json"), "w"))
+    ok = subject == digest and ncomp >= 5 and re.fullmatch(r"sha256:[0-9a-f]{64}", cfg)
+    print("oci-scan %s: components=%d vuln_ids=%d max_cvss=%s critical_unwaived=%d subject_ok=%s" % (digest, ncomp, len(ids), worst, len(unwaived), subject == digest))
+    sys.exit(0 if ok else 1)
+
+
+main()

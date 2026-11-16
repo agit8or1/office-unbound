@@ -1,0 +1,32 @@
+#!/bin/bash
+# Root-owned helper, no arguments (sudoers: `ou-testrunner ALL=(root) NOPASSWD: /usr/local/lib/ou-testrunner/image-boot-root`). It reads ONE request file written by the
+# runner program (/var/lib/ou-testrunner/boot-request, owned by ou-testrunner, a path of the form /var/lib/ou-testrunner/work/run-*/artifact.img, a regular file, no symlink),
+# copies that image into the boot-proof machine, runs bootproof.sh there (qemu TCG first boot -> ICS callback -> HMAC -> enrollment over pinned TLS -> secrets wiped), and
+# judges the evidence.json that bootproof.sh itself produced. exit 0 pass, 1 test failed, 2 infrastructure (no verdict). The verdict is derived ONLY from what ran here.
+set -u
+M=${OU_BOOT_MACHINE:-ou-img1}; R=/var/lib/machines/$M
+req=/var/lib/ou-testrunner/boot-request
+[ -f "$req" ] && [ ! -L "$req" ] && [ "$(stat -c %U "$req")" = ou-testrunner ] || { echo "no valid request"; exit 2; }
+img=$(head -c 300 "$req" | head -1)
+[[ "$img" =~ ^/var/lib/ou-testrunner/work/run-[A-Za-z0-9_]+/artifact\.img$ ]] || { echo "bad path in request"; exit 2; }
+[ -f "$img" ] && [ ! -L "$img" ] && [ "$(stat -c %U "$img")" = ou-testrunner ] || { echo "bad image file"; exit 2; }
+[ -f "$R/var/tmp/ou-guest-image/bootproof/bootproof.sh" ] || { echo "boot-proof machine $M is not prepared (no bootproof.sh)"; exit 2; }
+started=0
+machinectl show "$M" >/dev/null 2>&1 || { machinectl start "$M" || exit 2; started=1; for _ in $(seq 60); do systemd-run -M "$M" --wait -q /bin/true 2>/dev/null && break; sleep 2; done; }
+cleanup() { rm -f "$R/var/tmp/under-test.qcow2"; [ "$started" = 1 ] && machinectl poweroff "$M" >/dev/null 2>&1; }
+trap cleanup EXIT
+sha=$(sha256sum "$img" | awk '{print $1}')
+cp --no-dereference "$img" "$R/var/tmp/under-test.qcow2" || exit 2
+echo "image sha256 $sha booting in $M (qemu TCG, no KVM)"
+systemd-run -M "$M" --wait --pipe -q /bin/bash -c 'cd /var/tmp/ou-guest-image/bootproof && ./bootproof.sh /var/tmp/under-test.qcow2 /var/tmp/bootproof' 2>&1 | tail -60
+ev=$R/var/tmp/bootproof/evidence.json
+[ -f "$ev" ] || { echo "no evidence.json produced"; exit 2; }
+python3 -I - "$ev" "$sha" <<'PY'
+import json, sys
+ev = json.load(open(sys.argv[1]))
+want = sys.argv[2]
+ok = ev.get("image_sha256") == want and ev.get("enrolled") is True and ev.get("final_state") == "enrolled" and ev.get("secrets_wiped") is True and ev.get("agent_key_matches_report") is True
+print("verdict: image_sha256 %s (booted %s), enrolled=%s final_state=%s secrets_wiped=%s key_matches=%s -> %s" % (
+    "ok" if ev.get("image_sha256") == want else "MISMATCH", want[:12], ev.get("enrolled"), ev.get("final_state"), ev.get("secrets_wiped"), ev.get("agent_key_matches_report"), "PASS" if ok else "FAIL"))
+sys.exit(0 if ok else 1)
+PY

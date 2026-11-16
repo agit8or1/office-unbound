@@ -230,7 +230,7 @@ def test_catalog_api_and_preview_has_no_side_effects(client, actors, rt, env, mk
     prof = o.get(f"{H}/catalog/profiles").json()
     assert {p["name"] for p in prof["profiles"]} == {"lab", "small", "medium", "large", "ha", "msp-multi", "dedicated", "custom"}
     comp = o.get(f"{H}/catalog/components").json()
-    assert any(c["name"] == "files" and c["unpinned_artifacts"] for c in comp["components"])
+    assert not any(c["unpinned_artifacts"] for c in comp["components"])
     p = preview(actors[0])
     assert p["executable"] is False or p["executable"] is True
     assert p["plan_hash"] and p["vms"] and p["steps"]
@@ -260,13 +260,24 @@ def test_create_refusals(client, actors, rt, env):
         assert db.execute(text("SELECT count(*) FROM deployments")).scalar() == 0 and db.execute(text("SELECT count(*) FROM jobs")).scalar() == 0
 
 
-def test_real_catalog_refuses_unpinned_artifacts(client, actors, rt, monkeypatch):
+def test_real_catalog_is_pinned_and_signed_and_a_placeholder_is_refused(client, actors, rt, monkeypatch):
     seed_inventory(rt)
     monkeypatch.undo()
     p = preview(actors[0])
-    assert any(e["code"] == "artifact_unpinned" for e in p["errors"])
-    r = submit(actors, rt, "deployment.create", {"spec": spec_body(), "plan_hash": p["plan_hash"]}, expect=422)
-    assert "artifact_unpinned" in r.text
+    assert not [e for e in p["errors"] if e["code"].startswith("artifact_")]          # medium/small stock plan: no blocking artifact error
+    from ics.deploy import catalog as cat
+    real = cat.get_catalog()
+    saved = [(a, a.digest) for comp in real.components.values() for a in comp.artifacts if a.kind == "oci"]
+    try:
+        for a, _ in saved:
+            a.digest = "sha256:"                                                      # an explicit placeholder blocks creation
+        p = preview(actors[0])
+        assert any(e["code"] == "artifact_unpinned" for e in p["errors"])
+        r = submit(actors, rt, "deployment.create", {"spec": spec_body(), "plan_hash": p["plan_hash"]}, expect=422)
+        assert "artifact_unpinned" in r.text
+    finally:
+        for a, d in saved:                                                            # the catalog object is cached process-wide: put it back
+            a.digest = d
 
 
 # ---- create --------------------------------------------------------------------------------------------------------------

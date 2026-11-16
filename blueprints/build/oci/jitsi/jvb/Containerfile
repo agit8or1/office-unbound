@@ -1,0 +1,19 @@
+# Office Unbound: Jitsi Videobridge 2.3-318-gbf271b11f-1 (jar + libs extracted from the pinned, signature-chain-verified .deb; maintainer scripts never run) on the Ubuntu noble OpenJDK 17 JRE headless. uid 10110.
+# Defaults shipped in defaults.conf (merged under the operator's jvb.conf): no AWS harvester, no public STUN mapping harvester (no calls to Jitsi's relay or Amazon), no statistics push.
+ARG BASE=localhost/ou-base-noble:latest
+FROM ${BASE}
+ARG DEBIAN_FRONTEND=noninteractive
+RUN apt-get -o APT::Sandbox::User=root update && apt-get -o APT::Sandbox::User=root install -y --no-install-recommends openjdk-17-jre-headless ca-certificates procps \
+ && rm -rf /var/lib/apt/lists/* /var/cache/apt/archives/* \
+ && groupadd -g 10110 jvb && useradd -u 10110 -g 10110 -d /nonexistent -M -s /usr/sbin/nologin jvb
+COPY jitsi-videobridge/ /usr/share/jitsi-videobridge/
+COPY logging.properties /etc/jitsi/videobridge/logging.properties
+COPY defaults.conf /etc/jitsi/videobridge/defaults.conf
+COPY entrypoint.sh /usr/local/bin/ou-jvb-entrypoint
+RUN chmod -R a+rX /usr/share/jitsi-videobridge /etc/jitsi && chmod 0755 /usr/local/bin/ou-jvb-entrypoint /usr/share/jitsi-videobridge/jvb.sh
+LABEL org.opencontainers.image.title="Jitsi Videobridge (Office Unbound build)" org.opencontainers.image.version="2.3-318-gbf271b11f-1" org.opencontainers.image.licenses="Apache-2.0" \
+      org.opencontainers.image.source="https://download.jitsi.org/stable/jitsi-videobridge2_2.3-318-gbf271b11f-1_all.deb"
+USER 10110:10110
+EXPOSE 9090 8080 10000/udp
+HEALTHCHECK --interval=30s --timeout=5s --start-period=40s --retries=3 CMD ["bash","-c","exec 3<>/dev/tcp/127.0.0.1/8080 && printf 'GET /about/health HTTP/1.0\\r\\n\\r\\n' >&3 && head -1 <&3 | grep -q ' 200 '"]
+ENTRYPOINT ["/usr/local/bin/ou-jvb-entrypoint"]

@@ -1,0 +1,19 @@
+# Office Unbound: jitsi-meet web (jitsi-meet-web 1.0.9442-1 content, extracted with dpkg-deb -x from the pinned, signature-chain-verified .deb) served by distro nginx as uid 10080 on :8080.
+# Telemetry/analytics: config.js is rewritten at build time (disableThirdPartyRequests, analytics.disabled, no Jitsi STUN relay, no rtcstats); see build.sh `harden_web`.
+ARG BASE=localhost/ou-base-noble:latest
+FROM ${BASE}
+ARG DEBIAN_FRONTEND=noninteractive
+RUN apt-get -o APT::Sandbox::User=root update && apt-get -o APT::Sandbox::User=root install -y --no-install-recommends nginx-light curl ca-certificates \
+ && rm -rf /var/lib/apt/lists/* /var/cache/apt/archives/* /etc/nginx/sites-enabled /etc/nginx/conf.d \
+ && groupadd -g 10080 jitsiweb && useradd -u 10080 -g 10080 -d /nonexistent -M -s /usr/sbin/nologin jitsiweb
+COPY webroot/ /usr/share/jitsi-meet/
+COPY config.js /etc/jitsi/meet/config.js
+COPY nginx.conf.tmpl /etc/ou-jitsi/nginx.conf.tmpl
+COPY entrypoint.sh /usr/local/bin/ou-jitsi-web-entrypoint
+RUN chmod -R a+rX /usr/share/jitsi-meet /etc/jitsi /etc/ou-jitsi && chmod 0755 /usr/local/bin/ou-jitsi-web-entrypoint && install -d -o jitsiweb -g jitsiweb /tmp/nginx
+LABEL org.opencontainers.image.title="Jitsi Meet web (Office Unbound build)" org.opencontainers.image.version="1.0.9442-1" org.opencontainers.image.licenses="Apache-2.0" \
+      org.opencontainers.image.source="https://download.jitsi.org/stable/jitsi-meet-web_1.0.9442-1_all.deb"
+USER 10080:10080
+EXPOSE 8080
+HEALTHCHECK --interval=30s --timeout=5s --start-period=10s --retries=3 CMD ["curl","-fsS","http://127.0.0.1:8080/healthz"]
+ENTRYPOINT ["/usr/local/bin/ou-jitsi-web-entrypoint"]

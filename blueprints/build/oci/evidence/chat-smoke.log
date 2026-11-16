@@ -1,0 +1,14 @@
+PASS MAS database migrate
+PASS MAS /health
+  issuer http://127.0.0.1:8180/
+PASS MAS OIDC discovery
+  {"versions":["r0.0.1","r0.1.0","r0.2.0","r0.3.0","r0.4.0","r0.5.0","r0.6.0","r0.6.1","v1.1","v1.2","v1.3","v1.4","v1.5",
+PASS Synapse up with MAS delegation
+PASS MAS register-user alice
+PASS login through MAS (compat login) returned an access token for @alice:test.local
+  synapse whoami: {"user_id":"@alice:test.local","is_guest":false,"device_id":"6HNbSeXV3I"}
+PASS Synapse accepted the MAS token (whoami = @alice:test.local)
+PASS wrong password refused (HTTP 403)
+PASS forged token refused by Synapse (HTTP 401)
+  synapse own /login: {"errcode":"M_UNRECOGNIZED","error":"Unrecognized request"}
+SMOKE-DONE fail=0

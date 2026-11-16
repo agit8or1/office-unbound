@@ -4,8 +4,8 @@ title: Telephony (Asterisk PBX + softphone)
 description: Internal phone system. Asterisk 22 with extensions generated from the directory, voicemail-to-email and a browser softphone. No outside phone line (PSTN trunk is off).
 artifacts:
   - {name: asterisk, kind: package, package: ou-asterisk, version: "22.12.0-ou1", repo: ob-apt-dev}
-  - {name: pbx-helper, kind: oci, image: registry.ou.invalid/ou/ou-pbx, digest: "sha256:481adefa96c173b81a7871b738498edea255269441ae2dde8c1d25d9f2c97f8d", version: "0.1.0-ou1", signed: false}
-  - {name: softphone-web, kind: oci, image: registry.ou.invalid/ou/ou-softphone, digest: "sha256:efc5d8b4ad04b70e25d66b3ef9219c5009f4ee33d328005d6ed3accaa8b33941", version: "0.1.0-ou1", signed: false}
+  - {name: pbx-helper, kind: oci, image: registry.ou.invalid/ou/ou-pbx, digest: "sha256:481adefa96c173b81a7871b738498edea255269441ae2dde8c1d25d9f2c97f8d", version: "0.1.0-ou1"}
+  - {name: softphone-web, kind: oci, image: registry.ou.invalid/ou/ou-softphone, digest: "sha256:efc5d8b4ad04b70e25d66b3ef9219c5009f4ee33d328005d6ed3accaa8b33941", version: "0.1.0-ou1"}
 resources:
   cores:     {base: 1,   per_user: 0.004, source: "ASSUMPTION: telephony-productization.md: no concurrent-call or transcoding load test; G.711 passthrough only"}
   memory_mb: {base: 768, per_user: 0.5,   source: "telephony-productization.md section 3: ou-pbx2 MemoryMax 768M held, idle 206 MiB (asterisk 78 MB RSS, softphone service 65 MB); per-user part is an ASSUMPTION"}

@@ -12,7 +12,12 @@ STABLE INTERFACE (consumed by ou-release-sign `record-test` and by ou-image-sign
       kind image-first-boot    ref = absolute path of an image file below the image output directory (default /var/lib/ou-imgbuild/out, $OU_IMAGE_DIR).
                                The runner copies it (no symlinks, regular file, hashes while copying), and runs the FIXED program <lib>/image-first-boot on
                                the copy (boot it, wait for the guest callback; installed by install-image-signer.sh of the image signer).
-  Both programs are root-owned files in <lib> (default /usr/local/lib/ou-testrunner), not writable by the build user. Exit status 0 = pass, 1 = fail,
+      kind oci-scan            ref = <repo>@sha256:<64 hex>  (repo under ou/). The runner pulls manifest + blobs of that digest from the registry named in the root-owned
+                               /etc/office-unbound/oci-registry, re-hashes every byte, writes an OCI layout into its private work directory and runs the FIXED program
+                               <lib>/oci-scan on it (pinned syft + osv-scanner: SBOM and OSV scan made by the runner, never supplied). The program leaves details.json and
+                               sbom.cdx.json in the work directory; the runner re-hashes the SBOM itself and copies the details into the attestation (and the SBOM text next to
+                               it, outside the signed object, bound by attestation.sbom_sha256). Exit 0 = the scan completed, 1 = it did not (findings are recorded, not judged).
+  All programs are root-owned files in <lib> (default /usr/local/lib/ou-testrunner), not writable by the build user. Exit status 0 = pass, 1 = fail,
   anything else (crash, timeout, missing program) = NO attestation is produced. The runner hashes the combined output of the program itself.
   stdout (one JSON object):
       {"attestation": {"v": 2, "kind": <kind>, "name": <"install-smoke"|"first-boot">, "sha256": <artifact sha256, computed by the runner>,
@@ -41,7 +46,9 @@ SANDBOX = os.environ.get("OU_RELEASE_SANDBOX") == "1"
 LIB = os.environ.get("OU_TESTRUNNER_LIB", "/usr/local/lib/ou-testrunner") if SANDBOX else "/usr/local/lib/ou-testrunner"
 IMGDIR = os.environ.get("OU_IMAGE_DIR", "/var/lib/ou-imgbuild/out") if SANDBOX else "/var/lib/ou-imgbuild/out"
 PREFIX = b"ou-test-attestation-v1\n"
-KINDS = {"deb-install-smoke": ("install-smoke", "smoke-deb", 900), "image-first-boot": ("first-boot", "image-first-boot", 1800)}
+KINDS = {"deb-install-smoke": ("install-smoke", "smoke-deb", 900), "image-first-boot": ("first-boot", "image-first-boot", 3600), "oci-scan": ("osv-scan", "oci-scan", 1800)}
+OCI_REGISTRY_FILE = os.environ.get("OU_ATTEST_REGISTRY_FILE", "/etc/office-unbound/oci-registry") if SANDBOX else "/etc/office-unbound/oci-registry"
+OCI_REPO_RE = re.compile(r"^ou/[a-z0-9]+(?:[._-][a-z0-9]+)*(?:/[a-z0-9]+(?:[._-][a-z0-9]+)*){0,2}$")
 LOGMAX = 4 * 1024 * 1024
 
 
@@ -106,6 +113,56 @@ def fetch_image(ref, work):
     return dst, h.hexdigest()
 
 
+def fetch_oci(ref, work):
+    """OCI layout of exactly <repo>@<digest>: the registry is not trusted, every byte is re-hashed"""
+    import urllib.error
+    import urllib.request
+    m = re.match(r"^([a-z0-9/._-]+)@sha256:([0-9a-f]{64})$", ref)
+    if not m or not OCI_REPO_RE.match(m.group(1)):
+        die("an image is named <repo>@sha256:<64 hex> with repo under ou/")
+    repo, hexd = m.groups()
+    digest = "sha256:" + hexd
+    try:
+        reg = open(OCI_REGISTRY_FILE).read().strip()
+    except OSError:
+        die("no registry configured (%s)" % OCI_REGISTRY_FILE)
+    if not re.fullmatch(r"[A-Za-z0-9.-]+(:\d{1,5})?", reg):
+        die("registry file is malformed")
+    base = "http://" + (os.environ.get("OU_ATTEST_REGISTRY_ADDR", reg) if SANDBOX else reg)
+    accept = "application/vnd.oci.image.manifest.v1+json, application/vnd.docker.distribution.manifest.v2+json"
+
+    def get(path, acc=None, limit=2 << 30):
+        try:
+            with urllib.request.urlopen(urllib.request.Request(base + path, headers={"Accept": acc} if acc else {}), timeout=60) as r:
+                b = r.read(limit + 1)
+        except (urllib.error.URLError, OSError) as e:
+            die("registry request %s failed: %s" % (path, e))
+        if len(b) > limit:
+            die("registry object too large")
+        return b
+    lay = os.path.join(work, "layout")
+    man = get("/v2/%s/manifests/%s" % (repo, digest), accept, 4 << 20)
+    if "sha256:" + hashlib.sha256(man).hexdigest() != digest:
+        die("the registry's manifest does not hash to %s" % digest)
+    mj = json.loads(man)
+    if mj.get("schemaVersion") != 2 or "manifests" in mj or not isinstance(mj.get("config"), dict):
+        die("not a single-platform image manifest")
+    os.makedirs(os.path.join(lay, "blobs", "sha256"))
+    open(os.path.join(lay, "blobs", "sha256", hexd), "wb").write(man)
+    for d in [mj["config"]["digest"]] + [x["digest"] for x in mj.get("layers", [])]:
+        if not re.fullmatch(r"sha256:[0-9a-f]{64}", d):
+            die("bad blob digest")
+        b = get("/v2/%s/blobs/%s" % (repo, d))
+        if "sha256:" + hashlib.sha256(b).hexdigest() != d:
+            die("blob %s does not hash to its digest" % d[:19])
+        open(os.path.join(lay, "blobs", "sha256", d[7:]), "wb").write(b)
+    open(os.path.join(lay, "oci-layout"), "w").write('{"imageLayoutVersion":"1.0.0"}')
+    open(os.path.join(lay, "index.json"), "w").write(json.dumps({"schemaVersion": 2, "manifests": [{"mediaType": mj.get("mediaType") or "application/vnd.docker.distribution.manifest.v2+json", "digest": digest, "size": len(man)}]}))
+    with open(os.path.join(work, "repo"), "w") as f:
+        f.write(repo)
+    return lay, hexd
+
+
 def program(name):
     p = os.path.join(LIB, name)
     try:
@@ -129,7 +186,7 @@ def run(kind, ref):
     os.makedirs(os.path.join(ST, "logs"), mode=0o755, exist_ok=True)
     work = tempfile.mkdtemp(prefix="run-", dir=os.path.join(ST, "work"))
     try:
-        art, sha = (fetch_deb if kind == "deb-install-smoke" else fetch_image)(ref, work)
+        art, sha = {"deb-install-smoke": fetch_deb, "image-first-boot": fetch_image, "oci-scan": fetch_oci}[kind](ref, work)
         env = {"PATH": "/usr/sbin:/usr/bin:/sbin:/bin", "LANG": "C", "OU_TEST_KIND": kind, "OU_TEST_WORK": work}
         try:
             r = subprocess.run([p, art], env=env, cwd=work, stdin=subprocess.DEVNULL, stdout=subprocess.PIPE, stderr=subprocess.STDOUT, timeout=tmo)
@@ -143,7 +200,19 @@ def run(kind, ref):
             f.write(log)
         att = {"v": 2, "kind": kind, "name": name, "sha256": sha, "result": "pass" if r.returncode == 0 else "fail",
                "log_sha256": hashlib.sha256(log).hexdigest(), "at": int(time.time()), "run_id": run_id}
-        print(json.dumps({"attestation": att, "sig": base64.b64encode(key().sign(PREFIX + canon(att))).decode()}))
+        extra = {}
+        if kind == "oci-scan":
+            try:
+                sbom = open(os.path.join(work, "sbom.cdx.json"), "rb").read(64 << 20)
+                det = json.load(open(os.path.join(work, "details.json")))
+                att["repo"] = open(os.path.join(work, "repo")).read()
+                for k in ("config_digest", "sbom_components", "sbom_subject", "vuln_ids", "max_cvss", "critical_groups", "critical_unwaived", "critical_ids"):
+                    att[k] = det[k]
+            except (OSError, ValueError, KeyError):
+                die("the scan program left no usable result: no attestation")
+            att["sbom_sha256"] = hashlib.sha256(sbom).hexdigest()           # computed here, from the file the fixed program wrote
+            extra = {"sbom": sbom.decode()}
+        print(json.dumps({"attestation": att, "sig": base64.b64encode(key().sign(PREFIX + canon(att))).decode(), **extra}))
     finally:
         shutil.rmtree(work, ignore_errors=True)
 

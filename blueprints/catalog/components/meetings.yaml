@@ -3,12 +3,12 @@ version: 1.0.0
 title: Video meetings (Jitsi Meet + Office Unbound token service)
 description: Video meetings. Jitsi Meet (web, Prosody, Jicofo, videobridge) where only people with a signed-in token can open a room, issued by the Office Unbound token service after Keycloak sign-in.
 artifacts:
-  # Lab ran Jitsi stable debs (jitsi-meet 2.0.11248, web/prosody-tokens 1.0.9442, jicofo 1.0-1205, jvb 2.3-318); own builds not done -> unpinned OCI placeholders.
-  - {name: jitsi-web, kind: oci, image: registry.ou.invalid/ou/jitsi-web, digest: "sha256:", version: "1.0.9442"}
-  - {name: prosody, kind: oci, image: registry.ou.invalid/ou/jitsi-prosody, digest: "sha256:", version: "0.12.4"}
-  - {name: jicofo, kind: oci, image: registry.ou.invalid/ou/jicofo, digest: "sha256:", version: "1.0.1205"}
-  - {name: jvb, kind: oci, image: registry.ou.invalid/ou/jitsi-videobridge, digest: "sha256:", version: "2.3.318"}
-  - {name: meet-token-service, kind: oci, image: registry.ou.invalid/ou/meet-token-service, digest: "sha256:69b20d09d661d29ad5482e9603dfe628d5ca176925513c5d312ba04513e1e283", version: "0.1.0-ou1", signed: false}
+  # Jitsi parts built from the signed Jitsi stable debs (chain pinned in blueprints/build/oci/jitsi/01-fetch-verify.sh), prosody from the Ubuntu archive.
+  - {name: jitsi-web, kind: oci, image: registry.ou.invalid/ou/jitsi-web, digest: "sha256:5dc54c4abd4b823af183f87dc899632cdd1f6c7cab76760cbbae9923af181dea", version: "1.0.9442"}
+  - {name: prosody, kind: oci, image: registry.ou.invalid/ou/jitsi-prosody, digest: "sha256:6e778478488cb12a1b8a782f1d2a41064296a8ee3b0e8237b04d8133c02d63aa", version: "0.12.4"}
+  - {name: jicofo, kind: oci, image: registry.ou.invalid/ou/jicofo, digest: "sha256:0263ee9f4fb2f3ab0428d5cd0a55abae0a1f38f48a22caf0c9860ca4051cc36c", version: "1.0.1205"}
+  - {name: jvb, kind: oci, image: registry.ou.invalid/ou/jitsi-videobridge, digest: "sha256:029617386370067dc87613282a7a3012201d1e0ddab58f2ec494df723166c0a1", version: "2.3.318"}
+  - {name: meet-token-service, kind: oci, image: registry.ou.invalid/ou/meet-token-service, digest: "sha256:69b20d09d661d29ad5482e9603dfe628d5ca176925513c5d312ba04513e1e283", version: "0.1.0-ou1"}
   - {name: nginx, kind: package, package: nginx, version: "1.24.0", repo: ubuntu-noble}
 resources:
   cores:     {base: 2,    per_user: 0.01, source: "ASSUMPTION: JVB is CPU/bandwidth bound; lab ran 2 video participants only (collaboration-lab-results.md); 1 core per 100 users planning value"}

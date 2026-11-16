@@ -51,9 +51,9 @@ def test_real_catalog_loads_and_is_complete():
     for comp in c.components.values():  # every formula cites its evidence
         for f in (comp.resources.cores, comp.resources.memory_mb, comp.resources.disk_gb, *(v.size_gb for v in comp.volumes)):
             assert f.source
-    # OCI artifacts are placeholders until the build pipeline pins them; plans must refuse to execute meanwhile.
-    # `office` is pinned to the LAB-signed Office Unbound Docs image (2026-11-15); `files` is still a placeholder.
-    assert not c.components["office"].unpinned and c.components["files"].unpinned
+    # every OCI artifact is pinned by digest and was signed through ou-oci-sign (dev channel; docs/status/oci-signing-results.md)
+    for comp in c.components.values():
+        assert not comp.unpinned and all(a.signed for a in comp.artifacts if a.kind == "oci"), comp.name
 
 
 def test_every_stock_profile_generates_a_plan_without_structural_errors():
@@ -151,9 +151,12 @@ def test_plan_contents_small_profile():
 
 
 def test_unpinned_artifacts_block_execution_with_explanation():
-    p = generate_plan(inp(), cap(), load_catalog())        # real catalog: OCI digests are placeholders
+    c = load_catalog()
+    c.components["files"].artifacts[0].digest = "sha256:"      # an explicit placeholder is still refused
+    p = generate_plan(inp(), cap(), c)
     assert not p["executable"] and "artifact_unpinned" in codes(p["errors"])
     assert p["vms"] and p["steps"]                        # still previewable
+    assert generate_plan(inp(), cap(), load_catalog())["executable"]        # the real catalog is pinned and signed
 
 
 def test_optional_component_toggle():

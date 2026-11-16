@@ -1,0 +1,20 @@
+# Office Unbound: Matrix Authentication Service 1.29.0 built from source (tag v1.29.0, commit bd4d80d4...; cargo --locked from vendored crates.io crates; frontend via pnpm
+# with the lockfile's integrity hashes; policy.wasm compiled with the pinned OPA). Non-root uid 10120. No telemetry: MAS exports traces/metrics/sentry only when the
+# operator configures them; the entrypoint refuses a config that enables the `telemetry` sections.
+ARG BASE=localhost/ou-base-noble:latest
+FROM ${BASE}
+ARG DEBIAN_FRONTEND=noninteractive
+RUN apt-get -o APT::Sandbox::User=root update && apt-get -o APT::Sandbox::User=root install -y --no-install-recommends ca-certificates \
+ && rm -rf /var/lib/apt/lists/* /var/cache/apt/archives* \
+ && groupadd -g 10120 mas && useradd -u 10120 -g 10120 -d /nonexistent -M -s /usr/sbin/nologin mas
+COPY mas-cli /usr/local/bin/mas-cli
+COPY share/ /usr/local/share/mas-cli/
+COPY entrypoint.sh /usr/local/bin/ou-mas-entrypoint
+RUN chmod 0755 /usr/local/bin/mas-cli /usr/local/bin/ou-mas-entrypoint && chmod -R a+rX /usr/local/share/mas-cli
+LABEL org.opencontainers.image.title="Matrix Authentication Service (Office Unbound build)" org.opencontainers.image.version="1.29.0" \
+      org.opencontainers.image.licenses="AGPL-3.0-only OR LicenseRef-Element-Commercial" org.opencontainers.image.source="https://github.com/element-hq/matrix-authentication-service/releases/tag/v1.29.0"
+USER 10120:10120
+EXPOSE 8080
+HEALTHCHECK --interval=30s --timeout=5s --start-period=30s --retries=3 CMD ["bash","-c","exec 3<>/dev/tcp/127.0.0.1/8080 && printf 'GET /health HTTP/1.0\\r\\n\\r\\n' >&3 && head -1 <&3 | grep -q ' 200 '"]
+ENTRYPOINT ["/usr/local/bin/ou-mas-entrypoint"]
+CMD ["server"]

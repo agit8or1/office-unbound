@@ -84,6 +84,30 @@ def test_pipeline_refusal_fails_the_job(rt, team, tmp_path):
     assert j["status"] == "failed" and "refused" in json.dumps(j)
 
 
+def oci_params(**kw):
+    p = {"component": "oci-synapse", "from_channel": "dev", "to_channel": "staging",
+         "packages": [{"file": "oci:ou~synapse:1.165.0", "sha256": SHA_A}], "evidence": [{"sha256": SHA_A, "attestation_sha256": SHA_E}]}
+    p.update(kw)
+    return p
+
+
+def test_oci_promotion_is_one_image_with_scan_evidence_and_uses_the_oci_command(rt, team, tmp_path):
+    plan(team, "adm", oci_params(evidence=[]), expect=422)                                                         # no scan evidence
+    plan(team, "adm", oci_params(component="synapse"), expect=422)                                                 # not an oci-* component
+    plan(team, "adm", oci_params(evidence=[{"sha256": SHA_E, "attestation_sha256": SHA_E}]), expect=422)           # evidence for another digest
+    out = tmp_path / "oci.json"
+    s = tmp_path / "fake-oci-promote.py"
+    s.write_text(f"import sys, shutil\nshutil.copy(sys.argv[1], {str(out)!r})\n")
+    object.__setattr__(rt.settings, "release_promote_oci_cmd", f"{sys.executable} {s}")
+    object.__setattr__(rt.settings, "release_promote_cmd", None)                                                   # the deb command is not used for images
+    b = plan(team, "adm", oci_params())
+    d = team["ap1"][0].post(f"{H}/plans/{b['plan_id']}/approve", headers=team["ap1"][1]).json()
+    worker.run_once(rt)
+    assert team["adm"][0].get(f"{H}/jobs/{d['job_id']}").json()["status"] == "succeeded"
+    man = json.loads(out.read_text())["manifest"]
+    assert man["packages"] == [{"file": "oci:ou~synapse:1.165.0", "sha256": SHA_A, "name": None, "version": None}] and man["evidence"][0]["attestation_sha256"] == SHA_E
+
+
 def test_review7_l4_manifest_is_signed_with_the_dedicated_promotion_key_when_configured(rt, team, pipeline, tmp_path):
     from cryptography.hazmat.primitives.asymmetric.ed25519 import Ed25519PrivateKey
     k = Ed25519PrivateKey.generate()

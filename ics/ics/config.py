@@ -36,6 +36,7 @@ class Settings:
     guest_require_nic_binding: bool = True     # production bootstrap: the reporting address must resolve to the VM's net0 MAC (review 5 M2)
     release_repo_dir: str | None = None     # read-only view of the served signed repo tree (console Releases page); unset = page says not configured
     release_records_dir: str | None = None  # signer test records (records/<sha256>.json), read-only; needs group read for the ics user
+    release_promote_oci_cmd: str | None = None  # same for components named oci-*: container image promotion (blueprints/build/oci/promote-oci.sh)
     release_promotion_key_file: str | None = None  # review 7 L-4: DEDICATED ed25519 key (32 raw bytes) that signs promotion manifests; unset = the agent signing key (weaker)
     release_promote_cmd: str | None = None  # release.promote executor: command taking a signed manifest file (repo.sh promote-manifest)
     cookie_secure: bool = True
@@ -173,6 +174,7 @@ def load_settings() -> Settings:
             release_repo_dir=env.get("ICS_RELEASE_REPO_DIR") or None,
             release_records_dir=env.get("ICS_RELEASE_RECORDS_DIR") or None,
             release_promote_cmd=env.get("ICS_RELEASE_PROMOTE_CMD") or None,
+            release_promote_oci_cmd=env.get("ICS_RELEASE_PROMOTE_OCI_CMD") or None,
             release_promotion_key_file=env.get("ICS_RELEASE_PROMOTION_KEY_FILE") or None,
             guest_callback_dedicated=b("ICS_GUEST_CALLBACK_DEDICATED", False),
             guest_require_nic_binding=b("ICS_GUEST_REQUIRE_NIC_BINDING", True),

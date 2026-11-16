@@ -33,5 +33,21 @@ kill "$QPID" 2>/dev/null || true
 wait "$QPID" 2>/dev/null || true
 cat "$W/ics.log"
 echo "ics_side exit code: $rc"
+# evidence.json = the ics_side result + the sha256 of the image that was booted. The test runner (`ou-test-attest run image-first-boot <path>` makes the runner copy and boot the image in the boot-proof machine; this file is what its root helper reads,
+# run under the ou-testrunner identity on the release host) checks it and signs the attestation that ou-image-sign record-test requires (review 6 H1).
+python3 -I - "$W" "$(readlink -f "$IMG")" <<'PY' || true
+import hashlib, json, sys
+w, img = sys.argv[1:3]
+txt = open(w + "/ics.log").read()
+i = txt.rfind("\n{\n")
+ev = json.loads(txt[i + 1:] if i >= 0 else txt[txt.index("{"):])
+h = hashlib.sha256()
+with open(img, "rb") as f:
+    for c in iter(lambda: f.read(1 << 20), b""):
+        h.update(c)
+ev["image_sha256"] = h.hexdigest()
+json.dump(ev, open(w + "/evidence.json", "w"), indent=1, sort_keys=True)
+print("evidence.json written for image", ev["image_sha256"])
+PY
 sed 's/\x1b\[[0-9;]*m//g' "$W/console.log" | tr -d '\r' | tail -15
 exit "$rc"
