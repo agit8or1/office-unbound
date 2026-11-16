@@ -1,0 +1,21 @@
+== pkgtest-docs 2026-11-16T01:51:14Z suite=dev deb=ou-docs_26.04.6-ou3_amd64.deb sha256=ec50edb1c9bc3aabf762b71e30869e26d41fd484c78ce62717646b777122afad
+PASS  package transferred intact
+Setting up libnss3:amd64 (2:3.98-1ubuntu0.3) ...
+Setting up libxslt1.1:amd64 (1.1.39-0exp1ubuntu0.24.04.3) ...
+Setting up ou-docs (26.04.6-ou3) ...
+Processing triggers for libc-bin (2.39-0ubuntu8) ...
+PASS  ou-docs installed with its dependencies from the Ubuntu archive
+PASS  postinst: user cool exists
+PASS  postinst: file capabilities on coolforkit-caps
+PASS  postinst: systemplate created
+Failed to initialize COOLWSD: Do not run as root. Please run as cool user.
+Do not run as root. Please run as cool user.
+PASS  coolwsd --version runs
+PASS  unit installed, not enabled, not started
+PASS  coolwsd.xml owned by the package (conffile)
+200
+2
+action ext="odt" name="view" urlsrc="http://127.0.0.1:9980/browser/febe91b271/cool.html?"/
+PASS  WOPI discovery answers (coolwsd up, document types listed)
+== RESULT pass=9 fail=0
+REFUSED: usage: see the header of this file

@@ -1,0 +1,11 @@
+[Unit]
+Description=Office Unbound Docs readiness probe (loopback only; behind the reverse proxy as /hosting/ou-ready)
+
+[Socket]
+ListenStream=[::1]:9981
+Accept=yes
+MaxConnections=8
+FreeBind=true
+
+[Install]
+WantedBy=sockets.target

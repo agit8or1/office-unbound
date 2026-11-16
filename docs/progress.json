@@ -149,9 +149,10 @@
           "title": "Documents: own unlimited, rebranded Collabora Online source build",
           "status": "integrated_lab",
           "evidence": [
-            "docs/status/docengine-build-results.md"
+            "docs/status/docengine-build-results.md",
+            "docs/status/docs-reliability-results.md"
           ],
-          "note": "Own source build, rebranded, no connection/document caps: 30 concurrent documents and 60 sessions verified; edit/save via WOPI verified"
+          "note": "Own source build, rebranded, no connection/document caps: 30 concurrent documents and 60 sessions verified; edit/save via WOPI verified. ou3 (dev channel): kit pre-spawn 16 + readiness-gated start + real-conversion health check (kit-ready) after the t08 'No child available' defect; help URL configurable; install-smoke attested"
         },
         {
           "id": "P1.8",

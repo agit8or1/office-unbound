@@ -137,6 +137,10 @@ package_prebuilt() {
     echo "stage_machine=$mach"; echo "stage_tar=$tarf"; echo "stage_tar_sha256=$(cat "$STATE/out/$c/stage-tar.sha256")"
     echo "orig_sha256=$(cat "$STATE/out/$c/stage-tar.sha256")"; echo "recipe_sh_sha256=$(sha256sum "$HERE/$c/recipe.sh" | cut -d' ' -f1)"; echo "reproducible=NOT PROVEN (engine not rebuilt by the pipeline)"; } > "$STATE/out/$c/source.info"
   tar -C "$HERE/lib" -c package-prebuilt-inner.sh | sudo systemd-run -M "$mach" --wait --pipe -q /bin/bash -c 'mkdir -p /root/build && tar -C /root/build -x'
+  # files the package ships besides the staged tree (ou-docs: readiness probe, health socket, nginx snippet): $c/deploy -> $mach:/root/build/pkg-extra
+  if [ -d "$HERE/$c/deploy" ]; then
+    tar -C "$HERE/$c/deploy" -c . | sudo systemd-run -M "$mach" --wait --pipe -q /bin/bash -c 'rm -rf /root/build/pkg-extra; mkdir -p /root/build/pkg-extra && tar -C /root/build/pkg-extra -x'
+  fi
   log "package $c $DEBV from $mach:$tree"
   sudo systemd-run -M "$mach" --wait --pipe -q /bin/bash -c "bash /root/build/package-prebuilt-inner.sh '$SRC_NAME' '$DEBV' '$tree' /root/build/pkg-out '$SDE'" | tee "$STATE/out/$c/build-summary.txt"
   sudo systemd-run -M "$mach" --wait --pipe -q /bin/bash -c 'cd /root/build/pkg-out && tar --no-recursion -c -- $(ls)' | python3 -I "$HERE/lib/artifact-check.py" extract "$STATE/out/$c/artifacts" "$c" "$HERE"

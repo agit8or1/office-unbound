@@ -8,7 +8,7 @@ artifacts:
   # Signing public key SPKI-DER sha256 fingerprint: d5227d3d5300405ee4333bcea4e3e70c5447b0bb59d801099acfe1dfdf317de4 (lab key, builder only; NOT the production key).
   # The registry host is still the .invalid placeholder: the digest is registry-independent (copy with --preserve-digests + its signature attachment);
   # the lab copy lives at 127.0.0.1:5000/ou/office in ou-build1. Replace the host and re-sign with the production key before any production use.
-  - {name: collabora, kind: oci, image: registry.ou.invalid/ou/office, digest: "sha256:38e885c494e5e129d29c4998a9f163895170a67ab0ba1cbb2a1f61f7ad998ddb", version: "26.04.6-ou2"}
+  - {name: collabora, kind: oci, image: registry.ou.invalid/ou/office, digest: "sha256:2cbeafdcfd9eaab177f969fce4b66d4c55e15e490e0ade37c3c621e2990ee6ee", version: "26.04.6-ou3"}
 resources:
   cores:     {base: 2,    per_user: 0.02, source: "identity-files-lab-results.md: document load + conversion bursts; 1 core per 50 users is an assumption (no concurrency test)"}
   memory_mb: {base: 2048, per_user: 15,   source: "identity-files-lab-results.md: ou-office1 0.29 GB idle, 1.7 GB peak at a handful of sessions, MemoryMax 3G; ~10% concurrency x ~150 MB/doc assumed"}
@@ -21,6 +21,11 @@ dns:
   - {host: office, type: A, target: edge}
 health_checks:
   - {name: wopi-discovery, kind: http, port: 9980, path: /hosting/discovery, expect_status: 200}
+  # ou3: discovery only proves the web server answers. After a (re)start the document processes ("kits") can be missing for a while
+  # ("getNewChild: No child available", docs/status/docs-reliability-results.md), so this check runs a REAL conversion through a kit on the node
+  # (ou-docs-ready via the loopback socket ou-docs-health.socket, 503 + reason while not ready). The edge must route exactly this path to
+  # [::1]:9981 (blueprints/build/collabora/deploy/nginx-ou-ready.conf); the check is cached 5 s node-side so polling cannot starve the kits.
+  - {name: kit-ready, kind: http, port: 9980, path: /hosting/ou-ready, expect_status: 200, interval_seconds: 60}
 backup:
   method: stateless
   description: "no persistent data; redeploy from catalog"

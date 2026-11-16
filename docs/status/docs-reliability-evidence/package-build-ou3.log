@@ -1,0 +1,8 @@
+[01:42:42] package collabora 26.04.6-ou3 from ou-build1:/root/build/out/instdir
+ELF files: 190
+dpkg-deb: building package 'ou-docs' in '/root/build/pkg-out/ou-docs_26.04.6-ou3_amd64.deb'.
+0ddc1cf0073c2687f73cc94fa7aa3974e21c95c79c6d2c81359f59ec619495cd  ./ou-docs_26.04.6-ou3_amd64.deb
+libc6 (>= 2.38), libcap2 (>= 1:2.10), libcurl4t64 (>= 7.16.2), libgcc-s1 (>= 12), liblcms2-2 (>= 2.14), libnspr4 (>= 2:4.12), libnss3 (>= 2:3.94), libpixman-1-0 (>= 0.40.0), libstdc++6 (>= 13.1), libuuid1 (>= 2.20.1), libxslt1.1 (>= 1.1.32), zlib1g (>= 1:1.2.3.4), adduser, libcap2-bin, curl
+artifact set ok: 3 files, version 26.04.6-ou3
+[01:45:15] package collabora done: ou-docs_26.04.6-ou3_amd64.deb 
+rc=0

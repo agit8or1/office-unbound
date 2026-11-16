@@ -4,13 +4,15 @@
 #   docs-pkg-upgrade.sh pre                 backup of config + hash inventory of the tar-installed engine (prints the backup dir)
 #   docs-pkg-upgrade.sh migrate <version>   apt source/key/pin, download first, stop, install pinned+held (vendor coolwsd removed), unit, start
 #   docs-pkg-upgrade.sh change <version>    pinned upgrade/downgrade of ou-docs (download first, stop, install, start); prints the timings
+#   docs-pkg-upgrade.sh rekey              per-channel signing keys (release signer review 7): trust the key of $CHANNEL (fingerprint asked from the signer on this host,
+#                                           the key file is fetched from the repo and must have exactly that fingerprint) and point the apt source at it
 #   docs-pkg-upgrade.sh status
 # env: REPO_URL (http://<ou-repo1 zone ip>:8077)  CHANNEL (dev)  DOCS_MACHINE (ou-office1)  PROBE_LOG (file for the external availability probe)
 set -euo pipefail
 HERE=$(cd "$(dirname "$0")" && pwd); BUILD=$HERE/../../build
 M=${DOCS_MACHINE:-ou-office1}; CHANNEL=${CHANNEL:-dev}; : "${REPO_URL:?REPO_URL=http://<repo ip>:8077}"
 FPR=$(cat "$BUILD/keys/ou-release-$CHANNEL.FINGERPRINT")
-run() { sudo systemd-run -M "$M" --wait --pipe -q /bin/bash -s -- "$@"; }
+run() { sudo systemd-run -M "$M" --wait --pipe --collect -q /bin/bash -s -- "$@"; }
 CA=${OU_CA_FILE:-}
 
 probe_start() {  # external availability probe through nginx: one line "epoch_ms code" every ~0.2 s
@@ -47,7 +49,9 @@ inner_migrate() {  # args: version
   # lab unit (user cool, loopback, hardening) now uses the package's /opt/cool work dirs (the postinst rebuilds /opt/cool/systemplate from the installed engine)
   cp /root/coolwsd.service.new /etc/systemd/system/coolwsd.service; systemctl daemon-reload; chown -R cool:cool /opt/cool
   systemctl enable coolwsd >/dev/null 2>&1 || true; systemctl start coolwsd; t2=$(date +%s.%N)
-  for i in $(seq 1 120); do curl -fs http://[::1]:9980/hosting/capabilities >/dev/null 2>&1 && break; sleep 0.5; done; t3=$(date +%s.%N)
+  for i in $(seq 1 120); do curl -fs http://[::1]:9980/hosting/capabilities >/dev/null 2>&1 && break; sleep 0.5; done
+  # healthy = documents convert through a kit (ou3+ ships the probe; older packages only had the HTTP check)
+  [ -x /usr/libexec/ou-docs/ou-docs-ready ] && /usr/libexec/ou-docs/ou-docs-ready --wait 150 || true; t3=$(date +%s.%N)
   printf 'TIMING prepare(download) %.1f s | service stopped for %.1f s (stop to start) | to capabilities answering %.1f s | total %.1f s\n' "$(awk "BEGIN{print $t1-$t0}")" "$(awk "BEGIN{print $t2-$t1}")" "$(awk "BEGIN{print $t3-$t1}")" "$(awk "BEGIN{print $t3-$t0}")"
 }
 
@@ -59,8 +63,19 @@ inner_change() {  # args: version
   t1=$(date +%s.%N); systemctl stop coolwsd
   DEBIAN_FRONTEND=noninteractive apt-get install -y -qq --allow-downgrades --allow-change-held-packages -o Dpkg::Options::=--force-confold "ou-docs=$v" 2>&1 | tail -15
   apt-mark hold ou-docs >/dev/null; chown -R cool:cool /opt/cool; systemctl daemon-reload; systemctl start coolwsd; t2=$(date +%s.%N)
-  for i in $(seq 1 120); do curl -fs http://[::1]:9980/hosting/capabilities >/dev/null 2>&1 && break; sleep 0.5; done; t3=$(date +%s.%N)
+  for i in $(seq 1 120); do curl -fs http://[::1]:9980/hosting/capabilities >/dev/null 2>&1 && break; sleep 0.5; done
+  # healthy = documents convert through a kit (ou3+ ships the probe; older packages only had the HTTP check)
+  [ -x /usr/libexec/ou-docs/ou-docs-ready ] && /usr/libexec/ou-docs/ou-docs-ready --wait 150 || true; t3=$(date +%s.%N)
   printf 'TIMING prepare(download) %.1f s | service stopped for %.1f s (stop to start) | to capabilities answering %.1f s | total %.1f s\n' "$(awk "BEGIN{print $t1-$t0}")" "$(awk "BEGIN{print $t2-$t1}")" "$(awk "BEGIN{print $t3-$t1}")" "$(awk "BEGIN{print $t3-$t0}")"
+}
+
+inner_rekey() {  # env: REPO_URL CHANNEL KEY_FPR (the signer's fingerprint of the channel key)
+  set -e
+  curl -fsS "$REPO_URL/ou-release-$CHANNEL.pub.asc" -o /tmp/ou-release-$CHANNEL.asc
+  got=$(gpg --show-keys --with-colons /tmp/ou-release-$CHANNEL.asc | awk -F: '/^fpr/{print $10; exit}'); [ "$got" = "$KEY_FPR" ] || { echo "channel key fingerprint mismatch: $got"; exit 1; }
+  gpg --dearmor < /tmp/ou-release-$CHANNEL.asc > /usr/share/keyrings/ou-release-$CHANNEL.gpg
+  echo "deb [signed-by=/usr/share/keyrings/ou-release-$CHANNEL.gpg] $REPO_URL $CHANNEL main" > /etc/apt/sources.list.d/office-unbound.list
+  apt-get update -qq && echo "apt update ok with the $CHANNEL channel key $KEY_FPR"
 }
 
 inner_status() {
@@ -74,6 +89,7 @@ case "${1:-}" in
   migrate) probe_start; run < <(echo "REPO_URL=$REPO_URL CHANNEL=$CHANNEL KEY_FPR=$FPR"; echo "cat > /root/coolwsd.service.new <<'OUEOF'"; cat "$BUILD/collabora/deploy/coolwsd.service"; echo OUEOF
            declare -f inner_migrate; echo "inner_migrate $2") || true; probe_stop ;;
   change)  probe_start; run < <(declare -f inner_change; echo "inner_change $2") || true; probe_stop ;;
+  rekey)   run < <(echo "REPO_URL=$REPO_URL CHANNEL=$CHANNEL KEY_FPR=$(sudo -n -u ou-release /usr/local/sbin/ou-release-sign fingerprint "$CHANNEL")"; declare -f inner_rekey; echo inner_rekey) ;;
   status)  run < <(declare -f inner_status; echo inner_status) ;;
   *) sed -n 2,10p "$0"; exit 2 ;;
 esac

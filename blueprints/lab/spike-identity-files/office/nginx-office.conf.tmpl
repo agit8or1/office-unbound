@@ -13,6 +13,7 @@ server {
 
   location ^~ /browser { proxy_pass http://[::1]:9980; proxy_set_header Host $http_host; }
   location ^~ /hosting/discovery { proxy_pass http://[::1]:9980; proxy_set_header Host $http_host; }
+  location = /hosting/ou-ready { proxy_pass http://[::1]:9981/; proxy_read_timeout 30s; access_log off; }
   location ^~ /hosting/capabilities { proxy_pass http://[::1]:9980; proxy_set_header Host $http_host; }
   location ~ ^/cool/(.*)/ws$ {
     proxy_pass http://[::1]:9980;

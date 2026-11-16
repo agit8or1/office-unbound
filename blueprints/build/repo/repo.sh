@@ -3,6 +3,7 @@
 # everything that needs it goes through the fixed program /usr/local/sbin/ou-release-sign as user `ou-release` (install-signer.sh; security review 4).
 #   repo.sh publish <component>             verify the built artifacts (regular files only, dpkg-deb parsed), add to channel `dev`, admit + sign dev
 #   repo.sh retain <component> <suite>      copy the older versions of <component> from another channel's pool into dev again (rollback targets) and admit+sign
+#   repo.sh keep <component> <dir>          like retain, from a directory saved before publish (rollback target that no other channel holds)
 #   repo.sh record-test <component> [ignored: name pass|fail logfile]   REQUEST a test run (ou-test-attest run deb-install-smoke <sha256>) for every .deb of the
 #                                           component's dev pool: the runner installs it in a throw-away container itself and signs ITS result (review 7 H-3)
 #   repo.sh record-installed <suite> <name> pass|fail <logfile> <pkg_version>...   same for exactly the named pool .debs (used by pkgtest.sh)
@@ -93,6 +94,14 @@ retain() {  # <component> <from-suite>: put the older versions of a component th
   index dev
 }
 
+keep() {  # <component> <dir>: like retain, but the older versions come from a directory the operator saved before `publish` replaced dev (a rollback target
+  # that is in no other channel, e.g. ou2 while ou3 is only in dev). The signer still admits ONLY files whose hash it already knows (earlier admissions).
+  c=$1; src=$2; strict_dir "$src"; strict_dir "$REPO/pool/dev/$c"; d="$REPO/pool/dev/$c"   # strict_dir overwrites $d
+  for f in "$src"/*.deb; do [ -e "$d/$(basename "$f")" ] || cp --no-dereference -p "$f" "$d/"; done
+  tar_dir "$d" | $SIGN admit dev
+  index dev
+}
+
 record_test() {
   c=$1; name=${2:-}; res=${3:-}; log=${4:-}   # name/res/log ignored (review 7 H-3): the runner decides
   for f in "$REPO/pool/dev/$c"/*.deb; do attest_record "$f" "$name" "$res" "$log"; done
@@ -169,6 +178,7 @@ case "${1:-}" in
   keygen) echo "the signing key is managed by install-signer.sh (run as root); see the header of that file"; exit 2 ;;
   publish) publish "$2" ;;
   retain) retain "$2" "$3" ;;
+  keep) keep "$2" "$3" ;;
   record-test) shift; record_test "$@" ;;
   record-installed) shift; record_installed "$@" ;;
   promote) echo "promotion needs an ICS-approved release.promote plan (repo.sh promote-manifest <manifest>); the old CLI path with a typed approver is gone (security review 5 H2)"; exit 2 ;;

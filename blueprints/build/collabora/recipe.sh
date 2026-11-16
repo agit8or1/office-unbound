@@ -97,6 +97,15 @@ do_install() {
   rm -rf "$OUT/instdir"; mkdir -p "$OUT/instdir/opt"
   cp -a "$SRC/engine/instdir" "$OUT/instdir/opt/officeunbound-office"
   (cd "$SRC" && DESTDIR="$OUT/instdir" make install)
+  # engine InfoURL (share/registry/main.xcd) is a plain-XML value fixed by the engine configure; the engine is not rebuilt for a URL: set it here,
+  # failing unless exactly one occurrence is replaced (ou3, agent BK). Copyright/licence texts naming the upstream project are NOT touched.
+  XCD="$OUT/instdir/opt/officeunbound-office/share/registry/main.xcd"
+  if grep -q '<prop oor:name="InfoURL"' "$XCD"; then
+    n=$(grep -o '<prop oor:name="InfoURL" oor:type="xs:string"><value>[^<]*' "$XCD" | wc -l)
+    [ "$n" = 1 ] || { echo "main.xcd: $n InfoURL values (want 1)"; exit 1; }
+    sed -i "s#\(<prop oor:name=\"InfoURL\" oor:type=\"xs:string\"><value>\)[^<]*#\1$INFO_URL#" "$XCD"
+    grep -o '<prop oor:name="InfoURL" oor:type="xs:string"><value>[^<]*' "$XCD"
+  fi
   tar -C "$OUT/instdir" --sort=name --owner=0 --group=0 --numeric-owner -cf "$OUT/ou-docs-$TAG.tar" .
   ls -l "$OUT"/ou-docs-*.tar
 }

@@ -5,7 +5,10 @@ After=network.target
 [Service]
 User=cool
 Group=cool
-ExecStart=/usr/bin/coolwsd --o:sys_template_path=/opt/cool/systemplate --o:child_root_path=/opt/cool/child-roots --o:file_server_root_path=/usr/share/coolwsd --o:cache_files.path=/opt/cool/cache --o:lo_template_path=/opt/officeunbound-office --o:logging.file[@enable]=false --o:logging.color=false --o:logging.level=warning --o:logging.level_startup=warning
+ExecStart=/usr/bin/coolwsd --o:sys_template_path=/opt/cool/systemplate --o:child_root_path=/opt/cool/child-roots --o:file_server_root_path=/usr/share/coolwsd --o:cache_files.path=/opt/cool/cache --o:lo_template_path=/opt/officeunbound-office --o:logging.file[@enable]=false --o:logging.color=false --o:logging.level=warning --o:logging.level_startup=warning --o:num_prespawn_children=16
+# the unit only counts as started when a real conversion works through a kit (ou-docs-ready): restarts/upgrades return when documents can be opened
+ExecStartPost=-/usr/libexec/ou-docs/ou-docs-ready --wait 150
+TimeoutStartSec=200
 KillSignal=SIGINT
 KillMode=mixed
 TimeoutStopSec=120
