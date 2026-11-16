@@ -79,6 +79,8 @@ Production and beta packages and images must not be signed with lab keys. About 
 
 The controller prepares the script and the checklist when you schedule this.
 
+Interim (owner-authorized 2026-11-16): the **golden-image release key** was created on the ICS host (`/var/lib/ou-imgsign/release-key.pem`, user `ou-imgsign`, SPKI pin `836344…b1c3`) so the first Debian 12 image could be signed and imported. The ceremony replaces it with an offline key; the ICS pin is then changed and the next image release is signed with the new key.
+
 ## Stage 4 (Dec 7–13)
 
 ### 8. Per-customer network isolation (Proxmox SDN)
