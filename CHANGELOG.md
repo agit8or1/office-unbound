@@ -10,7 +10,7 @@ isolated lab; nothing is production supported ([ROADMAP.md](ROADMAP.md)).
 
 ## [Unreleased]
 
-Merged on integration branches `integration-5` and `integration-6` (not yet released).
+Merged on integration branches `integration-5`, `integration-6` and `integration-7` (not yet released). Production schema head is `0009b`; this batch adds `0009a`, `0010`, `0011`.
 
 ### Added
 - **Provider scope modes**: `single_node` / `whole_cluster` permission plans and the `provider.scope.change` flow (Mode A/B), console UI. [provider-scope-modes](docs/status/provider-scope-modes.md)
@@ -24,10 +24,12 @@ Merged on integration branches `integration-5` and `integration-6` (not yet rele
 - **Document engine ou2 (agent AZ)**: `ou-docs` 26.04.6-ou2 (product name Office Unbound Docs) with a new signed OCI image digest in the `office` catalog component. [docengine-ou2-results](docs/status/docengine-ou2-results.md)
 
 ### Security
+- **Security review 5 fixes** ([report and remediation table](docs/status/security-review-5-2026-11-15.md)): H1 `ou-release-sign` validates every index named in `Release`; H2 typed `release.promote` action (ICS-approved manifest, hardened signer, `ou-test-attest` for test evidence); H3 PBX helper secret directory handling; M1/M2 guest bootstrap rate limits per IP and VM and binding of the callback to the VM's MAC; M3 scope-change risk counts templates and ACL widening; M4 `decide_plan` scoped to the plan's customer; M5 `customer_id` on nodes, checks, alert channels, maintenance windows and backup policies (migration `0010`, all list/detail endpoints scoped); M6 identity stacks and SIP credentials refuse foreign-customer nodes; M7 `image.import` verifies the signed manifest itself and refuses older releases; L1-L7 (secret sweeps, callback body cap, constant-work unknown ids, dedicated callback listener, major-only version for anonymous callers, Mode B live inputs, dated upstream pins with anti-rollback).
+- **Per-customer backup isolation (agent AU)**: customer policies get their own runner profile, repository namespace, vault binding and plan binding; one policy per repository URL (migration `0011`).
 - **Tenant isolation (agent AS, T20 suite 153/155)**: two scoping holes fixed. Customer-scoped operators could list and read all deployments (deployment list/detail, plan, change/destroy preview and job steps are now filtered by the owning customer's endpoint); identity stacks had no customer binding (stacks carry a `customer_id`, the identity stack/user/reconcile lists and identity actions are scoped to it). [tenant-isolation-results](docs/status/tenant-isolation-results.md)
 - Security review 4 fixes (AL) and lifecycle gaps (AC) from main remain; telephony runbook user names are validated with a full-match regex.
 - The SSH guest bootstrap path no longer runs by default (fail-open finding in the SSH bootstrap review).
-- Security review 4 findings still open on the release-engineering branch (M4-M6, M10, M11 partly, L-series): see [security review 4](docs/status/security-review-4-2026-11-15.md).
+- Security review 4 findings M4-M6, M10, M11 and the L-series: see [security review 4](docs/status/security-review-4-2026-11-15.md).
 
 ### Fixed
 - Production monitor loop (`_next_vault`): failure-based worker health and thread joins on stop.

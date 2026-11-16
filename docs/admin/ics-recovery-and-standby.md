@@ -1,11 +1,10 @@
-<!-- pending: ics/deploy/standby/ics-standby-prepare-primary.sh, ics/deploy/standby/ics-promote.sh, ics/deploy/standby/ics-standby-status.sh, docs/adr/0012-ics-warm-standby.md, docs/status/ics-standby-results.md, controller-status -->
 # ICS recovery and warm standby
 
 The ICS is not on the customers' data path: mail, files, editing and SSO keep running while it is down. Only management (approvals, monitoring, deployments) pauses. You still must be able to replace it. There are two ways.
 | Method | Data loss (RPO) | Time to take over | Label |
 |---|---|---|---|
 | **Restore from backup** to a new host, then a deliberate cut-over | age of the last backup | minutes to rebuild, plus your decision time | Integrated in lab (restored on two machines, audit chain verified) |
-| **Warm standby** with fenced promotion | replication lag (under 1 ms observed in the lab) | 3.1 s to promote, 4.4 s to the first signed request through the new primary (lab, one node) | **On branch `integration-6`, pending merge into main.** Integrated in lab on that branch. Not available in a main-branch install yet |
+| **Warm standby** with fenced promotion | replication lag (under 1 ms observed in the lab) | 3.1 s to promote, 4.4 s to the first signed request through the new primary (lab, one node) | Integrated in lab; in the code base since this release. Not yet running on the production ICS until that is deployed |
 Replication copies corruption and deletions too. Keep the backups even with a standby.
 
 ## 1. Back up the controller
@@ -22,8 +21,8 @@ Full procedure and the evidence are in the runbook [ICS recovery](../runbooks/ic
 4. Record the recovery in the audit log and your incident record.
 Not exercised: moving the console to a different IP/CA name (the installer refuses a name outside the CA's constraints by design; the manual cut-over is the path) and agents accepting a restored controller in a full drill.
 
-## 3. Warm standby (pending merge)
-Design: [ADR-0012](../adr/0012-ics-warm-standby.md). Lab results: [ics-standby-results.md](../status/ics-standby-results.md). These files exist only on branch `integration-6`; check `git branch --contains` or the file list before you rely on them.
+## 3. Warm standby
+Design: [ADR-0012](../adr/0012-ics-warm-standby.md). Lab results: [ics-standby-results.md](../status/ics-standby-results.md).
 **How it works, in plain language.** A second ICS host copies the primary's database continuously (PostgreSQL streaming replication over verified TLS) and holds the same keys, transferred once, encrypted, and audited. It runs passive: it refuses every change and every signed request to agents. Promotion is always a human decision (never automatic, because a network split would look like a dead primary). On promotion the controller **epoch** goes up by one. Every signed request to an agent carries the epoch, and agents refuse any lower one. A resurrected old primary can therefore not drive agents that have seen the new epoch; it marks itself `fenced` the first time an agent refuses it.
 
 **Set up (once per standby).**

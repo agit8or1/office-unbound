@@ -20,7 +20,7 @@ sudo ics/deploy/bootstrap.sh --listen-ip <ip> --allow-cidr <cidr> --hostname <fq
 4. Confirm: `GET /readyz`, and signed in, `GET /api/v1/version` shows the tag's commit and `dirty: false`. **Administration > System** lists component versions and compares them with the releases bundled at install time. It makes no network request, so it cannot know about newer releases ([RELEASING.md](../RELEASING.md)).
 5. Run `verify-chain`: `cd /opt/office-unbound/ics && sudo -u ics .venv/bin/python -m ics.cli verify-chain`.
 **Rollback of the ICS:** restore the backup ([ICS recovery and warm standby](ics-recovery-and-standby.md)). Migrations are not reversed in place. Restore to a new machine and cut over; do not downgrade the code over a migrated database.
-**Node agents:** upgrade agents before the ICS if the release says so. Once agents have seen a newer controller epoch (standby feature, pending merge) the ICS cannot be rolled back without keeping the epoch; roll forward instead.
+**Node agents:** upgrade agents before the ICS if the release says so. Once agents have seen a newer controller epoch (standby feature) the ICS cannot be rolled back without keeping the epoch; roll forward instead.
 
 ## 3. Upgrade and roll back signed packages on a node (lab procedure)
 The groupware packages (`ou-gromox`, `ou-grommunio-web`, ...) are built, scanned and published to a **signed apt repository** with three channels, `dev`, `staging` and `stable`. A package reaches a channel only after test records and a named approver; the signing key is held by a separate system user, not by the build user.

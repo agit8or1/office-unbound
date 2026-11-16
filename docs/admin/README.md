@@ -29,7 +29,7 @@ The labels are the project's own status values (`docs/progress.json`, [ADR-0000]
 | 6 | [Deploying a customer environment](deploying-a-customer.md) | Use the wizard, review the plan, get approvals, understand each step, fix failures | Implementing (one real run in the lab) |
 | 7 | [Day-2 operations](day-2-operations.md) | Monitor, handle incidents, run backups and restore drills, manage users, use break-glass | Integrated in lab |
 | 8 | [Upgrades and rollback](upgrades.md) | Upgrade the ICS from a release; upgrade and roll back signed packages on a node | Integrated in lab |
-| 9 | [ICS recovery and warm standby](ics-recovery-and-standby.md) | Restore the controller, or run a standby and promote it | Restore: Integrated in lab. Standby: on branch `integration-6`, pending merge |
+| 9 | [ICS recovery and warm standby](ics-recovery-and-standby.md) | Restore the controller, or run a standby and promote it | Restore: Integrated in lab. Standby: integrated in lab |
 | 10 | [Security model](security-model.md) | Explain the security design to a customer; do the owner actions | Tested |
 | 11 | [Known limitations](known-limitations.md) | Know what not to promise | n/a |
 
