@@ -48,3 +48,6 @@ Synapse: entrypoint refuses with no `report_stats` line and with `report_stats: 
 4. Pin and cross-check the Element release key; apt snapshot mirror for reproducibility.
 5. Decide whether the PBX helper should be an OCI image at all.
 6. Publish the images to a real registry (digests are registry independent; the catalog host `registry.ou.invalid` is still a placeholder).
+
+## Test gates (2026-11-15/16)
+`tests/test_deploy*.py` (DB ics_test_j): 62 passed. Full suite (log kept in the agent scratchpad): 659 passed, 1 failed: `tests/test_migration_chain.py::test_single_linear_chain` (`['0009c'] == ['0008']`): the head-revision expectation predates agent BB's migration `0009c` on the base branch; not caused by this change, not fixed here.
