@@ -114,7 +114,8 @@ OSP="$(os_profile)" || die "Ubuntu 24.04 or Debian 12 required (found $(. "$OS_R
 OS_CODENAME="${OSP% *}"; PGVER="${OSP#* }"
 if [ -n "$STANDBY_OF" ]; then
   [ "$SKIP_TLS" = 0 ] || die "--standby-of needs the TLS console (--listen-ip/--allow-cidr), not --skip-tls"
-  [ -f "$KEY_BUNDLE" ] && [ -f "$BUNDLE_PASS" ] || die "--standby-of needs --key-bundle FILE and --bundle-passphrase-file FILE (created by ics-standby-prepare-primary.sh on the primary)"
+  [ -f "$KEY_BUNDLE" ] || die "--standby-of needs --key-bundle FILE (created by ics-standby-prepare-primary.sh on the primary)"
+  [ -z "$BUNDLE_PASS" ] || [ -f "$BUNDLE_PASS" ] || die "--bundle-passphrase-file: no such file (omit it to be asked for the passphrase)"
   python3 -I -c 'import ipaddress,sys; a=ipaddress.ip_address(sys.argv[1]); assert a.version==4' "$STANDBY_OF" 2>/dev/null || die "invalid --standby-of address"
   [ -z "$ADMIN" ] || die "--admin is not used on a standby (accounts are replicated from the primary)"
 fi
@@ -211,7 +212,8 @@ if [ -n "$STANDBY_OF" ]; then
       die "this host already has an 'ics' database. A standby is a COPY of the primary: re-run with --rebuild to DESTROY the local database and re-clone"
     fi
     log "importing the encrypted key bundle (explicit key transfer; keys are never synced continuously)"
-    python3 -I "$SRC/ics/keybundle.py" import --bundle "$KEY_BUNDLE" --passphrase-file "$BUNDLE_PASS" --etc "$ETC" >/dev/null || die "key bundle import failed"
+    # review 7 L8: no passphrase file by default (asked on the terminal); the bundle (and a passphrase file, if one was given) is wiped after the import
+    python3 -I "$SRC/ics/keybundle.py" import --bundle "$KEY_BUNDLE" ${BUNDLE_PASS:+--passphrase-file "$BUNDLE_PASS"} --remove-after --etc "$ETC" >/dev/null || die "key bundle import failed"
     changed "imported key bundle (vault/audit/signing keys, env files, replicator password, primary CA)"
     systemctl stop ics.service ics-migrate.service 2>/dev/null || true
     systemctl stop postgresql.service 2>/dev/null || true

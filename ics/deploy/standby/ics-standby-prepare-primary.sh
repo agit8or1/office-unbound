@@ -73,6 +73,8 @@ unset RPW
 HBA=$PGC/pg_hba.conf
 grep -v '# ou-standby$' "$HBA" > "$HBA.new" || true
 echo "hostssl replication replicator $STANDBY_IP/32 scram-sha-256 # ou-standby" >> "$HBA.new"
+# review 7 L8: the fenced promotion (`ics-cli promote --fence-old-dsn-file`) connects from the STANDBY to this primary as the application role to set role=fenced
+echo "hostssl ics ics_app $STANDBY_IP/32 scram-sha-256 # ou-standby" >> "$HBA.new"
 if ! cmp -s "$HBA.new" "$HBA"; then cat "$HBA.new" > "$HBA"; changed=1; fi
 rm -f "$HBA.new"
 
@@ -115,15 +117,16 @@ psqlpg -c "SELECT pg_create_physical_replication_slot('ics_standby') WHERE NOT E
 
 # --- encrypted key bundle + audit
 install -d -m 0700 "$OUT"
-"$OPT/.venv/bin/python" -I "$SRC/ics/keybundle.py" export --out "$OUT/ics-standby-keys.bundle" --passphrase-out "$OUT/ics-standby-keys.passphrase" \
+# review 7 L8: the passphrase is only SHOWN on the terminal (never written next to the bundle); set OU_BUNDLE_PASSPHRASE_OUT=<file on ANOTHER medium> for unattended runs
+"$OPT/.venv/bin/python" -I "$SRC/ics/keybundle.py" export --out "$OUT/ics-standby-keys.bundle" ${OU_BUNDLE_PASSPHRASE_OUT:+--passphrase-out "$OU_BUNDLE_PASSPHRASE_OUT"} \
   --replicator-password-file "$ETC/replicator.pw" --primary-ip "$PRIMARY_IP" --primary-ca "$TLS/ca.crt"
 (cd "$OPT" && runuser -u ics -- "$OPT/.venv/bin/python" -m ics.cli standby-note keys-exported --standby-ip "$STANDBY_IP")
 echo
 echo "================ standby preparation done ================"
 echo "bundle      : $OUT/ics-standby-keys.bundle   (AES-256-GCM, scrypt)"
-echo "passphrase  : $OUT/ics-standby-keys.passphrase   -> hand over by a DIFFERENT channel, then delete both files on this host"
+echo "passphrase  : shown above on the terminal only (not stored on this host) -> hand it over by a DIFFERENT channel than the bundle; delete the bundle on this host afterwards"
 echo "bundle sha256: $(sha256sum "$OUT/ics-standby-keys.bundle" | cut -d' ' -f1)"
 echo "On the standby (fresh Ubuntu 24.04, ICS source tree):"
-echo "  sudo ics/deploy/bootstrap.sh --standby-of $PRIMARY_IP --key-bundle ics-standby-keys.bundle --bundle-passphrase-file ics-standby-keys.passphrase \\"
+echo "  sudo ics/deploy/bootstrap.sh --standby-of $PRIMARY_IP --key-bundle ics-standby-keys.bundle   (it asks for the passphrase; the bundle is wiped after a successful import) \\"
 echo "       --listen-ip <standby ip> --allow-cidr <admin cidr>"
 echo "Replication status here:  sudo -u postgres psql -c 'select client_addr,state,sent_lsn,replay_lsn,replay_lag from pg_stat_replication'"

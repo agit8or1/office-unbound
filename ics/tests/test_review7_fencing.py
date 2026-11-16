@@ -11,17 +11,23 @@ from .test_review5 import H, world  # noqa: F401
 
 
 @pytest.fixture()
-def primary(rt):
+def primary(rt, owner_engine):
     """the controller as a running primary: process epoch fixed from the database; the controller_state row is restored afterwards"""
     with rt.session() as db:
         saved = dict(db.execute(text("SELECT epoch, role, note FROM controller_state WHERE id = 1")).mappings().first())
     rt.own_epoch, rt.fenced_reason = None, None
     assert rt.assert_active() == saved["epoch"]
     yield rt
-    with rt.session() as db:
-        db.execute(text("UPDATE controller_state SET role = :r, note = :n WHERE id = 1"), {"r": saved["role"], "n": saved["note"]})   # (the epoch is monotonic)
-        db.commit()
+    unfence(owner_engine, saved["role"], saved["note"])
     rt.own_epoch, rt.fenced_reason = None, None
+
+
+def unfence(owner_engine, role="primary", note=None):
+    """restore the row through the OWNER with the guard trigger off: the application role can no longer un-fence (migration 0012)"""
+    with owner_engine.connect() as c:
+        c.execute(text("ALTER TABLE controller_state DISABLE TRIGGER controller_state_guard"))
+        c.execute(text("UPDATE controller_state SET role = :r, note = :n WHERE id = 1"), {"r": role, "n": note})
+        c.execute(text("ALTER TABLE controller_state ENABLE TRIGGER controller_state_guard"))
 
 
 def queue_job(world):
@@ -42,7 +48,7 @@ def supersede(rt, how):
 
 
 @pytest.mark.parametrize("how", ["epoch", "fenced"])
-def test_h5_fenced_controller_claims_no_job_and_runs_nothing(primary, world, how):
+def test_h5_fenced_controller_claims_no_job_and_runs_nothing(primary, world, how, owner_engine):
     rt = primary
     queue_job(world)
     supersede(rt, how)
@@ -53,9 +59,7 @@ def test_h5_fenced_controller_claims_no_job_and_runs_nothing(primary, world, how
         assert db.execute(text("SELECT count(*) FROM jobs WHERE status = 'running'")).scalar() == 0
     assert worker.Worker(rt).active() is False and worker.Worker(rt).healthy() is False                # heartbeat is withheld too
     # sticky: even if the row looked healthy again, this process stays fenced until it is restarted
-    with rt.session() as db:
-        db.execute(text("UPDATE controller_state SET role = 'primary' WHERE id = 1"))
-        db.commit()
+    unfence(owner_engine)
     assert claim_job(rt) is None
 
 
@@ -120,3 +124,13 @@ def test_h5_standby_never_has_side_effects(rt, monkeypatch):
     finally:
         rt.settings = real
         rt.own_epoch, rt.fenced_reason = None, None
+
+
+def test_h5_a_fenced_row_cannot_be_flipped_back_by_the_application_role(primary):
+    rt = primary
+    supersede(rt, "fenced")
+    from sqlalchemy.exc import DBAPIError
+    with pytest.raises(DBAPIError, match="only through a promotion"):
+        with rt.session() as db:
+            db.execute(text("UPDATE controller_state SET role = 'primary' WHERE id = 1"))
+            db.commit()
