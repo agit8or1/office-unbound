@@ -9,18 +9,19 @@
   "releases": [
     {
       "version": "0.1.0",
-      "date": "2026-11-15",
-      "status": "prepared",
+      "date": "2026-11-16",
+      "status": "released",
       "channel": "pre-alpha",
       "highlights": [
         "Installable ICS with console, typed actions, approvals and hash-chained audit",
         "Groupware, identity, files and browser document editing integrated and tested in an isolated lab",
         "Proxmox provider verified on a live cluster; deployment engine, wizards, credential vault",
         "Office Unbound Docs own source build, user portal, SSO, chat/meetings and telephony lab prototypes",
-        "Lab pre-alpha only: not production supported; security review 4 findings open"
+        "Lab pre-alpha only: not production supported; security reviews 5-7 High findings open (fixes target 0.2.0)"
       ],
       "notes_url": "https://github.com/agit8or1/office-unbound/releases/tag/v0.1.0",
-      "changelog": "CHANGELOG.md"
+      "changelog": "CHANGELOG.md",
+      "codename": "Anchor"
     }
   ],
   "summary": "Core platform components are integrated and tested in an isolated lab: own source build of Exchange-compatible groupware with single sign-on webmail, Keycloak SSO, file sync and browser document editing, backup/restore drills, chat and video meetings, and an infrastructure control server with monitoring, self-healing and a real Proxmox integration (VM lifecycle verified on a live cluster). Guided deployment wizards, provisioning automation and the credential vault are being integrated.",

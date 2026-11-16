@@ -10,7 +10,11 @@ isolated lab; nothing is production supported ([ROADMAP.md](ROADMAP.md)).
 
 ## [Unreleased]
 
-Merged on integration branch `integration-5` (not yet released). The release-engineering pipeline branch (`release-ag`) is **not** included.
+Target: 0.2.0 "Beacon" (alpha readiness: security hardening, production no-SSH deployment, full stack).
+
+## [0.1.0] - 2026-11-16
+
+Release name: **Anchor**. This is the build deployed to the lab ICS (commit 416aafe).
 
 ### Added
 - **Provider scope modes**: `single_node` / `whole_cluster` permission plans and the `provider.scope.change` flow (Mode A/B), console UI. [provider-scope-modes](docs/status/provider-scope-modes.md)
@@ -28,7 +32,10 @@ Merged on integration branch `integration-5` (not yet released). The release-eng
 ### Fixed
 - Production monitor loop (`_next_vault`): failure-based worker health and thread joins on stop.
 
-## [0.1.0] - 2026-11-15
+### Known issues
+- Lab pre-alpha, not production supported. The packages and images built for this release are signed with lab keys only.
+- Security reviews 5–7 have open High findings in release signing, test attestation, cross-tenant plan scoping, controller fencing and org-admin account recovery. They are being fixed for 0.2.0. Details: [security review 7](docs/status/security-review-7-2026-11-16.md), [execution queue](docs/status/ALPHA-EXECUTION-QUEUE.md).
+
 
 First tagged state of the project: a lab-integrated pre-alpha. Installable ICS, console, groupware, identity, files, document
 editing, chat/meetings, telephony prototype, migration tooling and package pipeline, all verified only in an isolated lab.
