@@ -43,6 +43,7 @@ export const routes: RouteRecordRaw[] = [
   { path: '/jobs/:id?', name: 'jobs', component: () => import('./views/Jobs.vue'), meta: { title: 'Jobs', section: 'Operations' } },
   { path: '/plans/:id?', name: 'plans', component: () => import('./views/Plans.vue'), meta: { title: 'Approvals', section: 'Operations' } },
   { path: '/approvals', redirect: '/plans' },
+  { path: '/images', name: 'images', component: () => import('./views/Images.vue'), meta: { title: 'Images', section: 'Administration' } },
   { path: '/releases', name: 'releases', component: () => import('./views/Releases.vue'), meta: { title: 'Releases', section: 'Operations' } },
   { path: '/maintenance', name: 'maintenance', component: () => import('./views/Maintenance.vue'), meta: { title: 'Maintenance', section: 'Operations' } },
   { path: '/checks/:id?', name: 'checks', component: () => import('./views/Checks.vue'), meta: { title: 'Health checks', section: 'Monitoring' } },

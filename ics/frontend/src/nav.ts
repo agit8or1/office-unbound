@@ -38,6 +38,7 @@ export const NAV: NavGroup[] = [
     { label: 'Users & roles', to: '/users', icon: 'users', min: 'admin' },
     { label: 'Customers', to: '/administration/customers', icon: 'users', min: 'admin' },
     { label: 'Integrations', to: '/endpoints', icon: 'plug' },
+    { label: 'Images', to: '/images', icon: 'book', min: 'admin' },
     { label: 'Audit log', to: '/audit', icon: 'file', min: 'approver' },
     { label: 'System', to: '/system', icon: 'server', min: 'admin' },
     { label: 'Access policies', icon: 'shield', planned: true, min: 'admin' },

@@ -232,7 +232,8 @@ def h_provider_task(ctx: StepCtx) -> dict:
         if tpl is None:
             raise StepFailed(f"template {p['template']!r} was not found in the approved pool(s)",
                              "The OS image template is not visible to the provisioning credential; add it to an allowed pool "
-                             "(or list its VM id in the endpoint's allowed templates).", retryable=False)
+                             "(or list its VM id in the endpoint's allowed templates). If it does not exist yet, import the signed golden image "
+                             "first: action image.import (Administration > Images; GET /api/v1/images/releases lists the verified releases).", retryable=False)
         _record_intent(ctx, vm, {"pre_vmids": sorted(int(x["vmid"]) for x in d.guests), "template_vmid": int(tpl["vmid"])})
         spec = VmCloneSpec(template_vmid=int(tpl["vmid"]), template_node=tpl["node"], new_vmid=None, name=vm, pool=p["pool"],
                            storage=p["storage"], deployment_id=ctx.slug, target_node=p["node"])

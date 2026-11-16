@@ -62,7 +62,7 @@ def release_dir(rt: Runtime, name: str) -> str:
 
 
 def default_template(os_id: str) -> str:
-    t = "ou-tpl-" + re.sub(r"[^a-z0-9-]+", "-", os_id.lower()).strip("-")
+    t = "ou-tpl-" + re.sub(r"[^a-z0-9-]+", "-", os_id.lower().replace(".", "")).strip("-")   # ubuntu-24.04 -> ou-tpl-ubuntu-2404 (catalog name)
     return t[:57]
 
 
