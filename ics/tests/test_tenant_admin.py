@@ -502,3 +502,21 @@ def test_l1_svg_allowlist_refuses_scripting_variants(svg):
 
 def test_l1_plain_svg_is_accepted():
     assert service.sniff_logo(b'<?xml version="1.0"?><svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 10 10"><defs><linearGradient id="g"><stop offset="0" stop-color="#fff"/></linearGradient></defs><circle cx="5" cy="5" r="4" fill="url(#g)"/></svg>') == "image/svg+xml"
+
+
+# ---- review 6 L4 ---------------------------------------------------------------------------------------------------------------------------
+def test_l4_logo_upload_is_capped_while_streaming_and_unknown_kid_refetch_is_rate_limited(tn, monkeypatch):
+    c, a = tn["client"], tn["acme"]
+    r = c.put(f"{T}/branding/logo", headers=a.hdr(), content=b"\x89PNG\r\n\x1a\n" + b"0" * 300_000)
+    assert r.status_code == 413
+    calls = []
+    real = service.HOOKS["fetch_jwks"]
+    monkeypatch.setitem(service.HOOKS, "fetch_jwks", lambda cfg: (calls.append(1), real(cfg))[1])
+    service._JWKS.clear()
+    assert c.get(f"{T}/users", headers=a.hdr()).status_code == 200            # first fetch
+    n = len(calls)
+    other = Realm("acme")
+    other.kid = "k-rotated"                                                   # a kid the JWKS does not know
+    for _ in range(5):
+        assert c.get(f"{T}/users", headers={"X-OU-Tenant-Key": a.key, "X-OU-User-Token": other.token("s", "x")}).status_code == 401
+    assert len(calls) == n                                                    # no refetch storm

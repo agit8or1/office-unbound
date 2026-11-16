@@ -6,7 +6,7 @@ Real environment variables (ICS_*) win over the app file. The migrate URL is onl
 `load_migrate_url()`, which is called by Alembic / `python -m ics.migrate`, never by `load_settings()`.
 """
 import os
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from pathlib import Path
 
 DEFAULT_ENV_FILE = "/etc/office-unbound/ics.env"
@@ -58,6 +58,7 @@ class Settings:
     pve_max_response_bytes: int = 16 * 1024 * 1024
     snapshot_retention: int = 50
     allow_loopback_endpoints: bool = False  # SSRF guard: tests/lab only
+    msp_proxy_auth: str | None = field(default=None, repr=False)  # review 6 L5: shared secret the TLS proxy sets in X-OU-Proxy-Auth next to X-Client-Cert-SHA256
     msp_webhook_allow: tuple[str, ...] = ()  # review 6 M2: operator-approved exceptions for webhook targets (exact hostnames or CIDRs that may be private)
     monitor_enabled: bool = True
     monitor_parallelism: int = 8
@@ -151,6 +152,7 @@ def load_settings() -> Settings:
             login_max_failures=int(env.get("ICS_LOGIN_MAX_FAILURES", 5)),
             allow_loopback_endpoints=b("ICS_ALLOW_LOOPBACK_ENDPOINTS", False),
             msp_webhook_allow=_csv(env.get("ICS_MSP_WEBHOOK_ALLOW")),
+            msp_proxy_auth=(Path(env["ICS_MSP_PROXY_AUTH_FILE"]).read_text().strip() or None) if env.get("ICS_MSP_PROXY_AUTH_FILE") else None,
             trusted_proxy=_trusted_proxy(env.get("ICS_TRUSTED_PROXY")),
             job_timeout_seconds=int(env.get("ICS_JOB_TIMEOUT_SECONDS", 180)),
             guest_agent_dir=env.get("ICS_GUEST_AGENT_DIR") or None,

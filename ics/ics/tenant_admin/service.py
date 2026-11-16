@@ -32,6 +32,8 @@ from . import jwtv
 KEY_RE = re.compile(r"^tsk_([a-z0-9]{12})\.([A-Za-z0-9_-]{43})$")
 APP_LABELS = {"mail": "Mail, calendar and contacts", "files": "Files and documents"}
 DEFAULT_POLICY = {"self_service_auto": True, "destructive_approval": "second_admin", "dkim_selector": "default", "extra_groups": []}
+MAX_LOGO = 200_000
+JWKS_REFETCH_MIN_SECONDS = 60.0   # review 6 L4: an unknown `kid` may force a refetch at most once a minute per stack
 HEX = re.compile(r"^#[0-9a-fA-F]{6}$")
 
 _JWKS: dict[str, tuple[float, dict]] = {}
@@ -246,7 +248,7 @@ def authenticate(db, rt, request: Request, *, need_user: bool = True, mutating: 
         try:
             claims = jwtv.verify(tok, jw[1], issuer=issuer, client_id=row.portal_client_id)
         except jwtv.TokenError as e:
-            if "unknown signing key" not in str(e):
+            if "unknown signing key" not in str(e) or time.monotonic() - jw[0] < JWKS_REFETCH_MIN_SECONDS:
                 raise
             jw = (time.monotonic(), HOOKS["fetch_jwks"](cfg))   # key rotation: one refetch
             _JWKS[str(row.stack_id)] = jw
@@ -551,7 +553,7 @@ def _svg_check(data: bytes) -> bool:
 
 
 def sniff_logo(data: bytes) -> str:
-    if len(data) > 200_000:
+    if len(data) > MAX_LOGO:
         raise TenantError(422, "The logo is too large. Use a file under 200 KB.")
     if data.startswith(b"\x89PNG\r\n\x1a\n"):
         return "image/png"

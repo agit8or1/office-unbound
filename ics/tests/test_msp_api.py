@@ -226,20 +226,37 @@ def test_revoked_rotated_and_mtls(w, rt):
 
 
 def test_mtls_binding(w, rt):
+    """Review 6 L5: the forwarded fingerprint counts only together with the proxy's shared secret; the peer address is irrelevant."""
     c1 = w.customer("Acme")
     fp = "ab" * 32
     api = w.api_client(customers=[c1], mtls=fp)
     s, d, _ = api("GET", "/me")
     assert s == 401 and d["error"]["code"] == "client_certificate_required"       # no proxy-forwarded certificate
-    object.__setattr__(rt.settings, "trusted_proxy", "127.0.0.1")
+    assert api("GET", "/me", headers={"X-Client-Cert-SHA256": fp})[0] == 401       # fingerprint alone (e.g. from a local process): refused
+    object.__setattr__(rt.settings, "msp_proxy_auth", "proxy-secret-for-tests-0123456789")
     try:
-        assert api("GET", "/me", headers={"X-Client-Cert-SHA256": fp})[0] == 401   # header from an untrusted peer ('testclient')
-        tc = TestClient(w.client.app, base_url="https://testserver", client=("127.0.0.1", 4000))
-        a2 = Api(tc, api.client_id, api.secret)
-        assert a2("GET", "/me", headers={"X-Client-Cert-SHA256": fp})[0] == 200
-        assert a2("GET", "/me", headers={"X-Client-Cert-SHA256": "cd" * 32})[0] == 401
+        good = {"X-Client-Cert-SHA256": fp, "X-OU-Proxy-Auth": "proxy-secret-for-tests-0123456789"}
+        assert api("GET", "/me", headers=good)[0] == 200                           # works wherever the proxy's request appears to come from
+        assert api("GET", "/me", headers={**good, "X-OU-Proxy-Auth": "nope"})[0] == 401
+        assert api("GET", "/me", headers={**good, "X-Client-Cert-SHA256": "cd" * 32})[0] == 401
+        assert api("GET", "/me", headers={"X-Client-Cert-SHA256": fp})[0] == 401
     finally:
-        object.__setattr__(rt.settings, "trusted_proxy", None)
+        object.__setattr__(rt.settings, "msp_proxy_auth", None)
+    assert api("GET", "/me", headers=good)[0] == 401                               # no secret configured: fail closed
+
+
+def test_l6_unicode_digit_timestamp_is_a_clean_401_and_failure_table_evicts(w, rt):
+    c1 = w.customer("Acme")
+    api = w.api_client(customers=[c1])
+    s, d, _ = api("GET", "/me", headers={"X-MSP-Timestamp": b"\xb2\xb2"})
+    assert s == 401 and d["error"]["code"] == "auth_malformed"
+    gateway.reset_state()
+    for i in range(9999):
+        gateway._fails[f"10.0.{i // 256}.{i % 256}"] = [float(i)]
+    gateway._fails["10.9.9.9"] = [1e12]
+    gateway._note_fail("10.9.9.10")
+    assert "10.9.9.9" in gateway._fails and "10.9.9.10" in gateway._fails and len(gateway._fails) <= 10000     # not cleared
+    gateway.reset_state()
 
 
 # ---- idempotency ----------------------------------------------------------------------------------------------------------------

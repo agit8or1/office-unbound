@@ -141,7 +141,15 @@ def mount(app: FastAPI) -> None:
 
     @app.put(f"{T}/branding/logo")
     async def put_logo(request: Request, ctx: Ctx = Depends(ctx_write)):
-        data = await request.body()
+        cl = request.headers.get("content-length", "")
+        if cl.isdigit() and int(cl) > service.MAX_LOGO:
+            raise HTTPException(413, "The logo is too large. Use a file under 200 KB.")
+        buf = bytearray()
+        async for chunk in request.stream():   # review 6 L4: never buffer more than the cap
+            buf += chunk
+            if len(buf) > service.MAX_LOGO:
+                raise HTTPException(413, "The logo is too large. Use a file under 200 KB.")
+        data = bytes(buf)
         _wrap(lambda: service.set_logo(ctx, data or None))
         return {"ok": True}
 

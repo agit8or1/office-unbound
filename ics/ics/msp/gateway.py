@@ -149,8 +149,8 @@ def _fail_count(ip: str) -> int:
 
 def _note_fail(ip: str) -> None:
     with _lock:
-        if len(_fails) > 10000:
-            _fails.clear()
+        if ip not in _fails and len(_fails) >= 10000:   # review 6 L6: evict the stalest address, never reset everyone's counters
+            _fails.pop(min(_fails, key=lambda a: _fails[a][-1] if _fails[a] else 0.0), None)
         _fails.setdefault(ip, []).append(time.monotonic())
 
 
@@ -163,7 +163,7 @@ def _authenticate(rt, db, method: str, target: str, headers, body: bytes, ip: st
     cid, ts, nonce, sig = (headers.get(h, "") for h in ("x-msp-client", "x-msp-timestamp", "x-msp-nonce", "x-msp-signature"))
     if not (cid and ts and nonce and sig):
         deny("auth_headers_missing", "X-MSP-Client, X-MSP-Timestamp, X-MSP-Nonce and X-MSP-Signature are required")
-    if not _CLIENT_RE.match(cid) or not _NONCE_RE.match(nonce) or not ts.isdigit() or len(ts) > 12 or not re.fullmatch(r"v1=[0-9a-f]{64}", sig):
+    if not _CLIENT_RE.match(cid) or not _NONCE_RE.match(nonce) or not re.fullmatch(r"[0-9]{1,12}", ts) or not re.fullmatch(r"v1=[0-9a-f]{64}", sig):
         deny("auth_malformed")
     if abs(time.time() - int(ts)) > SKEW_SECONDS:
         deny("timestamp_out_of_window", f"clock skew exceeds {SKEW_SECONDS}s")
@@ -184,9 +184,14 @@ def _authenticate(rt, db, method: str, target: str, headers, body: bytes, ip: st
         hmac.compare_digest(sig, sig)
     if not ok:
         deny("invalid_signature")
-    if row.mtls_fingerprint:  # the TLS proxy terminates mTLS and forwards the verified certificate fingerprint; only trusted from the proxy itself
+    if row.mtls_fingerprint:
+        # The TLS proxy terminates mTLS and forwards the verified certificate fingerprint in X-Client-Cert-SHA256 (it always OVERWRITES that header) together with
+        # a shared secret in X-OU-Proxy-Auth (review 6 L5). The peer address is not a usable proof here: behind the proxy uvicorn rewrites it to the forwarded
+        # client address, and a loopback proxy is indistinguishable from any other local process.
         fp = (headers.get("x-client-cert-sha256") or "").replace(":", "").lower()
-        if not (rt.settings.trusted_proxy and ip == rt.settings.trusted_proxy and hmac.compare_digest(fp, row.mtls_fingerprint)):
+        sec = rt.settings.msp_proxy_auth or ""
+        proxy_ok = bool(sec) and hmac.compare_digest((headers.get("x-ou-proxy-auth") or "").encode(), sec.encode())
+        if not (proxy_ok and hmac.compare_digest(fp.encode(), row.mtls_fingerprint.encode())):
             deny("client_certificate_required", "a valid client certificate is required for this API client", 401)
     n = db.execute(text("INSERT INTO msp_nonces (client_id, nonce, expires_at) VALUES (:c, :n, now() + make_interval(secs => :t)) ON CONFLICT DO NOTHING"),
                    {"c": str(row.id), "n": nonce, "t": NONCE_TTL}).rowcount
