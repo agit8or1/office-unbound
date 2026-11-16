@@ -10,7 +10,7 @@ Owner requirement: "Produce a consolidated SECURITY-REMEDIATION.md with evidence
 
 **Status vocabulary.** *Fixed on main*; *Fixed on branch `<b>@<sha>` (pending merge)*; *Partial*; *Open*; *Accepted risk* (reason + owner sign-off needed); *Owner action*. "Fixed" means the code at the stated commit does what the finding asked for. It does not mean the fix is deployed on the live host (see the notes at the end).
 
-**Review 8 (2026-11-16, independent, `docs/status/security-review-8-2026-11-16.md`):** 0 Critical, 1 High, 4 Medium, 3 Low. All fixed in code except R8-L-2 (Open, reason in its row); R8-H-1 stays Partial until the root helper is re-installed on the ICS host.
+**Review 8 (2026-11-16, independent, `docs/status/security-review-8-2026-11-16.md`):** 0 Critical, 1 High, 4 Medium, 3 Low. All fixed in code except R8-L-2 (Open, reason in its row); R8-H-1 closed 2026-11-16 (helper re-installed on the ICS host with the c3d8756 deploy).
 
 **Result: no review found a Critical.** Of the High findings, those from reviews R1-R3, the SSH-bootstrap review and R4-H1 are fixed on `main`; every High from R4-H2 onward (R5, R6, R7) is Partial or fixed only on an unmerged branch (see the exit criteria below).
 
@@ -20,10 +20,10 @@ Owner requirement: "Produce a consolidated SECURITY-REMEDIATION.md with evidence
 | Severity | Fixed on main | Fixed on branch (pending merge) | Partial | Open | Accepted risk | Owner action | Total |
 |---|---|---|---|---|---|---|---|
 | Critical | 0 | 0 | 0 | 0 | 0 | 0 | 0 |
-| High | 15 | 0 | 6 | 0 | 0 | 0 | 21 |
+| High | 16 | 0 | 5 | 0 | 0 | 0 | 21 |
 | Medium | 47 | 0 | 5 | 0 | 2 | 0 | 54 |
 | Low | 40 | 0 | 12 | 11 | 2 | 0 | 65 |
-| **All** | 102 | 0 | 23 | 11 | 4 | 0 | 140 |
+| **All** | 103 | 0 | 22 | 11 | 4 | 0 | 140 |
 
 Plus owner-action rows (not counted above): High 1, Medium 1.
 
@@ -168,7 +168,7 @@ Evaluated at the commits stated above. "Met" requires the condition to hold on `
 | R7-L6 | Low | backup.policy.create does not compare runner node's customer | Open | `3ab0e3b:ics/ics/backups/ops.py:132` | none | none | _node_has only compares the node's capability customer-profile list, not nodes.customer_id; require node.customer_id == policy customer_id. Backlog. |
 | R7-L7 | Low | /plans/preview existence oracle for other customers' endpoint names | Open | `3ab0e3b:ics/ics/blueprint.py:55` | none | none | Scope the lookup by customer; backlog. |
 | R7-L8 | Low | Standby nits (WAL slot retention; callback without guard) | Fixed on main (merged in integration-8) | `3ab0e3b:ics/deploy/standby/ics-standby-prepare-primary.sh:55` `3ab0e3b:ics/ics/guest/callback.py:259` | `3ab0e3b:ics/tests/test_review7_fencing.py::test_h5_standby_never_has_side_effects` [E] | R7 text contradicted by code for the slot: max_slot_wal_keep_size = 2GB is already present at ab30b85 (since 0c27655) | Callback guard added by 8d69ce0; slot part was never open. |
-| R8-H-1 | High | Deb smoke test ran untrusted maintainer scripts as real root in systemd-nspawn without user namespacing | Partial | `fdd5aaa:blueprints/build/repo/testrunner/nspawn-smoke:34` | none (executed on the ICS host 2026-11-16: trivial deb PASS, postinst ran as mapped root, mknod denied, throw-away copy removed) | review 8 (PLAUSIBLE escape, not executed) | Code fixed on main: throw-away base copy chowned into a picked userns range, escape capabilities dropped, no-new-privileges. The installed root helper on the ICS host still needs re-installing (install-signer.sh, a host change the controller does with the next deploy) before privsep is applied. |
+| R8-H-1 | High | Deb smoke test ran untrusted maintainer scripts as real root in systemd-nspawn without user namespacing | Fixed on main | `fdd5aaa:blueprints/build/repo/testrunner/nspawn-smoke:34` | none (executed on the ICS host 2026-11-16: trivial deb PASS, postinst ran as mapped root, mknod denied, throw-away copy removed) | review 8 (PLAUSIBLE escape, not executed) | Code fixed on main: throw-away base copy chowned into a picked userns range, escape capabilities dropped, no-new-privileges. Installed root helper `/usr/local/lib/ou-testrunner/nspawn-smoke` replaced 2026-11-16 with the c3d8756 copy (sha256 d1312f79…; previous copy kept as `/var/backups/office-unbound/nspawn-smoke.20261116.bak`; host-changes.md). |
 | R8-M-1 | Medium | SSH onboarding adopted an existing node account; rollback/offboard then `userdel --remove`d it; fixed node paths clobbered other integrations | Fixed on main | `fdd5aaa:ics/ics/sshonboard/actions.py:421` `fdd5aaa:ics/ics/sshonboard/actions.py:566` | `fdd5aaa:ics/tests/test_ssh_onboard.py::test_m1_an_existing_account_or_install_is_never_adopted` [A] `fdd5aaa:ics/tests/test_ssh_onboard.py::test_m1_a_failed_reonboarding_keeps_the_existing_identity` [A] | review 8 | Preview is blocked when the account or another node install exists unless it is this endpoint's recorded identity; rollback removes only an account the run created. One integration per node by design. |
 | R8-M-2 | Medium | Offboarding did not bind the SSH session to the endpoint's cluster | Fixed on main | `fdd5aaa:ics/ics/sshonboard/actions.py:226` | `fdd5aaa:ics/tests/test_ssh_onboard.py::test_m2_offboard_through_a_session_to_another_host_is_refused` [A] | review 8 | Host:port + host key must equal the recorded identity (else the endpoint's API host); the node name is re-checked after connecting. |
 | R8-M-3 | Medium | `provider.ssh.helper` read the whole cluster as root at low risk (auto-approved) | Fixed on main | `fdd5aaa:ics/ics/sshonboard/actions.py:106` `fdd5aaa:ics/ics/sshonboard/actions.py:753` | `fdd5aaa:ics/tests/test_ssh_onboard.py::test_helper_actions_through_the_pipeline` [A] | review 8 | resources/users/acl/roles/network/firewall reads need an approver (normal); resources filtered to the endpoint's pools and nodes. users/acl output is not filtered (approver sees what is requested). |

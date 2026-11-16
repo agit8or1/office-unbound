@@ -211,7 +211,7 @@
             "scripts/security_remediation_check.py",
             "docs/status/security-review-8-2026-11-16.md"
           ],
-          "note": "140 findings tracked with verified evidence. Independent review 8 (2026-11-16): 0 Critical, 1 High, 4 Medium, 3 Low; all fixed in code except R8-L-2 (open by design until the ICS source address seen by pve06 is known). 6 Highs Partial: R4-H2, R5-H2, R7-H3, R7-H5 need the owner privsep apply / lab drills, R6-H1 the signed registry, R8-H-1 the re-installed smoke-test helper on the ICS host"
+          "note": "140 findings tracked with verified evidence. Independent review 8 (2026-11-16): 0 Critical, 1 High, 4 Medium, 3 Low; all fixed in code except R8-L-2 (open by design until the ICS source address seen by pve06 is known). 5 Highs Partial: R4-H2, R5-H2, R7-H3, R7-H5 need the owner privsep apply / lab drills, R6-H1 the signed registry (R8-H-1 closed: helper re-installed 2026-11-16); smoke-test helper on the ICS host"
         },
         {
           "id": "P1.14",

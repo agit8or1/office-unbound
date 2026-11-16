@@ -14,7 +14,7 @@ Readiness is the weighted share of each area's beta requirements that are **test
 
 | Area | Weight | Status (2026-11-16) | Evidence-based score |
 |---|---|---|---|
-| Security (no Critical/High; review 8; least privilege applied; signing verified) | 20 | 0 Critical. Independent review 8 done and fixed (1 High, 4 Medium, 2 Low; 1 Low open by design). 6 Highs Partial until owner privsep apply, helper re-install, signed registry | 60% |
+| Security (no Critical/High; review 8; least privilege applied; signing verified) | 20 | 0 Critical. Independent review 8 done and fixed (1 High, 4 Medium, 2 Low; 1 Low open by design). 5 Highs Partial until owner privsep apply and signed registry | 60% |
 | Installation and full-stack deploy through ICS (fresh, repeated) | 20 | Single VM and container on real PVE (A1). Full stack not yet deployed. Golden images and artifacts are on branches | 15% |
 | Data integrity and recovery (backup and restore of tenant and ICS; upgrade and rollback; failover) | 15 | Lab-verified: restores, ICS controller tier, editor and groupware rollback, HA partition proof | 55% |
 | Tenant isolation (identity, mail, files, docs, chat, meetings, admin, API, backups, network) | 15 | App and backup isolation lab-verified (209/0). Network (SDN) not yet applied | 45% |
@@ -25,8 +25,8 @@ Readiness is the weighted share of each area's beta requirements that are **test
 
 | Tracker | Value (commit) |
 |---|---|
-| Security findings open | Critical 0 · High 6 Partial · Medium/Low: see `SECURITY-REMEDIATION.md` (140 rows) |
-| Backend / frontend / e2e | Gate on 5504775 running. Last green: 9715881 (885 / 127 / 418+12) |
+| Security findings open | Critical 0 · High 5 Partial · Medium/Low: see `SECURITY-REMEDIATION.md` (140 rows) |
+| Backend / frontend / e2e | Last green: 0df8ae4 (1359 / 151 / 437+27); deployed c3d8756 2026-11-16 16:24Z |
 | Full-stack deploy success | 0 of 0 attempts |
 | Tenant isolation | 209 pass / 0 fail (lab, branch evidence); network isolation pending |
 | External mail | Not tested; needs owner domain/DNS |
@@ -58,7 +58,7 @@ Readiness is the weighted share of each area's beta requirements that are **test
 3. Fix gitleaks full-history scanning in CI.
 4. Prepare the batched owner-action sheet (`docs/admin/OWNER-ACTIONS.md`).
 5. ~~Independent security review 8~~ **done 2026-11-16** (one reviewer agent, owner-approved): `docs/status/security-review-8-2026-11-16.md`; fixes on `image-import` (fdd5aaa).
-6. ~~Refresh `SECURITY-REMEDIATION.md`~~ done (R8 rows). Stage 1 exit still needs: owner privsep apply (OA-1) and the smoke-test helper re-install (R8-H-1).
+6. ~~Refresh `SECURITY-REMEDIATION.md`~~ done (R8 rows). Stage 1 exit still needs: owner privsep apply (OA-1). Smoke-test helper re-installed 2026-11-16 (R8-H-1 closed).
 7. Follow-ups:
    - ~~R1~~ done (81a7d44): promotion fails in-flight replica jobs as `uncertain_after_promotion`.
    - ~~`wal_receiver_timeout` 5 s~~ done (81a7d44).
