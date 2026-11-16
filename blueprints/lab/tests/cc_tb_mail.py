@@ -51,8 +51,7 @@ AccountConfig.replaceVariables(c,'Lab '+mail.split('@')[0],mail,pw);
 await CreateInBackend.createAccountInBackend(c);
 // What a user's first start does after the wizard: let the IMAP server list its folders (XLIST/SPECIAL-USE flags) before anything is sent.
 for(const a of MailServices.accounts.accounts){ if(a.incomingServer.username==mail){
-  const srv=a.incomingServer.QueryInterface(Ci.nsIImapIncomingServer);
-  a.incomingServer.rootFolder; srv.discoverAllFolders(a.incomingServer.rootFolder);
+  MailServices.imap.discoverAllFolders(a.incomingServer.rootFolder, null, null);
   await waitFor(()=>a.incomingServer.rootFolder.getFolderWithFlags(Ci.nsMsgFolderFlags.SentMail),30000).catch(()=>null);
 } }
 return found;

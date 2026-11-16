@@ -1,5 +1,7 @@
 # Client compatibility results (open-source desktop clients)
 
+> Update 2026-11-16: findings 1-6 of section 5 are worked on in `docs/status/gw-client-fixes-results.md`.
+
 Date: 2026-11-15/16. Lab only. Server under test: `ou-gw1` (Gromox 3.13-ou2 source build, grommunio-dav 1.9-ou1, Postfix, Debian 12), directory = OpenLDAP on `ou-id1`, autoconfig document served by the portal on `ou-portal1`. Status words (ADR-0000 style): PASS / FAIL / PARTIAL / NOT SUPPORTED, each backed by output printed in this session.
 Machine: `ou-desk2` (clone of `ou-base-noble`, Ubuntu 24.04, zone `oulab`, `PrivateUsers=pick`, `MemoryMax=2G`, Xvfb :99). Code: `blueprints/lab/spike-desk/` (provisioning + README) and `blueprints/lab/tests/cc_*.py` (tests).
 

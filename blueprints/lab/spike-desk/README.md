@@ -36,3 +36,16 @@ Each test prints PASS/FAIL/PARTIAL/NOT SUPPORTED lines with the exact protocol/A
 * Server-side facts are verified with independent protocol clients (imaplib, raw CalDAV/CardDAV, raw EWS).
 * Marionette runs with `-remote-allow-system-access`; the profile is a throw-away lab profile. Passwords live only in the lab
   secrets file and the client's own login store inside the machine.
+
+## Notes from the second run (agent BJ, docs/status/gw-client-fixes-results.md)
+* The harness hard-codes the user names `cctb1/2`, `ccev1/2`. If Gromox still holds old accounts with those names but different directory entry UUIDs
+  (`gw-ldap-sync.py` reports `conflict ... externid differs`), create fresh directory users and rename them in the copies inside the machine
+  (`sed -i 's/cctb/bjtb/g; s/ccev/bjev/g' /root/cc/*.py /root/cc/*.sh`).
+* After a restart of the machine `/run/user/<uid of evo1,evo2>` does not exist: `install -d -o evoN -g evoN -m 0700 /run/user/$(id -u evoN)` before
+  `evo-servers.sh start`, otherwise gnome-keyring cannot start and the EWS backend never connects.
+* A fresh Evolution Data Server profile lists only "Global Address List" after the first `setup`; stop (`evo-servers.sh stop`) and start the servers again, then
+  run `setup` again (`/root/cc/evosetup.py`-style call, or just let `cc_evo.py` do it): Calendar/Contacts/Notes/Tasks appear.
+* `EWS_DEBUG=2 evo-servers.sh start` logs the SOAP request/response bodies of evolution-ews to the journal of `evoNsrv` (level 1: headers only).
+* `tb_folders_probe.py <address>` prints the folders a Thunderbird account knows (with flags) and where Fcc goes; the duplicate Sent/Trash investigation used it.
+* Thunderbird: after account creation the harness now calls `MailServices.imap.discoverAllFolders` (what the first start does) and the test uses the autoconfig
+  document unchanged (587 STARTTLS + AUTH), no manual port override any more.

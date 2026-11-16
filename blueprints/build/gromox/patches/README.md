@@ -63,3 +63,10 @@ identity is foreign and which the caller may use only through the delegate bit, 
 `From: <mailbox>` + `Sender: <caller>` (same as the MAPI path); send-as (store owner, sendas.txt) keeps `From` only. Denied without any grant (unchanged).
 Note for clients: the EWS `From` mailbox needs `RoutingType=SMTP`; without it the exporter drops the From header.
 Test: `blueprints/lab/tests/gw_sendas_test.py` (five grant combinations, delivered headers).
+
+## 0005-midb-default-subscriptions.patch (duplicate Sent/Trash in Thunderbird, agent BJ)
+Root cause of Thunderbird's duplicate `Sent`/`Trash` (client-compat-results.md 3.1): Gromox advertises SPECIAL-USE and flags the folders correctly
+(`LIST ... RETURN (SPECIAL-USE)` and `XLIST` return `\Sent`, `\Trash`, `\Drafts`, `\Junk`; measured), but midb subscribes ONLY the INBOX of a new mailbox
+("Only INBOX gets to be subscribed by default"). Thunderbird lists subscribed folders only, never sees `Sent Items`/`Deleted Items`, and creates its own.
+Change: `me_default_subscribed()` (INBOX, Drafts, Sent Items, Deleted Items, Junk Email) in both folder-insert paths of `exch/midb/mail_engine.cpp`.
+Existing mailboxes: `blueprints/lab/spike-groupware/gw-subscribe-defaults.sh` (one-time, marker file, restarts midb + imap).

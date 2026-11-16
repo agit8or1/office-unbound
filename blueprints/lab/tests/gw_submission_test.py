@@ -27,7 +27,7 @@ def msg(frm, to, subj):
     return "From: %s\r\nTo: %s\r\nSubject: %s\r\nMessage-ID: <%s@%s>\r\n\r\nsubmission test\r\n" % (frm, to, subj, uuid.uuid4().hex, DOM)
 
 
-def inbox_has(user, pw, subj, wait=20):
+def inbox_has(user, pw, subj, wait=60):  # a cold midb (right after gromox restarts / other suites) has needed more than 20 s once or twice
     t = time.time() + wait
     while time.time() < t:
         M = imaplib.IMAP4_SSL(HOST, 993, ssl_context=ctx)

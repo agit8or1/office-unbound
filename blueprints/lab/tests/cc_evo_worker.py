@@ -200,22 +200,31 @@ def mail_text(msg):
     return bytes(ba if isinstance(ba, (bytes, bytearray)) else ba.data).decode("utf-8", "replace")
 
 
-def find_uids(folder, subject, wait=25):
+def find_uids(folder, subject, wait=25, scan=False):
     """Retry wrapper: right after refresh_info_sync the EWS folder summary can still be (re)filling, so an empty result is
     retried for up to `wait` seconds (no extra refresh)."""
     end = time.time() + wait
     while True:
-        r = _find_uids_once(folder, subject)
+        r = _find_uids_once(folder, subject, scan)
         if r or time.time() > end:
             return r
         time.sleep(2)
 
 
-def _find_uids_once(folder, subject):
+def _find_uids_once(folder, subject, scan=False):
     """One folder search (a single list-returning call per command: repeated get_uids()/search calls on a folder that is being
     synchronised produced garbage uid strings / crashes through pygobject)."""
     try:
-        return list(folder.search_by_expression('(match-all (header-contains "subject" "%s"))' % subject, None) or [])
+        r = list(folder.search_by_expression('(match-all (header-contains "subject" "%s"))' % subject, None) or [])
+        if r or not scan:
+            return r
+        # the summary search can return nothing for messages the summary does hold (seen with evolution-ews 3.52): scan the summary
+        out = []
+        for u in list(folder.search_by_expression("(match-all #t)", None) or []):
+            i = folder.get_message_info(u)
+            if i and subject in (i.get_subject() or ""):
+                out.append(u)
+        return out
     except Exception:
         return []
 
@@ -326,10 +335,21 @@ def main(argv):
             msg = f.get_message_sync(us[0], None)
             out(found=True, text=mail_text(msg)[:1500], flags=f.get_message_info(us[0]).get_flags())
         elif cmd == "mail-flag":
-            f = mail_folder(args[1] if len(args) > 1 else "Inbox", refresh=False)
-            us = find_uids(f, args[0])
+            f = mail_folder(args[1] if len(args) > 1 else "Inbox", refresh=True)
+            us = find_uids(f, args[0], scan=True)
             fl = {"seen": Camel.MessageFlags.SEEN, "flagged": Camel.MessageFlags.FLAGGED, "answered": Camel.MessageFlags.ANSWERED}[args[2] if len(args) > 2 else "seen"]
             for u in us: f.set_message_flags(u, fl, fl)
+            f.synchronize_sync(False, None)
+            out(changed=len(us))
+        elif cmd == "mail-followup":
+            # Evolution's "Mark for Follow-Up" (user tag follow-up): this, not the CAMEL "important" flag, is what evolution-ews pushes as PidTagFlagStatus
+            f = mail_folder(args[1] if len(args) > 1 else "Inbox", refresh=True)
+            us = find_uids(f, args[0], scan=True)
+            for u in us:
+                i = f.get_message_info(u)
+                i.set_user_tag("follow-up", "Follow Up")
+                i.set_user_tag("due-by", "")
+                f.set_message_flags(u, Camel.MessageFlags.FLAGGED, 0)
             f.synchronize_sync(False, None)
             out(changed=len(us))
         elif cmd == "mail-mkfolder":
@@ -337,19 +357,19 @@ def main(argv):
             out(ok=True, name=fi.full_name)
         elif cmd == "mail-search":
             f = mail_folder(args[1] if len(args) > 1 else "Inbox", refresh=False)
-            us = find_uids(f, args[0])
+            us = find_uids(f, args[0], scan=True)
             out(hits=[f.get_message_info(u).get_subject() for u in us])
         elif cmd == "mail-move":
             f = mail_folder("Inbox", refresh=False); dst = mail_folder(args[1], refresh=False)
-            us = find_uids(f, args[0])
+            us = find_uids(f, args[0], scan=True)
             try:
                 f.transfer_messages_to_sync(us, dst, False, None)
             except UnicodeDecodeError:
                 pass  # pygobject cannot decode the binary uid list returned by the call; the transfer itself ran
             out(moved=len(us))
         elif cmd == "mail-delete":
-            f = mail_folder(args[1] if len(args) > 1 else "Inbox", refresh=False)
-            us = find_uids(f, args[0])
+            f = mail_folder(args[1] if len(args) > 1 else "Inbox", refresh=True)
+            us = find_uids(f, args[0], scan=True)
             for u in us: f.set_message_flags(u, Camel.MessageFlags.DELETED, Camel.MessageFlags.DELETED)
             f.synchronize_sync(True, None)
             out(deleted=len(us))
