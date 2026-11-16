@@ -9,7 +9,7 @@ HERE=$(cd "$(dirname "$0")" && pwd)
 # shellcheck disable=SC1091
 . "$HERE/tools.env"
 STATE=${OU_PKG_STATE:-/var/lib/office-unbound/pkgbuild}
-ORDER="libhx wmime gromox libexmdbpp mapi-header-php grommunio-sync grommunio-dav grommunio-web admin-api admin-web"   # collabora (prebuilt-stage) is separate: build.sh collabora
+ORDER="libhx wmime gromox libexmdbpp mapi-header-php grommunio-sync grommunio-dav grommunio-web admin-api admin-web"   # collabora (prebuilt-stage) is separate: build.sh collabora; the ICS itself is built from a release tag: OU_ICS_TAG=vX.Y.Z build.sh ics
 mkdir -p "$STATE"/{src,in,out,tools}
 
 log() { echo "[$(date +%T)] $*"; }
@@ -56,12 +56,22 @@ fetch() {  # clone pinned tag, verify tag object + commit SHA + signature, expor
   [ -d "$d/.git" ] || git clone -q --branch "$TAG" "$REPO" "$d" 2>/dev/null
   git -C "$d" fetch -q --tags origin 2>/dev/null || true
   got=$(git -C "$d" rev-parse "refs/tags/$TAG^{commit}")
-  [ "$got" = "$COMMIT" ] || { echo "FETCH FAIL $c: tag $TAG resolves to $got, recipe pins $COMMIT"; exit 1; }
+  if [ "$DYNAMIC" = 1 ]; then   # release-tag build of this repository (ou-ics): the operator names the tag; the commit is recorded, optionally pinned
+    [ -z "$COMMIT" ] || [ "$got" = "$COMMIT" ] || { echo "FETCH FAIL $c: tag $TAG resolves to $got, OU_ICS_COMMIT pins $COMMIT"; exit 1; }
+    [ "$(git -C "$d" cat-file -t "refs/tags/$TAG")" = tag ] || { echo "FETCH FAIL $c: $TAG is a lightweight tag; releases use annotated tags (ADR-0011)"; exit 1; }
+    [ "$(git -C "$d" show "$got:VERSION")" = "${TAG#v}" ] || { echo "FETCH FAIL $c: VERSION at $TAG is '$(git -C "$d" show "$got:VERSION")', not '${TAG#v}'"; exit 1; }
+    COMMIT=$got; TAG_OBJECT=$(git -C "$d" rev-parse "refs/tags/$TAG")
+    if git -C "$d" verify-tag "refs/tags/$TAG" >/dev/null 2>&1; then DYN_SIG="valid"
+    elif [ "${OU_ICS_REQUIRE_SIGNED:-0}" = 1 ]; then echo "FETCH FAIL $c: tag $TAG is not validly signed and OU_ICS_REQUIRE_SIGNED=1"; exit 1
+    else DYN_SIG="UNSIGNED (annotated tag only; no signing key configured, docs/RELEASING.md step 7)"; fi
+  else
+    [ "$got" = "$COMMIT" ] || { echo "FETCH FAIL $c: tag $TAG resolves to $got, recipe pins $COMMIT"; exit 1; }
+  fi
   if [ -n "$TAG_OBJECT" ]; then
     obj=$(git -C "$d" rev-parse "refs/tags/$TAG")
     [ "$obj" = "$TAG_OBJECT" ] || { echo "FETCH FAIL $c: tag object $obj != pinned $TAG_OBJECT"; exit 1; }
   fi
-  sig=none
+  sig=none; [ "$DYNAMIC" != 1 ] || sig=$DYN_SIG
   if [ "$VERKIND" = pgp-tag ]; then
     raw=$(git -C "$d" verify-tag --raw "refs/tags/$TAG" 2>&1 || true)
     keyid=$(echo "$raw" | awk '/ERRSIG|VALIDSIG/ {for(i=1;i<=NF;i++) if ($i ~ /^[0-9A-F]{16}$/ || $i ~ /^[0-9A-F]{40}$/) {print $i; exit}}')
@@ -70,10 +80,15 @@ fetch() {  # clone pinned tag, verify tag object + commit SHA + signature, expor
   fi
   SDE=$(git -C "$d" log -1 --format=%ct "$COMMIT")
   mkdir -p "$STATE/in/$c"
-  git -C "$d" archive --format=tar --prefix="$SRC_NAME-$UPSTREAM_VERSION/" "$COMMIT" | xz -9e -T1 -c > "$STATE/in/$c/orig.tar.xz"
-  mkdir -p "$STATE/out/$c"
+  mkdir -p "$STATE/in/$c" "$STATE/out/$c"
+  if [ "$DYNAMIC" = 1 ]; then   # no .git in the archive: carry the commit in the tree so BUILD_INFO.json can record it
+    printf '%s\n' "$COMMIT" > "$STATE/in/$c/.ou-source-commit"
+    git -C "$d" archive --format=tar --prefix="$SRC_NAME-$UPSTREAM_VERSION/" --add-file="$STATE/in/$c/.ou-source-commit" "$COMMIT" | xz -9e -T1 -c > "$STATE/in/$c/orig.tar.xz"
+  else
+    git -C "$d" archive --format=tar --prefix="$SRC_NAME-$UPSTREAM_VERSION/" "$COMMIT" | xz -9e -T1 -c > "$STATE/in/$c/orig.tar.xz"
+  fi
   { echo "component=$c"; echo "repo=$REPO"; echo "tag=$TAG"; echo "commit=$COMMIT"; echo "source_date_epoch=$SDE"
-    echo "signature=$sig"; echo "orig_sha256=$(sha256sum "$STATE/in/$c/orig.tar.xz" | cut -d' ' -f1)"; } > "$STATE/out/$c/source.info"
+    echo "signature=$sig"; echo "tag_object=$TAG_OBJECT"; echo "deb_upstream_version=$UPSTREAM_VERSION"; echo "orig_sha256=$(sha256sum "$STATE/in/$c/orig.tar.xz" | cut -d' ' -f1)"; } > "$STATE/out/$c/source.info"
   log "fetch $c: commit $COMMIT ok, signature: $sig, SDE=$SDE"
 }
 
@@ -135,7 +150,12 @@ do_one() {
   if [ "$(rv field "$c" kind 2>/dev/null || echo debian)" = prebuilt-stage ]; then
     package_prebuilt "$c"; sbom "$c"; scan "$c"; return
   fi
-  fetch "$c"; licensecheck "$c"; compile "$c"; sbom "$c"; scan "$c"
+  fetch "$c"; licensecheck "$c"; compile "$c"
+  # vendored wheels exist only after the build's prefetch step: their licences are checked from the METADATA the builder recorded, before sbom/scan
+  if [ -f "$STATE/out/$c/artifacts/wheel-licenses.json" ]; then
+    OU_WHEELS_JSON="$STATE/out/$c/artifacts/wheel-licenses.json" python3 -I "$HERE/lib/licensecheck.py" "$c" "$STATE/src/$SRC_NAME" "$STATE/out/$c/license-report.json"
+  fi
+  sbom "$c"; scan "$c"
 }
 
 case "${1:-}" in

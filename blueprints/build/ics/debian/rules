@@ -1,0 +1,39 @@
+#!/usr/bin/make -f
+# ou-ics: assembled from the git-archive of a release tag. debian/wheels/{cp311,cp312} were populated by the recipe prefetch step
+# (hash-locked `pip download`, network only there); this step has NO network.
+PKG=debian/ou-ics
+OPT=$(PKG)/opt/office-unbound
+%:
+	dh $@ --buildsystem=none
+
+override_dh_auto_build:
+override_dh_auto_test:
+
+override_dh_auto_install:
+	test -f .ou-source-commit
+	test -d debian/wheels/cp311 -a -d debian/wheels/cp312
+	install -d $(OPT)/ics $(OPT)/blueprints
+	tar -C ics -c --exclude=./tests --exclude=./e2e --exclude=./frontend --exclude=./.venv --exclude=__pycache__ --exclude=node_modules . | tar -C $(OPT)/ics -x --no-same-owner
+	test -f $(OPT)/ics/ics/static/index.html
+	cp -a blueprints/catalog $(OPT)/blueprints/catalog
+	OU_PACKAGE_VERSION="$$(dpkg-parsechangelog -S Version)" python3 ics/deploy/write_build_info.py . $(OPT)/ics/BUILD_INFO.json
+	install -d $(PKG)/usr/share/ou-ics
+	cp -a debian/wheels $(PKG)/usr/share/ou-ics/wheels
+	install -m 0644 debian/wheel-licenses.json $(PKG)/usr/share/ou-ics/wheel-licenses.json
+	install -d $(PKG)/usr/lib/ou-ics $(PKG)/usr/sbin $(PKG)/usr/lib/systemd/system
+	install -m 0755 ics/deploy/backup/ics-backup.sh ics/deploy/pkg/ou-ics-setup ics/deploy/pkg/ou-ics-preupgrade-backup $(PKG)/usr/lib/ou-ics/
+	install -m 0755 ics/deploy/pkg/ou-ics-rollback $(PKG)/usr/sbin/ou-ics-rollback
+	install -m 0644 ics/deploy/ics.service ics/deploy/ics-migrate.service ics/deploy/ics-callback.service $(PKG)/usr/lib/systemd/system/
+	install -D -m 0644 debian/ou-ics.sysusers $(PKG)/usr/lib/sysusers.d/ou-ics.conf
+	install -D -m 0644 debian/ou-ics.tmpfiles $(PKG)/usr/lib/tmpfiles.d/ou-ics.conf
+	install -D -m 0644 debian/ics-tuning.env $(PKG)/etc/office-unbound/ics-tuning.env
+	find $(PKG) -name '__pycache__' -prune -exec rm -rf {} +
+
+# units are enabled/started by the postinst (it must order backup -> migrate -> start itself)
+override_dh_installsystemd:
+# never rewrite the wheels: their sha256 must still match requirements.lock
+override_dh_strip_nondeterminism:
+override_dh_python3:
+override_dh_dwz:
+override_dh_strip:
+override_dh_shlibdeps:

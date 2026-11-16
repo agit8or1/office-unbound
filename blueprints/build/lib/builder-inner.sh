@@ -83,6 +83,7 @@ EOF
       dpkg-buildpackage -us -uc -b -j"$JOBS" > "$OUT/build.log" 2>&1 ) \
     || { tail -40 "$OUT/build.log"; echo "BUILD FAILED $c"; exit 1; }
   cp "$W"/*.deb "$W"/*.dsc "$W"/*.buildinfo "$W"/*.changes "$W"/*.tar.* "$OUT/" 2>/dev/null || true
+  [ -f "$D/debian/wheel-licenses.json" ] && cp "$D/debian/wheel-licenses.json" "$OUT/wheel-licenses.json" || true   # ou-ics: licence metadata of the vendored wheels
   cp "$W"/*.deb "$BUILD/localrepo/" 2>/dev/null || true
   ( cd "$OUT" && lintian --no-tag-display-limit -I ./*.changes > lintian.txt 2>&1 || true )
   ( cd "$OUT" && sha256sum ./*.deb ./*.dsc ./*.tar.* > SHA256SUMS )

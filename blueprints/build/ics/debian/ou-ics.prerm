@@ -1,0 +1,14 @@
+#!/bin/bash
+# ou-ics prerm. Safe by construction: it never touches data, never fails, and on UPGRADE leaves the running service alone (the new postinst
+# stops it only after the backup exists and just before migrating).
+case "$1" in
+  remove|deconfigure)
+    if [ -d /run/systemd/system ]; then
+      systemctl stop ics.service ics-migrate.service ics-callback.service 2>/dev/null || true
+      systemctl disable ics.service ics-migrate.service >/dev/null 2>&1 || true
+    fi
+    ;;
+  upgrade|failed-upgrade) ;;
+esac
+#DEBHELPER#
+exit 0

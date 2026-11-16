@@ -12,6 +12,7 @@ Group=ics
 WorkingDirectory=/opt/office-unbound/ics
 # ics_app credentials only. The owner (migration) URL lives in ics-migrate.env (root 0600) and is never loaded here.
 EnvironmentFile=/etc/office-unbound/ics.env
+EnvironmentFile=-/etc/office-unbound/ics-tuning.env
 ExecStart=/opt/office-unbound/ics/.venv/bin/python -m ics.serve
 Restart=on-failure
 RestartSec=3

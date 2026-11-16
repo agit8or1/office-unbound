@@ -41,13 +41,19 @@ def main(root: Path, out: Path) -> None:
     j = lambda p: json.loads((root / p).read_text()) if (root / p).is_file() else {}
     vs, prog = j("VERSIONS.json"), j("docs/progress.json")
     dirty = git(root, "status", "--porcelain", "--untracked-files=no")
+    commit = git(root, "rev-parse", "HEAD")
+    # package build: the tree is a `git archive` of a release tag (no .git). The pipeline drops the tag's commit next to VERSION; it is clean by construction.
+    pinned = root / ".ou-source-commit"
+    if pinned.is_file() and commit is None:
+        commit, dirty = pinned.read_text().strip() or None, ""
     epoch = os.environ.get("SOURCE_DATE_EPOCH")
     now = datetime.fromtimestamp(int(epoch), timezone.utc) if epoch else datetime.now(timezone.utc)
     info = {
         "product": "Office Unbound",
         "version": (root / "VERSION").read_text().strip(),
-        "commit": git(root, "rev-parse", "HEAD"),
+        "commit": commit,
         "dirty": None if dirty is None else bool(dirty),
+        "package": f"ou-ics {os.environ['OU_PACKAGE_VERSION']}" if os.environ.get("OU_PACKAGE_VERSION") else None,
         "built_at": now.strftime("%Y-%m-%dT%H:%M:%SZ"),
         "schema_head": schema_head(root / "ics" / "migrations" / "versions"),
         "components": vs.get("components", {}),

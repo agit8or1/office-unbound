@@ -1,0 +1,29 @@
+# ADR-0008 recipe: ou-ics (the Infrastructure Control Server itself: backend, built console, migrations, deployment catalog).
+# Unlike the other components the source is THIS repository at a release tag (ADR-0011 `vMAJOR.MINOR.PATCH[-pre]`), so the pin is not in this file:
+#   OU_ICS_TAG=v0.1.0 [OU_ICS_COMMIT=<sha to pin>] [OU_ICS_REPO=<clone url or path>] [OU_ICS_REQUIRE_SIGNED=1] blueprints/build/build.sh ics
+# fetch resolves the tag to a commit, requires an ANNOTATED tag, checks that VERSION at the tag equals the tag, records the commit, tag object and the
+# signature state in out/ics/source.info, and exports a deterministic git-archive (SOURCE_DATE_EPOCH = commit time). Debian version: 0.1.0-ou1,
+# pre-release v0.1.1-dev.1 -> 0.1.1~dev.1-ou1 (sorts below 0.1.1).
+component: ics
+src_name: ou-ics
+description: "Office Unbound ICS: FastAPI backend + built console + alembic migrations + catalog; hash-locked wheels vendored for cp311 and cp312"
+source:
+  dynamic: true
+  repo: "OU_ICS_REPO (set the variable; default is the clone this script runs from)"
+verification:
+  kind: annotated-tag
+  note: annotated tag required; the signature is verified when OU_ICS_REQUIRE_SIGNED=1 (the production tag-signing key is an offline owner item, docs/RELEASING.md step 7).
+# Network only here (builder prefetch, unprivileged user, no scripts executed): hash-locked `pip download` of binary wheels for both supported
+# interpreters, then the licence metadata of every wheel. The binary build that follows has NO network.
+prefetch: |
+  export SOURCE_DATE_EPOCH=$SOURCE_DATE_EPOCH PYTHONHASHSEED=0
+  bash "$PWD/debian/fetch-wheels.sh" "$PWD"
+packages: [ou-ics]
+bundles_lock_packages: true
+python_wheels: true
+licenses: [AGPL-3.0-only, AGPL-3.0-or-later, MIT, Apache-2.0, BSD-3-Clause, BSD-2-Clause]
+inventory_match: "ics runtime dependencies"
+inputs:
+  - ics/requirements.lock: pip-compile --generate-hashes lock (all wheels verified against it with --require-hashes, in the builder and again at install time)
+  - ics/ics/static: the built console, committed with the code it was built from (the pipeline ships it as tagged; it does not rebuild it)
+  - ics/migrations: alembic revisions; BUILD_INFO.json records the head

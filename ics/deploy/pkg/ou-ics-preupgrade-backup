@@ -1,0 +1,27 @@
+#!/usr/bin/env bash
+# ou-ics-preupgrade-backup <reason>: take and VERIFY an ICS backup before a package upgrade/downgrade touches anything.
+# Called by the ou-ics preinst (from the version that is still installed) and, as a fallback, by postinst. Exit 0 = backup verified
+# (or there is no ICS database to back up); non-zero = the caller MUST abort. Writes /var/lib/office-unbound/ics-preupgrade.json.
+set -euo pipefail
+REASON="${1:-upgrade}"
+BK_ROOT="${OU_ICS_BACKUP_DIR:-/var/backups/office-unbound/ics}"
+STATE=/var/lib/office-unbound
+LIB=/usr/lib/ou-ics
+pg() { runuser -u postgres -- psql -X -q -Atd ics "$@"; }
+has="$(pg -c "select to_regclass('public.alembic_version') is not null" 2>/dev/null || true)"
+if [ "$has" != t ]; then echo "ou-ics: no ICS database with data on this host: nothing to back up"; exit 0; fi
+install -d -m 0700 "$BK_ROOT" "$STATE"
+dest="$("$LIB/ics-backup.sh" "$BK_ROOT" | tail -n1)" || { echo "ou-ics: BACKUP FAILED" >&2; exit 1; }
+[ -f "$dest/ics-backup.tar" ] && [ -f "$dest/MANIFEST" ] || { echo "ou-ics: backup output incomplete in $dest" >&2; exit 1; }
+want="$(sed -n 's/^archive_sha256=//p' "$dest/MANIFEST")"
+[ -n "$want" ] && [ "$(sha256sum < "$dest/ics-backup.tar" | cut -d' ' -f1)" = "$want" ] || { echo "ou-ics: backup archive checksum mismatch" >&2; exit 1; }
+tmp="$(mktemp -d)"; trap 'rm -rf "$tmp"' EXIT
+tar -xf "$dest/ics-backup.tar" -C "$tmp"
+( cd "$tmp" && sha256sum -c --quiet SHA256SUMS ) || { echo "ou-ics: backup content checksums do not verify" >&2; exit 1; }
+{ [ -s "$tmp/ics.dump" ] && pg_restore -l "$tmp/ics.dump" >/dev/null; } || { echo "ou-ics: the database dump is not a readable pg_dump archive" >&2; exit 1; }
+head="$(sed -n 's/^alembic_head=//p' "$dest/MANIFEST")"
+tmpj="$STATE/.ics-preupgrade.json.$$"
+printf '{"path": "%s", "created_epoch": %s, "alembic_head": "%s", "reason": "%s", "from_version": "%s"}\n' "$dest" "$(date +%s)" "$head" "$REASON" \
+  "$(dpkg-query -W -f='${Version}' ou-ics 2>/dev/null || echo none)" > "$tmpj"
+mv "$tmpj" "$STATE/ics-preupgrade.json"
+echo "ou-ics: pre-$REASON backup verified: $dest (schema $head)"
