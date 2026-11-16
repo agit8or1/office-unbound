@@ -65,6 +65,8 @@ async function lookup() {
 const trustMode = computed(() => (f.trust === 'ca' ? 'ca' : tls.value?.public_ca && f.trust === 'auto' ? 'public_ca' : 'fingerprint'))
 async function signIn() {
   err.value = ''
+  if (!edit.value && !f.host.trim()) { err.value = 'Enter the address of the Proxmox server.'; return }
+  if (!f.username.trim()) { err.value = 'Enter the Proxmox user name.'; return }
   if (!pw.value) { err.value = 'Enter the password.'; return }
   if (!edit.value) {
     if (!tls.value) await lookup()
@@ -86,7 +88,9 @@ async function signIn() {
 }
 async function sendTfa() {
   if (!session.value) return
-  err.value = ''; busy.value = true
+  err.value = ''
+  if (!tfa.code.trim()) { err.value = 'Enter the code.'; return }
+  busy.value = true
   try {
     session.value = await accessApi.tfa(session.value.id, tfa.method, tfa.code.trim())
     tfa.code = ''
@@ -147,7 +151,7 @@ function next() {
       <!-- 1. Connect / sign in -->
       <section v-if="cur === 'connect'" class="ax-step">
         <Banner v-if="edit" kind="info" title="Why sign in?">Changing what Office Unbound may do in Proxmox needs a Proxmox administrator once. Viewing inventory and status never does. Your password and code are used for this sign-in only and are never stored.</Banner>
-        <form class="ax-form" @submit.prevent="session?.state === 'need_tfa' ? sendTfa() : signIn()">
+        <form class="ax-form" novalidate @submit.prevent="session?.state === 'need_tfa' ? sendTfa() : signIn()">
           <template v-if="session?.state !== 'need_tfa'">
             <label v-if="!edit" class="fld"><span>Server address</span><input v-model="f.host" autocomplete="url" placeholder="pve.example.com or 10.0.0.5" required @change="tls = null" /></label>
             <div class="ax-row">
@@ -156,11 +160,12 @@ function next() {
               <label v-if="f.realm === 'other'" class="fld"><span>Realm name</span><input v-model="f.customRealm" /></label>
             </div>
             <label class="fld"><span>Password</span><input v-model="pw" type="password" autocomplete="current-password" required /></label>
-            <details v-if="!edit" class="ax-adv"><summary>Advanced</summary>
+            <button v-if="!edit" type="button" class="wz-btn ax-adv-toggle" :aria-expanded="f.advanced" @click="f.advanced = !f.advanced">{{ f.advanced ? 'Hide advanced settings' : 'Advanced settings' }}</button>
+            <div v-if="!edit && f.advanced" class="ax-adv">
               <label class="fld"><span>API port</span><input v-model.number="f.port" type="number" min="1" max="65535" @change="tls = null" /></label>
               <label class="fld"><span>Certificate trust</span><select v-model="f.trust"><option value="auto">Automatic (public certificate, or confirm the fingerprint)</option><option value="fingerprint">Confirm the fingerprint</option><option value="ca">Use the cluster's CA certificate</option></select></label>
               <label v-if="f.trust === 'ca'" class="fld"><span>Cluster CA (contents of /etc/pve/pve-root-ca.pem)</span><textarea v-model="f.caPem" rows="5" class="mono" /></label>
-            </details>
+            </div>
             <div v-if="!edit && tls" class="ax-tls">
               <Banner v-if="trustMode === 'public_ca'" kind="ok" title="Trusted certificate">{{ tls.subject }}. Publicly trusted for this address: no manual check needed.</Banner>
               <template v-else-if="trustMode === 'fingerprint'">
@@ -306,6 +311,7 @@ function next() {
 .fld { display: grid; gap: 4px; } .fld input, .fld select, .fld textarea { width: 100%; font: inherit; }
 .row { display: flex; flex-wrap: wrap; align-items: center; gap: 8px; }
 .mt { margin-top: 12px; }
+.ax-adv { display: grid; gap: 12px; } .ax-adv-toggle { justify-self: start; }
 .ax-fp { word-break: break-all; padding: 8px; border-radius: 6px; background: var(--code-bg, rgba(0, 0, 0, .04)); }
 .ax-cards { display: grid; grid-template-columns: repeat(auto-fill, minmax(170px, 1fr)); gap: 10px; }
 .ax-card { display: grid; gap: 2px; padding: 12px; border: 1px solid var(--border, #d0d5dd); border-radius: 8px; }

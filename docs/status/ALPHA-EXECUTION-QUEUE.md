@@ -66,6 +66,8 @@ Readiness is the weighted share of each area's beta requirements that are **test
 
 **Stage 2 must-do (found during integration-9) — DONE 2026-11-16 (0956d33, 0df8ae4: action + console Images page):** `image.import` was not wired to any approved action or executor step. The verb, verification (`golden.verify_for_import`) and DB floors exist and are tested, but nothing calls them. Add an `image.import` typed action (high risk; Settings trust; DB floor; `FloorStore.record` after success) and a deployment step that imports when the template is missing.
 
+**Owner directive 2026-11-16: Proxmox connection and access wizard** (ADR-0016, branch `pve-wizard`, commit 474b373). Sign-in with password + TOTP/recovery (ticket only), discovery tree, per-guest Operations level + `guest.power`, inventory ledger, incremental Manage access, repair/rotate/disconnect, excess-privilege stop. Simulator-tested; gate running. Remaining: browser e2e against the simulator; Monitoring <-> Operations/Deployment level change (needs a new token); opt-in cluster-wide read visibility. Real-cluster evidence = pve06.
+
 **Frozen work:** PIM migration (`worktree-agent-a1c66e0c…`, WIP 247f94d; verification failed). It is preserved and re-enters in Stage 5 (migration) only after it verifies.
 
 ## Owner actions known now

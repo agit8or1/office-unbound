@@ -9,6 +9,13 @@ from ics import agentclient
 from .test_agent import NODE, enrolled  # noqa: F401  (fixture)
 
 
+@pytest.fixture(autouse=True)
+def _no_controller_fencing(monkeypatch):
+    """These tests exercise the AGENT's epoch gate. Detach the controller's stale-epoch hook (a module global set by the most recently built
+    Runtime), so the simulated 'new primary' does not self-fence the shared test database for every later test."""
+    monkeypatch.setattr(agentclient, "stale_epoch_hook", None)
+
+
 def _req(enrolled, epoch, action="service.status", params=None):
     fa, priv, node = enrolled
     body = agentclient.build_request(priv, action=action, params=params or {"unit": "gromox-imap"}, node_id=NODE, job_id=str(uuid.uuid4()), epoch=epoch)
