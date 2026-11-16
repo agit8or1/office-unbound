@@ -67,3 +67,9 @@ Consolidated evidence: `docs/status/SECURITY-REMEDIATION.md`. It is produced onc
 4. **External mail delivery test.** Needs a real domain with MX/SPF/DKIM DNS you control and outbound TCP 25 from the lab network.
 5. **Outlook and mobile clients.** Licences and devices (issue #1).
 6. Rotate the Proxmox token; copy the release revocation certificate offline; invite approvers.
+
+## Decisions recorded
+- 2026-11-16, network isolation (owner accepted the recommendation): use **option A** (a per-customer SDN VNet plus the Proxmox firewall, with datacenter policies left at ACCEPT) **if** the pre-flight shows no node-level firewall rules on pve01–05. Otherwise use **option B** (VNets with no host gateway plus an ICS-deployed router/firewall VM per customer). The pre-flight comes from the SSH onboarding read-only discovery.
+- 2026-11-16, CPU: the owner says pve06 CPU is sufficient. Plan the full two-customer layout.
+- 2026-11-16, thin-pool totals: gathered by SSH onboarding discovery once the owner connects pve06.
+- 2026-11-16, **P9 (PDF reader/editor) is DEFERRED** and is the final development priority. No agents or worktrees until stages 1–8 are complete and verified. Requirements: `docs/requirements/P9-pdf-reader-editor.md`.

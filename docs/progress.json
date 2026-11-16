@@ -46,7 +46,8 @@
     "alpha": "Alpha",
     "beta": "Beta",
     "production": "Production supported",
-    "blocked": "Blocked"
+    "blocked": "Blocked",
+    "deferred": "Deferred"
   },
   "principles": [
     "Zero mandatory third-party licensing cost; no artificial user, mailbox or connection limits (ADR-0007)",
@@ -407,6 +408,106 @@
           "id": "P8.1",
           "title": "Deliverability, performance, security testing and support documentation",
           "status": "planned",
+          "evidence": []
+        }
+      ]
+    },
+    {
+      "id": "P9",
+      "name": "Full PDF Reader, Editor and Document Management (DEFERRED \u2014 final development priority)",
+      "status": "deferred",
+      "items": [
+        {
+          "id": "P9.0",
+          "title": "Technology and licensing evaluation (first step when P9 starts)",
+          "status": "deferred",
+          "evidence": [
+            "docs/requirements/P9-pdf-reader-editor.md"
+          ],
+          "note": "Deferred until alpha readiness and MSP pilot objectives are complete (owner, 2026-11-16)"
+        },
+        {
+          "id": "P9.1",
+          "title": "PDF reader",
+          "status": "deferred",
+          "evidence": []
+        },
+        {
+          "id": "P9.2",
+          "title": "Full editing of existing PDFs: text, images/objects, pages",
+          "status": "deferred",
+          "evidence": []
+        },
+        {
+          "id": "P9.3",
+          "title": "Annotations and multi-reviewer review",
+          "status": "deferred",
+          "evidence": []
+        },
+        {
+          "id": "P9.4",
+          "title": "Forms: filling and creation (AcroForm; XFA limits documented)",
+          "status": "deferred",
+          "evidence": []
+        },
+        {
+          "id": "P9.5",
+          "title": "Electronic signatures and signing workflows",
+          "status": "deferred",
+          "evidence": []
+        },
+        {
+          "id": "P9.6",
+          "title": "Cryptographic digital signatures (PKCS#12/X.509, PAdES, OCSP/CRL)",
+          "status": "deferred",
+          "evidence": []
+        },
+        {
+          "id": "P9.7",
+          "title": "Secure redaction (verified non-recoverable)",
+          "status": "deferred",
+          "evidence": []
+        },
+        {
+          "id": "P9.8",
+          "title": "OCR and scanned documents",
+          "status": "deferred",
+          "evidence": []
+        },
+        {
+          "id": "P9.9",
+          "title": "Document conversion, merge/split, PDF/A",
+          "status": "deferred",
+          "evidence": []
+        },
+        {
+          "id": "P9.10",
+          "title": "Document security, untrusted-input sandboxing",
+          "status": "deferred",
+          "evidence": []
+        },
+        {
+          "id": "P9.11",
+          "title": "Advanced tools: compare, Bates, accessibility, batch",
+          "status": "deferred",
+          "evidence": []
+        },
+        {
+          "id": "P9.12",
+          "title": "Office Unbound Files integration, versioning, APIs",
+          "status": "deferred",
+          "evidence": []
+        },
+        {
+          "id": "P9.13",
+          "title": "UX concept designs and review",
+          "status": "deferred",
+          "evidence": []
+        },
+        {
+          "id": "P9.14",
+          "title": "Test suite and final acceptance",
+          "status": "deferred",
           "evidence": []
         }
       ]
