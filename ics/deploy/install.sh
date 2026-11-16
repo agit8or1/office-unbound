@@ -5,6 +5,17 @@
 set -eu
 SRC="$(cd "$(dirname "$0")/.." && pwd)"
 DST=/opt/office-unbound/ics
+# ADR-0011 amendment: every deployed build has its own version. Refuse a DIFFERENT commit under the version that is already installed.
+NEWV="$(tr -d '[:space:]' < "$SRC/../VERSION")"
+NEWC="$(git -C "$SRC/.." rev-parse HEAD 2>/dev/null || true)"
+if [ -f "$DST/BUILD_INFO.json" ] && [ "${OU_ALLOW_SAME_VERSION:-0}" != 1 ]; then
+  OLDV="$(python3 -c 'import json,sys; print(json.load(open(sys.argv[1])).get("version", ""))' "$DST/BUILD_INFO.json")"
+  OLDC="$(python3 -c 'import json,sys; print(json.load(open(sys.argv[1])).get("commit") or "")' "$DST/BUILD_INFO.json")"
+  if [ "$OLDV" = "$NEWV" ] && [ -n "$NEWC" ] && [ "$OLDC" != "$NEWC" ]; then
+    echo "install.sh: version $NEWV is already installed from commit ${OLDC:-unknown}; bump VERSION (ADR-0011: one version per deployed build)" >&2
+    exit 1
+  fi
+fi
 getent passwd ics >/dev/null || useradd --system --no-create-home --home-dir /nonexistent --shell /usr/sbin/nologin ics
 install -d -o root -g root -m 0755 /opt/office-unbound "$DST"
 rsync -a --delete --exclude .venv --exclude __pycache__ --exclude .pytest_cache --exclude tests --exclude node_modules "$SRC"/ "$DST"/

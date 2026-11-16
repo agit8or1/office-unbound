@@ -19,7 +19,7 @@ export interface Selection {
 export const LEVELS: { id: Level; title: string; text: string; can: string[] }[] = [
   { id: 'monitoring', title: 'Monitoring', text: 'Read status and metrics of the selected resources, monitor health and send alerts.', can: ['Read status and metrics', 'Health checks and alerts'] },
   { id: 'operations', title: 'Operations', text: 'Everything in Monitoring, plus start, shut down and reboot the selected existing guests.', can: ['Everything in Monitoring', 'Start / shut down / reboot selected guests'] },
-  { id: 'deploy', title: 'Deployment', text: 'Everything in Operations, plus create and manage new Office Unbound guests on the selected nodes, storage and networks.', can: ['Everything in Operations', 'Create guests in the selected pools', 'Controlled updates and rollback of its own guests'] },
+  { id: 'deploy', title: 'Deployment', text: 'Everything in Monitoring, plus create and manage its own new guests on the selected nodes, in its own pool, storage and network.', can: ['Everything in Monitoring', 'Create guests in the selected pools', 'Controlled updates and rollback of its own guests'] },
 ]
 // Shown as switches that stay OFF unless chosen; presets never turn them on.
 export const NEVER = ['Delete VMs or disks that Office Unbound did not create', 'Change storage, network or cluster configuration', 'Change Proxmox users or permissions', 'Open consoles or run commands in guests']
@@ -34,7 +34,8 @@ export function fromApproved(inv: Inventory): Selection {
   const level: Level = a.preset === 'deploy' || a.preset === 'operations' ? a.preset : 'monitoring'
   // deployment nodes are only meaningful with the deployment level; otherwise the stored nodes are just the visible ones (derived again on save)
   const guestNodes = new Set((inv.guests ?? []).filter((g) => a.managed_vmids.includes(g.vmid)).map((g) => g.node))
-  return { operate: [...a.managed_vmids], watch: level === 'deploy' ? [] : a.nodes.filter((n) => !guestNodes.has(n)), nodes: level === 'deploy' ? [...a.nodes] : [], pools: [...a.pools], storages: [...a.storages],
+  // the chosen hypervisors are `nodes` at every level (owner decision: nodes only); nodes that are visible only because an operated guest runs there are not
+  return { operate: [...a.managed_vmids], watch: [], nodes: a.nodes.filter((n) => level === 'deploy' || !guestNodes.has(n)), pools: [...a.pools], storages: [...a.storages],
            networks: a.networks.map((n) => n.split('/')[0]), templates: [...a.templates], level, allowMigrate: !!a.allow_migrate, protected: [...a.protected_vmids] }
 }
 
@@ -70,10 +71,10 @@ export function suggestTargets(sel: Selection, inv: Pick<Inventory, 'storages' |
 
 export function validate(sel: Selection, guests: InvGuest[]): Record<string, string> {
   const e: Record<string, string> = {}
-  if (!sel.operate.length && !sel.nodes.length && !sel.watch.length) e.select = 'Select at least one node or one existing guest.'
+  if (!sel.operate.length && !sel.nodes.length && !sel.watch.length) e.select = 'Select at least one node.'
   if (sel.level === 'operations' && !sel.operate.length) e.level = 'Operations needs at least one selected existing guest.'
   if (sel.level === 'deploy') {
-    if (!sel.nodes.length) e.nodes = 'Choose at least one node where new guests may be created.'
+    if (!sel.nodes.length) e.nodes = 'Choose at least one node.'
     if (!sel.pools.length) e.pools = 'Choose the resource pool new guests are placed in.'
     else if (!sel.pools.every((x) => POOL_NAME.test(x))) e.pools = 'A pool name uses letters, digits, - _ . (up to 40 characters).'
     if (!sel.networks.length) e.networks = 'Choose the network new guests connect to.'
@@ -107,7 +108,7 @@ export function toScopeTarget(sel: Selection, guests: InvGuest[]): Record<string
 
 export interface Diff { added: string[]; removed: string[] }
 export function diffSelection(before: Selection, after: Selection): Diff {
-  const lab = (s: Selection) => new Set([...s.operate.map((v) => `Guest ${v}`), ...s.watch.map((n) => `Monitor node ${n}`), ...s.nodes.map((n) => `Deploy on node ${n}`), ...s.pools.map((n) => `Pool ${n}`),
+  const lab = (s: Selection) => new Set([...s.operate.map((v) => `Guest ${v}`), ...s.watch.map((n) => `Monitor node ${n}`), ...s.nodes.map((n) => `Node ${n}`), ...s.pools.map((n) => `Pool ${n}`),
     ...s.storages.map((n) => `Storage ${n}`), ...s.networks.map((n) => `Network ${n}`), ...s.templates.map((n) => `Template ${n}`)])
   const a = lab(before), b = lab(after)
   return { added: [...b].filter((x) => !a.has(x)), removed: [...a].filter((x) => !b.has(x)) }

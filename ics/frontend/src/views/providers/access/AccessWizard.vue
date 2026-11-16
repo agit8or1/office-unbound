@@ -49,8 +49,7 @@ const showTemplates = ref(false)
 const poolIsNew = computed(() => !(inv.value?.pools ?? []).includes(newPool.value.trim()))
 watch(() => sel.nodes.length, (n, o) => {
   if (inv.value) Object.assign(sel, suggestTargets(sel, inv.value))
-  if (n && !o) sel.level = 'deploy'                                                        // choosing where to deploy means the Deployment level
-  if (!n && o && sel.level === 'deploy') sel.level = sel.operate.length ? 'operations' : 'monitoring'
+  if (!edit.value && n && !o) sel.level = 'deploy'                                         // a new connection picks hypervisors to deploy on by default
 })
 watch(newPool, (n, o) => { const i = sel.pools.indexOf(o); if (i >= 0) sel.pools.splice(i, 1, n.trim()) })
 function toggleNewPool(on: boolean) {
@@ -58,13 +57,12 @@ function toggleNewPool(on: boolean) {
   if (on && i < 0) sel.pools.push(n)
   if (!on && i >= 0) sel.pools.splice(i, 1)
 }
-const newCount = computed(() => (edit.value ? guests.value.filter((g) => g.seen === false && !g.template).length : 0))
 
 const steps: StepDef<unknown>[] = [
   { id: 'connect', title: edit.value ? 'Sign in' : 'Connect', validate: (): Errors => (session.value?.state === 'ready' && inv.value ? {} : { connect: 'Sign in to Proxmox first.' }) },
-  { id: 'discover', title: edit.value ? 'Resources' : 'Discover', validate: (): Errors => (errs.value.select && !sel.nodes.length && !sel.operate.length ? { select: errs.value.select } : {}) },
+  { id: 'discover', title: edit.value ? 'Resources' : 'Discover', validate: (): Errors => (errs.value.select ? { select: errs.value.select } : {}) },
   { id: 'targets', title: 'Deployment targets' },
-  { id: 'permissions', title: 'Permissions', validate: () => { const e = { ...errs.value }; delete e.select; return sel.operate.length || sel.nodes.length ? e : { level: 'Select at least one guest or node.' } } },
+  { id: 'permissions', title: 'Permissions', validate: () => { const e = { ...errs.value }; delete e.select; return sel.operate.length || sel.nodes.length ? e : { level: 'Select at least one node.' } } },
   { id: 'review', title: 'Review', validate: (): Errors => (st.ok ? {} : { review: 'Preview the change first.' }) },
   { id: 'done', title: 'Done' },
 ]
@@ -222,11 +220,10 @@ function next() {
         <Banner v-if="!inv.account.ok" kind="warn" title="This account cannot set up Office Unbound's access">
           Missing: <span v-for="m in inv.account.missing" :key="m.path + m.privilege" class="mono">{{ m.privilege }} on {{ m.path }} </span>. {{ inv.account.remediation }}
         </Banner>
-        <Banner v-if="edit && newCount" kind="info" title="New since the last sync">{{ newCount }} guest(s) appeared that Office Unbound has not seen before. They are shown as New and are NOT authorized unless you select them.</Banner>
         <Banner v-if="edit && inv.missing?.length" kind="warn" title="No longer found">{{ inv.missing.map((x) => `${x.kind} ${x.key}`).join(', ') }}: deleted in Proxmox, or no longer visible.</Banner>
-        <h2>What may Office Unbound see and manage?</h2>
-        <p class="muted">Tick the nodes Office Unbound should monitor, and the VMs and containers it should see and operate. Everything else stays invisible to it. Ticking a node does not include its guests.</p>
-        <InventoryTree :inv="inv" :sel="sel" :edit="edit" :deploy-nodes="false" />
+        <h2>Which hypervisors may Office Unbound use?</h2>
+        <p class="muted">Tick the nodes it may use. It sees their status and, with the Deployment level, creates its own guests there. Your existing VMs and containers stay invisible to it.</p>
+        <InventoryTree :inv="inv" :sel="sel" :edit="edit" />
         <div class="row"><button type="button" class="wz-btn" :disabled="busy" @click="rescan">Rescan</button></div>
         <MaintenancePanel v-if="edit && session && id" :endpoint-id="id" :session-id="session.id" :endpoint-name="epName" />
         <p v-if="w.m.errors.select" class="err" role="alert">{{ w.m.errors.select }}</p>
@@ -234,9 +231,8 @@ function next() {
 
       <!-- 3. Deployment targets -->
       <section v-else-if="cur === 'targets' && inv" class="ax-step">
-        <h2>Where may Office Unbound create new guests?</h2>
-        <p class="muted">Optional. Leave everything empty if Office Unbound should only monitor or operate the guests you selected. You can add deployment targets later.</p>
-        <InventoryTree :inv="inv" :sel="sel" :edit="edit" :deploy-nodes="true" />
+        <h2>Where do its new guests go?</h2>
+        <p class="muted">On {{ sel.nodes.join(', ') || 'the selected nodes' }}. Only used with the Deployment level (next step); with Monitoring nothing here is granted.</p>
         <template v-if="sel.nodes.length">
           <Banner kind="info" title="Office Unbound picked these for you">Its own new pool, the disk storage with the most free space and the network your nodes share. Change anything you like.</Banner>
           <fieldset class="ax-set"><legend>Resource pool for new guests</legend>
@@ -266,7 +262,7 @@ function next() {
       <section v-else-if="cur === 'permissions'" class="ax-step">
         <h2>What may Office Unbound do?</h2>
         <div class="ax-levels" role="radiogroup" aria-label="Permission level">
-          <label v-for="l in LEVELS" :key="l.id" class="ax-level" :class="{ on: sel.level === l.id }">
+          <label v-for="l in LEVELS.filter((x) => x.id !== 'operations' || sel.operate.length)" :key="l.id" class="ax-level" :class="{ on: sel.level === l.id }">
             <input v-model="sel.level" type="radio" :value="l.id" />
             <b>{{ l.title }}</b><span class="muted small">{{ l.text }}</span>
           </label>

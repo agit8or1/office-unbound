@@ -52,11 +52,11 @@ describe('access wizard model', () => {
 
 describe('monitored nodes', () => {
   it('a ticked node is visible on its own, never with its guests, and is enough to continue', () => {
-    const s = { ...emptySelection(), watch: ['pve06'] }
+    const s = { ...emptySelection(), nodes: ['pve06'] }
     expect(validate(s, GUESTS)).toEqual({})
     const p = toPolicy(s, GUESTS) as { scope: { nodes: string[]; managed_vmids: number[] } }
     expect(p.scope.nodes).toEqual(['pve06']); expect(p.scope.managed_vmids).toEqual([])
-    expect(diffSelection(emptySelection(), s).added).toEqual(['Monitor node pve06'])
+    expect(diffSelection(emptySelection(), s).added).toEqual(['Node pve06'])
   })
 })
 
@@ -84,7 +84,7 @@ describe('edit mode', () => {
     const inv = { approved_scope: { nodes: ['pve06'], pools: [], storages: [], networks: ['vmbr0/20'], templates: [], managed_vmids: [105], protected_vmids: [126], preset: 'operations' } }
     const s = fromApproved(inv as never)
     expect(s.level).toBe('operations')
-    expect(s.nodes).toEqual([])                       // not deployment nodes at the operations level
+    expect(s.nodes).toEqual(['pve06'])                // the chosen hypervisors, at every level
     expect(s.networks).toEqual(['vmbr0'])
     expect(s.operate).toEqual([105])
   })

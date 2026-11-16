@@ -12,6 +12,12 @@ isolated lab; nothing is production supported ([ROADMAP.md](ROADMAP.md)).
 
 Target: 0.2.0 "Beacon" (alpha readiness: security hardening, production no-SSH deployment, full stack).
 
+### 0.2.0-dev.1 (2026-11-16)
+First numbered development build (ADR-0011 amendment: every production deploy gets its own `-dev.N`; earlier deploys of the 0.2 line all reported `0.2.0-dev`).
+- **Proxmox connection wizard (ADR-0016)**: sign in once with user name, password and TOTP (never stored; 30-minute Proxmox session), pick the hypervisor nodes only (existing VMs and containers are never selectable or shared), Office Unbound picks its own new pool, the roomiest disk storage and the shared bridge, then creates its own restricted service account, tokens, roles and ACLs as one approved plan; Manage access (add/remove nodes, repair, rotate, disconnect); every "add a cluster" entry point and `/setup` open it. Migration `0016p`. [ADR-0016](docs/adr/0016-proxmox-connection-wizard.md)
+- **Single-admin approvals (ADR-0017)**: `ICS_APPROVAL_MODE=single_admin`: an admin approves their own plans, one approval per plan; plan, digest check and audit unchanged. [ADR-0017](docs/adr/0017-single-admin-approval-mode.md)
+- Test isolation: agent-epoch tests no longer fence the shared test database.
+
 Merged on integration branches `integration-6`, `integration-7` and `integration-8` (not yet released). Production schema head is `0009b`; this batch adds `0009a` (controller epoch), `0010` (customer scoping), `0011` (one policy per repository URL) and `0012a`-`0012d` (Organization Admin, MSP API, collaboration check kinds, mailbox administration). Node agent 0.2.0 (controller epoch in signed requests; an agent without epoch support keeps working with an ICS at epoch 1, see [ICS recovery and standby](docs/admin/ics-recovery-and-standby.md)).
 
 ### Added
