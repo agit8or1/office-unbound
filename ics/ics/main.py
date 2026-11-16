@@ -30,6 +30,7 @@ from .inventory import api as inventory_api
 from . import version as ver
 from .provisioning import service as prov_service
 from .credentials import api as credentials_api, service as cred_service
+from .sshonboard import api as ssh_api
 from .tenancy import api as tenancy_api, public as tenancy_public, scope as tscope
 from .tenant_admin import api as tenant_api
 from .msp import api as msp_api, console as msp_console
@@ -636,6 +637,7 @@ def create_app(settings: Settings | None = None, runtime: Runtime | None = None)
     msp_console.mount(app, API)
     msp_api.register(app)  # /api/msp/v1/* machine-to-machine API (ADR-0013)
     tenancy_api.mount(app)
+    ssh_api.mount(app)
     tenancy_public.mount(app)
     tenant_api.mount(app)
 

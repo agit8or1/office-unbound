@@ -29,13 +29,15 @@ const tone = (t: string) => (t === 'ok' ? 'ok' : t === 'warn' ? 'warn' : t === '
 <template>
   <div class="pv">
     <PageHeader title="Proxmox clusters" sub="The clusters Office Unbound can see and, where you allow it, manage." help="Each card is one connected Proxmox cluster, with what Office Unbound is allowed to touch.">
-      <template #actions><Button v-if="cards.length" variant="primary" icon="plus" to="/infrastructure/providers/proxmox/connect">Connect a cluster</Button></template>
+      <template #actions><Button v-if="cards.length" variant="primary" icon="plus" to="/infrastructure/providers/proxmox/connect">Connect a cluster</Button>
+        <Button v-if="cards.length" icon="plus" to="/infrastructure/providers/proxmox/connect-ssh">Connect with SSH</Button></template>
     </PageHeader>
     <ErrorBox v-if="state.error.value" :error="state.error.value" @retry="state.reload" />
     <div v-else-if="state.loading.value && !state.data.value" class="pv-cards"><div v-for="i in 2" :key="i" class="card"><Skeleton /></div></div>
     <div v-else-if="!cards.length" class="pv-hero card">
       <EmptyState icon="cluster" title="Connect a Proxmox cluster" text="Office Unbound reads your cluster to show health and capacity, and can deploy and manage virtual machines inside limits that you set. You choose exactly what it may touch.">
         <Button variant="primary" size="md" icon="plus" to="/infrastructure/providers/proxmox/connect">Connect a Proxmox cluster</Button>
+        <Button size="md" icon="plus" to="/infrastructure/providers/proxmox/connect-ssh">Connect with SSH</Button>
       </EmptyState>
       <ul class="pv-steps muted small"><li>Check that it really is your server</li><li>See what is in the cluster</li><li>Choose what Office Unbound may use</li><li>Review every permission, then apply</li></ul>
     </div>

@@ -98,6 +98,12 @@ class ActionType(StrEnum):
     provider_token_revoke = "provider.token.revoke"
     provider_scope_change = "provider.scope.change"
     provider_scope_package = "provider.scope.package"
+    provider_ssh_discover = "provider.ssh.discover"
+    provider_ssh_preview = "provider.ssh.preview"
+    provider_ssh_onboard = "provider.ssh_onboard"
+    provider_ssh_offboard = "provider.ssh_offboard"
+    provider_ssh_helper = "provider.ssh.helper"
+    provider_ssh_narrow = "provider.ssh.narrow"
     credential_create = "credential.create"
     credential_replace = "credential.replace"
     credential_rotate = "credential.rotate"
@@ -429,6 +435,9 @@ CATALOG: dict[ActionType, dict] = {
 }
 CATALOG.update({ActionType(k): v for k, v in prov_actions.CATALOG.items()})   # provider provisioning (ics/provisioning/actions.py)
 _PROV = {ActionType(k) for k in prov_actions.CATALOG}
+from .sshonboard import actions as ssh_actions, session as ssh_session  # noqa: E402  (ADR-0014)
+CATALOG.update({ActionType(k): v for k, v in ssh_actions.CATALOG.items()})
+_SSH = {ActionType(k) for k in ssh_actions.CATALOG}
 CATALOG.update({ActionType(k): v for k, v in {**cred_actions.SPECS, **ten_actions.SPECS, **msp_actions.SPECS}.items()})
 _IDM = {a for a in ActionType if a.value.startswith("idm.")}
 _DEPLOY = {a for a in ActionType if a.value.startswith("deployment.")}
@@ -732,6 +741,11 @@ def create_plan(db: Session, rt: Runtime, user, action: ActionType, params: dict
         pr = extra.get("preview_risk")
         if pr in _RISK_ORDER and _RISK_ORDER[pr] > _RISK_ORDER[risk]:
             risk = pr
+    if action in _SSH:
+        extra.update(ssh_actions.precheck(db, rt, action.value, p, user))
+        pr_ssh = extra.get("preview_risk")
+        if pr_ssh in _RISK_ORDER and _RISK_ORDER[pr_ssh] > _RISK_ORDER[risk]:
+            risk = pr_ssh
     # ---- customer scoping + policy (agent M) ----
     cust = derived_cust
     if backup_cust:
@@ -739,6 +753,8 @@ def create_plan(db: Session, rt: Runtime, user, action: ActionType, params: dict
     if action in _IDM and not cust and full.get("stack"):  # identity stacks belong to one customer (0009a): scoped/tenant principals are bound through it
         r = db.execute(text("SELECT customer_id FROM idm_stacks WHERE name = :n"), {"n": full["stack"]}).first()
         cust = str(r.customer_id) if r else None
+    if action in _SSH:   # SSH onboarding: customer from the session/endpoint records (resource-derived; mismatch refused)
+        cust = ssh_actions.customer_for(db, action.value, p) or cust
     if action == ActionType.endpoint_register and not cust:
         cust = full["customer_id"] = tscope.DEFAULT_CUSTOMER
     if action in _PROV:
@@ -1010,6 +1026,7 @@ def reap_expired(rt: Runtime) -> int:
         db.execute(text("UPDATE plans SET secret_enc = NULL WHERE status = 'pending_approval' AND secret_enc IS NOT NULL "
                         "AND created_at < now() - make_interval(secs => :e)"), {"e": rt.settings.plan_expiry_seconds})
         prov_actions.scrub_expired_credentials(db)   # temporary provisioning credentials live at most 15 minutes
+        ssh_session.sweep(db)                        # ADR-0014: admin SSH credentials live at most 30 minutes
         db.commit()
     try:      # review 5 L1: sweepers for one-time secrets that outlived their purpose
         from .guest import bootsecrets
@@ -1430,7 +1447,7 @@ def _exec_runbook(rt: Runtime, db: Session, m: RunbookExecute, plan, known: list
     return out
 
 
-_EXEC = {ActionType.endpoint_register: endpoint_actions.exec_register, ActionType.inventory_refresh: _exec_refresh,
+_EXEC = {**{ActionType(k): v for k, v in ssh_actions.EXECUTORS.items()}, ActionType.endpoint_register: endpoint_actions.exec_register, ActionType.inventory_refresh: _exec_refresh,
          ActionType.user_create: _exec_user_create, ActionType.user_set_role: _exec_user_set_role,
          ActionType.user_invite: _exec_user_create, ActionType.user_revoke_invite: _exec_user_revoke_invite,
          ActionType.user_disable: _exec_user_disable, ActionType.user_enable: _exec_user_enable,
