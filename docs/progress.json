@@ -488,21 +488,21 @@
     },
     {
       "id": "P9",
-      "name": "Full PDF Reader, Editor and Document Management (DEFERRED — final development priority)",
+      "name": "Office Unbound PDF Studio: full PDF reader, editor, forms and document management (DEFERRED \u2014 absolute last priority)",
       "status": "deferred",
       "items": [
         {
           "id": "P9.0",
-          "title": "Technology and licensing evaluation (first step when P9 starts)",
+          "title": "Engine research, licence audit and feature/dependency matrix (PDF.js, Nib, Stirling PDF as reference only, others)",
           "status": "deferred",
           "evidence": [
             "docs/requirements/P9-pdf-reader-editor.md"
           ],
-          "note": "Deferred until alpha readiness and MSP pilot objectives are complete (owner, 2026-11-16)"
+          "note": "Deferred: starts only after every other planned core feature and integration is complete and stable (owner, 2026-11-16)"
         },
         {
           "id": "P9.1",
-          "title": "PDF reader",
+          "title": "PDF reader (tabs, presentation mode, protected documents, attachments)",
           "status": "deferred",
           "evidence": []
         },
@@ -532,7 +532,7 @@
         },
         {
           "id": "P9.6",
-          "title": "Cryptographic digital signatures (PKCS#12/X.509, PAdES, OCSP/CRL)",
+          "title": "Cryptographic digital signatures (PKCS#12/X.509, PAdES, RFC 3161 timestamps, OCSP/CRL)",
           "status": "deferred",
           "evidence": []
         },
@@ -562,7 +562,7 @@
         },
         {
           "id": "P9.11",
-          "title": "Advanced tools: compare, Bates, accessibility, batch",
+          "title": "Advanced tools: compare, Bates, headers/footers, PDF/UA validation, reading-order editing, batch",
           "status": "deferred",
           "evidence": []
         },
