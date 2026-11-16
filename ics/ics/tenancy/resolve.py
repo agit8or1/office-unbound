@@ -29,9 +29,10 @@ _SQL = {
     "deployment": "SELECT COALESCE(c.id::text, CASE WHEN d.customer_id ~* '^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$' THEN d.customer_id END) AS customer_id "
                   "FROM deployments d LEFT JOIN customers c ON c.slug = d.customer_id WHERE d.slug = :i",
     "customer_ref": "SELECT id::text AS customer_id FROM customers WHERE slug = :i",
+    "ssh_session": "SELECT customer_id FROM ssh_sessions WHERE id = :i",   # SSH onboarding session (ADR-0014): bound to one customer at creation
 }
 DEFAULT_CUSTOMER = "00000000-0000-0000-0000-00000000a001"
-_UUID_KINDS = {"endpoint", "credential", "check", "node", "runner_node", "channel", "maintenance", "incident", "artifact", "plan"}
+_UUID_KINDS = {"endpoint", "credential", "check", "node", "runner_node", "channel", "maintenance", "incident", "artifact", "plan", "ssh_session"}
 
 # action -> [(dotted param path, kind)]; kind "customer" = an explicit customer id the caller states
 REFS: dict[str, list[tuple[str, str]]] = {
@@ -93,6 +94,12 @@ REFS: dict[str, list[tuple[str, str]]] = {
     "provider.provision.plan_preview": [("endpoint_id", "endpoint"), ("customer_id", "customer")],
     "provider.scope.change": [("endpoint_id", "endpoint"), ("preview_id", "artifact"), ("package_id", "artifact")],
     "provider.scope.package": [("endpoint_id", "endpoint"), ("preview_id", "artifact")],
+    "provider.ssh.discover": [("ssh_session_id", "ssh_session")],
+    "provider.ssh.preview": [("ssh_session_id", "ssh_session"), ("endpoint_id", "endpoint")],
+    "provider.ssh_onboard": [("ssh_session_id", "ssh_session"), ("preview_id", "artifact"), ("endpoint_id", "endpoint"), ("customer_id", "customer")],
+    "provider.ssh_offboard": [("ssh_session_id", "ssh_session"), ("endpoint_id", "endpoint")],
+    "provider.ssh.helper": [("endpoint_id", "endpoint")],
+    "provider.ssh.narrow": [("endpoint_id", "endpoint")],
     "provider.token.revoke": [("endpoint_id", "endpoint")],
     "provider.token.rotate": [("endpoint_id", "endpoint")],
     "runbook.execute": [("node_id", "node"), ("check_id", "check")],

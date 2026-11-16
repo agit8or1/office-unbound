@@ -81,11 +81,11 @@ class SshHelper(BaseModel):
     op: Literal["self-check", "discover", "drift", "cert-read"] = "self-check"
     kind: Literal["version", "cluster-status", "nodes", "storage", "pools", "resources", "roles", "users", "acl", "network", "fw-cluster", "fw-options", "fw-rules",
                   "storage-lvm", "storage-zfs"] | None = None
-    node: str | None = Field(default=None, pattern=r"^[A-Za-z0-9][A-Za-z0-9.-]{0,62}$")
+    pve_node: str | None = Field(default=None, pattern=r"^[A-Za-z0-9][A-Za-z0-9.-]{0,62}$")   # a Proxmox node NAME (not an ICS node reference)
 
     @model_validator(mode="after")
     def _chk(self):
-        if (self.op == "discover") != (self.kind is not None) or (self.node is not None) != (self.kind in ("network", "fw-options", "fw-rules")):
+        if (self.op == "discover") != (self.kind is not None) or (self.pve_node is not None) != (self.kind in ("network", "fw-options", "fw-rules")):
             raise ValueError("kind is required for (and only for) op=discover; node exactly for the node kinds (network, fw-options, fw-rules)")
         return self
 
@@ -668,7 +668,7 @@ def exec_helper(rt: Runtime, db: Session, m: SshHelper, plan, known: list[str]) 
         if m.op == "self-check":
             out = h.self_check()
         elif m.op == "discover":
-            out = {"result": h.discover(m.kind, m.node)}
+            out = {"result": h.discover(m.kind, m.pve_node)}
         elif m.op == "drift":
             out = {"permissions": h.drift()}
         else:

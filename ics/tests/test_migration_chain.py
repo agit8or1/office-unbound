@@ -24,7 +24,7 @@ def _cfg(url):
 
 def test_single_linear_chain():
     sd = ScriptDirectory(os.path.join(HERE, "..", "migrations"))
-    assert sd.get_heads() == ["0013r7"]
+    assert sd.get_heads() == ["0014s"]
     assert [s.revision for s in reversed(list(sd.walk_revisions()))] == EXPECTED
 
 
@@ -68,7 +68,7 @@ def test_upgrade_from_production_head_0008i(rt, base_settings, owner_engine):
     try:
         command.upgrade(cfg, "head")
         with owner_engine.connect() as c:
-            assert c.execute(text("SELECT version_num FROM alembic_version")).scalar() == "0013r7"
+            assert c.execute(text("SELECT version_num FROM alembic_version")).scalar() == "0014s"
             have = {r[0] for r in c.execute(text("SELECT table_name FROM information_schema.tables WHERE table_schema = 'public'"))}
             assert {"backup_policies", "idm_sip_credentials", "guest_bootstrap", "controller_state"} <= have
             assert c.execute(text("SELECT count(*) FROM information_schema.columns WHERE table_name = 'idm_users' AND column_name = 'extension'")).scalar() == 1
@@ -92,7 +92,7 @@ def test_upgrade_from_production_head_0008(rt, base_settings, owner_engine):
     try:
         command.upgrade(cfg, "head")
         with owner_engine.connect() as c:
-            assert c.execute(text("SELECT version_num FROM alembic_version")).scalar() == "0013r7"
+            assert c.execute(text("SELECT version_num FROM alembic_version")).scalar() == "0014s"
             have = {r[0] for r in c.execute(text("SELECT table_name FROM information_schema.tables WHERE table_schema = 'public'"))}
             assert {"backup_policies", "idm_sip_credentials", "guest_bootstrap", "controller_state"} <= have
             assert c.execute(text("SELECT count(*) FROM information_schema.columns WHERE table_name = 'idm_users' AND column_name = 'extension'")).scalar() == 1

@@ -634,7 +634,7 @@ def test_helper_reads_thin_pool_and_firewall_for_later_drift_checks(w, node, own
     for bad in ("discover fw-options", "discover fw-rules ../x", "discover fw-rules pve01 extra", "discover storage-lvm x", "discover storage-lvm; id", "discover fw-options pve01;id"):
         assert s.run_raw(bad).rc != 0, bad
     s.close()
-    p, j2 = w.run("provider.ssh.helper", {"endpoint_id": j["result"]["endpoint_id"], "op": "discover", "kind": "fw-rules", "node": "pve01"})
+    p, j2 = w.run("provider.ssh.helper", {"endpoint_id": j["result"]["endpoint_id"], "op": "discover", "kind": "fw-rules", "pve_node": "pve01"})
     assert j2["status"] == "succeeded" and j2["result"]["result"][0]["type"] == "in"
     r = w.o.post(f"{H}/plans", json={"action": "provider.ssh.helper", "params": {"endpoint_id": j["result"]["endpoint_id"], "op": "discover", "kind": "fw-rules"}}, headers=w.oh)
     assert r.status_code == 422
