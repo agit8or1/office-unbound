@@ -29,7 +29,7 @@ Merged on integration branches `integration-5`, `integration-6` and `integration
 - **Tenant isolation (agent AS, T20 suite 153/155)**: two scoping holes fixed. Customer-scoped operators could list and read all deployments (deployment list/detail, plan, change/destroy preview and job steps are now filtered by the owning customer's endpoint); identity stacks had no customer binding (stacks carry a `customer_id`, the identity stack/user/reconcile lists and identity actions are scoped to it). [tenant-isolation-results](docs/status/tenant-isolation-results.md)
 - Security review 4 fixes (AL) and lifecycle gaps (AC) from main remain; telephony runbook user names are validated with a full-match regex.
 - The SSH guest bootstrap path no longer runs by default (fail-open finding in the SSH bootstrap review).
-- Security review 4 findings M4-M6, M10, M11 and the L-series: see [security review 4](docs/status/security-review-4-2026-11-15.md).
+- Security review 4 findings still open on the release-engineering branch (M4-M6, M10, M11 partly, L-series): see [security review 4](docs/status/security-review-4-2026-11-15.md).
 
 ### Fixed
 - Production monitor loop (`_next_vault`): failure-based worker health and thread joins on stop.
