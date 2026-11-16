@@ -10,6 +10,7 @@ Secrets never travel in a runbook: the node holds the repository password / REST
 `ics.cli backup-node-secret`, see docs/admin/backup-and-restore.md). The runner returns counts, durations and the canary comparison only.
 """
 import json
+import re
 import logging
 import secrets
 import time
@@ -103,7 +104,8 @@ def _isolated(row) -> str | None:
     if not row.customer_id:
         return None
     try:
-        return str(row.customer_id) if pol.repo_first_segment(row.repo["url"]) == pol.customer_profile(row.customer_id) else None
+        # any customer namespace counts (fail closed): a row relabelled to another customer stays isolated and then fails the plan/AAD binding
+        return str(row.customer_id) if re.fullmatch(r"c-[0-9a-f]{32}", pol.repo_first_segment(row.repo["url"])) else None
     except (TypeError, KeyError):
         return None
 
