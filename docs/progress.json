@@ -5,8 +5,20 @@
   "repository": "https://github.com/agit8or1/office-unbound",
   "updated": "2026-11-15",
   "stage": "pre-alpha (lab)",
-  "current_version": "0.1.0",
+  "current_version": "0.2.0-dev",
   "releases": [
+    {
+      "version": "0.2.0-dev",
+      "date": "2026-11-16",
+      "status": "prepared",
+      "codename": "Beacon",
+      "channel": "development",
+      "highlights": [
+        "In development: alpha readiness (security reviews 5-7 remediation, production no-SSH Proxmox deployment, full service profile, two-customer isolation)"
+      ],
+      "notes_url": "https://github.com/agit8or1/office-unbound/blob/main/CHANGELOG.md",
+      "changelog": "CHANGELOG.md"
+    },
     {
       "version": "0.1.0",
       "date": "2026-11-16",

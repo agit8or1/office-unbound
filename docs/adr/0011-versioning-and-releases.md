@@ -81,3 +81,9 @@ machine record used by the website and by ICS; GitHub Releases carry notes gener
 * Production never shells out to git; build info is auditable as a file.
 * A release is a tag plus a record, not a build artifact yet: the signed package pipeline (ADR-0008) is separate and the
   production signing key is an open owner item, so 0.1.0 is source-only and unsigned.
+
+## Amendment 2026-11-16 (owner: "make sure you are bumping version numbers/names")
+* **Release names.** Each MINOR release line has a name, assigned alphabetically: 0.1 "Anchor", 0.2 "Beacon", 0.3 "Compass", 0.4 "Daybreak", 0.5 "Ember". The names live in `VERSIONS.json` `release_names` and are copied into `BUILD_INFO.json` at install. `GET /api/v1/version`, `/system` and the console footer show the name. GitHub Releases are titled `Office Unbound X.Y.Z "Name"`.
+* **Development versions.** Right after a release, `main` moves to the next MINOR with the suffix `-dev`, for example `0.2.0-dev`. Every build deployed from main therefore reports a version that is distinct from the release, and the build metadata adds the exact commit. `[Unreleased]` collects changes; cutting the release drops `-dev` and dates the section.
+* **Component bumps are part of every merge.** An integration that changes a component bumps that component in `VERSIONS.json` and in its own version constant in the same merge, following the table in §2. For example, the node agent wire protocol changes from the controller epoch bump `node_agent` MINOR and record the minimum compatible agent version, and a new `ou-docs` revision updates `docs_engine`.
+* 0.1.0 "Anchor" is tag `v0.1.0`. Its code is identical to the build deployed to the lab ICS on 2026-11-16 (416aafe).

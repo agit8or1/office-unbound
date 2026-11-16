@@ -58,12 +58,13 @@ def test_write_build_info_script(tmp_path):
 
 def test_public_version_is_minimal_and_authed_is_full(client, mk_user, login):
     r = client.get("/api/v1/version")
-    assert r.status_code == 200 and r.json() == {"product": "Office Unbound", "version": ver.__version__}
+    assert r.status_code == 200 and r.json() == {"product": "Office Unbound", "version": ver.__version__, "codename": ver.codename()}
     u = mk_user("vera", "viewer")
     c, _ = login(u)
     d = c.get("/api/v1/version").json()
     assert d["version"] == ver.__version__ and d["api"] == "v1" and "components" in d and "database" in d["schema"]
     assert d["components"]["ics"] == ver.__version__
+    assert d["codename"] == ver.codename() == "Beacon"
 
 
 def test_system_requires_auth_and_reports_updates(client, mk_user, login):
@@ -76,3 +77,14 @@ def test_system_requires_auth_and_reports_updates(client, mk_user, login):
 
 def test_readyz_includes_version(client):
     assert client.get("/readyz").json()["version"] == ver.__version__
+
+
+def test_codename_from_release_names():
+    names = {"0.1": "Anchor", "0.2": "Beacon"}
+    assert ver.codename({"version": "0.2.0-dev", "release_names": names}) == "Beacon"
+    assert ver.codename({"version": "0.1.0", "release_names": names}) == "Anchor"
+    assert ver.codename({"version": "0.9.0", "release_names": names}) is None
+    assert ver.codename({"version": "0.0.0+unknown", "release_names": {}}) is None
+    vs = json.loads((ROOT / "VERSIONS.json").read_text())
+    v = (ROOT / "VERSION").read_text().strip()
+    assert ver.codename({"version": v, "release_names": vs["release_names"]}), "current release line must have a name"
