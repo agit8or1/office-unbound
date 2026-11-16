@@ -286,7 +286,7 @@ function next() {
           <p v-if="change.removed.length"><b>Removing access to:</b> {{ change.removed.join(', ') }} <span class="muted small">(nothing is deleted in Proxmox)</span></p>
         </div>
         <button v-if="!preview" type="button" class="wz-btn primary" :disabled="previewRun.busy.value" @click="runPreview">{{ previewRun.busy.value ? 'Calculating…' : 'Calculate the exact Proxmox changes' }}</button>
-        <RunPanel v-if="previewRun.created.value && !preview" :run="previewRun" what="Preview" />
+        <RunPanel v-if="(previewRun.created.value || previewRun.error.value) && !preview" :run="previewRun" what="Calculation (dry run, nothing is changed)" />
         <template v-if="preview">
           <Banner v-for="b in blockedList" :key="b" kind="bad" title="Cannot be applied">{{ b }}</Banner>
           <PlanView v-if="!edit" :preview="(preview as unknown as PlanPreviewOut)" />
@@ -302,7 +302,7 @@ function next() {
             <button type="button" class="wz-btn primary" :disabled="applyRun.busy.value" @click="apply">{{ edit ? 'Request approval and apply' : 'Request approval and connect' }}</button>
             <button type="button" class="wz-btn" :disabled="applyRun.busy.value" @click="preview = null; st.ok = false">Recalculate</button>
           </div>
-          <RunPanel v-if="applyRun.created.value" :run="applyRun" :what="edit ? 'Access change' : 'Connection'" />
+          <RunPanel v-if="applyRun.created.value || applyRun.error.value" :run="applyRun" :what="edit ? 'Access change' : 'Connection'" />
         </template>
         <p v-if="w.m.errors.review" class="err" role="alert">{{ w.m.errors.review }}</p>
       </section>

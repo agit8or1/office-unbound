@@ -12,6 +12,9 @@ isolated lab; nothing is production supported ([ROADMAP.md](ROADMAP.md)).
 
 Target: 0.2.0 "Beacon" (alpha readiness: security hardening, production no-SSH deployment, full stack).
 
+### 0.2.0-dev.3 (2026-11-16)
+- **Fix: "Calculate the exact Proxmox changes" appeared to do nothing.** The server rejected the dry-run plan (422) and the wizard only rendered progress once a plan existed, so the reason was never shown. Submission errors of the calculation, of Apply and of the maintenance actions are now shown; every rejected plan is logged by the ICS (action, user, field names and messages only, never values). Regression test: public-CA sign-in -> dry run through the HTTP API.
+
 ### 0.2.0-dev.2 (2026-11-16)
 - Connection wizard: the four protections (never delete VMs/disks it did not create, never change storage/network/cluster configuration, never change Proxmox users or permissions beyond its own service account, never open consoles or run commands in guests) are shown ticked and locked ("always on") instead of as greyed-out empty boxes.
 - **First production golden image** (owner-authorized): `ou-golden-debian-12-20261116` release version 1 with node agent 0.4.0 (published to the signed `dev` repo after an independent install test), reproducible (two builds byte-identical), independent boot test = enrollment proof + hardening suite 97/97, signed by the new `ou-image-sign sign-manifest` with a dedicated release key; the ICS trusts only that key's pin and the independent test runner. [host-changes](docs/status/host-changes.md)

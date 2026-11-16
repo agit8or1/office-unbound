@@ -1,4 +1,5 @@
 import hashlib
+import logging
 from contextlib import asynccontextmanager
 from datetime import datetime, timezone
 from typing import Literal
@@ -344,9 +345,13 @@ def create_app(settings: Settings | None = None, runtime: Runtime | None = None)
             return create_plan(db, rt, user, body.action, body.params, client_ip(request))
         except ValidationError as e:
             db.rollback()
-            raise HTTPException(422, [{"loc": list(x["loc"]), "msg": x["msg"]} for x in e.errors()])
+            errs = [{"loc": list(x["loc"]), "msg": x["msg"]} for x in e.errors()]
+            # field names and messages only, never the submitted values (plans can carry secrets)
+            logging.getLogger("ics.plans").warning("plan rejected: action=%s user=%s status=422 errors=%s", body.action.value, user.username, errs)
+            raise HTTPException(422, errs)
         except PlanError as e:
             db.rollback()
+            logging.getLogger("ics.plans").warning("plan rejected: action=%s user=%s status=%s reason=%s", body.action.value, user.username, e.status, e.msg)
             raise HTTPException(e.status, e.msg)
 
     def _decide(plan_id: UUID, approve: bool, request: Request, user: User, db: Session):

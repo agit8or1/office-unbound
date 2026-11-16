@@ -160,3 +160,22 @@ def test_deployment_creates_its_own_pool_and_needs_no_template(w, owner, rt):  #
     with rt.session() as db:
         r = db.execute(text("SELECT allowed_pools, allowed_templates FROM endpoints WHERE id = :i"), {"i": j2["result"]["endpoint_id"]}).first()
     assert list(r.allowed_pools) == ["office-unbound"]
+
+
+def test_public_ca_sign_in_new_connection_preview_and_apply(w, owner, rt, monkeypatch):  # noqa: F811
+    """Regression (production 2026-11-16): a cluster with a publicly trusted certificate (sign-in trust public_ca) got 422 on 'Calculate the exact
+    Proxmox changes'. The wizard sends exactly these params; the dry run must succeed, change nothing, and Apply must stay a separate approved step."""
+    from ics.sshonboard import trust as sshtrust
+    monkeypatch.setattr(sshtrust, "_public_root", lambda host, port, timeout=6.0: (True, owner.cert_pem))
+    r = w.ad.post(f"{H}/pve-sessions", json={"base_url": owner.url, "trust": "public_ca", "username": "root", "realm": "pam",
+                                              "password": owner.sim.ROOT_PW}, headers=w.adh)
+    assert r.status_code == 201, r.text
+    s = r.json()
+    assert s["trust"] == "public_ca"
+    pol = {"preset": "deploy", "scope_mode": "single_node", "allow_migrate": False,
+           "scope": {"nodes": ["pve06"], "managed_vmids": [], "protected_vmids": [], "pools": ["office-unbound"], "storages": ["PVE06-Storage"],
+                     "networks": ["vmbr0"], "template_vmids": [], "guest_types": ["qemu", "lxc"]}}
+    acl_before = list(owner.sim.acl_entries)
+    r = w.ad.post(f"{H}/plans", json={"action": "provider.provision.plan_preview",
+                                      "params": {"name": "owner", "base_url": s["base_url"], "admin_session": s["id"], "policy": pol}}, headers=w.adh)
+    assert r.status_code == 201, r.text

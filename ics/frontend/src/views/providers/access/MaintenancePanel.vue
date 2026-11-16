@@ -56,7 +56,7 @@ const blocked = computed(() => preview.value?.plan.blocked ?? [])
       <label class="fld"><span>Type the cluster name <b>{{ endpointName }}</b> to confirm</span><input v-model="confirmName" autocomplete="off" /></label>
       <button type="button" class="wz-btn danger" :disabled="run.busy.value || confirmName !== endpointName" @click="disconnect">Request approval and disconnect</button>
     </template>
-    <RunPanel v-if="run.created.value" :run="run" :what="what === 'repair' ? 'Repair' : what === 'rotate' ? 'Credential rotation' : 'Disconnect'" />
+    <RunPanel v-if="run.created.value || run.error.value" :run="run" :what="what === 'repair' ? 'Repair' : what === 'rotate' ? 'Credential rotation' : 'Disconnect'" />
     <Banner v-if="run.job.value?.status === 'succeeded'" kind="ok" title="Done">{{ what === 'disconnect' ? 'The cluster was disconnected.' : what === 'rotate' ? 'New credentials are in use; the old ones were revoked.' : 'The approved permissions are in place again.' }}</Banner>
   </details>
 </template>

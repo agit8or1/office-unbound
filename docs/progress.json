@@ -5,16 +5,16 @@
   "repository": "https://github.com/agit8or1/office-unbound",
   "updated": "2026-11-16",
   "stage": "pre-alpha (lab)",
-  "current_version": "0.2.0-dev.2",
+  "current_version": "0.2.0-dev.3",
   "releases": [
     {
-      "version": "0.2.0-dev.2",
+      "version": "0.2.0-dev.3",
       "date": "2026-11-16",
       "status": "prepared",
       "codename": "Beacon",
       "channel": "development",
       "highlights": [
-        "Development build 2 of 0.2.0 \"Beacon\": first production golden image (Debian 12, signed, boot-tested), wizard protections shown as always on"
+        "Development build 3 of 0.2.0 \"Beacon\": connection wizard Review step shows every error; plan rejections are logged"
       ],
       "notes_url": "https://github.com/agit8or1/office-unbound/blob/main/CHANGELOG.md",
       "changelog": "CHANGELOG.md"
