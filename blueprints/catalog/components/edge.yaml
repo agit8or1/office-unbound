@@ -14,7 +14,7 @@ ports:
   - {name: http, port: 80, proto: tcp, exposure: public}
   - {name: https, port: 443, proto: tcp, exposure: public}
 depends_on: [identity]
-after: [groupware, files, office]      # order-only: routes are added for whichever of these are present
+after: [groupware, files, office, chat, meetings, telephony]      # order-only: routes are added for whichever of these are present
 dns:
   - {host: auth, type: A, target: vm}
 health_checks:

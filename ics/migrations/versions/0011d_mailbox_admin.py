@@ -2,7 +2,7 @@
 from alembic import context, op
 
 revision = "0011d"
-down_revision = "0011a"
+down_revision = "0011c"
 
 DDL = """
 CREATE TABLE idm_aliases (

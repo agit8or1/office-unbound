@@ -90,6 +90,8 @@ export interface DeployRequest {
   vlan?: number | null
   os_image?: string
   optional: Record<string, boolean>
+  /** Opt-in ports that are closed by default, 'component:port-name' (e.g. 'chat:federation'). */
+  enabled_ports?: string[]
   backup_retention_days?: number
 }
 export interface PlanVm { name: string; role?: string; os_image: string; cores: number; memory_mb: number; disks: { name: string; size_gb: number; storage: string }[]; nics: { bridge: string; vlan: number | null }[]; node?: string }

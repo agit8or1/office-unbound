@@ -548,9 +548,9 @@ def test_change_override_and_removal_are_high_risk(client, actors, rt, env):
     r, jid = submit(actors, rt, "deployment.change", params, approvals=1)
     assert r["risk"] == "high" and jid is None                                    # override => two approvers
     # removing a component is high risk by itself and keeps the pre-destroy snapshot step
-    pv2 = cprev(actors[0], {"optional": {"office": False}})
+    pv2 = cprev(actors[0], {"optional": {"office": False, "chat": False, "meetings": False}})
     assert pv2["diff"]["risk"] == "high" and {"kind": "vm", "name": "acme-prod-office"} in pv2["diff"]["removed"]
-    p2 = {"deployment_id": "prod", "changes": {"optional": {"office": False}}, "plan_hash": pv2["plan"]["plan_hash"], "maintenance": "override"}
+    p2 = {"deployment_id": "prod", "changes": {"optional": {"office": False, "chat": False, "meetings": False}}, "plan_hash": pv2["plan"]["plan_hash"], "maintenance": "override"}
     r2, jid2 = submit(actors, rt, "deployment.change", p2)
     assert r2["risk"] == "high" and job(actors[0], jid2)["status"] == "succeeded", job(actors[0], jid2)
     names = [v["name"] for v in env.provider.vms.values()]

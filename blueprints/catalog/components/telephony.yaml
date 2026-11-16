@@ -1,0 +1,40 @@
+name: telephony
+version: 1.0.0
+title: Telephony (Asterisk PBX + softphone)
+description: Internal phone system. Asterisk 22 with extensions generated from the directory, voicemail-to-email and a browser softphone. No outside phone line (PSTN trunk is off).
+artifacts:
+  - {name: asterisk, kind: package, package: ou-asterisk, version: "22.12.0-ou1", repo: ob-apt-dev}
+  - {name: pbx-helper, kind: oci, image: registry.ou.invalid/ou/ou-pbx, digest: "sha256:481adefa96c173b81a7871b738498edea255269441ae2dde8c1d25d9f2c97f8d", version: "0.1.0-ou1", signed: false}
+  - {name: softphone-web, kind: oci, image: registry.ou.invalid/ou/ou-softphone, digest: "sha256:efc5d8b4ad04b70e25d66b3ef9219c5009f4ee33d328005d6ed3accaa8b33941", version: "0.1.0-ou1", signed: false}
+resources:
+  cores:     {base: 1,   per_user: 0.004, source: "ASSUMPTION: telephony-productization.md: no concurrent-call or transcoding load test; G.711 passthrough only"}
+  memory_mb: {base: 768, per_user: 0.5,   source: "telephony-productization.md section 3: ou-pbx2 MemoryMax 768M held, idle 206 MiB (asterisk 78 MB RSS, softphone service 65 MB); per-user part is an ASSUMPTION"}
+  disk_gb:   {base: 4,   per_user: 0,     source: "ASSUMPTION: ou-asterisk is 12.4 MB installed (telephony-productization.md section 2); rest is OS and helpers"}
+volumes:
+  - {name: spool, path: /var/spool/asterisk, size_gb: {base: 2, per_user: 0.05, source: "ASSUMPTION: voicemail 50 MB/user; not measured"}, backup: true}
+  - {name: site-config, path: /etc/asterisk/ou, size_gb: {base: 1, per_user: 0, source: "site config (generated from LDAP), TLS key"}, backup: true}
+ports:
+  - {name: sip-tls, port: 5061, proto: tcp, exposure: public}
+  - {name: wss, port: 8089, proto: tcp, exposure: public}
+  - {name: rtp, port: 10000, port_end: 10200, proto: udp, exposure: public}
+  - {name: softphone-https, port: 443, proto: tcp, exposure: edge}
+depends_on: [identity]
+dns:
+  - {host: pbx, type: A, target: vm}
+  - {host: phone, type: A, target: edge}
+health_checks:
+  - {name: sip-options, kind: sip_options_tls, port: 5061}
+  - {name: sip-tls-cert, kind: tcp_tls, port: 5061}
+  - {name: wss-tls, kind: tcp_tls, port: 8089}
+backup:
+  method: config_tar
+  description: "tar of /etc/asterisk/ou (site config, TLS key) + voicemail spool + CDR; extensions are regenerated from the directory, so the directory backup is the source of truth"
+  quiesce: online
+  rpo_hours: 24
+  evidence: "planned: not drilled"
+upgrade: {downtime_seconds: 30}
+notices:
+  - "No outside phone line: the PSTN trunk is OFF. Emergency numbers (112/911/999/110/933) are trapped and answered 'not in service'; this PBX must not be relied on for emergency calling."
+  - "Asterisk 22.12.0-ou1 was built and tested only on Debian 12 (ou-pbx2); lab validation covered 2 simultaneous calls, no load test."
+ha_note: "No PBX failover: a replica would be a second independent PBX with its own registrations; shared voicemail and SIP failover are not designed."
+os_images: [debian-12]
