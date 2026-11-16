@@ -124,7 +124,35 @@ class Agent:
                                 "capabilities": runbooks.capabilities(self.cfg), "agent_version": __version__, "at": int(time.time())})
 
     # ---- exec ----
-    def exec(self, body: dict, now: int | None = None) -> tuple[int, dict]:
+    def exec(self, body: dict, now: int | None = None, peer: str | None = None) -> tuple[int, dict]:
+        code, resp = self._exec(body, now)
+        self._exec_log(body, code, resp, peer)
+        return code, resp
+
+    def _exec_log(self, body, http_code, resp, peer) -> None:
+        """Node-side evidence of EVERY exec request (who asked, which controller epoch, what the agent decided): one JSON line, append-only, secret-free
+        (no params). Lets an external recorder prove which controller drove this node (docs/status/ha-partition-results.md); a failure here never blocks."""
+        try:
+            req = body.get("req") if isinstance(body, dict) and isinstance(body.get("req"), dict) else {}
+            r = resp.get("resp", resp) if isinstance(resp, dict) else {}
+            self._log_line({"peer": peer, "http": http_code, "job_id": str(req.get("job_id"))[:64], "action": str(req.get("action"))[:64],
+                            "req_epoch": req.get("epoch") if isinstance(req.get("epoch"), int) else None, "status": r.get("status") or r.get("error"),
+                            "code": r.get("code"), "agent_epoch": r.get("agent_epoch")})
+        except Exception:  # noqa: BLE001
+            pass
+
+    def _log_line(self, d: dict) -> None:
+        try:
+            line = json.dumps({"ts": round(time.time(), 3), **d}, separators=(",", ":"))
+            fd = os.open(os.path.join(self.state_dir, "exec.log"), os.O_WRONLY | os.O_CREAT | os.O_APPEND, 0o640)
+            try:
+                os.write(fd, (line + "\n").encode())
+            finally:
+                os.close(fd)
+        except Exception:  # noqa: BLE001
+            pass
+
+    def _exec(self, body: dict, now: int | None = None) -> tuple[int, dict]:
         now = int(time.time()) if now is None else now
         tr = self.trust()
         base = {"v": 1, "type": "exec", "node_id": tr["node_id"] if tr else None, "job_id": None, "nonce": None, "at": now}
@@ -246,12 +274,15 @@ def make_handler(agent: Agent):
             except ValueError:
                 return self._send(400, {"error": "bad_json"})
             if self.path == "/v1/exec":
-                code, resp = agent.exec(body)
+                code, resp = agent.exec(body, peer=self.client_address[0])
                 return self._send(code, resp)
             if self.path == "/v1/enroll":
                 try:
-                    return self._send(200, agent.enroll(body, self.client_address[0]))
+                    resp = agent.enroll(body, self.client_address[0])
+                    agent._log_line({"peer": self.client_address[0], "action": "enroll", "status": "ok"})
+                    return self._send(200, resp)
                 except Reject as r:
+                    agent._log_line({"peer": self.client_address[0], "action": "enroll", "status": "rejected", "code": r.code})
                     return self._send(403, {"error": r.code, "message": r.msg})
             self._send(404, {"error": "not_found"})
     return H

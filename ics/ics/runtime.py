@@ -1,3 +1,5 @@
+import socket
+
 from sqlalchemy import create_engine
 from sqlalchemy.orm import Session, sessionmaker
 
@@ -24,9 +26,18 @@ class Runtime:
             golden.configure(None, None)                    # unreadable key file: image import stays refused
         self.own_epoch: int | None = None          # the controller epoch this process runs at (fixed at the first epoch.assert_active)
         self.fenced_reason: str | None = None      # sticky: set when this controller learns it is superseded; nothing leaves the process afterwards
+        egress.identity = self._identity_headers
         from . import lease as leasemod
         self.lease = leasemod.build(self)            # None unless ICS_LEASE_WITNESS_URL is set on a primary (lease mode, review 7 H-5)
         egress.guard = lambda: epoch.assert_active(self)   # every egress path (agent, provider, notification, promotion, ssh) asks first
+
+    def _identity_headers(self) -> dict:
+        """Who is calling (evidence for an external recorder): controller host name, the epoch this process runs at and the job being executed (if any)."""
+        from .providers.base import current_job
+        h = {"X-OU-Controller": socket.gethostname(), "X-OU-Epoch": str(self.own_epoch if self.own_epoch is not None else 0)}
+        if (j := current_job()):
+            h["X-OU-Job"] = str(j)[:64]
+        return h
 
     def assert_active(self, db=None, *, lock: bool = False) -> int:
         return epoch.assert_active(self, db, lock=lock)

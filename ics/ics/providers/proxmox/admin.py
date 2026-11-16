@@ -11,6 +11,8 @@ from urllib.parse import quote, urlparse
 
 import httpx
 
+from ... import egress
+
 from ...proxmox import (ProxmoxError, ProxmoxHTTPError, ProxmoxWriteClient, _SECRET_RE, _TOKEN_ID_RE, build_ssl_context,
                         check_destination)
 from ..base import ProviderError, require_job_execution
@@ -46,7 +48,8 @@ class ProxmoxAdminClient(ProxmoxWriteClient):
         self._deadline, self._max_bytes = deadline, max_bytes
         self._base = f"https://{u.netloc}/api2/json"
         self._client = httpx.Client(verify=build_ssl_context(ca_pem=ca_pem, fingerprint_sha256=fingerprint_sha256),
-                                    timeout=httpx.Timeout(timeout), follow_redirects=False, trust_env=False)
+                                    timeout=httpx.Timeout(timeout), follow_redirects=False, trust_env=False,
+                                    event_hooks=egress.hooks())     # H-5: fenced/standby -> no admin call either; names the controller + epoch
         self.username = None
         self.mode = "token" if use_tok else "ticket"
         self.discarded = False

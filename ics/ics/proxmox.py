@@ -19,6 +19,8 @@ from urllib.parse import urlparse
 
 import httpx
 
+from . import egress
+
 _FP_RE = re.compile(r"^[0-9a-f]{64}$")
 
 
@@ -119,7 +121,7 @@ class ProxmoxReadClient:
         self._client = httpx.Client(
             verify=build_ssl_context(ca_pem=ca_pem, fingerprint_sha256=fingerprint_sha256),
             headers={"Authorization": f"PVEAPIToken={token_id}={token_secret}"},
-            timeout=httpx.Timeout(timeout), follow_redirects=False, trust_env=False,
+            timeout=httpx.Timeout(timeout), follow_redirects=False, trust_env=False, event_hooks=egress.hooks(),
         )
 
     def close(self) -> None:
