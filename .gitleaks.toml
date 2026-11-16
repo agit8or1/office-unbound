@@ -29,3 +29,23 @@ regexTarget = "line"
 regexes = ['''# \$1 label, \$2 token -> ''']
 paths = ['''^blueprints/lab/tests/webmail_sso_keyrotation\.sh$''']
 condition = "AND"
+
+[[allowlists]]
+description = "lists of public OpenPGP archive-key fingerprints (40 hex each, space separated) pinned in golden-image recipes"
+targetRules = ["generic-api-key"]
+regexTarget = "line"
+regexes = ['''[A-Z_]*KEY_FPRS="[0-9A-F]{40}( [0-9A-F]{40})*"''']
+
+[[allowlists]]
+description = "SHA-256 fingerprint of a public agent key in boot-test evidence JSON (a hash of a public key, not a secret)"
+targetRules = ["generic-api-key"]
+regexTarget = "line"
+regexes = ['''"agent_key_fingerprint_sha256": "[0-9a-f]{64}"''']
+
+[[allowlists]]
+description = "SHA-256 pin of a public release key quoted in a results doc (public key hash, not a secret)"
+targetRules = ["generic-api-key"]
+regexTarget = "line"
+regexes = ['''key pin unchanged: `[0-9a-f]{64}`''']
+paths = ['''^docs/status/oci-signing-results\.md$''']
+condition = "AND"
