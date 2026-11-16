@@ -28,7 +28,7 @@ Agent protocol epoch (`ou_agent.proto.EpochGate`, optional signed `epoch` field,
 New: `tests/test_agent_epoch.py` (agent protocol, via the real HTTPS fake agent: epoch-less compat, lower epoch refused and nothing executed, higher epoch learned, persistence across restart, malformed epoch types, fencing hook), `tests/test_standby.py` (role decisions, DB monotonic trigger, self-fence + audit, standby refuses to sign, read-only API + banner + readyz on a non-replica is 503, key bundle seal/tamper/wrong passphrase/path names, env flip). Full suite (`ICS_TEST_ENV_FILE=/etc/office-unbound/ics-test-b.env pytest -q -p no:cacheprovider`): **545 passed** (528 before + 17 new).
 
 ## Limits / not proven
-- Network partition (primary alive, standby cannot see it) was not simulated; the code path is the `streaming`/`--fence-old-dsn-file` refusal (step 7 shows the refusal while alive).
+- Network partition (primary alive, standby cannot see it) was not simulated here; it IS now: docs/status/ha-partition-results.md (partition, lease, 10 scenarios; the earlier text follows); the code path is the `streaming`/`--fence-old-dsn-file` refusal (step 7 shows the refusal while alive).
 - Agents that are unreachable during promotion learn the epoch late; until then a resurrected old primary could still drive *them* (ADR-0012, residual risks). One node was tested.
 - The console SPA has no in-app banner; the standby serves a static standby page and `X-OU-Role` (a standby cannot log in anyway: login writes sessions). No operator login/plan flow was exercised on the promoted controller beyond `/readyz` and a 422 from the login endpoint (accepting writes).
 - Enrollment/runbook driving in the lab used scripts that mirror the executor (no plan/approval UI).

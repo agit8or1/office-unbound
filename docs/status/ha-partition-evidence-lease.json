@@ -1,0 +1,267 @@
+{
+ "S1": {
+  "result": "PASS",
+  "old_primary": "ou-ha1",
+  "new_primary": "ou-ha2",
+  "epoch": "15 -> 16",
+  "promote_seconds": 20.7,
+  "rto_stop_to_first_agent_exec_seconds": 20.7,
+  "new_primary_counts": {
+   "provider_mutating": 2,
+   "provider_reads": 3,
+   "webhooks": 1,
+   "agent_executed": 3,
+   "agent_backup_runs": 1,
+   "agent_rejected": 0,
+   "enrollments": 0
+  },
+  "old_primary_after_commit": {
+   "provider_mutating": 0,
+   "provider_reads": 0,
+   "webhooks": 0,
+   "agent_executed": 0,
+   "agent_backup_runs": 0,
+   "enrollments": 0
+  },
+  "epochs_seen_at_recorder": {
+   "provider_epoch_headers": [
+    "16"
+   ],
+   "agent_req_epochs": [
+    16
+   ],
+   "webhook_epochs": [
+    "16"
+   ]
+  },
+  "stimulus": 4
+ },
+ "S2": {
+  "result": "PASS",
+  "old_primary": "ou-ha2",
+  "new_primary": "ou-ha1",
+  "epoch": "10 -> 11",
+  "detect_seconds": 5.0,
+  "promote_seconds": 11.2,
+  "old_primary_after_commit": {
+   "provider_mutating": 0,
+   "provider_reads": 0,
+   "webhooks": 0,
+   "agent_executed": 0,
+   "agent_backup_runs": 0,
+   "enrollments": 0
+  },
+  "old_primary_agent_rejections_after_commit": 0,
+  "first_last_seconds_after_commit": {},
+  "new_primary_counts": {
+   "provider_mutating": 0,
+   "provider_reads": 4,
+   "webhooks": 4,
+   "agent_executed": 1,
+   "agent_backup_runs": 0,
+   "agent_rejected": 2,
+   "enrollments": 0
+  },
+  "observed_seconds": 45,
+  "old_primary_active_before_partition": true
+ },
+ "S3": {
+  "result": "PASS",
+  "old_primary_role_in_its_own_db": "primary",
+  "readyz": {
+   "http": 503,
+   "ready": false,
+   "fenced": false,
+   "role": "primary"
+  },
+  "api_mutation": {
+   "http": 503,
+   "x_ou_role": "fenced"
+  },
+  "side_effects_from_old_primary_20s_window_after_heal": {
+   "provider_mutating": 0,
+   "provider_reads": 0,
+   "webhooks": 0,
+   "agent_executed": 0,
+   "agent_backup_runs": 0,
+   "enrollments": 0
+  },
+  "agent_rejections_total_after_commit": 0
+ },
+ "S2b": {
+  "result": "PASS",
+  "old_primary": "ou-ha1",
+  "new_primary": "ou-ha2",
+  "epoch": "11 -> 12",
+  "old_primary_after_commit": {
+   "provider_mutating": 0,
+   "provider_reads": 0,
+   "webhooks": 0,
+   "agent_executed": 0,
+   "agent_backup_runs": 0,
+   "enrollments": 0
+  },
+  "last_call_seconds_after_commit": {},
+  "observed_seconds": 90,
+  "agent_rejections": 0
+ },
+ "S4": {
+  "result": "PASS",
+  "old_primary": "ou-ha2",
+  "new_primary": "ou-ha1",
+  "epoch": "12 -> 13",
+  "in_flight_before_partition": true,
+  "duplicates": {
+   "jobs_executed_by_both_controllers": [],
+   "steps_executed_twice": []
+  },
+  "old_primary_after_commit": {
+   "provider_mutating": 0,
+   "provider_reads": 0,
+   "webhooks": 0,
+   "agent_executed": 0,
+   "agent_backup_runs": 0,
+   "enrollments": 0
+  },
+  "old_primary_silent_after_commit": true,
+  "new_primary_counts": {
+   "provider_mutating": 0,
+   "provider_reads": 4,
+   "webhooks": 0,
+   "agent_executed": 0,
+   "agent_backup_runs": 0,
+   "agent_rejected": 0,
+   "enrollments": 0
+  }
+ },
+ "S5": {
+  "result": "PASS",
+  "requests_while_corrupt": [
+   {
+    "code": "epoch_state_corrupt",
+    "status": "rejected"
+   },
+   {
+    "code": "epoch_state_corrupt",
+    "status": "rejected"
+   }
+  ],
+  "reseed_output": "epoch mark set to 15",
+  "requests_after_reseed": [
+   {
+    "code": "ok",
+    "status": "ok"
+   }
+  ]
+ },
+ "S6": {
+  "result": "PASS",
+  "refusal_while_streaming": {
+   "rc": 1,
+   "message": "--fence-old-dsn-file (a file holding a postgresql+psycopg:// URL of the old primary's app role) to fence it now.",
+   "nothing_changed": true
+  },
+  "forced_promotion": {
+   "epoch": "13 -> 14",
+   "seconds": 22.6
+  },
+  "old_primary_role_in_its_db": "fenced",
+  "old_primary_after_commit_plus_3s": {
+   "provider_mutating": 0,
+   "provider_reads": 0,
+   "webhooks": 0,
+   "agent_executed": 0,
+   "agent_backup_runs": 0,
+   "enrollments": 0
+  },
+  "readyz": {
+   "http": 503,
+   "ready": false,
+   "fenced": true
+  },
+  "api_mutation": {
+   "http": 503,
+   "x_ou_role": "fenced"
+  }
+ },
+ "S7": {
+  "result": "PASS",
+  "restored_epoch": 14,
+  "current_epoch": 15,
+  "old_primary_after_restart": {
+   "provider_mutating": 0,
+   "provider_reads": 0,
+   "webhooks": 0,
+   "agent_executed": 0,
+   "agent_backup_runs": 0,
+   "enrollments": 0
+  },
+  "agent_rejections": 0,
+  "agent_rejection_codes": [],
+  "old_primary_role_after": "primary",
+  "readyz": {
+   "http": 503,
+   "ready": false,
+   "fenced": false
+  },
+  "api_mutation": {
+   "http": 503,
+   "x_ou_role": "fenced"
+  }
+ },
+ "S8": {
+  "result": "PASS",
+  "standby_down_for": 45,
+  "T": 15,
+  "side_effects_after_T_plus_10": {
+   "provider_mutating": 0,
+   "provider_reads": 0,
+   "webhooks": 0,
+   "agent_executed": 0,
+   "agent_backup_runs": 0,
+   "enrollments": 0
+  },
+  "readyz": {
+   "http": 503,
+   "ready": false,
+   "fenced": false
+  },
+  "role_in_db": "primary",
+  "timeline": [
+   {
+    "t": 10,
+    "agent_executed_plus_webhooks_in_last_10s": 3
+   },
+   {
+    "t": 20,
+    "agent_executed_plus_webhooks_in_last_10s": 0
+   },
+   {
+    "t": 30,
+    "agent_executed_plus_webhooks_in_last_10s": 0
+   },
+   {
+    "t": 40,
+    "agent_executed_plus_webhooks_in_last_10s": 0
+   },
+   {
+    "t": 50,
+    "agent_executed_plus_webhooks_in_last_10s": 0
+   }
+  ]
+ },
+ "S8b": {
+  "result": "PASS",
+  "works_without_witness_with_override": true,
+  "audit_events_controller.lease_standalone_override": "1"
+ },
+ "_meta": {
+  "what": "WITH THE LEASE: ha-proof = fixes-r7 07e851d (witness lease) + on-demand lease renewal for processes without a renewal thread + evidence commits",
+  "lease": {
+   "T_seconds": 15,
+   "renew_seconds": 3,
+   "witness_margin_seconds": 5,
+   "witness": "ics.witness serve on the standby host"
+  }
+ }
+}

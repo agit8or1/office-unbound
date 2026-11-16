@@ -38,10 +38,11 @@ class Superseded(Exception):
 class Lease:
     """lives in Runtime. `transport(request_dict) -> response_dict` is injected (HTTP in production, a function in tests); `clock` is time.monotonic."""
 
-    def __init__(self, *, signing_key, witness_pub, transport, epoch_fn, lease_seconds=30.0, renew_seconds=5.0, clock=time.monotonic, wall=time.time, standalone=False, on_superseded=None):
+    def __init__(self, *, signing_key, witness_pub, transport, epoch_fn, lease_seconds=30.0, renew_seconds=5.0, clock=time.monotonic, wall=time.time, standalone=False, on_superseded=None, on_demand=False):
         self.key, self.witness_pub, self.transport, self.epoch_fn = signing_key, witness_pub, transport, epoch_fn
         self.lease_s, self.renew_s, self.clock, self.standalone = float(lease_seconds), float(renew_seconds), clock, standalone
         self.on_superseded, self.wall = on_superseded, wall
+        self.on_demand = on_demand               # a process that never starts the renewal thread (CLI, scripts) asks the witness when it needs the lease
         self.valid_until = float("-inf")
         self.superseded = False
         self.last_error: str | None = None
@@ -54,6 +55,10 @@ class Lease:
 
     def require(self) -> None:
         from .epoch import NotActive
+        if self.on_demand and not self.superseded and not self.valid() and self._thread is None and not self.standalone:
+            # HA proof finding: a process WITHOUT a renewal thread (ics.cli epoch-attest / promote's announce step / lab scripts) could never hold a lease, so in lease mode
+            # the operator could not even sign an epoch re-seed document. Such a process asks the witness on demand (same signed protocol, same T).
+            self.renew_once()
         if self.superseded:
             raise NotActive("the witness revoked this controller's lease (a promotion happened): superseded")
         if not self.valid():
@@ -223,6 +228,6 @@ def build(rt):
     key = agentclient.load_signing_key(s.signing_key_file)
     pub = pub_from_b64(s.lease_witness_pubkey or "")
     ls = Lease(signing_key=key, witness_pub=pub, transport=http_transport(s.lease_witness_url, fingerprint_sha256=s.lease_witness_tls_fp),
-               epoch_fn=lambda: epoch.current_db_epoch(rt), lease_seconds=s.lease_seconds, renew_seconds=s.lease_renew_seconds, standalone=s.lease_standalone_override,
+               epoch_fn=lambda: epoch.current_db_epoch(rt), lease_seconds=s.lease_seconds, renew_seconds=s.lease_renew_seconds, standalone=s.lease_standalone_override, on_demand=True,
                on_superseded=lambda: setattr(rt, "fenced_reason", rt.fenced_reason or "superseded: the witness revoked this controller's lease"))
     return ls

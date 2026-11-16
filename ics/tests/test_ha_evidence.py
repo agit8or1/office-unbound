@@ -82,3 +82,41 @@ def test_agent_exec_log_failure_never_blocks_a_request(enrolled, monkeypatch):
     fa = enrolled[0]
     monkeypatch.setattr(fa.agent, "_log_line", lambda d: (_ for _ in ()).throw(OSError("disk full")))
     assert _req(enrolled, 1)["status"] == "ok"
+
+
+def test_lease_in_a_process_without_renewal_thread_renews_on_demand(keys, clock, witness):
+    """HA proof finding: `ics.cli epoch-attest` / promote's announce / scripts build a Runtime but never start the renewal thread; in lease mode they were
+    refused for ever ('controller lease expired') although the witness was reachable. They now ask the witness on demand; a partition still refuses them."""
+    from ics import lease as L
+    from .test_review7_lease import Net, T
+    net = Net(witness)
+    ls = L.Lease(signing_key=keys[0], witness_pub=keys[1].public_key(), transport=net, epoch_fn=lambda: 7, lease_seconds=T, clock=clock, wall=clock.wall, on_demand=True)
+    assert ls._thread is None
+    ls.require()                                  # no renewal loop was started: the check itself renews once
+    assert ls.valid() and len(net.log) == 1
+    clock.advance(T + 1)
+    net.down = True                               # partition: the on-demand renewal fails, the check refuses
+    with pytest.raises(NotActive):
+        ls.require()
+    net.down = False
+    ls.require()                                  # witness reachable again
+    assert ls.valid()
+
+
+@pytest.fixture()
+def keys():
+    from cryptography.hazmat.primitives.asymmetric.ed25519 import Ed25519PrivateKey
+    return Ed25519PrivateKey.generate(), Ed25519PrivateKey.generate()
+
+
+@pytest.fixture()
+def clock():
+    from .test_review7_lease import Clock
+    return Clock()
+
+
+@pytest.fixture()
+def witness(keys, clock, tmp_path):
+    from ics import lease as L
+    from .test_review7_lease import T
+    return L.Witness(keys[1], keys[0].public_key(), lease_seconds=T, state_path=str(tmp_path / "witness.json"), clock=clock, wall=clock.wall)

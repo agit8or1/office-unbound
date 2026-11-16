@@ -198,6 +198,33 @@ def build_standby(sb: str, pr: str) -> None:
     say(f"{sb} rebuilt as standby of {pr} in {now() - t:.0f} s")
 
 
+LEASE_ON = os.environ.get("HA_LEASE", "1") != "0"
+WITNESS_DIR = "/var/lib/ha-witness"
+
+
+def configure_lease(m: str, wh: str) -> bool:
+    """Lease mode (fixes-r7 07e851d): every machine runs a WITNESS (ics.witness serve). The PRIMARY's controller is pointed at the STANDBY's witness (wh = standby);
+    the standby's own env points at its own witness, exactly what the key-bundle copy of the primary's env gives it, so that after a promotion the new
+    primary is granted by the witness it just revoked-and-waited on. HA_LEASE=0 removes the configuration (baseline = fencing by database + agent epoch only). Returns True when the env changed."""
+    T = T_LEASE
+    if not LEASE_ON:
+        sh(m, "systemctl disable --now ha-witness 2>/dev/null; true")
+        env = "ICS_LEASE_WITNESS_URL ICS_LEASE_WITNESS_PUBKEY ICS_WITNESS_STATE_FILE ICS_LEASE_SECONDS ICS_LEASE_RENEW_SECONDS ICS_WITNESS_MARGIN_SECONDS ICS_LEASE_STANDALONE_OVERRIDE"
+        rc, out = sh(m, f"cp /etc/office-unbound/ics.env /tmp/ics.env.bak; for k in {env}; do sed -i \"/^$k=/d\" /etc/office-unbound/ics.env; done; cmp -s /tmp/ics.env.bak /etc/office-unbound/ics.env && echo same || echo changed")
+        return out.strip().endswith("changed")
+    sh(m, f"mkdir -p {WITNESS_DIR}; [ -f {WITNESS_DIR}/witness.key ] || (cd {OPT} && .venv/bin/python -m ics.witness keygen --key-file {WITNESS_DIR}/witness.key > {WITNESS_DIR}/witness.pub)", check=True)
+    ctrl = sh(m, f"cd {OPT} && .venv/bin/python -c \"from ics import agentclient as a; print(a.pub_b64(a.load_signing_key('/etc/office-unbound/ics-signing.key').public_key()))\"", check=True)[1].strip().splitlines()[-1]
+    unit = (f"[Unit]\nDescription=HA proof: lease witness (lab)\nAfter=network.target\n[Service]\nWorkingDirectory={OPT}\nExecStart={OPT}/.venv/bin/python -m ics.witness serve "
+            f"--key-file {WITNESS_DIR}/witness.key --controller-pubkey {ctrl} --state {WITNESS_DIR}/state --listen 0.0.0.0:8099 --lease-seconds {T}\nRestart=always\n[Install]\nWantedBy=multi-user.target\n")
+    sh(m, f"printf '{unit}' > /etc/systemd/system/ha-witness.service; systemctl daemon-reload; systemctl enable --now ha-witness; systemctl restart ha-witness", check=True)
+    peer_pub = sh(wh, f"cat {WITNESS_DIR}/witness.pub")[1].strip()
+    kv = {"ICS_LEASE_WITNESS_URL": f"http://{IP[wh]}:8099", "ICS_LEASE_WITNESS_PUBKEY": peer_pub, "ICS_WITNESS_STATE_FILE": f"{WITNESS_DIR}/state", "ICS_LEASE_SECONDS": str(T),
+          "ICS_LEASE_RENEW_SECONDS": os.environ.get("HA_LEASE_RENEW", "3"), "ICS_WITNESS_MARGIN_SECONDS": os.environ.get("HA_WITNESS_MARGIN", "5")}
+    cmds = "cp /etc/office-unbound/ics.env /tmp/ics.env.bak; " + "; ".join(
+        f"sed -i '/^{k}=/d' /etc/office-unbound/ics.env; echo '{k}={v}' >> /etc/office-unbound/ics.env" for k, v in kv.items()) + "; cmp -s /tmp/ics.env.bak /etc/office-unbound/ics.env && echo same || echo changed"
+    return sh(m, cmds, check=True)[1].strip().endswith("changed")
+
+
 def ensure_pair() -> tuple[str, str]:
     """returns (primary, standby), rebuilding whatever is not a healthy primary + streaming standby. Also resets recorder knobs and opens the probe."""
     for m in (NODE, "ou-ha1", "ou-ha2"):
@@ -215,6 +242,11 @@ def ensure_pair() -> tuple[str, str]:
         build_standby(sb, pr)
     tune_pg(pr)
     tune_pg(sb)
+    ch = [configure_lease(sb, sb), configure_lease(pr, sb)]     # primary -> the standby's witness; standby -> its own witness (see configure_lease)
+    if any(ch):
+        for m in (sb, pr):
+            sh(m, "systemctl restart ics")
+        time.sleep(12 if LEASE_ON else 3)
     rec_post("/config", {"delay_ms": 0})
     rec_post("/probe", {"open": True})
     say(f"pair: primary {pr} (epoch {cstate(pr)['epoch']}), standby {sb}")
@@ -520,32 +552,44 @@ def s7(ctx) -> dict:
 
 
 def s8(ctx) -> dict:
-    """S8: the standby / witness disappears WITHOUT any network partition: a primary that cannot prove it is still the only one must self-fence after T
-    (unless the audited standalone override is set). Observed for T + 30 s at the recorder."""
+    """S8 (+S8b): the standby HOST (ICS, PostgreSQL and the witness) disappears WITHOUT any network partition: a primary that can no longer prove it is the only one
+    must self-fence after T (S8); the audited standalone override (ICS_LEASE_STANDALONE_OVERRIDE=true) is the operator's way to keep working (S8b)."""
     pr, sb = ensure_pair()
     stim(pr, runbooks=1, webhooks=1)
     if not wait_for(lambda: activity(rec_get(), pr, now() - 60)["agent_executed"], 60):
         return {"result": "INVALID", "why": f"{pr} was not active before the standby was stopped: the test proves nothing"}
     t_down = now()
-    sh(sb, "systemctl stop ics postgresql", check=True)
-    say(f"S8: standby {sb} stopped; watching {pr} for {T_LEASE + 30} s")
+    sh(sb, "systemctl stop ics ha-witness postgresql", check=True)      # the whole standby host is gone
+    say(f"S8: standby {sb} down; watching {pr} for {T_LEASE + 30} s")
     marks = []
     for i in range(0, T_LEASE + 30, 10):
         stim(pr, runbooks=1, webhooks=1, backup_runs=1)
         rec_post("/probe", {"open": bool(i % 20)})
         time.sleep(10)
-        marks.append({"t": i + 10, "executed_in_last_10s": len(activity(rec_get(), pr, now() - 10)["agent_executed"]) + len(activity(rec_get(), pr, now() - 10)["webhooks"])})
+        a_ = activity(rec_get(), pr, now() - 10)
+        marks.append({"t": i + 10, "agent_executed_plus_webhooks_in_last_10s": len(a_["agent_executed"]) + len(a_["webhooks"])})
     rec_post("/probe", {"open": True})
     st = rec_get()
     late = violations(activity(st, pr, t_down + T_LEASE + 10))                 # 10 s margin after T
     rz = readyz(pr)
     ps = cstate(pr)
-    return {"result": verdict(sum(late.values()) == 0 and not rz.get("ready", True)), "standby_down_for": T_LEASE + 30, "T": T_LEASE, "side_effects_after_T_plus_10": late,
-            "readyz": {k: rz.get(k) for k in ("http", "ready", "fenced")}, "role": ps and ps["role"], "timeline": marks,
-            "note": "without a lease the primary keeps acting forever: this is the availability-preserving behaviour of the fixes-r7 code; BU's lease turns this into a self-fence"}
+    first_quiet = None
+    s8a = {"result": verdict(sum(late.values()) == 0 and not rz.get("ready", True)), "standby_down_for": T_LEASE + 30, "T": T_LEASE, "side_effects_after_T_plus_10": late,
+           "readyz": {k: rz.get(k) for k in ("http", "ready", "fenced")}, "role_in_db": ps and ps["role"], "timeline": marks}
+    # ---- S8b: the operator declares the standby dead: audited standalone override, the primary works again without a witness
+    sh(pr, "echo ICS_LEASE_STANDALONE_OVERRIDE=true >> /etc/office-unbound/ics.env; systemctl restart ics", check=True)
+    time.sleep(10)
+    t_ov = now()
+    stim(pr, runbooks=2, webhooks=1)
+    ok_again = wait_for(lambda: activity(rec_get(), pr, t_ov)["agent_executed"], 60)
+    audited = psql(pr, "SELECT count(*) FROM audit_events WHERE action = 'controller.lease_standalone_override'")
+    sh(pr, "sed -i '/^ICS_LEASE_STANDALONE_OVERRIDE=/d' /etc/office-unbound/ics.env; systemctl restart ics")
+    sh(sb, "systemctl start postgresql ha-witness ics")
+    s8b = {"result": verdict(bool(ok_again) and audited not in ("", "0")), "works_without_witness_with_override": bool(ok_again), "audit_events_controller.lease_standalone_override": audited}
+    return {"S8": s8a, "S8b": s8b}
 
 
-SCENARIOS = {"S1": s1, "S2b": s2b, "S2": s2_s3, "S3": s2_s3, "S4": s4, "S5": s5, "S6": s6, "S7": s7, "S8": s8}
+SCENARIOS = {"S1": s1, "S8b": s8, "S2b": s2b, "S2": s2_s3, "S3": s2_s3, "S4": s4, "S5": s5, "S6": s6, "S7": s7, "S8": s8}
 
 
 def main(argv) -> int:
@@ -561,16 +605,22 @@ def main(argv) -> int:
     if cmd == "deploy":
         subprocess.run([os.path.join(HERE, "push.sh"), "ou-ha1", "ou-ha2", NODE], check=True)
         for m in ("ou-ha1", "ou-ha2"):
-            sh(m, "cd /root/src && rsync -a --exclude=tests --exclude=.venv ics/ /opt/office-unbound/ics/ics/ && rsync -a ics/agent/ /opt/office-unbound/ics/agent/ && "
-                  "rsync -a ics/migrations/ /opt/office-unbound/ics/migrations/ && rsync -a ics/deploy/ /opt/office-unbound/ics/deploy/ && "
+            sh(m, "cd /root/src && rsync -a --exclude=tests --exclude=.venv ics/ics/ /opt/office-unbound/ics/ics/ && rsync -a ics/agent/ /opt/office-unbound/ics/agent/ && "
+                  "rsync -a --delete ics/migrations/ /opt/office-unbound/ics/migrations/ && rsync -a ics/deploy/ /opt/office-unbound/ics/deploy/ && "
                   "install -m 0644 -o root -g ics /root/src/blueprints/lab/ha/ha_seed.py /opt/office-unbound/ics/scripts/ha_seed.py", check=True)
         sh(NODE, "bash /root/src/blueprints/lab/ha/node-setup.sh " + NODE_IP + " >/dev/null; systemctl restart ha-recorder", check=True)
-        sh("ou-ha1", "systemctl restart ics-migrate ics 2>&1 | tail -2; systemctl restart ics")
-        sh("ou-ha2", "systemctl restart ics")
+        prim = next((m for m in ("ou-ha1", "ou-ha2") if healthy_primary(m)), "ou-ha1")
+        # lab databases built before the lease commit carry alembic revision "0012" (renamed 0012r7): re-stamp on the primary (replicates), then migrate
+        psql(prim, "UPDATE alembic_version SET version_num = '0012r7' WHERE version_num = '0012'")
+        sh(prim, "systemctl restart ics-migrate; systemctl restart ics")
+        for m in ("ou-ha1", "ou-ha2"):
+            if m != prim:
+                sh(m, "systemctl restart ics")
         return 0
     names = argv[2:] or ["S1", "S2", "S2b", "S4", "S5", "S6", "S7", "S8"]
-    if "S2" in names and "S3" in names:
-        names.remove("S3")
+    for dup, keep in (("S3", "S2"), ("S8b", "S8")):
+        if dup in names and keep in names:
+            names.remove(dup)
     results: dict = {}
     for n in names:
         say(f"===== {n} =====")
@@ -579,11 +629,11 @@ def main(argv) -> int:
             r = SCENARIOS[n](None)
         except Exception as e:  # noqa: BLE001
             r = {"result": "ERROR", "error": f"{type(e).__name__}: {e}"}
-        if n in ("S2", "S3") and "S2" in r:
+        if n in ("S2", "S3", "S8", "S8b") and ("S2" in r or "S8" in r):
             results.update(r)
         else:
             results[n] = r
-        say(f"{n} -> {json.dumps({k: v.get('result') if isinstance(v, dict) else v for k, v in (r.items() if 'S2' in r else [(n, r)])})}  ({now() - t:.0f} s)")
+        say(f"{n} -> {json.dumps({k: v.get('result') if isinstance(v, dict) else v for k, v in (r.items() if ('S2' in r or 'S8' in r) else [(n, r)])})}  ({now() - t:.0f} s)")
     results["_meta"] = {"at": time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime()), "git": subprocess.run(["git", "-C", REPO, "rev-parse", "--short", "HEAD"], capture_output=True, text=True).stdout.strip(),
                         "observe_seconds": OBSERVE, "lease_T": T_LEASE}
     out = os.environ.get("HA_EVIDENCE", EVIDENCE)
