@@ -893,3 +893,42 @@ def test_m2_delivery_connects_to_the_checked_address_with_original_name_and_neve
     assert r.headers["host"] == "hook.example:8443" and r.extensions.get("sni_hostname") == "hook.example"   # TLS name + Host stay the original
     s, dl, _ = api("GET", f"/webhooks/{wh['id']}/deliveries", expect=200)
     assert dl["items"][0]["last_status"] is None and dl["items"][0]["last_error"] == "delivery failed"      # a 302 from an internal host is not reported
+
+
+# ---- review 6 M3: no implicit binding of existing deployments by slug ---------------------------------------------------------------------------
+def _orphan_deployment(rt, slug="acme-prod", customer_id="acme"):
+    with rt.session() as db:
+        db.execute(text("INSERT INTO deployments (slug, customer_id, profile, profile_version, status, desired_spec) VALUES (:s, :c, 'small', '1', 'active', '{}')"),
+                   {"s": slug, "c": customer_id})
+        db.commit()
+
+
+def test_m3_customer_create_cannot_capture_an_existing_deployment_by_slug(w, rt):
+    _orphan_deployment(rt)
+    r = w.adm[0].post(f"{H}/plans", json={"action": "customer.create", "params": {"name": "Acme Corp", "slug": "acme"}}, headers=w.adm[1])
+    assert r.status_code == 409 and "adopt_existing_deployments" in r.text                  # refused at plan time
+    # a derived slug skips names that would capture a deployment
+    p = w.run_human("customer.create", {"name": "Acme"})
+    with rt.session() as db:
+        assert db.execute(text("SELECT slug FROM customers WHERE name = 'Acme'")).scalar() != "acme"
+        assert db.execute(text("SELECT count(*) FROM deployments d JOIN customers c ON c.slug = d.customer_id")).scalar() == 0
+    # the explicit mapping: flagged, high risk (two approvers), executed, audited with the adopted deployments
+    p = w.plan(w.adm, "customer.create", {"name": "Acme Corp", "slug": "acme", "adopt_existing_deployments": True})
+    assert p["risk"] == "high"
+    w.approve(p["plan_id"], p["approvals_required"])
+    assert worker.run_once(rt)
+    with rt.session() as db:
+        assert db.execute(text("SELECT count(*) FROM deployments d JOIN customers c ON c.slug = d.customer_id WHERE c.name = 'Acme Corp'")).scalar() == 1
+    assert w.audit_rows("customer.created")[-1].details["adopted_deployments"] == ["acme-prod"]
+
+
+def test_m3_customer_update_slug_is_the_explicit_mapping_for_existing_deployments(w, rt):
+    _orphan_deployment(rt, "old-prod", "oldco")
+    cid = w.customer("Old Co")
+    r = w.adm[0].post(f"{H}/plans", json={"action": "customer.update", "params": {"customer_id": cid, "slug": "oldco"}}, headers=w.adm[1])
+    assert r.status_code == 409
+    p = w.plan(w.adm, "customer.update", {"customer_id": cid, "slug": "oldco", "adopt_existing_deployments": True})
+    w.approve(p["plan_id"], p["approvals_required"])
+    assert worker.run_once(rt)
+    with rt.session() as db:
+        assert db.execute(text("SELECT slug FROM customers WHERE id = :c"), {"c": cid}).scalar() == "oldco"

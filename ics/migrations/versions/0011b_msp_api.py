@@ -7,14 +7,10 @@ down_revision = "0011a"
 
 DDL = """
 ALTER TABLE customers ADD COLUMN slug text, ADD COLUMN external_ref text;
-WITH s AS (
-  SELECT id, left(trim(both '-' from lower(regexp_replace(name, '[^A-Za-z0-9]+', '-', 'g'))), 28) AS base FROM customers
-), r AS (
-  SELECT id, CASE WHEN length(base) < 2 THEN 'c-' || left(id::text, 8) ELSE base END AS base FROM s
-), n AS (
-  SELECT id, base, row_number() OVER (PARTITION BY base ORDER BY id) AS rn FROM r
-)
-UPDATE customers c SET slug = CASE WHEN n.rn = 1 THEN n.base ELSE n.base || '-' || left(c.id::text, 2) END FROM n WHERE n.id = c.id;
+-- review 6 M3: the slug of an EXISTING customer is NOT derived from its name. A deployment's free-text customer_id could otherwise equal such a
+-- name-derived slug ("lab", "acme") and be bound to that customer implicitly. Existing customers get an id-derived slug; deployments are bound
+-- only explicitly (customer.update slug + adopt_existing_deployments, an approved high-risk plan).
+UPDATE customers SET slug = 'c-' || left(replace(id::text, '-', ''), 12);
 ALTER TABLE customers ALTER COLUMN slug SET NOT NULL;
 CREATE UNIQUE INDEX customers_slug ON customers (slug);
 CREATE UNIQUE INDEX customers_external_ref ON customers (external_ref) WHERE external_ref IS NOT NULL;
@@ -117,7 +113,7 @@ FUNCTION = """
 CREATE FUNCTION customers_default_slug() RETURNS trigger LANGUAGE plpgsql AS $f$
 BEGIN
   IF NEW.slug IS NULL THEN
-    NEW.slug := left(trim(both '-' from lower(regexp_replace(NEW.name, '[^A-Za-z0-9]+', '-', 'g'))), 22) || '-' || left(NEW.id::text, 6);
+    NEW.slug := 'c-' || left(replace(NEW.id::text, '-', ''), 12);
   END IF;
   RETURN NEW;
 END $f$
@@ -129,6 +125,14 @@ def upgrade() -> None:
     for stmt in [s for s in DDL.replace("{APP}", app).split(";\n") if s.strip()]:
         op.execute(stmt)
     op.execute(FUNCTION)
+    op.execute("""
+DO $$
+DECLARE r record;
+BEGIN
+  FOR r IN SELECT slug, customer_id FROM deployments ORDER BY slug LOOP
+    RAISE NOTICE 'deployment % (customer_id=%) is not bound to any customer; bind it explicitly with an approved customer.update (slug + adopt_existing_deployments)', r.slug, r.customer_id;
+  END LOOP;
+END $$""")
     op.execute("CREATE TRIGGER customers_default_slug BEFORE INSERT ON customers FOR EACH ROW EXECUTE FUNCTION customers_default_slug()")
 
 

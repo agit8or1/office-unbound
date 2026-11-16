@@ -105,3 +105,30 @@ def test_adopt_endpoint_binds_node_allowlist(rt, mk_user):
         ep = db.execute(text("SELECT * FROM endpoints WHERE id = :i"), {"i": eid}).first()
         with pytest.raises(CredentialUnavailable):   # widening the node allowlist outside an approved update releases nothing
             cred_service.endpoint_secret(rt, ep, "inventory")
+
+
+def test_m3_msp_migration_does_not_bind_deployments_by_name_derived_slug(rt, base_settings, owner_engine):
+    """Review 6 M3: a deployment whose customer_id equals what the OLD migration would have derived from a customer's name stays unbound."""
+    from tests.conftest import _test_env
+    cfg = _cfg(_test_env()["ICS_TEST_OWNER_DATABASE_URL"])
+    with owner_engine.connect() as c:
+        c.execute(text("DROP SCHEMA public CASCADE"))
+        c.execute(text("CREATE SCHEMA public"))
+    command.upgrade(cfg, "0011a")
+    try:
+        with owner_engine.connect() as c:
+            cid = c.execute(text("INSERT INTO customers (name, msp_owned, provisioning_mode) VALUES ('Lab', true, 'auto') RETURNING id")).scalar()
+            c.execute(text("INSERT INTO deployments (slug, customer_id, profile, profile_version, status, desired_spec) VALUES ('lab-prod', 'lab', 'small', '1', 'active', '{}')"))
+        command.upgrade(cfg, "0011b")
+        with owner_engine.connect() as c:
+            slug = c.execute(text("SELECT slug FROM customers WHERE id = :i"), {"i": cid}).scalar()
+            assert slug != "lab" and slug.startswith("c-")
+            assert c.execute(text("SELECT count(*) FROM deployments d JOIN customers cu ON cu.slug = d.customer_id")).scalar() == 0   # nothing bound implicitly
+            # and a customer inserted later gets an id-derived slug too
+            n = c.execute(text("INSERT INTO customers (name, msp_owned, provisioning_mode) VALUES ('Lab 2', true, 'auto') RETURNING slug")).scalar()
+            assert n.startswith("c-")
+    finally:
+        with owner_engine.connect() as c:
+            c.execute(text("DROP SCHEMA public CASCADE"))
+            c.execute(text("CREATE SCHEMA public"))
+        command.upgrade(cfg, "head")

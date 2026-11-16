@@ -33,6 +33,8 @@ class CustomerCreate(_Policy):
     slug: str | None = Field(default=None, pattern=r"^[a-z0-9][a-z0-9-]{1,30}$", description="deployment customer_id; derived from the name when omitted")
     external_ref: str | None = Field(default=None, max_length=100, pattern=r"^[A-Za-z0-9][A-Za-z0-9._:/-]{0,99}$",
                                      description="the MSP system's own id for this customer (e.g. a clientst0r organization id)")
+    adopt_existing_deployments: bool = Field(default=False, description="review 6 M3: an explicit slug may equal the customer_id of EXISTING deployments only with this flag, "
+                                             "which binds those deployments to this customer (the approvers see the list)")
 
     @model_validator(mode="after")
     def _m(self):
@@ -49,6 +51,9 @@ class CustomerUpdate(_Policy):
     contact_name: str | None = Field(default=None, max_length=100, pattern=r"^[^\x00-\x1f]*$")
     contact_email: str | None = Field(default=None, max_length=200, pattern=r"^[A-Za-z0-9._%+-]+@[A-Za-z0-9.-]+$")
     disabled: bool | None = None
+    slug: str | None = Field(default=None, pattern=r"^[a-z0-9][a-z0-9-]{1,30}$", description="explicit deployment mapping: the new slug; if it equals the customer_id of existing "
+                             "deployments, adopt_existing_deployments must be true (they are then bound to this customer)")
+    adopt_existing_deployments: bool = False
 
 
 class OperatorSetScope(BaseModel):
@@ -65,24 +70,46 @@ class OperatorSetScope(BaseModel):
         return self
 
 
+def _orphans(db, slug: str) -> list[str]:
+    """Deployments whose free-text customer_id equals `slug` (they would be bound to whoever owns that slug)."""
+    return [r.slug for r in db.execute(text("SELECT slug FROM deployments WHERE customer_id = :s ORDER BY slug"), {"s": slug}).all()]
+
+
+def _adoption_check(db, slug: str | None, adopt: bool) -> dict:
+    from ..actions import PlanError
+    if not slug:
+        return {}
+    o = _orphans(db, slug)
+    if o and not adopt:
+        raise PlanError(409, "slug equals the customer_id of existing deployments (" + ", ".join(o[:5]) + "); they are bound to a customer only explicitly: "
+                        "set adopt_existing_deployments=true, or choose another slug")
+    return {"adopts_deployments": o} if o else {}
+
+
 def precheck(db, rt, action: str, p) -> dict:
     from ..actions import PlanError
     if action == "customer.create":
+        extra = _adoption_check(db, p.slug, p.adopt_existing_deployments)
         if db.execute(text("SELECT 1 FROM customers WHERE name = :n"), {"n": p.name}).first():
             raise PlanError(409, "customer name already exists")
         if p.slug and db.execute(text("SELECT 1 FROM customers WHERE slug = :s"), {"s": p.slug}).first():
             raise PlanError(409, "customer slug already exists")
         if p.external_ref and db.execute(text("SELECT 1 FROM customers WHERE external_ref = :s"), {"s": p.external_ref}).first():
             raise PlanError(409, "external_ref already linked to another customer")
+        return extra
     elif action == "customer.update":
         c = db.execute(text("SELECT * FROM customers WHERE id = :i"), {"i": str(p.customer_id)}).first()
         if c is None:
             raise PlanError(404, "customer not found")
+        extra = _adoption_check(db, p.slug, p.adopt_existing_deployments) if p.slug and p.slug != c.slug else {}
+        if p.slug and p.slug != c.slug and db.execute(text("SELECT 1 FROM customers WHERE slug = :s"), {"s": p.slug}).first():
+            raise PlanError(409, "customer slug already exists")
         mode = p.provisioning_mode or c.provisioning_mode
         try:
             policy.validate_policy(c.msp_owned, mode, p.extra_approvals if p.extra_approvals is not None else c.extra_approvals)
         except ValueError as e:
             raise PlanError(422, str(e)) from None
+        return extra
     else:
         if not db.execute(text("SELECT 1 FROM users WHERE username = :u"), {"u": p.username}).first():
             raise PlanError(404, "user not found")
@@ -100,7 +127,7 @@ def slugify(name: str) -> str:
 
 def _free_slug(db, base: str) -> str:
     slug, n = base, 1
-    while db.execute(text("SELECT 1 FROM customers WHERE slug = :s"), {"s": slug}).first():
+    while db.execute(text("SELECT 1 FROM customers WHERE slug = :s"), {"s": slug}).first() or _orphans(db, slug):   # never derive a slug that would capture a deployment
         n += 1
         slug = f"{base[:27]}-{n}"
     return slug
@@ -110,12 +137,15 @@ def exec_create(rt, db, m: CustomerCreate, plan, known):
     slug = m.slug or _free_slug(db, slugify(m.name))
     if db.execute(text("SELECT 1 FROM customers WHERE slug = :s"), {"s": slug}).first():
         raise ValueError("customer slug already in use")
+    if _orphans(db, slug) and not m.adopt_existing_deployments:   # re-checked at execution (TOCTOU with a deployment created after approval)
+        raise ValueError("slug equals the customer_id of existing deployments; not adopted without adopt_existing_deployments")
     cid = db.execute(text("INSERT INTO customers (name, msp_owned, provisioning_mode, extra_approvals, contact_name, contact_email, created_by, slug, external_ref) "
                           "VALUES (:n, :o, :m, CAST(:x AS jsonb), :cn, :ce, :u, :sl, :er) RETURNING id"),
                      {"n": m.name, "o": m.msp_owned, "m": m.provisioning_mode, "x": audit.canon(m.extra_approvals or {}),
                       "cn": m.contact_name, "ce": m.contact_email, "u": str(plan.requested_by), "sl": slug, "er": m.external_ref}).scalar()
+    adopted = _orphans(db, slug)
     audit.append(db, "customer.created", actor_name="worker", resource="customer", resource_id=str(cid),
-                 details={"name": m.name, "msp_owned": m.msp_owned, "provisioning_mode": m.provisioning_mode, "extra_approvals": m.extra_approvals or {}})
+                 details={"adopted_deployments": adopted, "name": m.name, "msp_owned": m.msp_owned, "provisioning_mode": m.provisioning_mode, "extra_approvals": m.extra_approvals or {}})
     return {"customer_id": str(cid), "slug": slug}
 
 
@@ -125,6 +155,14 @@ def exec_update(rt, db, m: CustomerUpdate, plan, known):
            "extra_approvals": m.extra_approvals if m.extra_approvals is not None else c.extra_approvals,
            "contact_name": m.contact_name if m.contact_name is not None else c.contact_name,
            "contact_email": m.contact_email if m.contact_email is not None else c.contact_email}
+    if m.slug and m.slug != c.slug:
+        if db.execute(text("SELECT 1 FROM customers WHERE slug = :s"), {"s": m.slug}).first():
+            raise ValueError("customer slug already in use")
+        if _orphans(db, m.slug) and not m.adopt_existing_deployments:
+            raise ValueError("slug equals the customer_id of existing deployments; not adopted without adopt_existing_deployments")
+        if _orphans(db, c.slug):
+            raise ValueError("deployments are bound to the current slug; re-slugging would orphan them (destroy or move them first)")
+        db.execute(text("UPDATE customers SET slug = :s WHERE id = :i"), {"s": m.slug, "i": str(c.id)})
     db.execute(text("UPDATE customers SET provisioning_mode = :m, extra_approvals = CAST(:x AS jsonb), contact_name = :cn, contact_email = :ce, "
                     "disabled_at = CASE WHEN CAST(:d AS boolean) IS NULL THEN disabled_at WHEN :d THEN COALESCE(disabled_at, now()) ELSE NULL END "
                     "WHERE id = :i"),
