@@ -1,0 +1,5 @@
+element-web ou/element-web:1.12.35 sha256:3466abb4ade27ecaccf9d5f40bdd94525f2b8da86288b8854b1028696f3cba73
+meet-token ou/meet-token-service:0.1.0-ou1 sha256:69b20d09d661d29ad5482e9603dfe628d5ca176925513c5d312ba04513e1e283
+pbx-helper ou/ou-pbx:0.1.0-ou1 sha256:481adefa96c173b81a7871b738498edea255269441ae2dde8c1d25d9f2c97f8d
+softphone ou/ou-softphone:0.1.0-ou1 sha256:efc5d8b4ad04b70e25d66b3ef9219c5009f4ee33d328005d6ed3accaa8b33941
+synapse ou/synapse:1.165.0 sha256:542de3d410dc142cf45c69e42c13cbd970a497803dc7edb78c3e2b2ee5160a9d

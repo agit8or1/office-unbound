@@ -68,12 +68,25 @@ def create_invite(db: Session, rt: Runtime, username: str, role: str, *, created
     if role not in ROLES:
         raise ValueError(f"role must be one of {ROLES}")
     _check_username(username)
+    # review 7 M-1: an account created by a customer-SCOPED creator never gets more than the creator has: the same customers (not all-customers) and a
+    # role no higher than the creator's. The column default (all_customers = true) used to hand a scoped admin's invitee every customer.
+    scope_ids, all_cust = None, True
+    if created_by:
+        cr = db.execute(text("SELECT role, all_customers FROM users WHERE id = :i"), {"i": str(created_by)}).first()
+        if cr is not None:
+            if RANK[role] > RANK[cr.role]:
+                raise ValueError("you cannot create an account with a role higher than your own")
+            if not cr.all_customers:
+                all_cust = False
+                scope_ids = [str(r.customer_id) for r in db.execute(text("SELECT customer_id FROM operator_customers WHERE user_id = :i"), {"i": str(created_by)}).all()]
     uid = db.execute(text(
-        "INSERT INTO users (username, role, enrolled, created_by, role_set_by, role_set_at) "
-        "VALUES (:u, :r, false, :cb, :cb, now()) RETURNING id"),
-        {"u": username, "r": role, "cb": str(created_by) if created_by else None}).scalar()
+        "INSERT INTO users (username, role, enrolled, created_by, role_set_by, role_set_at, all_customers) "
+        "VALUES (:u, :r, false, :cb, :cb, now(), :ac) RETURNING id"),
+        {"u": username, "r": role, "cb": str(created_by) if created_by else None, "ac": all_cust}).scalar()
+    for cid in scope_ids or []:
+        db.execute(text("INSERT INTO operator_customers (user_id, customer_id) VALUES (:u, :c)"), {"u": str(uid), "c": cid})
     audit.append(db, "user.invite", actor_id=created_by, actor_name=actor, resource="user", resource_id=str(uid),
-                 details={"username": username, "role": role, **(extra or {})})
+                 details={"username": username, "role": role, "all_customers": all_cust, "customer_ids": scope_ids or [], **(extra or {})})
     if commit:
         db.commit()
     return str(uid)

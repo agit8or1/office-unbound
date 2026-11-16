@@ -1,0 +1,19 @@
+# Office Unbound: OpenCloud 9.1.0 (release binary linux-amd64; .sha256 file and GitHub asset digest cross-checked by 01-fetch-verify.sh). Non-root uid 10140.
+# Telemetry: the image configures no external endpoint and no update/usage reporting; the operator config is the only place such a thing could be switched on (not verified against the OpenCloud code base, see docs/status/oci-signing-results.md).
+ARG BASE=localhost/ou-base-noble:latest
+FROM ${BASE}
+ARG DEBIAN_FRONTEND=noninteractive
+RUN apt-get -o APT::Sandbox::User=root update && apt-get -o APT::Sandbox::User=root install -y --no-install-recommends ca-certificates media-types \
+ && rm -rf /var/lib/apt/lists/* /var/cache/apt/archives/* \
+ && groupadd -g 10140 opencloud && useradd -u 10140 -g 10140 -d /var/lib/opencloud -M -s /usr/sbin/nologin opencloud && install -d -o opencloud -g opencloud /var/lib/opencloud /etc/opencloud
+COPY opencloud /usr/bin/opencloud
+RUN chmod 0755 /usr/bin/opencloud
+ENV OC_BASE_DATA_PATH=/var/lib/opencloud OC_CONFIG_DIR=/etc/opencloud OC_DISABLE_VERSIONING=false
+LABEL org.opencontainers.image.title="OpenCloud (Office Unbound build)" org.opencontainers.image.version="9.1.0" org.opencontainers.image.licenses="Apache-2.0" \
+      org.opencontainers.image.source="https://github.com/opencloud-eu/opencloud/releases/tag/v9.1.0"
+USER 10140:10140
+EXPOSE 9200
+VOLUME ["/var/lib/opencloud", "/etc/opencloud"]
+HEALTHCHECK --interval=30s --timeout=5s --start-period=60s --retries=3 CMD ["bash","-c","exec 3<>/dev/tcp/127.0.0.1/9200 && printf 'GET /app/list HTTP/1.0\\r\\n\\r\\n' >&3 && head -1 <&3 | grep -Eq ' (200|401|302) '"]
+ENTRYPOINT ["/usr/bin/opencloud"]
+CMD ["server"]

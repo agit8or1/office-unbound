@@ -9,9 +9,12 @@ untrusted build output) supplies everything on stdin as a tar stream; nothing th
                                The signer RE-COMPUTES both SHA-256 values itself, REFUSES unless a passing `first-boot` test record exists for the image's
                                SHA-256 (record-test) and the SBOM is a CycloneDX document with a component inventory, builds the SHA256SUMS text itself (the
                                exact two-line form ics/guest/golden.py verifies) and prints a tar with SHA256SUMS and SHA256SUMS.sig (base64 DER ECDSA/SHA-256).
-  record-test <sha256> <name> <pass|fail> <log-sha256>      writes records/<sha256>.json (name must be `first-boot` for the sign gate)
+  record-test                  stdin: ONE attestation produced by the pipeline's test runner (ou-artifact-attest image, user ou-testrunner, key pinned in
+                               trust/test-runner.pub which is root-owned). The caller can no longer TYPE a record (security review 6 H1): the signature is
+                               verified here, the attestation must be of kind image-first-boot, and it is stored with its hash. Takes no argument.
   pubkey                       prints the public key PEM and its SPKI SHA-256 pin (what the ICS operator confirms)
-State directory (default /var/lib/ou-imgsign, env OU_IMGSIGN_STATE for tests): key.pem, passphrase, records/.
+State directory (default /var/lib/ou-imgsign, env OU_IMGSIGN_STATE for tests): key.pem, passphrase, records/, trust/ (root-owned).
+Every command refuses extra arguments (the sudoers rule names each command exactly, no `*`).
 """
 import base64
 import hashlib
@@ -27,11 +30,41 @@ STATE = os.environ.get("OU_IMGSIGN_STATE", "/var/lib/ou-imgsign")
 IMAGE_RE = re.compile(r"^ou-golden-(debian-12|ubuntu-24\.04)-\d{8}\.qcow2$")
 MAXTOTAL = 6 * 1024 ** 3
 MAXSBOM = 64 * 1024 * 1024
+ATTEST_PREFIX = b"ou-test-attestation-v1\n"
 
 
 def die(msg, code=3):
     print("REFUSED: " + msg, file=sys.stderr)
     sys.exit(code)
+
+
+def canon(o):
+    return json.dumps(o, sort_keys=True, separators=(",", ":"), ensure_ascii=True, allow_nan=False).encode()
+
+
+def trusted_runner_pub():
+    """raw Ed25519 key (base64) of the test runner, from the root-owned trust directory (never writable by group/other, not owned by the build user)"""
+    d = os.path.join(STATE, "trust")
+    p = os.path.join(d, "test-runner.pub")
+    try:
+        st, dst = os.stat(p), os.stat(d)
+    except OSError:
+        die("no trusted test-runner key installed (trust/test-runner.pub): run install-image-signer.sh")
+    if st.st_mode & 0o022 or dst.st_mode & 0o022:
+        die("trust/test-runner.pub or its directory is group/world writable")
+    if os.environ.get("OU_IMGSIGN_SANDBOX") != "1" and (st.st_uid != 0 or dst.st_uid != 0):
+        die("trust/test-runner.pub must be owned by root")
+    return open(p).read().strip()
+
+
+def verify_attestation(att, sig):
+    from cryptography.exceptions import InvalidSignature
+    from cryptography.hazmat.primitives.asymmetric.ed25519 import Ed25519PublicKey
+    try:
+        Ed25519PublicKey.from_public_bytes(base64.b64decode(trusted_runner_pub(), validate=True)).verify(base64.b64decode(sig, validate=True), ATTEST_PREFIX + canon(att))
+        return True
+    except (InvalidSignature, ValueError, TypeError):
+        return False
 
 
 def read_tar(fp):
@@ -71,8 +104,12 @@ def cmd_sign():
         r = json.load(open(os.path.join(STATE, "records", files[img] + ".json")))
     except (OSError, ValueError):
         die("no test record for image sha256 %s: run the first-boot proof and record-test first" % files[img])
-    if r.get("results", {}).get("first-boot", {}).get("result") != "pass":
+    fb = r.get("results", {}).get("first-boot", {})
+    if fb.get("result") != "pass":
         die("the recorded first-boot test of this image did not pass")
+    att = fb.get("attestation")
+    if not isinstance(att, dict) or att.get("sha256") != files[img] or att.get("kind") != "image-first-boot" or not verify_attestation(att, fb.get("sig", "")):
+        die("the first-boot record carries no valid test-runner attestation for this image (a record the build user typed is not accepted)")
     try:
         bom = json.loads(sbom)
         ok = bom["bomFormat"] == "CycloneDX" and isinstance(bom.get("components"), list) and len(bom["components"]) > 50
@@ -94,16 +131,27 @@ def cmd_sign():
     sys.stdout.buffer.write(bio.getvalue())
 
 
-def cmd_record(sha, name, res, logsha):
-    if not re.fullmatch(r"[0-9a-f]{64}", sha) or res not in ("pass", "fail") or not re.fullmatch(r"[a-z0-9-]{1,40}", name) or not re.fullmatch(r"[0-9a-f]{64}", logsha):
-        die("bad arguments")
+def cmd_record():
+    """stdin = {"attestation": {...}, "sig": base64}; produced by `ou-artifact-attest image` under the runner's identity"""
+    try:
+        doc = json.loads(sys.stdin.buffer.read(65536))
+        att, sig = doc["attestation"], doc["sig"]
+        sha, name, res, logsha = att["sha256"], att["name"], att["result"], att["log_sha256"]
+    except (ValueError, KeyError, TypeError):
+        die("bad attestation")
+    if not isinstance(att, dict) or att.get("v") != 1 or att.get("kind") != "image-first-boot" or name != "first-boot":
+        die("not an image first-boot attestation")
+    if not re.fullmatch(r"[0-9a-f]{64}", str(sha)) or res not in ("pass", "fail") or not re.fullmatch(r"[0-9a-f]{64}", str(logsha)):
+        die("bad attestation fields")
+    if not isinstance(sig, str) or not verify_attestation(att, sig):
+        die("attestation is not signed by the registered test runner")
     d = os.path.join(STATE, "records")
     os.makedirs(d, exist_ok=True)
     fn = os.path.join(d, sha + ".json")
     rec = json.load(open(fn)) if os.path.exists(fn) else {"sha256": sha, "results": {}}
-    rec["results"][name] = {"result": res, "log_sha256": logsha}
+    rec["results"][name] = {"result": res, "log_sha256": logsha, "attestation": att, "sig": sig, "attestation_sha256": hashlib.sha256(canon(att)).hexdigest(), "runner": "ou-test-attest"}
     open(fn, "w").write(json.dumps(rec, sort_keys=True))
-    print("recorded %s=%s for %s" % (name, res, sha), file=sys.stderr)
+    print("recorded %s=%s for %s (attestation %s)" % (name, res, sha, rec["results"][name]["attestation_sha256"][:16]), file=sys.stderr)
 
 
 def cmd_pubkey():
@@ -118,8 +166,8 @@ def main():
     os.umask(0o022)
     if a == ["sign"]:
         cmd_sign()
-    elif a[:1] == ["record-test"] and len(a) == 5:
-        cmd_record(*a[1:])
+    elif a == ["record-test"]:
+        cmd_record()
     elif a == ["pubkey"]:
         cmd_pubkey()
     else:

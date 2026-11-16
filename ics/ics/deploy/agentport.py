@@ -201,7 +201,7 @@ class GuestAgentPort:
         if any(v is None for v in fps.values()):
             raise StepFailed("the guest's report lacks its agent fingerprints", "", retryable=False)
         self._bind_to_vm(vm, ref, fps["address"])
-        nid = self._enroll_retry(name, fps, rec.token)
+        nid = self._enroll_retry(name, fps, rec.token, recheck=lambda: self._bind_to_vm(vm, ref, fps["address"]))
         bootsecrets.set_state(self.rt, rec.id, "enrolled")
         return nid
 
@@ -222,11 +222,11 @@ class GuestAgentPort:
             raise StepFailed("the host that reported is not the VM Proxmox created (hardware address mismatch)",
                              "Someone else used the bootstrap secret, or the VM's NIC changed. The VM was stopped; see the audit log.", retryable=False)
 
-    def _enroll_retry(self, name: str, fps: dict, token: str) -> str:
+    def _enroll_retry(self, name: str, fps: dict, token: str, recheck=None) -> str:
         last = None
         for _ in range(10):   # the guest opens the agent port only AFTER the callback was acknowledged: allow it a moment
             try:
-                return self._enroll(name, fps, token)
+                return self._enroll(name, fps, token, recheck)
             except StepFailed as e:
                 if not e.retryable:
                     raise
@@ -432,13 +432,15 @@ class GuestAgentPort:
             sk.connect((addr, 9))   # no packet is sent: this only asks the kernel which local address routes there
             return sk.getsockname()[0]
 
-    def _enroll(self, name: str, fps: dict, token: str) -> str:
+    def _enroll(self, name: str, fps: dict, token: str, recheck=None) -> str:
         """Same protocol and bookkeeping as the node.enroll executor, with fingerprints that arrived over the authenticated bootstrap channel."""
         rt = self.rt
         lb = rt.settings.allow_loopback_endpoints
         priv = self._key()
         a, p, tls = fps["address"], int(fps["port"]), normalize_fingerprint(fps["tls_fingerprint_sha256"])
         try:
+            if recheck:
+                recheck()    # review 7 M-2: the NIC binding is re-verified at CONNECT time (up to 10 x 5 s after the first check), not only once
             ident = agentclient.identity(a, p, tls, allow_loopback=lb)
             if agentclient.key_fingerprint(ident["agent_pubkey"]) != fps["agent_key_fingerprint_sha256"]:
                 raise StepFailed("the agent's public key does not match the fingerprint the guest reported", "", retryable=False)
@@ -446,8 +448,12 @@ class GuestAgentPort:
                 raise StepFailed("the guest's agent is already enrolled but the ICS has no node record for it",
                                  "Re-arm the agent on the VM (ou-agent arm-enroll) or destroy and recreate the VM.", retryable=False)
             nid = uuid.uuid4()
+            if recheck:
+                recheck()    # immediately before the token leaves the ICS ...
             resp = agentclient.enroll(a, p, tls, token=token, ics_pubkey_b64=agentclient.pub_b64(priv.public_key()), node_id=str(nid),
                                       expect_agent_pubkey_b64=ident["agent_pubkey"], allow_loopback=lb)
+            if recheck:
+                recheck()    # ... and again before the node is recorded: an address that moved to another MAC meanwhile (gratuitous ARP) is refused
         except AgentError as e:
             raise StepFailed(f"enrollment failed: {e}", "The agent on the VM could not be enrolled.", retryable=True) from None
         with rt.session() as db:

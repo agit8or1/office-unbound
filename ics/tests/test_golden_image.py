@@ -7,19 +7,21 @@ import json
 import os
 import shutil
 import subprocess
+import sys
 import tarfile
 
 import pytest
 from cryptography.hazmat.primitives import hashes, serialization
 from cryptography.hazmat.primitives.asymmetric import ec
+from cryptography.hazmat.primitives.asymmetric.ed25519 import Ed25519PrivateKey
 
 from ics.guest import golden
 
 RECIPE_DIR = os.path.join(os.path.dirname(__file__), "..", "..", "blueprints", "build", "guest-image")
 
 
-def make_release(tmp_path, name="ou-golden-debian-12-20261115.qcow2", image=b"QFI\xfbimage", sbom=b'{"bomFormat":"CycloneDX"}'):
-    k = ec.generate_private_key(ec.SECP256R1())
+def make_release(tmp_path, name="ou-golden-debian-12-20261115.qcow2", image=b"QFI\xfbimage", sbom=b'{"bomFormat":"CycloneDX"}', key=None):
+    k = key or ec.generate_private_key(ec.SECP256R1())
     pem = k.public_key().public_bytes(serialization.Encoding.PEM, serialization.PublicFormat.SubjectPublicKeyInfo).decode()
     d = tmp_path / "rel"
     d.mkdir()
@@ -155,7 +157,7 @@ def test_the_ubuntu_profile_refuses_a_wrong_pin_a_tampered_checksum_file_and_a_w
     real = "D2EB44626FDDC30B513D5BB71A5D6C4C7DB87C81"
 
     def run():
-        e = {"PATH": os.environ["PATH"], "WORK": str(tmp_path / "w"), "OUT": str(tmp_path / "o"), "UPSTREAM_KEY_FILE": str(key), "HOME": str(tmp_path)}
+        e = {"PATH": os.environ["PATH"], "WORK": str(tmp_path / "w"), "OUT": str(tmp_path / "o"), "UPSTREAM_KEY_FILE": str(key), "HOME": str(tmp_path), "UPSTREAM_SERIAL": "release-20261114", "OU_TODAY": "20261115"}
         return subprocess.run(["bash", str(rd / "recipe.sh"), "ubuntu-24.04", "verify"], capture_output=True, text=True, timeout=60, env=e)
     envf.write_text(orig.replace(real, fpr))
     r = run()
@@ -206,6 +208,31 @@ def test_the_licence_scan_denies_non_free_and_reports_unknown_licences(tmp_path)
     assert subprocess.run(args, capture_output=True).returncode == 5
 
 
+KEYGEN = os.path.join(RECIPE_DIR, "..", "repo", "ou-test-attest")
+ATT = os.path.join(RECIPE_DIR, "..", "oci", "signer", "ou-artifact-attest")
+
+
+def _runner(tmp_path, st, env):
+    """a sandbox test runner: its own key, whose public half is the signer's trust anchor"""
+    renv = {**env, "OU_TESTRUNNER_STATE": str(tmp_path / "runner")}
+    pub = subprocess.run([sys.executable, KEYGEN, "keygen"], env=renv, capture_output=True, text=True, check=True).stdout.strip()
+    (st / "trust").mkdir()
+    (st / "trust" / "test-runner.pub").write_text(pub)
+    os.chmod(st / "trust", 0o755)
+    os.chmod(st / "trust" / "test-runner.pub", 0o644)
+
+    def attest(args, evidence):
+        return subprocess.run([sys.executable, ATT, *args], input=json.dumps(evidence).encode(), env=renv, capture_output=True, check=True).stdout
+    return attest
+
+
+def test_the_image_signer_sudoers_names_exact_commands_and_the_runner_validates_its_inputs():
+    inst = open(os.path.join(RECIPE_DIR, "signer", "install-image-signer.sh")).read()
+    rules = [ln for ln in inst.splitlines() if "NOPASSWD" in ln and "printf" in ln]
+    assert len(rules) == 3 and not any("*" in r for r in rules)
+    assert [r.split("ou-image-sign ")[1].split("\\n")[0] for r in rules] == ["sign", "record-test", "pubkey"]
+
+
 @pytest.mark.skipif(shutil.which("openssl") is None, reason="openssl not installed")
 def test_the_image_signer_needs_a_passing_boot_record_recomputes_hashes_and_signs_what_the_ics_verifies(tmp_path):
     st = tmp_path / "state"
@@ -214,7 +241,8 @@ def test_the_image_signer_needs_a_passing_boot_record_recomputes_hashes_and_sign
     subprocess.run(["openssl", "genpkey", "-algorithm", "EC", "-pkeyopt", "ec_paramgen_curve:P-256", "-aes-256-cbc", "-pass", f"file:{st}/passphrase", "-out", str(st / "key.pem")],
                    check=True, capture_output=True)
     prog = os.path.join(RECIPE_DIR, "signer", "ou-image-sign")
-    env = {"PATH": os.environ["PATH"], "OU_IMGSIGN_STATE": str(st)}
+    env = {"PATH": os.environ["PATH"], "OU_IMGSIGN_STATE": str(st), "OU_IMGSIGN_SANDBOX": "1"}
+    attest = _runner(tmp_path, st, env)
     name = "ou-golden-debian-12-20261115.qcow2"
     image = b"QFI\xfb" + b"img" * 100
     sbom = json.dumps({"bomFormat": "CycloneDX", "components": [{"name": f"p{i}"} for i in range(60)]}).encode()
@@ -233,9 +261,33 @@ def test_the_image_signer_needs_a_passing_boot_record_recomputes_hashes_and_sign
     first = sign(mk())
     assert first.returncode == 3 and b"no test record" in first.stderr                          # no boot proof recorded: refused
     h = hashlib.sha256(image).hexdigest()
-    subprocess.run([prog, "record-test", h, "first-boot", "fail", "0" * 64], check=True, env=env, capture_output=True)
+    # review 6 H1: the build user can not type a record any more
+    assert subprocess.run([prog, "record-test", h, "first-boot", "pass", "0" * 64], env=env, capture_output=True).returncode == 2          # old argument form: refused
+    forged = subprocess.run([prog, "record-test"], input=json.dumps({"attestation": {"v": 1, "kind": "image-first-boot", "sha256": h, "name": "first-boot", "result": "pass",
+                            "log_sha256": "0" * 64, "at": 1}, "sig": base64.b64encode(b"x" * 64).decode()}).encode(), env=env, capture_output=True)
+    assert forged.returncode == 3 and b"not signed by the registered test runner" in forged.stderr
+    own = Ed25519PrivateKey.generate()                                                                                                       # a record signed by ANY other key
+    att = {"v": 1, "kind": "image-first-boot", "sha256": h, "name": "first-boot", "result": "pass", "log_sha256": "0" * 64, "at": 1}
+    sig = base64.b64encode(own.sign(b"ou-test-attestation-v1\n" + json.dumps(att, sort_keys=True, separators=(",", ":")).encode())).decode()
+    assert subprocess.run([prog, "record-test"], input=json.dumps({"attestation": att, "sig": sig}).encode(), env=env, capture_output=True).returncode == 3
+    assert not (st / "records" / (h + ".json")).exists()
+    assert sign(mk()).returncode == 3                                                                                                         # still no record
+    bad_ev = {"image_sha256": h, "enrolled": True, "final_state": "enrolled", "secrets_wiped": False, "agent_key_matches_report": True}
+    good_ev = {**bad_ev, "secrets_wiped": True}
+    r = attest(["image"], bad_ev)
+    assert json.loads(r)["attestation"]["result"] == "fail"
+    subprocess.run([prog, "record-test"], input=r, check=True, env=env, capture_output=True)
     assert b"did not pass" in sign(mk()).stderr
-    subprocess.run([prog, "record-test", h, "first-boot", "pass", "0" * 64], check=True, env=env, capture_output=True)
+    assert subprocess.run([sys.executable, ATT, "image", h], input=json.dumps(good_ev).encode(), env={**env, "OU_TESTRUNNER_STATE": str(tmp_path / "runner")}, capture_output=True).returncode == 2   # no argv: only stdin
+    assert subprocess.run([sys.executable, ATT, "image"], input=json.dumps({**good_ev, "image_sha256": "zz"}).encode(), env={**env, "OU_TESTRUNNER_STATE": str(tmp_path / "runner")}, capture_output=True).returncode == 3
+
+    subprocess.run([prog, "record-test"], input=attest(["image"], good_ev), check=True, env=env, capture_output=True)
+    rec = json.loads((st / "records" / (h + ".json")).read_text())
+    rec["results"]["first-boot"]["attestation"]["result"] = "pass"                                                                          # tampered record file: re-verified at sign time
+    rec["results"]["first-boot"]["attestation"]["log_sha256"] = "1" * 64
+    (st / "records" / (h + ".json")).write_text(json.dumps(rec))
+    assert b"no valid test-runner attestation" in sign(mk()).stderr
+    subprocess.run([prog, "record-test"], input=attest(["image"], good_ev), check=True, env=env, capture_output=True)
     assert sign(mk(extra=True)).returncode == 3 and sign(mk(sb=b"{}")).returncode == 3         # extra member / not a CycloneDX inventory
     assert sign(mk(img=image + b"x")).returncode == 3                                             # a different image has no record
     r = sign(mk())

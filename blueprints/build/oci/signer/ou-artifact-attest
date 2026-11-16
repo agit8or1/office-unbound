@@ -1,0 +1,218 @@
+#!/usr/bin/env python3
+"""ou-artifact-attest: the pipeline test runner for CONTAINER IMAGES and golden images (security reviews 6 H1, 7 H-3). Runs as the system user `ou-testrunner`
+(same identity and key as ou-test-attest; the signers pin the public key in their root-owned trust/ directories). It signs nothing the caller says:
+
+  scan                        stdin: {"repo": "ou/x", "digest": "sha256:<hex>"}  (artifact reference ONLY; no argv, so the sudoers rule is exact). The runner itself pulls the manifest and blobs of `ou/<name>@sha256:<hex>` from the registry named in the
+                              root-owned /etc/office-unbound/oci-registry (digests re-computed, nothing taken on trust), writes an OCI layout, runs its own pinned syft
+                              (SBOM) and osv-scanner (OSV database) from /usr/local/lib/ou-testrunner/ (root-owned, sha256-pinned by install-oci-runner.sh) and
+                              prints {"attestation": {...kind oci-scan, sha256, sbom_sha256, config digest, vuln counts, result...}, "sig": ..., "sbom": <the SBOM text>}.
+                              result=pass means: the SBOM describes this image (metadata.component.version = the manifest digest), is a CycloneDX inventory and the scan RAN.
+                              The findings are recorded, not judged here: critical_ids = OSV groups rated CVSS >= 9.0, critical_unwaived = those not covered by an unexpired
+                              entry of the root-owned /etc/office-unbound/oci-vuln-waivers.json ({"waivers":[{"id","reason","expires":"YYYY-MM-DD"}]}); ou-oci-sign
+                              refuses staging/stable while critical_unwaived > 0 (dev may carry findings: it is the channel for triage). The caller supplies nothing.
+  image                       stdin: the bootproof evidence JSON (it names image_sha256). Golden image first-boot attestation. NOTE (open, same class as review 7 H-3): the boot-proof executor is not on this host; the runner
+                              takes the bootproof evidence JSON on stdin, requires image_sha256 and every pass field, hashes it itself and signs.
+                              Until the runner itself executes the boot proof (follow-up: a root-owned executor invoked by the runner) this is a cross-check, not proof.
+  keygen                      not here: the runner key is created by ou-test-attest keygen
+State: $OU_TESTRUNNER_STATE (default /var/lib/ou-testrunner)/key (32 raw bytes, 0400).
+"""
+import base64
+import hashlib
+import json
+import os
+import re
+import subprocess
+import sys
+import tempfile
+import time
+import urllib.error
+import urllib.request
+
+ST = os.environ.get("OU_TESTRUNNER_STATE", "/var/lib/ou-testrunner")
+PREFIX = b"ou-test-attestation-v1\n"
+SANDBOX = os.environ.get("OU_ATTEST_SANDBOX") == "1"
+REGISTRY_FILE = os.environ.get("OU_ATTEST_REGISTRY_FILE", "/etc/office-unbound/oci-registry") if SANDBOX else "/etc/office-unbound/oci-registry"
+TOOLS = os.environ.get("OU_ATTEST_TOOLS", "/usr/local/lib/ou-testrunner") if SANDBOX else "/usr/local/lib/ou-testrunner"
+REPO_RE = re.compile(r"^ou/[a-z0-9]+(?:[._-][a-z0-9]+)*(?:/[a-z0-9]+(?:[._-][a-z0-9]+)*){0,2}$")
+ACCEPT = ", ".join(["application/vnd.oci.image.manifest.v1+json", "application/vnd.docker.distribution.manifest.v2+json"])
+
+
+def die(m, code=3):
+    print("REFUSED: " + m, file=sys.stderr)
+    sys.exit(code)
+
+
+def canon(o):
+    return json.dumps(o, sort_keys=True, separators=(",", ":"), ensure_ascii=True, allow_nan=False).encode()
+
+
+def key():
+    from cryptography.hazmat.primitives.asymmetric.ed25519 import Ed25519PrivateKey
+    return Ed25519PrivateKey.from_private_bytes(open(os.path.join(ST, "key"), "rb").read())
+
+
+def emit(att, extra=None):
+    doc = {"attestation": att, "sig": base64.b64encode(key().sign(PREFIX + canon(att))).decode()}
+    doc.update(extra or {})
+    print(json.dumps(doc))
+
+
+def sha(b):
+    return hashlib.sha256(b).hexdigest()
+
+
+def tool(name):
+    p = os.path.join(TOOLS, name)
+    try:
+        st = os.stat(p)
+    except OSError:
+        die("%s is not installed in %s (install-oci-runner.sh)" % (name, TOOLS))
+    if not SANDBOX and (st.st_uid != 0 or st.st_mode & 0o022):
+        die("%s must be root-owned and not writable by others" % p)
+    return p
+
+
+def registry():
+    try:
+        r = open(REGISTRY_FILE).read().strip()
+    except OSError:
+        die("no registry configured (%s)" % REGISTRY_FILE)
+    if not re.fullmatch(r"[A-Za-z0-9.-]+(:\d{1,5})?", r):
+        die("registry file is malformed")
+    return "http://" + os.environ.get("OU_ATTEST_REGISTRY_ADDR", r) if SANDBOX else "http://" + r
+
+
+def get(base, path, accept=None, limit=2 << 30):
+    req = urllib.request.Request(base + path, headers={"Accept": accept} if accept else {})
+    try:
+        with urllib.request.urlopen(req, timeout=60) as r:
+            return r.read(limit + 1)
+    except (urllib.error.URLError, OSError) as e:
+        die("registry request %s failed: %s" % (path, e), 4)
+
+
+def pull_layout(repo, digest, dest):
+    """OCI image layout of exactly this manifest; every blob is re-hashed, the registry is not trusted"""
+    base = registry()
+    man = get(base, "/v2/%s/manifests/%s" % (repo, digest), ACCEPT, 4 << 20)
+    if "sha256:" + sha(man) != digest:
+        die("the registry's manifest does not hash to %s" % digest)
+    m = json.loads(man)
+    if m.get("schemaVersion") != 2 or "manifests" in m or not isinstance(m.get("config"), dict):
+        die("not a single-platform image manifest")
+    os.makedirs(os.path.join(dest, "blobs", "sha256"))
+    open(os.path.join(dest, "blobs", "sha256", digest[7:]), "wb").write(man)
+    for d in [m["config"]["digest"]] + [lay["digest"] for lay in m.get("layers", [])]:
+        if not re.fullmatch(r"sha256:[0-9a-f]{64}", d):
+            die("bad blob digest")
+        b = get(base, "/v2/%s/blobs/%s" % (repo, d))
+        if len(b) > 2 << 30 or "sha256:" + sha(b) != d:
+            die("blob %s does not hash to its digest" % d[:19])
+        open(os.path.join(dest, "blobs", "sha256", d[7:]), "wb").write(b)
+    open(os.path.join(dest, "oci-layout"), "w").write('{"imageLayoutVersion":"1.0.0"}')
+    open(os.path.join(dest, "index.json"), "w").write(json.dumps({"schemaVersion": 2, "manifests": [{"mediaType": m.get("mediaType") or "application/vnd.docker.distribution.manifest.v2+json",
+                                                                                                        "digest": digest, "size": len(man)}]}))
+    return m["config"]["digest"]
+
+
+def run_tool(args, **kw):
+    p = subprocess.run(args, capture_output=True, timeout=1800, env={"PATH": "/usr/bin:/bin", "HOME": kw.pop("home"), "SYFT_CHECK_FOR_APP_UPDATE": "false"}, **kw)
+    return p
+
+
+def waivers():
+    p = "/etc/office-unbound/oci-vuln-waivers.json" if not SANDBOX else os.environ.get("OU_ATTEST_WAIVERS", "/etc/office-unbound/oci-vuln-waivers.json")
+    try:
+        st = os.stat(p)
+        if not SANDBOX and (st.st_uid != 0 or st.st_mode & 0o022):
+            die("%s must be root-owned and not writable by others" % p)
+        doc = json.load(open(p))
+    except OSError:
+        return set()
+    except ValueError:
+        die("%s is not valid JSON" % p)
+    today = time.strftime("%Y-%m-%d", time.gmtime())
+    return {w["id"] for w in doc.get("waivers", []) if isinstance(w, dict) and w.get("id") and str(w.get("reason", "")).strip() and str(w.get("expires", "")) >= today}
+
+
+def read_json(limit):
+    raw = sys.stdin.buffer.read(limit + 1)
+    if len(raw) > limit:
+        die("stdin too large")
+    try:
+        return json.loads(raw), raw
+    except ValueError:
+        die("stdin is not JSON")
+
+
+def scan():
+    rq, _ = read_json(4096)
+    if not isinstance(rq, dict) or set(rq) != {"repo", "digest"} or not all(isinstance(v, str) for v in rq.values()):
+        die('stdin must be {"repo": ..., "digest": ...}')
+    repo, digest = rq["repo"], rq["digest"]
+    if not REPO_RE.match(repo) or not re.fullmatch(r"sha256:[0-9a-f]{64}", digest):
+        die("bad repo or digest")
+    with tempfile.TemporaryDirectory(prefix="ou-attest-") as w:
+        lay = os.path.join(w, "layout")
+        cfg = pull_layout(repo, digest, lay)
+        sb = run_tool([tool("syft"), "oci-dir:" + lay, "-o", "cyclonedx-json", "-q"], home=w)
+        if sb.returncode != 0:
+            die("syft failed: " + sb.stderr.decode()[-200:], 4)
+        sbom = sb.stdout
+        try:
+            bom = json.loads(sbom)
+            ncomp = len(bom["components"])
+            ver = bom["metadata"]["component"]["version"]
+        except (ValueError, KeyError, TypeError):
+            die("syft produced no usable SBOM", 4)
+        sp = os.path.join(w, "sbom.cdx.json")
+        open(sp, "wb").write(sbom)
+        os_ = run_tool([tool("osv-scanner"), "scan", "source", "--sbom", sp, "--format", "json", "--no-ignore"], home=w)
+        if os_.returncode not in (0, 1):                       # 1 = vulnerabilities found
+            die("osv-scanner failed (%s): %s" % (os_.returncode, os_.stderr.decode()[-200:]), 4)
+        try:
+            rep = json.loads(os_.stdout)
+            results = rep["results"]
+        except (ValueError, KeyError, TypeError):
+            die("osv-scanner produced no report", 4)
+        ids, worst, crit = set(), 0.0, []
+        for r in results:
+            for pk in (r.get("packages") or []):
+                ids.update(str(v.get("id")) for v in (pk.get("vulnerabilities") or []))
+                for g in (pk.get("groups") or []):
+                    try:
+                        sv = float(g.get("max_severity") or 0)
+                    except (TypeError, ValueError):
+                        continue
+                    worst = max(worst, sv)
+                    if sv >= 9.0:
+                        crit.append(sorted(str(i) for i in (g.get("ids") or []) + (g.get("aliases") or [])))
+    waived = waivers()
+    unwaived = [c for c in crit if not (set(c) & waived)]
+    ok = ver == digest and ncomp >= 5
+    emit({"v": 1, "kind": "oci-scan", "name": "osv-scan", "sha256": digest[7:], "repo": repo, "config_digest": cfg, "sbom_sha256": sha(sbom), "sbom_components": ncomp, "sbom_subject": ver,
+          "vuln_ids": len(ids), "max_cvss": worst, "critical_groups": len(crit), "critical_unwaived": len(unwaived), "critical_ids": sorted({i for c in unwaived for i in c})[:50], "result": "pass" if ok else "fail", "log_sha256": sha(os_.stdout), "at": int(time.time())},
+         {"sbom": sbom.decode()})
+
+
+def image():
+    ev, raw = read_json(1 << 20)
+    h = ev.get("image_sha256") if isinstance(ev, dict) else None
+    if not isinstance(h, str) or not re.fullmatch(r"[0-9a-f]{64}", h):
+        die("the evidence must carry image_sha256")
+    ok = ev.get("enrolled") is True and ev.get("final_state") == "enrolled" and ev.get("secrets_wiped") is True and ev.get("agent_key_matches_report") is True
+    emit({"v": 1, "kind": "image-first-boot", "sha256": h, "name": "first-boot", "result": "pass" if ok else "fail", "log_sha256": sha(raw), "at": int(time.time())})
+
+
+def main():
+    a = sys.argv[1:]
+    if a == ["scan"]:
+        scan()
+    elif a == ["image"]:
+        image()
+    else:
+        print(__doc__)
+        sys.exit(2)
+
+
+main()

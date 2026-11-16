@@ -255,6 +255,8 @@ def create_callback_app():
     rt = Runtime(load_settings())
     app = FastAPI(title="Office Unbound guest callback", docs_url=None, redoc_url=None, openapi_url=None)
     register(app, rt)
+    from .. import standby
+    app.add_middleware(standby.FenceGuard, check=rt.assert_active)    # review 7 H-5: enrollment/bootstrap refused when fenced or standby
 
     @app.get("/healthz")
     def healthz():

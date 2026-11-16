@@ -34,6 +34,8 @@ class Settings:
     signing_key_file: str | None = None  # Ed25519 key (32 raw bytes) that signs ICS->agent requests; root:ics 0640
     guest_callback_dedicated: bool = False      # the callback is served by `python -m ics.serve_callback` only, not by the console app (review 5 L4)
     guest_require_nic_binding: bool = True     # production bootstrap: the reporting address must resolve to the VM's net0 MAC (review 5 M2)
+    release_promote_oci_cmd: str | None = None  # same for components named oci-*: container image promotion (blueprints/build/oci/promote-oci.sh)
+    release_promotion_key_file: str | None = None  # review 7 L-4: DEDICATED ed25519 key (32 raw bytes) that signs promotion manifests; unset = the agent signing key (weaker)
     release_promote_cmd: str | None = None  # release.promote executor: command taking a signed manifest file (repo.sh promote-manifest)
     cookie_secure: bool = True
     worker_enabled: bool = True
@@ -93,6 +95,8 @@ class Settings:
     guest_agent_dir: str | None = None           # directory with ou_agent/ and deploy/ (the agent bundle source); default: <repo>/ics/agent
     guest_image_registries: tuple[str, ...] = ()           # host[:port] registries the guests' agents may pull from (signed images only)
     guest_insecure_registries: tuple[str, ...] = ()        # subset of the above that is reached over plain HTTP (lab); signatures still required
+    guest_release_pubkey_file: str | None = None           # PEM of the offline release key golden images are verified with (review 7 M-4: server config only)
+    guest_release_pin_sha256: str | None = None            # operator-confirmed pin of that key (sha256 of its DER SubjectPublicKeyInfo)
     guest_image_signing_pubkey_file: str | None = None     # PEM of the ONE cosign-format ECDSA P-256 public key images must be signed with
     guest_image_signing_key_sha256: str | None = None      # operator-confirmed pin: sha256 of that key's DER SubjectPublicKeyInfo (checked at render time)
     guest_mgmt_sources: tuple[str, ...] = ()               # CIDRs allowed to reach guest agents; default: this host's source address towards the guest
@@ -156,6 +160,8 @@ def load_settings() -> Settings:
             audit_key_file=env["ICS_AUDIT_KEY_FILE"],
             signing_key_file=env.get("ICS_SIGNING_KEY_FILE") or None,
             release_promote_cmd=env.get("ICS_RELEASE_PROMOTE_CMD") or None,
+            release_promote_oci_cmd=env.get("ICS_RELEASE_PROMOTE_OCI_CMD") or None,
+            release_promotion_key_file=env.get("ICS_RELEASE_PROMOTION_KEY_FILE") or None,
             guest_callback_dedicated=b("ICS_GUEST_CALLBACK_DEDICATED", False),
             guest_require_nic_binding=b("ICS_GUEST_REQUIRE_NIC_BINDING", True),
             monitor_enabled=b("ICS_MONITOR_ENABLED", True),
@@ -170,6 +176,8 @@ def load_settings() -> Settings:
             guest_agent_dir=env.get("ICS_GUEST_AGENT_DIR") or None,
             guest_image_registries=_csv(env.get("ICS_GUEST_IMAGE_REGISTRIES")),
             guest_insecure_registries=_csv(env.get("ICS_GUEST_INSECURE_REGISTRIES")),
+            guest_release_pubkey_file=env.get("ICS_GUEST_RELEASE_PUBKEY_FILE") or None,
+            guest_release_pin_sha256=env.get("ICS_GUEST_RELEASE_PIN_SHA256") or None,
             guest_image_signing_pubkey_file=env.get("ICS_GUEST_IMAGE_SIGNING_PUBKEY_FILE") or None,
             guest_image_signing_key_sha256=env.get("ICS_GUEST_IMAGE_SIGNING_KEY_SHA256") or None,
             guest_mgmt_sources=_csv(env.get("ICS_GUEST_MGMT_SOURCES")),

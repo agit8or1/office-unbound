@@ -1,0 +1,31 @@
+#!/bin/bash
+# Root-owned helper (installed by install-signer.sh; the only thing ou-testrunner may run as root). Usage: nspawn-smoke deb <file>
+# <file> must be /var/lib/ou-testrunner/work/run-*/artifact.deb, a regular file (no symlink) owned by ou-testrunner. The package is installed in a
+# volatile overlay of the base image (nothing persists), WITHOUT network, and checked: no setuid/setgid/world-writable file shipped, dpkg state
+# "install ok installed", every listed file present, `dpkg --verify` clean, removal + purge succeed. Exit 0 pass, 1 test failed, 2 infrastructure problem.
+set -u
+BASE=${OU_TESTRUNNER_BASE:-/var/lib/machines/ou-base-bookworm}
+[ "${1:-}" = deb ] || exit 2
+f=${2:-}
+[[ "$f" =~ ^/var/lib/ou-testrunner/work/run-[A-Za-z0-9_]+/artifact\.deb$ ]] || { echo "bad path"; exit 2; }
+[ -f "$f" ] && [ ! -L "$f" ] && [ "$(stat -c %U "$f")" = ou-testrunner ] || { echo "bad file"; exit 2; }
+[ -d "$BASE/usr" ] || { echo "base image $BASE missing"; exit 2; }
+T=$(mktemp -d /run/ou-smoke.XXXXXX); trap 'rm -rf "$T"' EXIT
+cp --no-dereference "$f" "$T/pkg.deb"
+cat > "$T/inner.sh" <<'IN'
+set -u
+cd /tmp
+P=$(dpkg-deb -f /pkg.deb Package) || { echo "FAIL not a deb"; exit 1; }
+dpkg-deb -c /pkg.deb | awk '{print $1, $6}' > /tmp/listing
+if grep -E '^-[rwx-]{2}[sS]|^-[rwx-]{5}[sS]|^[-d][rwx-]{7}w' /tmp/listing; then echo "FAIL setuid/setgid or world-writable file shipped"; exit 1; fi
+dpkg -i --force-depends /pkg.deb || { echo "FAIL dpkg -i"; exit 1; }
+dpkg -s "$P" | grep -q '^Status: install ok installed' || { echo "FAIL status"; exit 1; }
+awk '{print $2}' /tmp/listing | sed 's#^\./#/#' | while read -r p; do [ -z "$p" ] && continue; [ -e "$p" ] || [ -L "$p" ] || { echo "FAIL missing $p"; exit 1; }; done || exit 1
+dpkg --verify "$P" || { echo "FAIL dpkg --verify"; exit 1; }
+dpkg -r "$P" && dpkg -P "$P" || { echo "FAIL remove/purge"; exit 1; }
+echo "PASS $P"
+IN
+systemd-nspawn -q --volatile=overlay -D "$BASE" --private-network --register=no --bind-ro="$T/pkg.deb:/pkg.deb" --bind-ro="$T/inner.sh:/inner.sh" \
+  --resolv-conf=off /bin/bash /inner.sh
+rc=$?
+case $rc in 0) exit 0;; 1) exit 1;; *) echo "nspawn rc=$rc"; exit 2;; esac

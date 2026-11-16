@@ -10,7 +10,7 @@ inm() { sudo systemd-run -M "$n" --pipe --wait --quiet "$@"; }
 inm mkdir -p /root/stage/secrets; inm rm -rf /root/stage/pbx /root/stage/phone; inm mkdir -p /root/stage/secrets /root/stage/phone /root/stage/pbx
 tar -C "$HERE/pbx" -cz . | inm tar -xz -C /root/stage/pbx
 tar -C "$SPIKE/phone" -cz static phone_app.py | inm tar -xz -C /root/stage/phone
-tar -C "$BUILD/keys" -c ou-release-lab.pub.asc ou-release-lab.FINGERPRINT | inm tar -x -C /root/stage
+tar -C "$BUILD/keys" -c ou-release-$SUITE.pub.asc ou-release-$SUITE.FINGERPRINT | inm tar -x -C /root/stage
 for s in ldap-bind.pw; do sudo cat "$M/ou-pbx1/etc/ou-pbx/$s" | inm bash -c "umask 077; cat > /root/stage/secrets/$s"; done
 cat /etc/office-unbound/lab/gw1-ca.crt | inm bash -c 'cat > /root/stage/secrets/gw1-ca.crt'
 cat "$HERE/20-install-from-repo.sh" | inm bash -c 'cat > /root/stage/20-install-from-repo.sh'

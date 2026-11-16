@@ -1,22 +1,29 @@
 #!/usr/bin/env python3
-"""ou-release-sign: the ONLY code that touches the Office Unbound release signing key (security review 4: H2, M7, M8).
+"""ou-release-sign: the ONLY code that touches the Office Unbound release signing keys (security reviews 4, 5, 7).
 
 Runs as the dedicated system user `ou-release` (no login shell), invoked as `sudo -u ou-release /usr/local/sbin/ou-release-sign <command>` (fixed sudoers rule,
-see install-signer.sh). The key lives in the user's own GnuPG home, protected by a passphrase kept in a root/ou-release-only file. Everything the caller
+see install-signer.sh). The keys live in the user's own GnuPG home, protected by a passphrase kept in a root/ou-release-only file. Everything the caller
 (the build host user, who also handles untrusted build output) supplies arrives on stdin as a tar stream and is validated here:
 
   sign <suite>                 stdin: tar of dists/<suite> (Release + Packages/Sources + compressed variants). EVERY index listed in Release must be supplied and
-                               match size+hash (all hash sections); unlisted extra files, non-allowlisted paths, compressed/uncompressed disagreement and
-                               stanzas naming a file outside pool/<suite>/ or not in the suite ledger are REFUSED. The signed Release is REBUILT here
+                               match size+hash (all hash sections); unlisted extra files, non-allowlisted paths, compressed/uncompressed disagreement are REFUSED.
+                               The indexes are parsed with a STRICT deb822 parser (review 7 H-1: duplicate fields, stanzas, Filenames or Package+Version+Arch are
+                               refused) and EVERY stanza is compared with the control data and hashes recorded in the ledger when the file was admitted or
+                               promoted (review 7 M-3: Package, Version, Architecture, Depends, Conflicts... Size, all hashes). The signed Release is REBUILT here
                                (Suite/Codename = <suite>, Date, Valid-Until, hashes computed from the verified files); no caller header is kept.
+                               Each channel is signed with ITS OWN key (review 7 H-2).
   admit dev                    stdin: tar of one component's pool files (.deb/.dsc/tarballs, regular files only, parsed here): adds them to the dev ledger.
-  record-test                  stdin: ONE attestation signed by the pipeline's test runner (ou-test-attest, key registered in trust/test-runner.pub).
+  record-test                  stdin: ONE attestation signed by the pipeline's test runner (ou-test-attest, key registered in trust/test-runner.pub). The runner
+                               executed the tests itself (review 7 H-3); kind must be deb-install-smoke. Older attestations never replace newer ones.
   promote <from> <to>          stdin: tar of the component's pool files in <from> PLUS promotion-manifest.json: a manifest signed by the ICS (key in
                                trust/ics-promotion.pub) after a `release.promote` plan was approved by real ICS approvers (requester excluded; stable needs 2).
                                The tar must contain exactly the approved package set (names, versions, sha256); every .deb needs a passing runner record whose
                                attestation hash equals the one in the manifest; manifests are single use. dev>staging or staging>stable only.
+  seed-meta <suite>            stdin: tar of pool files of <suite> that are ALREADY in its ledger: records control data + blobs (install-time).
+  pubkey <suite>               prints the armored PUBLIC key of that channel; fingerprint <suite> prints its fingerprint.
   status                       prints counts.
-State directory (default /var/lib/ou-release, env OU_RELEASE_STATE for tests): gnupg/, passphrase, ledger/<suite>.sha256, records/, promotions/, trust/ (root-owned public keys).
+State directory (default /var/lib/ou-release, env OU_RELEASE_STATE for tests): gnupg/, passphrase, FINGERPRINT-<suite>, ledger/<suite>.sha256,
+ledger/meta/<sha>.json, blobs/<sha>, records/, promotions/, trust/ (root-owned public keys).
 """
 import datetime
 import hashlib
@@ -24,7 +31,6 @@ import io
 import json
 import os
 import re
-import stat
 import subprocess
 import sys
 import tarfile
@@ -37,7 +43,7 @@ SUITES = ("dev", "staging", "stable")
 NAME_RE = re.compile(r"^[A-Za-z0-9][A-Za-z0-9._+~-]{0,200}$")
 MAXMEM = 4 * 1024 * 1024 * 1024
 POOL_RE = re.compile(r"^(ou-[a-z0-9.+-]+_[A-Za-z0-9.+~:-]+(_amd64|_all)\.deb|ou-[a-z0-9.+-]+_[A-Za-z0-9.+~:-]+\.dsc|ou-[a-z0-9.+-]+_[A-Za-z0-9.+~:-]+\.(orig|debian)?\.?tar\.(xz|gz|zst|bz2))$")
-FIELD_RE = re.compile(r"^([A-Za-z0-9-]+):[ \t]*(.*)$")
+FIELD_NAME_RE = re.compile(r"^[A-Za-z0-9][A-Za-z0-9-]*$")
 
 
 def die(msg, code=3):
@@ -85,8 +91,49 @@ def write_tar(files):
     return bio.getvalue()
 
 
-def deb_fields(blob):
-    """control fields of a .deb via dpkg-deb (stdin-free: written to a private temp file)"""
+# ------------------------------------------------------------------------------------------------ strict deb822
+def strict_stanzas(text, what="index"):
+    """Strict deb822 (review 7 H-1): stanzas are separated by empty lines only; no comments, CR or NUL; no continuation line before a field or a blank one;
+    no duplicate field inside a stanza (case-insensitive). Returns [{field: value}] with continuation lines kept (joined by \\n)."""
+    if "\0" in text or "\r" in text:
+        die("%s contains NUL or CR" % what)
+    out, cur, last = [], None, None
+    for ln in text.split("\n"):
+        if ln == "":
+            if cur:
+                out.append(cur)
+            cur, last = None, None
+            continue
+        if ln.startswith("#"):
+            die("%s contains a comment line" % what)
+        if ln[0] in " \t":
+            if cur is None or last is None or not ln.strip():
+                die("%s: stray or blank continuation line" % what)
+            cur[last] += "\n" + ln
+            continue
+        m = re.match(r"^([^:\s]+):[ \t]*(.*)$", ln)
+        if not m or not FIELD_NAME_RE.match(m.group(1)):
+            die("%s: malformed line %r" % (what, ln[:60]))
+        if cur is None:
+            cur = {}
+        if m.group(1).lower() in {k.lower() for k in cur}:
+            die("%s: duplicate field %s in one stanza" % (what, m.group(1)))
+        cur[m.group(1)] = m.group(2)
+        last = m.group(1)
+    if cur:
+        out.append(cur)
+    return out
+
+
+def _clear_pgp(txt):
+    if txt.startswith("-----BEGIN PGP SIGNED MESSAGE-----"):
+        _, _, rest = txt.partition("\n\n")
+        return rest.split("\n-----BEGIN PGP SIGNATURE-----")[0].replace("\n- -", "\n-")
+    return txt
+
+
+def deb_control(blob):
+    """control fields of a .deb via dpkg-deb (written to a private temp file), strictly parsed"""
     import tempfile
     with tempfile.NamedTemporaryFile(prefix="ou-rel-", suffix=".deb") as t:
         t.write(blob)
@@ -94,12 +141,28 @@ def deb_fields(blob):
         r = subprocess.run(["dpkg-deb", "-f", t.name], capture_output=True, text=True)
     if r.returncode != 0:
         die("not a valid .deb (dpkg-deb -f failed)")
-    d = {}
-    for ln in r.stdout.splitlines():
-        m = FIELD_RE.match(ln)
-        if m:
-            d[m.group(1)] = m.group(2)
-    return d
+    sts = strict_stanzas(r.stdout.strip("\n") + "\n", "control")
+    if len(sts) != 1:
+        die("control file must have exactly one stanza")
+    return sts[0]
+
+
+def deb_fields(blob):
+    return deb_control(blob)
+
+
+def file_meta(name, b):
+    """what the ledger records about an admitted file: size, all hashes and, for .deb/.dsc, the control data every index stanza has to repeat"""
+    m = {"name": name, "size": len(b), "md5": hashlib.md5(b).hexdigest(), "sha1": hashlib.sha1(b).hexdigest(), "sha256": sha256(b),
+         "sha512": hashlib.sha512(b).hexdigest()}
+    if name.endswith(".deb"):
+        m["control"] = deb_control(b)
+    elif name.endswith(".dsc"):
+        sts = strict_stanzas(_clear_pgp(b.decode("utf8", "replace")).strip("\n") + "\n", name)
+        if len(sts) != 1:
+            die("%s: a .dsc must have exactly one stanza" % name)
+        m["control"] = sts[0]
+    return m
 
 
 def check_pool_files(files):
@@ -109,7 +172,7 @@ def check_pool_files(files):
         if not POOL_RE.match(n):
             die("pool file name %r not allowed" % n)
         if n.endswith(".deb"):
-            f = deb_fields(b)
+            f = deb_control(b)
             if not f.get("Package", "").startswith("ou-") or not f.get("Version") or f.get("Architecture") not in ("amd64", "all"):
                 die("%s: control fields not acceptable (Package/Version/Architecture)" % n)
             if not n.startswith(f["Package"] + "_"):
@@ -129,30 +192,85 @@ def check_pool_files(files):
                 die("%s: not listed in (or hash differs from) the .dsc of the same set" % n)
 
 
+# ------------------------------------------------------------------------------------------------ ledger
 def ledger_path(suite):
     return os.path.join(STATE, "ledger", suite + ".sha256")
 
 
-def ledger(suite):
+def ledger_lines(suite):
     try:
-        return set(l.split()[0] for l in open(ledger_path(suite)) if l.strip())
+        return [l.split() for l in open(ledger_path(suite)) if l.strip()]
     except FileNotFoundError:
-        return set()
+        return []
+
+
+def ledger(suite):
+    return set(p[0] for p in ledger_lines(suite))
+
+
+def ledger_map(suite):
+    """{file name: {sha256, ...}} of one suite's ledger"""
+    d = {}
+    for p in ledger_lines(suite):
+        if len(p) >= 2:
+            d.setdefault(p[1], set()).add(p[0])
+    return d
+
+
+def meta_path(h):
+    return os.path.join(STATE, "ledger", "meta", h + ".json")
+
+
+def meta_of(h):
+    try:
+        return json.load(open(meta_path(h)))
+    except (OSError, ValueError):
+        return None
+
+
+def store_meta(files):
+    os.makedirs(os.path.join(STATE, "ledger", "meta"), exist_ok=True)
+    os.makedirs(os.path.join(STATE, "blobs"), exist_ok=True)
+    for n, b in files.items():
+        h = sha256(b)
+        with open(meta_path(h), "w") as f:
+            json.dump(file_meta(n, b), f, sort_keys=True)
+        bp = os.path.join(STATE, "blobs", h)
+        if not os.path.exists(bp):
+            with open(bp, "wb") as f:          # ou-test-attest fetches the bytes it tests from here, by hash, and re-hashes them
+                f.write(b)
+            os.chmod(bp, 0o644)
 
 
 def ledger_add(suite, files):
     os.makedirs(os.path.dirname(ledger_path(suite)), exist_ok=True)
-    have = ledger(suite)
+    store_meta(files)
+    have = ledger_map(suite)
     with open(ledger_path(suite), "a") as f:
         for n, b in sorted(files.items()):
             h = sha256(b)
-            if h not in have:
+            if h not in have.get(n, ()):
                 f.write("%s  %s  %s\n" % (h, n, datetime.datetime.now(datetime.timezone.utc).replace(tzinfo=None).strftime("%Y-%m-%dT%H:%M:%SZ")))
 
 
-def gpg(args, inp):
-    fpr = open(os.path.join(STATE, "FINGERPRINT")).read().strip()
-    cmd = ["gpg", "--homedir", GNUPG, "--batch", "--yes", "--pinentry-mode", "loopback", "--passphrase-file", PASSF, "--local-user", fpr] + args
+# ------------------------------------------------------------------------------------------------ keys
+def channel_fpr(suite):
+    """each channel has its own key (review 7 H-2). A legacy single-key install keeps that key for `stable` only; dev/staging then refuse to sign."""
+    p = os.path.join(STATE, "FINGERPRINT-" + suite)
+    if not os.path.exists(p) and suite == "stable":
+        p = os.path.join(STATE, "FINGERPRINT")
+    try:
+        f = open(p).read().strip()
+    except OSError:
+        die("no signing key for channel %s (run install-signer.sh)" % suite)
+    if not re.match(r"^[0-9A-F]{40}$", f):
+        die("bad fingerprint file for channel %s" % suite)
+    return f
+
+
+def gpg(args, inp, suite):
+    fpr = channel_fpr(suite)
+    cmd = ["gpg", "--homedir", GNUPG, "--batch", "--yes", "--pinentry-mode", "loopback", "--passphrase-file", PASSF, "--local-user", fpr + "!"] + args
     r = subprocess.run(cmd, input=inp, capture_output=True)
     if r.returncode != 0:
         die("gpg failed: " + r.stderr.decode()[-200:], 4)
@@ -180,26 +298,12 @@ def parse_release_hashes(txt):
     return out
 
 
-def stanzas(text):
-    for st in re.split(r"\n\n+", text.strip("\n")):
-        d, cur = {}, None
-        for ln in st.split("\n"):
-            if ln.startswith((" ", "\t")) and cur:
-                d[cur] += "\n" + ln
-            else:
-                m = FIELD_RE.match(ln)
-                if m:
-                    cur = m.group(1)
-                    d[cur] = m.group(2)
-        if d:
-            yield d
-
-
 ALGOS = {"MD5Sum": "md5", "SHA1": "sha1", "SHA256": "sha256", "SHA512": "sha512"}
 # the ONLY index files that may exist in a suite (review 5 H1); everything else in the tar or in the Release listing is refused
 INDEXES = {"main/binary-amd64/Packages": "Packages", "main/binary-amd64/Packages.gz": "Packages", "main/binary-amd64/Packages.xz": "Packages",
            "main/source/Sources": "Sources", "main/source/Sources.gz": "Sources", "main/source/Sources.xz": "Sources"}
 HDR_PREV = ("Release", "InRelease", "Release.gpg")
+PKG_HASH_FIELDS = {"Filename": None, "Size": "size", "MD5sum": "md5", "SHA1": "sha1", "SHA256": "sha256", "SHA512": "sha512"}
 
 
 def decompress(path, blob):
@@ -215,24 +319,102 @@ def decompress(path, blob):
     return blob
 
 
-def index_requirements(suite, kind, text, need):
-    """every stanza of one index must name a pool file of THIS suite (pool/<suite>/<component>/<file>) whose sha256 is in the suite ledger"""
-    for st in stanzas(text):
-        if kind == "Packages":
-            fn = st.get("Filename", "")
-            m = re.match(r"^pool/%s/[a-z0-9][a-z0-9._+-]{0,60}/([^/]+)$" % re.escape(suite), fn)
-            if not m or not POOL_RE.match(m.group(1)) or not st.get("SHA256"):
-                die("Packages stanza with Filename %r outside pool/%s/<component>/ or without SHA256" % (fn, suite))
-            need[m.group(1)] = st["SHA256"]
-        else:
-            if not re.match(r"^pool/%s/[a-z0-9][a-z0-9._+-]{0,60}$" % re.escape(suite), st.get("Directory", "")):
-                die("Sources stanza with Directory %r outside pool/%s/<component>" % (st.get("Directory"), suite))
-            for ln in st.get("Checksums-Sha256", "").splitlines():
+def norm(v):
+    return "\n".join(x.rstrip() for x in v.strip().split("\n"))
+
+
+def check_packages(suite, text):
+    """Review 7 H-1/M-3: every stanza names ONE pool file of THIS suite, is unique (Filename and Package+Version+Architecture), and repeats exactly the
+    control data and hashes the ledger recorded for the bytes it names. Nothing the caller writes in a stanza is trusted."""
+    names = ledger_map(suite)
+    files_seen, pva_seen = set(), set()
+    for st in strict_stanzas(text, "Packages"):
+        fn = st.get("Filename", "")
+        m = re.match(r"^pool/%s/[a-z0-9][a-z0-9._+-]{0,60}/([^/]+)$" % re.escape(suite), fn)
+        if not m or not POOL_RE.match(m.group(1)) or not m.group(1).endswith(".deb") or not st.get("SHA256"):
+            die("Packages stanza with Filename %r outside pool/%s/<component>/ or without SHA256" % (fn, suite))
+        if fn in files_seen or m.group(1) in {os.path.basename(x) for x in files_seen}:
+            die("Packages lists %s more than once (duplicate Filename/basename)" % fn)
+        files_seen.add(fn)
+        meta = meta_of(st["SHA256"])
+        if st["SHA256"] not in names.get(m.group(1), ()):
+            die("%s (sha256 %s) was never admitted/promoted into suite %s" % (m.group(1), st["SHA256"][:12], suite))
+        if not meta or meta.get("name") != m.group(1) or "control" not in meta:
+            die("%s: no recorded control data in the ledger (re-seed with seed-meta)" % m.group(1))
+        ctl = meta["control"]
+        pva = (ctl.get("Package"), ctl.get("Version"), ctl.get("Architecture"))
+        if pva in pva_seen:
+            die("Packages lists %s %s %s twice" % pva)
+        pva_seen.add(pva)
+        for k, attr in PKG_HASH_FIELDS.items():
+            if attr and k in st and str(st[k]).strip().lower() != str(meta[attr]).lower():
+                die("%s: %s differs from the admitted file" % (fn, k))
+        extra = {k.lower() for k in st} - {k.lower() for k in ctl} - {k.lower() for k in PKG_HASH_FIELDS}
+        if extra:
+            die("%s: stanza carries fields that the package's control file does not have: %s" % (fn, ", ".join(sorted(extra))))
+        for k, v in ctl.items():
+            if k.lower() in {x.lower() for x in PKG_HASH_FIELDS}:
+                continue
+            got = {kk.lower(): vv for kk, vv in st.items()}.get(k.lower())
+            if got is None or norm(got) != norm(v):
+                die("%s: field %s does not match the package's control file (Package/Version/Architecture/Depends/Conflicts... are bound to the ledger)" % (fn, k))
+
+
+def check_sources(suite, text):
+    names = ledger_map(suite)
+    pv_seen = set()
+    for st in strict_stanzas(text, "Sources"):
+        d = st.get("Directory", "")
+        if not re.match(r"^pool/%s/[a-z0-9][a-z0-9._+-]{0,60}$" % re.escape(suite), d):
+            die("Sources stanza with Directory %r outside pool/%s/<component>" % (d, suite))
+        listed = {}
+        for fld, attr in (("Checksums-Sha256", "sha256"), ("Checksums-Sha1", "sha1"), ("Files", "md5"), ("Checksums-Sha512", "sha512")):
+            seen = set()
+            for ln in st.get(fld, "").splitlines():
                 q = ln.split()
-                if len(q) == 3:
-                    if not POOL_RE.match(q[2]):
-                        die("Sources lists a file name that is not allowed: %r" % q[2])
-                    need[q[2]] = q[0]
+                if not q:
+                    continue
+                if len(q) != 3 or not q[1].isdigit():
+                    die("Sources: malformed %s line" % fld)
+                if q[2] in seen:
+                    die("Sources lists %s twice in %s" % (q[2], fld))
+                seen.add(q[2])
+                if not POOL_RE.match(q[2]):
+                    die("Sources lists a file name that is not allowed: %r" % q[2])
+                listed.setdefault(q[2], {})[attr] = (q[0], int(q[1]))
+        if not st.get("Checksums-Sha256") or not listed:
+            die("Sources stanza without Checksums-Sha256")
+        dsc = None
+        for fn, hs in listed.items():
+            if "sha256" not in hs:
+                die("Sources: %s has no sha256 entry" % fn)
+            h = hs["sha256"][0]
+            if h not in names.get(fn, ()):
+                die("%s (sha256 %s) was never admitted/promoted into suite %s" % (fn, h[:12], suite))
+            meta = meta_of(h)
+            if not meta:
+                die("%s: no recorded metadata in the ledger (re-seed with seed-meta)" % fn)
+            for attr, (hv, sz) in hs.items():
+                if hv.lower() != str(meta[attr]).lower() or sz != meta["size"]:
+                    die("%s: %s/size in Sources differ from the admitted file" % (fn, attr))
+            if fn.endswith(".dsc"):
+                dsc = meta
+        if not dsc:
+            die("Sources stanza does not list its .dsc")
+        ctl = dsc["control"]
+        pkg = ctl.get("Source") or ctl.get("Package")
+        if norm(st.get("Package", "")) != norm(pkg or ""):
+            die("Sources: Package differs from the .dsc")
+        if (pkg, ctl.get("Version")) in pv_seen:
+            die("Sources lists %s %s twice" % (pkg, ctl.get("Version")))
+        pv_seen.add((pkg, ctl.get("Version")))
+        skip = {"directory", "files", "checksums-sha1", "checksums-sha256", "checksums-sha512", "package", "source"}
+        low = {k.lower(): v for k, v in ctl.items()}
+        for k, v in st.items():
+            if k.lower() in skip:
+                continue
+            if k.lower() not in low or norm(low[k.lower()]) != norm(v):
+                die("Sources: field %s does not match the .dsc" % k)
 
 
 def cmd_sign(suite):
@@ -264,18 +446,18 @@ def cmd_sign(suite):
     for kind in ("Packages", "Sources"):
         if plain[kind] not in t:
             die("%s is required" % plain[kind])
-    need = {}
     for path, kind in INDEXES.items():
         if path not in t:
             continue
         txt = decompress(path, t[path])
         if path.endswith((".gz", ".xz")) and txt != t[plain[kind]]:
             die("%s decompresses to something different from the uncompressed index" % path)
-        index_requirements(suite, kind, txt.decode("utf8", "replace"), need)
-    allowed = ledger(suite)
-    bad = sorted(n for n, h in need.items() if h not in allowed)
-    if bad:
-        die("suite %s lists files that were never admitted/promoted into it: %s" % (suite, ", ".join(bad[:5])))
+        if path.endswith((".gz", ".xz")):
+            continue                                     # identical to the plain one, checked once
+        s = txt.decode("utf8", "replace")
+        if s.encode("utf8") != txt:
+            die("%s is not valid UTF-8" % path)
+        (check_packages if kind == "Packages" else check_sources)(suite, s)
     now = datetime.datetime.now(datetime.timezone.utc).replace(tzinfo=None)
     fmt = "%a, %d %b %Y %H:%M:%S UTC"
     hdr = ["Origin: Office Unbound", "Label: Office Unbound (%s)" % suite, "Suite: %s" % suite, "Codename: %s" % suite,
@@ -284,8 +466,8 @@ def cmd_sign(suite):
     lines = ["SHA256:"] + [" %s %16d %s" % (hashlib.sha256(t[p]).hexdigest(), len(t[p]), p) for p in sorted(names)]
     rel2 = ("\n".join(hdr + lines) + "\n").encode()
     out = {"Release": rel2,
-           "InRelease": gpg(["--clearsign"], rel2),
-           "Release.gpg": gpg(["--armor", "--detach-sign"], rel2)}
+           "InRelease": gpg(["--clearsign"], rel2, suite),
+           "Release.gpg": gpg(["--armor", "--detach-sign"], rel2, suite)}
     sys.stdout.buffer.write(write_tar(out))
 
 
@@ -298,11 +480,24 @@ def cmd_admit(suite):
     print("admitted %d files to dev" % len(files), file=sys.stderr)
 
 
+def cmd_seed_meta(suite):
+    if suite not in SUITES:
+        die("unknown suite")
+    files = read_tar(sys.stdin.buffer)
+    have = ledger(suite)
+    for n, b in files.items():
+        if sha256(b) not in have:
+            die("%s is not in the %s ledger" % (n, suite))
+    store_meta(files)
+    print("recorded metadata for %d files of %s" % (len(files), suite), file=sys.stderr)
+
+
 TRUST = os.path.join(STATE, "trust")                        # root-owned (install-signer.sh): public keys of the ICS and of the test runner
 PROMO_PREFIX = b"ou-release-promotion-v1\n"
 ATTEST_PREFIX = b"ou-test-attestation-v1\n"
 MANIFEST_NAME = "promotion-manifest.json"
 MAX_MANIFEST_AGE = 24 * 3600
+ATTEST_KINDS = ("deb-install-smoke",)                       # image-first-boot attestations are consumed by ou-image-sign, never here
 
 
 def canon(obj):
@@ -340,7 +535,7 @@ def now_ts():
 
 
 def cmd_record():
-    """record-test: stdin = one signed attestation produced by the pipeline's test runner (ou-test-attest). A caller can no longer write a record."""
+    """record-test: stdin = one signed attestation produced by the pipeline's test runner (ou-test-attest run ...), which RAN the test itself."""
     try:
         doc = json.loads(sys.stdin.buffer.read(65536))
         att, sig = doc["attestation"], doc["sig"]
@@ -349,16 +544,19 @@ def cmd_record():
         die("bad attestation")
     if not re.match(r"^[0-9a-f]{64}$", str(sha)) or res not in ("pass", "fail") or not re.match(r"^[a-z0-9-]{1,40}$", str(name)) or not re.match(r"^[0-9a-f]{64}$", str(logsha)):
         die("bad attestation fields")
-    if att.get("v") != 1 or not ed_verify(trusted_pub("test-runner.pub"), ATTEST_PREFIX, att, sig):
-        die("attestation is not signed by the registered test runner")
+    if att.get("v") != 2 or att.get("kind") not in ATTEST_KINDS or not isinstance(att.get("at"), int) or not ed_verify(trusted_pub("test-runner.pub"), ATTEST_PREFIX, att, sig):
+        die("attestation is not signed by the registered test runner (or is not a deb-install-smoke run attestation)")
     if sha not in ledger("dev") | ledger("staging") | ledger("stable"):
         die("attestation names a package that was never admitted")
     d = os.path.join(STATE, "records")
     os.makedirs(d, exist_ok=True)
     fn = os.path.join(d, sha + ".json")
     rec = json.load(open(fn)) if os.path.exists(fn) else {"sha256": sha, "results": {}}
-    rec["results"][name] = {"result": res, "log_sha256": logsha, "at": datetime.datetime.fromtimestamp(att["at"], datetime.timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ") if isinstance(att.get("at"), int) else "",
-                            "attestation_sha256": sha256(canon(att)), "runner": "ou-test-attest"}
+    old = rec["results"].get(name, {})
+    if isinstance(old.get("at_ts"), int) and att["at"] <= old["at_ts"]:
+        die("a newer (or equal) %s attestation for this package is already recorded (review 7 L-5)" % name)
+    rec["results"][name] = {"result": res, "log_sha256": logsha, "at": datetime.datetime.fromtimestamp(att["at"], datetime.timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ"),
+                            "at_ts": att["at"], "attestation_sha256": sha256(canon(att)), "runner": "ou-test-attest", "run_id": att.get("run_id", "")}
     json.dump(rec, open(fn, "w"), indent=1)
     print("recorded %s=%s attestation %s" % (name, res, rec["results"][name]["attestation_sha256"][:16]), file=sys.stderr)
 
@@ -404,7 +602,7 @@ def verify_manifest(frm, to, files, mraw):
         if e["sha256"] != have[n]:
             die("%s does not have the approved sha256" % n)
         if n.endswith(".deb"):
-            f = deb_fields(files[n])
+            f = deb_control(files[n])
             if e.get("name") != f.get("Package") or e.get("version") != f.get("Version"):
                 die("%s: approved name/version differ from the package's control file" % n)
     ev = {e.get("sha256"): e.get("attestation_sha256") for e in (m.get("evidence") or []) if isinstance(e, dict)}
@@ -449,8 +647,17 @@ def cmd_promote(frm, to):
     rec = json.dumps({"from": frm, "to": to, "manifest": m, "at": now, "files": {n: sha256(b) for n, b in sorted(files.items())}}, indent=1, sort_keys=True).encode()
     os.makedirs(os.path.join(STATE, "promotions"), exist_ok=True)
     comp = sorted(n for n in files if n.endswith(".dsc"))[0].split("_")[0] if any(n.endswith(".dsc") for n in files) else "x"
-    open(os.path.join(STATE, "promotions", "%s-%s-%s.json.asc" % (now, to, comp)), "wb").write(gpg(["--clearsign"], rec))
+    open(os.path.join(STATE, "promotions", "%s-%s-%s.json.asc" % (now, to, comp)), "wb").write(gpg(["--clearsign"], rec, to))
     print("promoted %d files %s>%s (plan %s, approvers %s)" % (len(files), frm, to, m.get("plan_id"), ",".join(a["username"] for a in m["approvers"])), file=sys.stderr)
+
+
+def cmd_pubkey(suite):
+    if suite not in SUITES:
+        die("unknown suite")
+    r = subprocess.run(["gpg", "--homedir", GNUPG, "--batch", "--armor", "--export", channel_fpr(suite)], capture_output=True)
+    if r.returncode != 0 or not r.stdout:
+        die("cannot export the public key")
+    sys.stdout.buffer.write(r.stdout)
 
 
 def main():
@@ -468,6 +675,12 @@ def main():
         cmd_record()
     elif c == "promote" and len(a) == 3:
         cmd_promote(a[1], a[2])
+    elif c == "seed-meta" and len(a) == 2:
+        cmd_seed_meta(a[1])
+    elif c == "pubkey" and len(a) == 2:
+        cmd_pubkey(a[1])
+    elif c == "fingerprint" and len(a) == 2:
+        print(channel_fpr(a[1]))
     elif c == "status":
         for s in SUITES:
             print(s, len(ledger(s)))

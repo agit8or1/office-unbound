@@ -86,7 +86,9 @@ class DbChecks:
         kind = check["kind"]
         if kind == "http":
             cfg = {"url": f"https://{host}:{check['port']}{check.get('path') or '/'}", "expect_status": check["expect_status"], **(trust or {})}
-        elif kind == "tcp_tls":
+            if check.get("body_contains"):
+                cfg["body_contains"] = check["body_contains"]
+        elif kind == "tcp_tls" or kind in ("sip_options_tls", "jitsi_jwt"):
             cfg = {"host": host, "port": check["port"], **(trust or {})}
         else:
             cfg = {"host": host, "port": check["port"]}

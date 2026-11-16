@@ -1,0 +1,28 @@
+# Office Unbound: Synapse 1.165.0 built from PyPI with a hash-locked requirements file (requirements.lock, pip-compile --generate-hashes).
+# BASE is the lab-built debootstrap noble image (see build.sh); not an upstream image. Non-root (uid 10020); no telemetry (entrypoint refuses to start unless report_stats: false).
+ARG BASE=localhost/ou-base-noble:latest
+FROM ${BASE} AS build
+ARG DEBIAN_FRONTEND=noninteractive
+RUN apt-get -o APT::Sandbox::User=root update && apt-get -o APT::Sandbox::User=root install -y --no-install-recommends \
+      python3 python3-venv python3-dev gcc libc6-dev libpq-dev libffi-dev libssl-dev ca-certificates
+COPY requirements.lock /tmp/requirements.lock
+RUN python3 -m venv /opt/synapse \
+ && /opt/synapse/bin/pip install --no-cache-dir --require-hashes --no-deps -r /tmp/requirements.lock \
+ && /opt/synapse/bin/pip check
+
+FROM ${BASE}
+ARG DEBIAN_FRONTEND=noninteractive
+RUN apt-get -o APT::Sandbox::User=root update && apt-get -o APT::Sandbox::User=root install -y --no-install-recommends python3 libpq5 ca-certificates \
+ && rm -rf /var/lib/apt/lists/* /var/cache/apt/archives/* \
+ && groupadd -g 10020 synapse && useradd -u 10020 -g 10020 -d /data -M -s /usr/sbin/nologin synapse && install -d -o synapse -g synapse /data
+COPY --from=build /opt/synapse /opt/synapse
+COPY entrypoint.sh /usr/local/bin/ou-synapse-entrypoint
+COPY healthcheck.sh /usr/local/bin/ou-synapse-healthcheck
+RUN chmod 0755 /usr/local/bin/ou-synapse-entrypoint /usr/local/bin/ou-synapse-healthcheck
+LABEL org.opencontainers.image.title="Synapse (Office Unbound build)" org.opencontainers.image.version="1.165.0" \
+      org.opencontainers.image.licenses="AGPL-3.0-only OR LicenseRef-Element-Commercial" org.opencontainers.image.source="https://pypi.org/project/matrix-synapse/1.165.0/"
+USER 10020:10020
+EXPOSE 8008
+VOLUME ["/data"]
+HEALTHCHECK --interval=30s --timeout=5s --start-period=60s --retries=3 CMD ["/usr/local/bin/ou-synapse-healthcheck"]
+ENTRYPOINT ["/usr/local/bin/ou-synapse-entrypoint"]

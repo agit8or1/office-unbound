@@ -7,7 +7,7 @@ set -euo pipefail
 HERE=$(cd "$(dirname "$0")" && pwd); BUILD=$HERE/../../build
 M=${GW_MACHINE:-ou-gw1}; CHANNEL=${CHANNEL:-stable}; STATE=${OU_PKG_STATE:-/var/lib/office-unbound/pkgbuild}
 : "${REPO_URL:?REPO_URL=http://<repo ip>:8077}"
-FPR=$(cat "$BUILD/keys/ou-release-lab.FINGERPRINT")
+FPR=$(cat "$BUILD/keys/ou-release-$CHANNEL.FINGERPRINT")
 PKGS="ou-libhx ou-wmime ou-gromox ou-gromox-php-mapi ou-mapi-header-php ou-grommunio-sync ou-grommunio-dav ou-grommunio-web"
 pin_versions() {   # latest version per package in the channel, gromox pair overridden by $1
   python3 - "$STATE/repo/dists/$CHANNEL/main/binary-amd64/Packages" "${1:-}" $PKGS <<'PY'

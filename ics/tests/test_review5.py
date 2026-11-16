@@ -231,3 +231,5 @@ def test_l7_upstream_must_be_pinned_fresh_and_never_older_than_the_last(tmp_path
     (tmp_path / "w" / "upstream-serial.last").write_text("20261110-5\n")
     r = run_recipe(tmp_path, UPSTREAM_SERIAL="20261101-1", OU_TODAY="20261115")
     assert r.returncode == 3 and "OLDER than the last accepted" in r.stderr
+    r = run_recipe(tmp_path, UPSTREAM_SERIAL="release-20261112", OU_TODAY="20261115", UPSTREAM_BASE="https://127.0.0.1:9/none")      # passes the serial gate, then fails to download
+    assert "serial" not in r.stderr.lower() and "days old" not in r.stderr and "OLDER" not in r.stderr and r.returncode != 3

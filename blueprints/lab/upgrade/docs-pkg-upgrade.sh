@@ -9,7 +9,7 @@
 set -euo pipefail
 HERE=$(cd "$(dirname "$0")" && pwd); BUILD=$HERE/../../build
 M=${DOCS_MACHINE:-ou-office1}; CHANNEL=${CHANNEL:-dev}; : "${REPO_URL:?REPO_URL=http://<repo ip>:8077}"
-FPR=$(cat "$BUILD/keys/ou-release-lab.FINGERPRINT")
+FPR=$(cat "$BUILD/keys/ou-release-$CHANNEL.FINGERPRINT")
 run() { sudo systemd-run -M "$M" --wait --pipe -q /bin/bash -s -- "$@"; }
 CA=${OU_CA_FILE:-}
 
@@ -33,10 +33,10 @@ inner_pre() {
 
 inner_migrate() {  # args: version
   set -e; v=$1; t0=$(date +%s.%N)
-  curl -fsS "$REPO_URL/ou-release-lab.pub.asc" -o /tmp/ou-release.asc
+  curl -fsS "$REPO_URL/ou-release-$CHANNEL.pub.asc" -o /tmp/ou-release.asc
   got=$(gpg --show-keys --with-colons /tmp/ou-release.asc | awk -F: '/^fpr/{print $10; exit}'); [ "$got" = "$KEY_FPR" ] || { echo "release key fingerprint mismatch: $got"; exit 1; }
-  gpg --dearmor < /tmp/ou-release.asc > /usr/share/keyrings/ou-release-lab.gpg
-  echo "deb [signed-by=/usr/share/keyrings/ou-release-lab.gpg] $REPO_URL $CHANNEL main" > /etc/apt/sources.list.d/office-unbound.list
+  gpg --dearmor < /tmp/ou-release.asc > /usr/share/keyrings/ou-release-$CHANNEL.gpg
+  echo "deb [signed-by=/usr/share/keyrings/ou-release-$CHANNEL.gpg] $REPO_URL $CHANNEL main" > /etc/apt/sources.list.d/office-unbound.list
   printf 'Package: ou-docs\nPin: version %s\nPin-Priority: 1001\n' "$v" > /etc/apt/preferences.d/office-unbound-pins
   apt-get update -qq
   apt-mark unhold coolwsd code-brand >/dev/null 2>&1 || true     # the vendor holds (AF) would make the dependency solver fail; ou-docs Conflicts/Replaces coolwsd

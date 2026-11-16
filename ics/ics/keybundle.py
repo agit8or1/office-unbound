@@ -61,6 +61,19 @@ def unseal(blob: bytes, passphrase: str) -> tuple[dict, dict[str, bytes]]:
     return payload["meta"], files
 
 
+def wipe(path: str) -> None:
+    """overwrite once with zeros, fsync, unlink (best effort on journaling/COW file systems: the bundle is encrypted anyway)"""
+    try:
+        size = os.stat(path).st_size
+        with open(path, "r+b") as f:
+            f.write(b"\0" * size)
+            f.flush()
+            os.fsync(f.fileno())
+        os.unlink(path)
+    except FileNotFoundError:
+        pass
+
+
 def _passphrase(args) -> str:
     if args.passphrase_file:
         return open(args.passphrase_file).read().strip()
@@ -73,7 +86,8 @@ def main(argv=None) -> int:
     e = sub.add_parser("export")
     e.add_argument("--etc", default="/etc/office-unbound")
     e.add_argument("--out", required=True)
-    e.add_argument("--passphrase-out", required=True, help="file (0600) that receives the generated passphrase")
+    e.add_argument("--passphrase-out", help="review 7 L8: by default the passphrase is only SHOWN on the terminal (/dev/tty), never stored. A file is "
+                   "allowed only in a DIFFERENT directory than the bundle (e.g. a USB stick / another host's mount), never beside it")
     e.add_argument("--replicator-password-file", required=True)
     e.add_argument("--primary-ip", required=True)
     e.add_argument("--primary-ca", required=True)
@@ -84,6 +98,7 @@ def main(argv=None) -> int:
         if n == "import":
             i.add_argument("--etc", default="/etc/office-unbound")
             i.add_argument("--owner-group", default="ics")
+            i.add_argument("--remove-after", action="store_true", help="review 7 L8: overwrite and delete the bundle (and the passphrase file) after a successful import")
     a = ap.parse_args(argv)
     try:
         if a.cmd == "export":
@@ -92,13 +107,27 @@ def main(argv=None) -> int:
             files["primary-ca.crt"] = open(a.primary_ca, "rb").read()
             pw = new_passphrase()
             blob = seal(files, {"primary_ip": a.primary_ip, "exported_at": int(time.time()), "format": 1}, pw)
-            for path, data in ((a.out, blob), (a.passphrase_out, (pw + "\n").encode())):
+            if a.passphrase_out and os.path.dirname(os.path.realpath(a.passphrase_out)) == os.path.dirname(os.path.realpath(a.out)):
+                raise BundleError("the passphrase must never be stored in the same directory as the bundle (use the terminal or another medium)")
+            outs = [(a.out, blob)] + ([(a.passphrase_out, (pw + "\n").encode())] if a.passphrase_out else [])
+            for path, data in outs:
                 fd = os.open(path, os.O_WRONLY | os.O_CREAT | os.O_TRUNC, 0o600)
                 os.write(fd, data)
                 os.close(fd)
-            print(f"bundle written to {a.out} ({len(blob)} bytes); passphrase in {a.passphrase_out}: carry them by DIFFERENT channels, then shred both")
+            if a.passphrase_out:
+                print(f"bundle written to {a.out} ({len(blob)} bytes); passphrase written to {a.passphrase_out}: carry them by DIFFERENT channels, then shred both")
+            else:
+                try:
+                    tty = open("/dev/tty", "w")
+                except OSError:
+                    os.unlink(a.out)
+                    raise BundleError("no terminal to show the passphrase on: nothing was kept (give --passphrase-out on ANOTHER medium)") from None
+                tty.write(f"\nBUNDLE PASSPHRASE (shown once, not stored; carry it by a DIFFERENT channel than the bundle):\n  {pw}\n\n")
+                tty.close()
+                print(f"bundle written to {a.out} ({len(blob)} bytes); the passphrase was shown on the terminal only")
             return 0
         meta, files = unseal(open(a.bundle, "rb").read(), _passphrase(a))
+
         if a.cmd == "inspect":
             print(json.dumps({"meta": meta, "files": sorted(files)}))
             return 0
@@ -115,7 +144,10 @@ def main(argv=None) -> int:
             os.fchmod(fd, ALLOWED[n])
             os.close(fd)
             os.replace(tmp, dst)
-        print(json.dumps({"imported": sorted(files), "meta": meta}))
+        if a.remove_after:      # review 7 L8: the keys now live in /etc/office-unbound; neither the bundle nor its passphrase stays behind
+            for path in [a.bundle] + ([a.passphrase_file] if a.passphrase_file else []):
+                wipe(path)
+        print(json.dumps({"imported": sorted(files), "meta": meta, "bundle_removed": bool(a.remove_after)}))
         return 0
     except (BundleError, OSError) as ex:
         print(f"keybundle: {ex}", file=sys.stderr)

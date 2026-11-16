@@ -132,6 +132,8 @@ class ProxmoxReadClient:
         """Request with an overall wall-clock deadline and a response size cap. Errors never include transport text
         (it can echo request headers); only the exception class name is reported. Only ProxmoxWriteClient exposes
         non-GET methods; this class's public surface is read-only."""
+        from . import egress
+        egress.require()   # review 7 H-5: a fenced/standby controller makes no provider call
         end = time.monotonic() + self._deadline
         buf = bytearray()
         try:
@@ -260,6 +262,8 @@ class ProxmoxWriteClient(ProxmoxReadClient):
 
     def upload(self, path: str, fields: dict, file_path: str, filename: str, *, timeout: float = 3600.0) -> Any:
         """multipart/form-data upload of ONE local file (image import). Same TLS trust and error hygiene as every other call; the file is streamed."""
+        from . import egress
+        egress.require()
         try:
             with open(file_path, "rb") as fh:
                 r = self._client.post(self._base + path, data=fields, files={"filename": (filename, fh, "application/octet-stream")},

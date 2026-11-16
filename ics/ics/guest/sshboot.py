@@ -255,6 +255,8 @@ class Guest:
         self.ssh = ssh_bin or shutil.which("ssh") or "/usr/bin/ssh"
 
     def _session(self, op: str, payload: bytes = b"", timeout: float = 60.0, **params) -> dict[str, str]:
+        from .. import egress
+        egress.require()      # review 7 H-5: no SSH bootstrap from a fenced/standby controller
         """`op` is a NAME from OPERATIONS; the body is this module's constant (or its validated builder), never caller-supplied text."""
         if op not in OPERATIONS:
             raise BootstrapError("unknown bootstrap operation")

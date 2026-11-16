@@ -1,0 +1,161 @@
+"""Server-side customer derivation for plans (security review 7 H-4).
+
+A plan's customer is NOT what the caller says. It is derived from EVERY resource the parameters reference (node, check, alert channel, incident,
+maintenance window, stack, backup policy, deployment, endpoint, credential, provisioning artifact ...):
+  * all referenced resources must belong to ONE customer, otherwise the plan is refused (409);
+  * an explicit `customer_id` (or `spec.customer_id`) must equal that customer, otherwise the plan is refused (409);
+  * the approval policy, the scope check and the job all use the derived customer.
+Every action of the catalog has an entry in REFS (what it references) or in MSP_GLOBAL (with the reason it has no customer); tests/test_review7_tenancy.py
+fails when an action is added without one, or when a model gets a reference field the entry does not cover."""
+from uuid import UUID
+
+from sqlalchemy import text
+
+# kind -> (SQL returning customer_id for :i, how the id is validated)
+_SQL = {
+    "endpoint": "SELECT customer_id FROM endpoints WHERE id = :i",
+    "credential": "SELECT customer_id FROM credentials WHERE id = :i",
+    "check": "SELECT customer_id FROM checks WHERE id = :i",
+    "node": "SELECT customer_id FROM nodes WHERE id = :i",
+    "channel": "SELECT customer_id FROM alert_channels WHERE id = :i",
+    "maintenance": "SELECT customer_id FROM maintenance_windows WHERE id = :i",
+    "incident": "SELECT c.customer_id FROM incidents i JOIN checks c ON c.id = i.check_id WHERE i.id = :i",
+    "artifact": "SELECT customer_id FROM provision_artifacts WHERE id = :i",
+    "plan": "SELECT customer_id FROM plans WHERE id = :i",
+    "stack": "SELECT config->>'customer_id' AS customer_id FROM idm_stacks WHERE name = :i",
+    "policy": "SELECT customer_id FROM backup_policies WHERE name = :i",
+    "deployment": "SELECT customer_id FROM deployments WHERE slug = :i",
+}
+_UUID_KINDS = {"endpoint", "credential", "check", "node", "channel", "maintenance", "incident", "artifact", "plan"}
+
+# action -> [(dotted param path, kind)]; kind "customer" = an explicit customer id the caller states
+REFS: dict[str, list[tuple[str, str]]] = {
+    "alert_channel.create": [("customer_id", "customer")],
+    "alert_channel.delete": [("channel_id", "channel")],
+    "alert_channel.test": [("channel_id", "channel")],
+    "backup.policy.create": [("customer_id", "customer"), ("runner_node_id", "node"), ("deployment", "deployment")],
+    "backup.policy.update": [("policy", "policy")],
+    "backup.prune": [("policy", "policy")],
+    "backup.run": [("policy", "policy")],
+    "backup.verify": [("policy", "policy")],
+    "check.bind_remediation": [("check_id", "check"), ("remediation.node_id", "node")],
+    "check.create": [("customer_id", "customer"), ("remediation.node_id", "node")],
+    "check.delete": [("check_id", "check")],
+    "check.set_enabled": [("check_id", "check")],
+    "credential.create": [("customer_id", "customer"), ("endpoint_id", "endpoint")],
+    "credential.replace": [("credential_id", "credential")],
+    "credential.revoke": [("credential_id", "credential")],
+    "credential.rotate": [("credential_id", "credential")],
+    "credential.test": [("credential_id", "credential")],
+    "deployment.change": [("deployment_id", "deployment"), ("maintenance_window_id", "maintenance")],
+    "deployment.create": [("spec.customer_id", "customer")],
+    "deployment.destroy": [("deployment_id", "deployment")],
+    "endpoint.disable": [("endpoint_id", "endpoint")],
+    "endpoint.enable": [("endpoint_id", "endpoint")],
+    "endpoint.register": [("customer_id", "customer")],
+    "endpoint.remove": [("endpoint_id", "endpoint")],
+    "endpoint.update": [("endpoint_id", "endpoint")],
+    "idm.reconcile": [("stack", "stack")],
+    "idm.stack.register": [("customer_id", "customer"), ("files_node_id", "node"), ("gromox_node_id", "node"), ("pbx_node_id", "node")],
+    "idm.user.create": [("stack", "stack")],
+    "idm.user.delete": [("stack", "stack")],
+    "idm.user.devices": [("stack", "stack")],
+    "idm.user.disable": [("stack", "stack")],
+    "idm.user.enable": [("stack", "stack")],
+    "idm.user.issue_sip_credential": [("stack", "stack")],
+    "idm.user.set_extension": [("stack", "stack")],
+    "idm.user.update_groups": [("stack", "stack")],
+    "incident.ack": [("incident_id", "incident")],
+    "inventory.refresh": [("endpoint_id", "endpoint")],
+    "maintenance.cancel": [("maintenance_id", "maintenance")],
+    "maintenance.create": [("customer_id", "customer"), ("check_id", "check")],
+    "maintenance.delete": [("maintenance_id", "maintenance")],
+    "node.decommission": [("node_id", "node")],
+    "node.enroll": [("customer_id", "customer")],
+    "plan.archive": [("plan_id", "plan")],
+    "provider.credential.import": [("endpoint_id", "endpoint"), ("customer_id", "customer"), ("package_id", "artifact")],
+    "provider.permissions.reconcile": [("endpoint_id", "endpoint"), ("preview_id", "artifact")],
+    "provider.provision.apply": [("endpoint_id", "endpoint"), ("customer_id", "customer"), ("preview_id", "artifact")],
+    "provider.provision.package": [("endpoint_id", "endpoint"), ("customer_id", "customer")],
+    "provider.provision.plan_preview": [("endpoint_id", "endpoint"), ("customer_id", "customer")],
+    "provider.scope.change": [("endpoint_id", "endpoint"), ("preview_id", "artifact"), ("package_id", "artifact")],
+    "provider.scope.package": [("endpoint_id", "endpoint"), ("preview_id", "artifact")],
+    "provider.token.revoke": [("endpoint_id", "endpoint")],
+    "provider.token.rotate": [("endpoint_id", "endpoint")],
+    "runbook.execute": [("node_id", "node"), ("check_id", "check")],
+}
+
+# actions without a customer: MSP-wide administration. Scoped operators are refused for these (create_plan: cust is None -> 404).
+MSP_GLOBAL: dict[str, str] = {
+    "customer.create": "creates a customer: the MSP's own administration",
+    "customer.update": "edits a customer record: MSP administration (admin_only)",
+    "operator.set_scope": "changes which customers an operator sees: MSP administration (admin_only)",
+    "release.promote": "ICS-wide package channel promotion (admin_only)",
+    "user.create": "ICS operator accounts are MSP-wide (admin_only)",
+    "user.disable": "ICS operator accounts are MSP-wide (admin_only)",
+    "user.enable": "ICS operator accounts are MSP-wide (admin_only)",
+    "user.invite": "ICS operator accounts are MSP-wide (admin_only)",
+    "user.revoke_invite": "ICS operator accounts are MSP-wide (admin_only)",
+    "user.revoke_sessions": "ICS operator accounts are MSP-wide (admin_only)",
+    "user.set_role": "ICS operator accounts are MSP-wide (admin_only)",
+}
+
+
+class CustomerConflict(Exception):
+    """referenced resources belong to different customers, or the caller's customer_id disagrees with them"""
+
+
+def _get(params, path):
+    cur = params
+    for part in path.split("."):
+        if not isinstance(cur, dict) or part not in cur or cur[part] in (None, ""):
+            return None
+        cur = cur[part]
+    return cur
+
+
+def _norm(c) -> str | None:
+    """customers are UUIDs; a free-text customer label (deployments.customer_id is text) can not be scoped and is not a derivation input"""
+    try:
+        return str(UUID(str(c).strip()))
+    except ValueError:
+        return None
+
+
+def lookup(db, kind: str, value) -> str | None:
+    """customer id of one referenced resource (None when it does not exist or has no customer)"""
+    if kind == "customer":
+        return _norm(value)
+    if kind in _UUID_KINDS:
+        try:
+            value = str(UUID(str(value)))
+        except ValueError:
+            return None
+    r = db.execute(text(_SQL[kind]), {"i": str(value)}).first()
+    return _norm(r.customer_id) if r and r.customer_id is not None else None
+
+
+def references(db, action: str, params: dict) -> list[tuple[str, str, str | None]]:
+    """[(path, kind, customer or None)] for every reference the params actually carry"""
+    out = []
+    for path, kind in REFS.get(action, []):
+        v = _get(params, path)
+        if v is None:
+            continue
+        out.append((path, kind, lookup(db, kind, v)))
+    return out
+
+
+def derive(db, action: str, params: dict) -> str | None:
+    """The single customer of a plan, or None for an MSP-global action / one that references nothing. Raises CustomerConflict."""
+    if action in MSP_GLOBAL:
+        return None
+    if action not in REFS:
+        raise CustomerConflict(f"action {action} has no customer resolver")
+    seen: dict[str, list[str]] = {}
+    for path, kind, cust in references(db, action, params):
+        if cust:
+            seen.setdefault(cust, []).append(path)
+    if len(seen) > 1:
+        raise CustomerConflict("the plan references resources of different customers (%s)" % "; ".join(f"{', '.join(v)}" for v in seen.values()))
+    return next(iter(seen)) if seen else None
