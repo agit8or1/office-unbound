@@ -15,6 +15,7 @@ import ErrorBox from '../../components/ErrorBox.vue'
 import StatusBadge from '../../ui/StatusBadge.vue'
 import ClusterHeader from './ClusterHeader.vue'
 import { api, load } from './api'
+import { accessApi } from './access/api'
 import {
   capacityHeadroom, credentialState, credentialsFor, driftItems, fmtBytes, healthTone, mergeSeries, pctOf, policyStatus, ratioSeries, toPoints,
   type InfraGuest, type InfraNode, type InfraStorage, type Pt,
@@ -54,10 +55,17 @@ watch([() => d.value?.nodes.map((n) => n.id).join(), range], loadCharts, { immed
 const last = (p: Pt[]) => (p.length ? `${Math.round(p[p.length - 1]!.v)}%` : '-')
 const pctFmt = (v: number) => `${Math.round(v)}%`
 
+// ---- inventory changes (never authorizes anything; opens Manage access)
+const acc = useLoad(() => accessApi.access(props.id), 120000)
+
 // ---- alerts
 const alerts = computed(() => {
   const x = d.value; if (!x) return []
   const out: { tone: 'bad' | 'warn' | 'info'; text: string; to?: string }[] = []
+  const ac = acc.data.value?.counts
+  if (ac?.new) out.push({ tone: 'info', text: `${ac.new} new infrastructure resource(s) discovered (not authorized).`, to: `/infrastructure/providers/${props.id}/access` })
+  if (ac?.changed) out.push({ tone: 'warn', text: `${ac.changed} authorized resource(s) were renamed, moved or re-created in Proxmox.`, to: `/infrastructure/providers/${props.id}/access` })
+  if (ac?.missing) out.push({ tone: 'warn', text: `${ac.missing} authorized resource(s) are no longer found in Proxmox.`, to: `/infrastructure/providers/${props.id}/access` })
   if (x.ep.health.status === 'critical' || x.ep.health.status === 'warning') out.push({ tone: x.ep.health.status === 'critical' ? 'bad' : 'warn', text: x.ep.health.reason ?? 'The cluster needs attention.' })
   for (const w of x.ep.last_discovery.warnings) out.push({ tone: 'warn', text: w })
   const ps = policyStatus(x.perms)

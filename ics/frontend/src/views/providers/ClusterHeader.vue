@@ -21,7 +21,8 @@ const here = computed(() => current.path)
 <template>
   <div class="pv-head">
     <PageHeader :title="title" :sub="subtitle">
-      <template #actions><span v-if="ep" class="badge" :class="tone">{{ label }}</span></template>
+      <template #actions><span v-if="ep" class="badge" :class="tone">{{ label }}</span>
+        <router-link v-if="ep" class="wz-btn primary" :to="`/infrastructure/providers/${id}/access`" data-testid="manage-access">Manage access</router-link></template>
     </PageHeader>
     <nav class="pv-tabs" aria-label="Cluster sections">
       <router-link v-for="t in tabs" :key="t.to" :to="t.to" :aria-current="here === t.to ? 'page' : undefined">{{ t.label }}</router-link>

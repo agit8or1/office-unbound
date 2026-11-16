@@ -27,6 +27,7 @@ export const ROUTES: R[] = [
   { id: 'preview', title: 'Plan preview', min: 'operator' },
   { id: 'audit', title: 'Audit log', min: 'approver' },
   { id: 'system', title: 'System', min: 'admin' },
+  { id: 'infrastructure/providers/proxmox/connect', title: 'Connect a cluster', min: 'admin' },
 ]
 /** Routes that exist only once their feature branch is merged (wizards, /infra/*): probed, tested when present, skipped when "not found". */
 export const OPTIONAL_ROUTES: string[] = ['setup', 'deployments/new']

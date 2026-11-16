@@ -78,11 +78,17 @@ class Conn(BaseModel):
 
 
 class TempCreds(BaseModel):
-    """TEMPORARY provisioning credentials. PVE admin user+password (ticket login) OR an existing privileged API token."""
+    """TEMPORARY provisioning credentials: a signed-in Proxmox admin session (`admin_session`: wizard login incl. second factor; the server copies
+    its ticket into the plan's temporary credential, so the job never needs a password or a TOTP code), PVE admin user+password, OR an existing
+    privileged API token. `admin_ticket` / `admin_csrf` / `admin_ticket_user` are set by the server only (refused from clients in create_plan)."""
     admin_username: str | None = Field(default=None, pattern=USER_RE)
     admin_password: SecretStr | None = None
     admin_token_id: str | None = Field(default=None, pattern=ea.TOKEN_ID_RE)
     admin_token_secret: SecretStr | None = None
+    admin_session: UUID | None = None
+    admin_ticket_user: str | None = Field(default=None, pattern=USER_RE)
+    admin_ticket: SecretStr | None = None
+    admin_csrf: SecretStr | None = None
 
     @field_validator("admin_token_secret", mode="before")
     @classmethod
@@ -90,13 +96,18 @@ class TempCreds(BaseModel):
         return ea.norm_secret(v)
 
     def has_creds(self) -> bool:
-        return bool((self.admin_username and self.admin_password) or (self.admin_token_id and self.admin_token_secret))
+        """At plan time a named session counts (create_plan copies its ticket in); at execution the ticket itself must be present."""
+        return bool((self.admin_username and self.admin_password) or (self.admin_token_id and self.admin_token_secret)
+                    or (self.admin_ticket and self.admin_csrf and self.admin_ticket_user) or self.admin_session is not None)
 
     def _shape(self):
         pw = bool(self.admin_username) or self.admin_password is not None
         tk = bool(self.admin_token_id) or self.admin_token_secret is not None
-        if pw and tk:
-            raise ValueError("supply either admin username+password or an admin token, not both")
+        ss = self.admin_session is not None
+        if int(pw) + int(tk) + int(ss) > 1:
+            raise ValueError("supply one of: a Proxmox sign-in session, admin username+password, or an admin token")
+        if (self.admin_ticket is not None or self.admin_csrf is not None) and not ss:
+            raise ValueError("credential is incomplete")
         if (bool(self.admin_username) != (self.admin_password is not None)) or (bool(self.admin_token_id) != (self.admin_token_secret is not None)):
             raise ValueError("credential is incomplete")
 
@@ -248,15 +259,30 @@ def _pkg_risk(p: ProvisionPackage) -> str:
     return "high" if (p.policy.preset == "full_admin" or p.policy.allow_cicustom or p.policy.approve_elevated) else "normal"
 
 
+ADMIN_SECRETS = ("admin_password", "admin_token_secret", "admin_ticket", "admin_csrf")
+SERVER_ONLY = ("admin_ticket", "admin_csrf", "admin_ticket_user")
+SESSION_FINAL = ("provider.provision.apply", "provider.permissions.reconcile", "provider.token.rotate", "provider.token.revoke", "provider.scope.change")
+
+
+def session_target(db: Session, full: dict) -> tuple[str | None, str | None, str | None]:
+    """(base_url, ca_pem, fingerprint) the plan will talk to: the endpoint's anchors, or the new connection's."""
+    if full.get("endpoint_id"):
+        ep = _ep(db, full["endpoint_id"])
+        if ep is None:
+            return None, None, None
+        return ep.base_url, ep.ca_pem, ep.fingerprint_sha256
+    return full.get("base_url"), full.get("ca_pem"), full.get("fingerprint_sha256")
+
+
 CATALOG = {
-    "provider.provision.plan_preview": {"model": PlanPreview, "risk": "low", "secrets": ("admin_password", "admin_token_secret")},
-    "provider.provision.apply": {"model": ProvisionApply, "risk": "high", "secrets": ("admin_password", "admin_token_secret")},
+    "provider.provision.plan_preview": {"model": PlanPreview, "risk": "low", "secrets": ADMIN_SECRETS},
+    "provider.provision.apply": {"model": ProvisionApply, "risk": "high", "secrets": ADMIN_SECRETS},
     "provider.provision.package": {"model": ProvisionPackage, "risk": _pkg_risk, "secrets": ()},
     "provider.credential.import": {"model": CredentialImport, "risk": "normal", "secrets": ("inventory_token_secret", "provision_token_secret")},
-    "provider.permissions.reconcile": {"model": PermissionsReconcile, "risk": "high", "secrets": ("admin_password", "admin_token_secret")},
-    "provider.token.rotate": {"model": TokenRotate, "risk": "high", "secrets": ("admin_password", "admin_token_secret")},
-    "provider.token.revoke": {"model": TokenRevoke, "risk": "high", "secrets": ("admin_password", "admin_token_secret")},
-    "provider.scope.change": {"model": ScopeChange, "risk": _scope_risk, "secrets": ("admin_password", "admin_token_secret")},
+    "provider.permissions.reconcile": {"model": PermissionsReconcile, "risk": "high", "secrets": ADMIN_SECRETS},
+    "provider.token.rotate": {"model": TokenRotate, "risk": "high", "secrets": ADMIN_SECRETS},
+    "provider.token.revoke": {"model": TokenRevoke, "risk": "high", "secrets": ADMIN_SECRETS},
+    "provider.scope.change": {"model": ScopeChange, "risk": _scope_risk, "secrets": ADMIN_SECRETS},
     "provider.scope.package": {"model": ScopePackage, "risk": _scope_risk, "secrets": ()},
 }
 
@@ -306,6 +332,12 @@ def _kw(rt: Runtime, ca, fp) -> dict:
 
 
 def open_admin(rt: Runtime, m, base_url, ca, fp, known: list[str]) -> ProxmoxAdminClient:
+    if getattr(m, "admin_session", None) is not None and getattr(m, "admin_ticket", None) is None:
+        raise ProxmoxError("the Proxmox sign-in for this plan is no longer available (expired or already used): sign in again and create a new plan")
+    if getattr(m, "admin_ticket", None) is not None:
+        t, c = m.admin_ticket.get_secret_value(), m.admin_csrf.get_secret_value() if m.admin_csrf else ""
+        known += [t, c]
+        return ProxmoxAdminClient(base_url, username=m.admin_ticket_user, ticket=t, csrf=c, **_kw(rt, ca, fp))
     pw = m.admin_password.get_secret_value() if m.admin_password else None
     ts = m.admin_token_secret.get_secret_value() if m.admin_token_secret else None
     known += [x for x in (pw, ts) if x]
@@ -559,7 +591,7 @@ def _scope_kwargs(policy: Policy) -> dict:
     s = policy.scope
     return dict(allowed_pools=s.pools or None, allowed_storage=sorted(set(s.storages + s.backup_storages)) or None,
                 allowed_nodes=s.nodes or None, allowed_networks=s.networks or None, allowed_templates=s.template_vmids or None, allow_cicustom=policy.allow_cicustom,
-                protected_vmids=s.protected_vmids or None)
+                protected_vmids=s.protected_vmids or None, managed_vmids=s.managed_vmids or None)
 
 
 def _register(rt: Runtime, db: Session, m, plan, known: list[str], ep, base_url, ca, fp, policy: Policy, secrets: dict, d: pp.Design) -> str:
@@ -685,7 +717,8 @@ def _commit_scope(rt: Runtime, db: Session, plan, ep, stored, sc, pl, res, verif
     new = sc.new
     s = new.scope
     upd = ea.EndpointUpdate(endpoint_id=ep.id, allowed_nodes=s.nodes or None, allowed_storage=sorted(set(s.storages + s.backup_storages)) or None,
-                            allowed_templates=s.template_vmids or None)
+                            allowed_templates=s.template_vmids or None, allowed_pools=list(s.pools), allowed_networks=list(s.networks),
+                            managed_vmids=list(s.managed_vmids))
     ea.exec_update(rt, db, upd, plan, known)      # re-probes with the new scope and the stored tokens; nothing is persisted if that fails
     mg = _merge_managed(dict(stored.managed), res) if res is not None else dict(stored.managed)
     gone = {st.target for st in pl.steps if st.kind == "acl" and st.op == "remove"}
@@ -1008,7 +1041,7 @@ def scrub_expired_credentials(db: Session) -> int:
                         "(created_at < now() - make_interval(secs => :t) OR status = 'rejected')"), {"t": TEMP_CRED_TTL})
     n = r.rowcount or 0
     rows = db.execute(text(
-        "SELECT c.id FROM credentials c LEFT JOIN plans p ON p.id = c.id WHERE c.purpose = 'temporary_provisioning' AND c.provider <> 'pve-ssh' AND c.purged_at IS NULL AND "
+        "SELECT c.id FROM credentials c LEFT JOIN plans p ON p.id = c.id WHERE c.purpose = 'temporary_provisioning' AND c.provider NOT IN ('pve-ssh', 'pve-admin') AND c.purged_at IS NULL AND "
         "(c.expires_at <= now() OR p.created_at < now() - make_interval(secs => :t) OR p.id IS NULL OR p.status = 'rejected' OR EXISTS (SELECT 1 FROM jobs j WHERE j.plan_id = p.id "
         "AND j.status IN ('succeeded', 'failed'))) FOR UPDATE OF c"), {"t": TEMP_CRED_TTL}).all()
     for c in rows:

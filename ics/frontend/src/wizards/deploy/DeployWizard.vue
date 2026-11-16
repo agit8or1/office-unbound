@@ -29,7 +29,7 @@ onMounted(async () => {
   // express path: "small" is the recommended starting profile; a single deployable endpoint is chosen for the user
   if (profiles.value.state === 'ok') { const small = profiles.value.data.find((p) => p.id === 'small'); if (small) pick(small) }
   if (endpoints.value.state === 'ok') {
-    const usable = endpoints.value.data.filter((e) => e.credentials.provision.present && e.enabled !== false)
+    const usable = endpoints.value.data.filter((e) => e.credentials.provision.present && e.enabled !== false && e.scope.allowed_pools.length)
     if (usable.length === 1) m.endpoint = usable[0]!.name
   }
 })
@@ -145,15 +145,15 @@ function adjust(id: string) { const i = deploySteps.findIndex((s) => s.id === id
     <div v-show="wz.current.value.id === 'placement'" class="wz-card">
       <h2>Where should it run?</h2>
       <Unavailable v-if="endpoints?.state === 'unavailable'" what="Endpoints" endpoint="GET /api/v1/endpoints" :status="endpoints.status" />
-      <Banner v-else-if="endpoints?.state === 'ok' && !endpoints.data.length" kind="warn" title="No cluster connected yet"><a href="#/setup">Connect Proxmox</a> first, then come back.</Banner>
-      <Banner v-else-if="endpoints?.state === 'ok' && !endpoints.data.some((e) => e.credentials.provision.present)" kind="warn" title="Read-only connection">None of your connected clusters has a provisioning token, so ICS cannot create machines yet. <a href="#/setup/connection">Add one</a>.</Banner>
+      <Banner v-else-if="endpoints?.state === 'ok' && !endpoints.data.length" kind="warn" title="No cluster connected yet"><router-link to="/infrastructure/providers/proxmox/connect">Connect Proxmox</router-link> first, then come back.</Banner>
+      <Banner v-else-if="endpoints?.state === 'ok' && !endpoints.data.some((e) => e.credentials.provision.present)" kind="warn" title="Read-only connection">None of your connected clusters has a provisioning token, so ICS cannot create machines yet. Open the cluster's <b>Manage access</b> and choose the Deployment level.</Banner>
       <Unavailable v-if="storage?.state === 'unavailable'" what="Storage inventory" endpoint="GET /api/v1/infra/storage" :status="storage.status" />
       <Unavailable v-if="networks?.state === 'unavailable'" what="Network inventory" endpoint="GET /api/v1/infra/networks" :status="networks.status" />
       <p v-if="m.endpoint && m.pool && m.storage && m.bridge" class="muted">We will use <b>{{ m.endpoint }}</b>, pool <b>{{ m.pool }}</b>, storage <b>{{ m.storage }}</b> and network <b>{{ m.bridge }}</b>. Change this under Customize if needed.</p>
       <details class="wz-help" :open="!(m.endpoint && m.pool && m.storage && m.bridge) || Object.keys(wz.m.errors).length > 0"><summary>Customize</summary>
       <div class="wz-grid">
         <Field label="Infrastructure endpoint" :error="err('endpoint')" v-slot="{ id, invalid }">
-          <select :id="id" v-model="m.endpoint" :aria-invalid="invalid"><option value="">Select…</option><option v-for="e in endpoints?.state === 'ok' ? endpoints.data : []" :key="e.id" :value="e.name" :disabled="!e.credentials.provision.present">{{ e.name }} ({{ e.base_url }}){{ e.credentials.provision.present ? '' : ' - inventory only, cannot deploy' }}</option></select>
+          <select :id="id" v-model="m.endpoint" :aria-invalid="invalid"><option value="">Select…</option><option v-for="e in endpoints?.state === 'ok' ? endpoints.data : []" :key="e.id" :value="e.name" :disabled="!e.credentials.provision.present || !e.scope.allowed_pools.length">{{ e.name }} ({{ e.base_url }}){{ !e.credentials.provision.present ? ' - inventory only, cannot deploy' : !e.scope.allowed_pools.length ? ' - no deployment targets authorized (Manage access)' : '' }}</option></select>
         </Field>
         <Field label="Resource pool" :error="err('pool')" hint="Only pools the endpoint allows are listed." v-slot="{ id, invalid }">
           <select :id="id" v-model="m.pool" :aria-invalid="invalid"><option value="">Select…</option><option v-for="p in endpoint?.scope.allowed_pools ?? []" :key="p" :value="p">{{ p }}</option></select>
@@ -162,7 +162,7 @@ function adjust(id: string) { const i = deploySteps.findIndex((s) => s.id === id
           <select :id="id" v-model="m.storage" :aria-invalid="invalid"><option value="">Select…</option><option v-for="s in diskStorage" :key="s.id + s.node" :value="s.id" :disabled="!!endpoint && !endpoint.scope.allowed_storage.includes(s.id)">{{ s.id }} ({{ fmtGb(s.total_gb - s.used_gb) }} free)</option></select>
         </Field>
         <Field label="Bridge" :error="err('bridge')" v-slot="{ id, invalid }">
-          <select :id="id" v-model="m.bridge" :aria-invalid="invalid"><option value="">Select…</option><option v-for="n in bridges" :key="n.name" :value="n.name">{{ n.name }}</option></select>
+          <select :id="id" v-model="m.bridge" :aria-invalid="invalid"><option value="">Select…</option><option v-for="n in bridges" :key="n.name" :value="n.name" :disabled="!!endpoint && !!endpoint.scope.allowed_networks.length && !endpoint.scope.allowed_networks.some((x) => x.split('/')[0] === n.name)">{{ n.name }}</option></select>
         </Field>
         <Field label="VLAN tag" optional :error="err('vlan')" v-slot="{ id, invalid }"><input :id="id" v-model="m.vlan" type="text" inputmode="numeric" :aria-invalid="invalid" /></Field>
         <Field v-if="osImages?.state === 'ok'" label="OS image" optional hint="Empty = the catalog default." v-slot="{ id }">

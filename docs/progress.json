@@ -337,6 +337,19 @@
             "docs/status/network-isolation-test-plan.md"
           ],
           "note": "Per-customer VNet network model and plan errors are in the ICS; SDN is not applied on the cluster yet and isolation is untested; owner decision: option A (VNet + PVE firewall) if no node rules on pve01-05, else option B"
+        },
+        {
+          "id": "P2.11",
+          "title": "Proxmox connection and access management wizard: sign in (password + TOTP/recovery), discover, select guests and deployment targets, automatic restricted credentials, reusable Manage access",
+          "status": "implementing",
+          "evidence": [
+            "docs/adr/0016-proxmox-connection-wizard.md",
+            "ics/tests/test_admin_session.py",
+            "ics/tests/test_operate.py",
+            "ics/tests/test_inventory_ledger.py",
+            "ics/tests/test_manage_access.py"
+          ],
+          "note": "Branch pve-wizard (2026-11-16). Simulator-tested: ticket-only sign-in sessions with TFA, per-VMID operations preset + guest.power, inventory ledger (new/missing/moved/renamed/VMID reuse), incremental scope changes (guests, pools, networks, level), excess-privilege stop. Console: new Connect/Manage access wizard. Real-cluster evidence pending pve06."
         }
       ]
     },

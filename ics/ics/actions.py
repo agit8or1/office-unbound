@@ -20,6 +20,7 @@ from sqlalchemy.orm import Session
 
 from . import release as release_ops
 from . import imageimport
+from .provisioning import operate as guest_operate
 from . import agentclient, alerts, audit, auth, checks as checkmod, endpoint_actions, identity, mailadmin, monitor, removal
 from .deploy import ops as deploy_ops
 from .deploy import ports as deploy_ports
@@ -120,6 +121,7 @@ class ActionType(StrEnum):
     backup_prune = "backup.prune"
     release_promote = "release.promote"
     image_import = "image.import"
+    guest_power = "guest.power"
     msp_client_create = "msp.client.create"
     msp_client_set_permissions = "msp.client.set_permissions"
     msp_client_rotate = "msp.client.rotate"
@@ -150,9 +152,9 @@ class EndpointRegister(endpoint_actions.ScopeLists):
     def _prov(self) -> Self:
         if (self.provision_token_id is None) != (self.provision_token_secret is None):
             raise ValueError("provision_token_id and provision_token_secret go together")
-        if self.provision_token_id and not self.allowed_pools:
-            raise ValueError("a provision credential requires at least one allowed pool")
-        if self.provision_token_id and not self.allowed_nodes:
+        if self.provision_token_id and not (self.allowed_pools or self.managed_vmids):
+            raise ValueError("a provision credential requires at least one allowed pool or operated guest")
+        if self.provision_token_id and self.allowed_pools and not self.allowed_nodes:
             raise ValueError("a provision credential requires at least one authorized node (allowed_nodes)")
         return self
 
@@ -436,9 +438,12 @@ CATALOG: dict[ActionType, dict] = {
     ActionType.release_promote: {"model": release_ops.ReleasePromote, "risk": release_ops.risk, "secrets": (), "admin_only": True},
     # golden image -> Proxmox template (imageimport.py): always high; trust from Settings, floor from the DB, release by name only
     ActionType.image_import: {"model": imageimport.ImageImport, "risk": "high", "secrets": (), "admin_only": True},
+    # power control of an EXISTING guest the administrator authorized individually (operations preset; provisioning/operate.py)
+    ActionType.guest_power: {"model": guest_operate.GuestPower, "risk": guest_operate.risk, "secrets": ()},
 }
 CATALOG.update({ActionType(k): v for k, v in prov_actions.CATALOG.items()})   # provider provisioning (ics/provisioning/actions.py)
 _PROV = {ActionType(k) for k in prov_actions.CATALOG}
+EP_BOUND = {"image.import", "guest.power"}   # _PRECHECK actions whose plan digest binds the endpoint's trust anchors (create AND verify)
 from .sshonboard import actions as ssh_actions, session as ssh_session  # noqa: E402  (ADR-0014)
 CATALOG.update({ActionType(k): v for k, v in ssh_actions.CATALOG.items()})
 _SSH = {ActionType(k) for k in ssh_actions.CATALOG}
@@ -598,7 +603,7 @@ _PRECHECK = {ActionType.node_enroll: _pre_node_enroll, ActionType.check_create: 
              ActionType.check_delete: removal.pre_check_delete, ActionType.alert_channel_delete: removal.pre_channel_delete,
              ActionType.node_decommission: removal.pre_node_decommission, ActionType.maintenance_cancel: removal.pre_maintenance_cancel,
              ActionType.maintenance_delete: removal.pre_maintenance_delete, ActionType.plan_archive: removal.pre_plan_archive, ActionType.release_promote: release_ops.precheck,
-             ActionType.image_import: imageimport.precheck,
+             ActionType.image_import: imageimport.precheck, ActionType.guest_power: guest_operate.precheck,
 **{ActionType(k): v for k, v in {**cred_actions.PRECHECK, **ten_actions.PRECHECK, **msp_actions.PRECHECK}.items()}}
 
 
@@ -660,6 +665,19 @@ def create_plan(db: Session, rt: Runtime, user, action: ActionType, params: dict
     msp_principal = getattr(user, "msp_client", None) is not None and action.value in ("customer.create", "customer.update")
     if spec.get("admin_only") and auth.RANK[user.role] < auth.RANK["admin"] and not msp_principal:
         raise PlanError(403, "requires role admin")
+    if action in _PROV and isinstance(params, dict) and any(k in params for k in prov_actions.SERVER_ONLY):
+        raise PlanError(422, "admin_ticket, admin_csrf and admin_ticket_user are set by the server from a Proxmox sign-in session (admin_session)")
+    if (action in _PROV and isinstance(params, dict) and params.get("admin_session") and not params.get("endpoint_id")
+            and not params.get("ca_pem") and not params.get("fingerprint_sha256")):
+        # new connection from the wizard: address + TLS anchor come from the requester's own sign-in (a public-CA root is derived server-side)
+        from .provisioning import adminsession
+        try:
+            _sr = adminsession.row(db, uuid.UUID(str(params["admin_session"])))
+        except ValueError:
+            _sr = None
+        if _sr is not None and str(_sr.created_by) == str(user.id):
+            params = {**params, "base_url": params.get("base_url") or _sr.base_url,
+                      **({"ca_pem": _sr.ca_pem} if _sr.ca_pem else {"fingerprint_sha256": _sr.fingerprint_sha256})}
     p = spec["model"].model_validate(params)  # ValidationError -> 422 at the API layer
     full = p.model_dump(mode="json")
     for k in spec["secrets"]:
@@ -668,6 +686,18 @@ def create_plan(db: Session, rt: Runtime, user, action: ActionType, params: dict
         else:
             full[k] = p.__dict__[k].get_secret_value()
     secret_part = {k: full.pop(k) for k in spec["secrets"] if k in full}
+    sess_expires = None
+    if action in _PROV and full.get("admin_session"):
+        # wizard sign-in: the session's PVE ticket (never a password) becomes this plan's temporary credential; bound to the requester, the
+        # target address and its trust anchor (adminsession.for_plan)
+        from .provisioning import adminsession
+        bu, ca_, fp_ = prov_actions.session_target(db, full)
+        try:
+            tk, sess_expires = adminsession.for_plan(db, rt, user, full["admin_session"], bu, ca_, fp_)
+        except adminsession.SessionError as e:
+            raise PlanError(e.status, e.msg) from None
+        full["admin_ticket_user"] = tk["admin_ticket_user"]
+        secret_part = {"admin_ticket": tk["admin_ticket"], "admin_csrf": tk["admin_csrf"]}
     # review 7 H-4: the customer is DERIVED from every resource the params reference; the caller's customer_id may only confirm it
     if getattr(user, "customer_ids", None) is not None:
         for _path, _kind, _c in tresolve.references(db, action.value, full):
@@ -741,7 +771,7 @@ def create_plan(db: Session, rt: Runtime, user, action: ActionType, params: dict
         risk = _user_precheck(db, user, action, p, risk)
     elif action in _PRECHECK:
         extra.update(_PRECHECK[action](db, rt, p) or {})
-        if action == ActionType.image_import:   # the endpoint's trust is bound into the plan digest (a re-pointed endpoint invalidates the approval)
+        if action.value in EP_BOUND:   # the endpoint's trust is bound into the plan digest (a re-pointed endpoint invalidates the approval)
             binding = _ep_binding(db, p.endpoint_id)
     if action in _PROV:
         extra.update(prov_actions.precheck(db, rt, action.value, p))
@@ -790,8 +820,9 @@ def create_plan(db: Session, rt: Runtime, user, action: ActionType, params: dict
         enc = None
         cred_service.create(db, rt, provider="proxmox", customer_id=cust or tscope.DEFAULT_CUSTOMER, label=f"temporary provisioning ({action.value})",
                             credential_type="password" if "admin_password" in secret_part else "api_token", purpose="temporary_provisioning",
-                            secret=json.dumps(secret_part), identity=(full.get("admin_username") or full.get("admin_token_id")),
-                            expires_at=datetime.now(timezone.utc) + timedelta(seconds=prov_actions.TEMP_CRED_TTL), actor=user.username,
+                            secret=json.dumps(secret_part), identity=(full.get("admin_username") or full.get("admin_token_id") or full.get("admin_ticket_user")),
+                            expires_at=min(x for x in (datetime.now(timezone.utc) + timedelta(seconds=prov_actions.TEMP_CRED_TTL), sess_expires) if x),
+                            actor=user.username,
                             actor_id=user.id, reason=f"plan {pid}", ip=ip, cred_id=pid)
         digest = plan_digest(action.value, full, prov_actions.temp_cred_blob(pid), binding)
     else:
@@ -1034,6 +1065,8 @@ def reap_expired(rt: Runtime) -> int:
                         "AND created_at < now() - make_interval(secs => :e)"), {"e": rt.settings.plan_expiry_seconds})
         prov_actions.scrub_expired_credentials(db)   # temporary provisioning credentials live at most 15 minutes
         ssh_session.sweep(db)                        # ADR-0014: admin SSH credentials live at most 30 minutes
+        from .provisioning import adminsession
+        adminsession.sweep(db)                       # wizard Proxmox sign-in sessions (ticket only) live at most 30 minutes
         db.commit()
     try:      # review 5 L1: sweepers for one-time secrets that outlived their purpose
         from .guest import bootsecrets
@@ -1060,7 +1093,7 @@ def _error_dict(e: BaseException, known: list[str]) -> dict:
 
 def _verify_approval(rt: Runtime, db: Session, plan) -> None:
     """Re-verify, immediately before executing, that the plan still matches what was approved (M5) and approvals suffice."""
-    binding = _ep_binding(db, plan.params["endpoint_id"]) if plan.action in endpoint_actions.BINDING_ACTIONS else None
+    binding = _ep_binding(db, plan.params["endpoint_id"]) if (plan.action in endpoint_actions.BINDING_ACTIONS or plan.action in EP_BOUND) else None
     blob = plan.secret_enc
     if blob is None and plan.action in prov_actions.CATALOG and prov_actions.has_temp_cred(db, plan.id):
         blob = prov_actions.temp_cred_blob(plan.id)
@@ -1111,6 +1144,9 @@ def run_job(rt: Runtime, job: dict) -> None:
                         db.rollback()
                         return
                     box["result"] = res
+                    if action.value in prov_actions.SESSION_FINAL and plan.params.get("admin_session"):
+                        from .provisioning import adminsession     # the change is applied: the wizard's Proxmox sign-in is destroyed
+                        adminsession.wipe(db, plan.params["admin_session"], "used", "system", f"used by plan {plan.id}")
                     db.commit()
         except BaseException as e:  # noqa: BLE001
             box["error"] = e
@@ -1473,6 +1509,6 @@ _EXEC = {**{ActionType(k): v for k, v in ssh_actions.EXECUTORS.items()}, ActionT
          **{ActionType(k): v for k, v in deploy_ops.EXECUTORS.items()},
          **{ActionType(k): v for k, v in endpoint_actions.EXECUTORS.items()},
          **{ActionType(k): v for k, v in prov_actions.EXECUTORS.items()},
-         ActionType.release_promote: release_ops.exec_promote, ActionType.image_import: imageimport.exec_import,
+         ActionType.release_promote: release_ops.exec_promote, ActionType.image_import: imageimport.exec_import, ActionType.guest_power: guest_operate.exec_power,
          **{ActionType(k): v for k, v in {**cred_actions.EXECUTORS, **ten_actions.EXECUTORS, **msp_actions.EXECUTORS}.items()},
          **{ActionType(k): v for k, v in backup_ops.EXECUTORS.items()}}

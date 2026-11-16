@@ -16,6 +16,10 @@ class ScopeTarget(BaseModel):
     nodes: list[str] = Field(default_factory=list, max_length=50, description="single_node: the complete list of selected nodes (normally one); ignored for whole_cluster")
     storages: list[str] | None = Field(default=None, max_length=50, description="complete storage list; omitted = unchanged")
     template_vmids: list[int] | None = Field(default=None, max_length=50, description="complete template list; omitted = unchanged")
+    pools: list[str] | None = Field(default=None, max_length=20, description="complete pool list; omitted = unchanged")
+    networks: list[str] | None = Field(default=None, max_length=50, description="complete bridge/vnet list; omitted = unchanged")
+    managed_vmids: list[int] | None = Field(default=None, max_length=500, description="complete list of operated EXISTING guests; omitted = unchanged")
+    preset: Literal["monitoring", "operations", "deploy"] | None = Field(default=None, description="permission level; omitted = unchanged")
     risk_overrides: list[str] = Field(default_factory=list, max_length=50)
     allow_migrate: bool | None = None
     detach_orphans: bool = Field(default=False, description="narrowing only: ICS stops managing guests that would fall outside the new scope (they keep running in Proxmox)")
@@ -27,14 +31,14 @@ class ScopeTarget(BaseModel):
             raise ValueError("invalid node name")
         return sorted(set(v))
 
-    @field_validator("storages")
+    @field_validator("storages", "pools", "networks")
     @classmethod
     def _s(cls, v):
         if v is not None and any(not re.match(_NAME, x) for x in v):
             raise ValueError("names may contain letters, digits, . _ - only")
         return sorted(set(v)) if v is not None else v
 
-    @field_validator("template_vmids")
+    @field_validator("template_vmids", "managed_vmids")
     @classmethod
     def _t(cls, v):
         if v is not None and any(not 100 <= x <= 999_999_999 for x in v):

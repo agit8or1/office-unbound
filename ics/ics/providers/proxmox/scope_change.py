@@ -36,6 +36,13 @@ def target_policy(old: Policy, t: ScopeTarget, stored_roles: dict | None = None)
         sc["storages"] = list(t.storages)
     if t.template_vmids is not None:
         sc["template_vmids"] = list(t.template_vmids)
+    for k in ("pools", "networks", "managed_vmids"):
+        if getattr(t, k) is not None:
+            sc[k] = list(getattr(t, k))
+    if t.preset is not None and t.preset != d["preset"]:
+        if d["preset"] not in ("monitoring", "operations", "deploy"):
+            raise ScopeChangeError(f"the permission level '{d['preset']}' cannot be changed here; re-provision the integration instead")
+        d["preset"] = t.preset
     if t.allow_migrate is not None:
         d["allow_migrate"] = t.allow_migrate
     try:
@@ -146,6 +153,7 @@ def build_from(old: Policy, stored_design: dict, new: Policy, facts: pp.Facts | 
     d_old = pp.design_from_stored(old, stored_design)
     d_new = pp.design_from_plan(plan, new)
     e_old, e_new = _entries(d_old), _entries(d_new)
+    token_change = sorted(set(d_old.tokens) ^ set(d_new.tokens))
     # --- permission diff (deterministic: stored design vs new design; the live plan may add repairs on top)
     def rows(es):
         by: dict[tuple, dict] = {}
@@ -163,10 +171,17 @@ def build_from(old: Policy, stored_design: dict, new: Policy, facts: pp.Facts | 
     o_s, n_s = scope_summary(old), scope_summary(new)
     if dirn != "widen" and (_new_reach(e_new - e_old, e_old) or any(c["change"] == "added" or (c["change"] == "privileges" and c["added"]) for c in role_changes)):
         dirn = "widen"       # review 5 M3: any ACL entry that grants something the old design did not already cover, or any added role privilege, is a widening
+    if dirn == "same" and (e_old - e_new or any(c["change"] == "removed" or (c["change"] == "privileges" and c["removed"]) for c in role_changes)):
+        dirn = "narrow"      # only removals: less access (e.g. a guest no longer operated)
     diff = {"acl_add": rows(e_new - e_old), "acl_remove": rows(e_old - e_new), "roles": role_changes,
             "ics_allowlist": {"nodes": {"before": o_s["nodes"], "after": n_s["nodes"]}, "storages": {"before": o_s["storages"], "after": n_s["storages"]}},
             "nodes_added": sorted(set(n_s["nodes"]) - set(o_s["nodes"])), "nodes_removed": sorted(set(o_s["nodes"]) - set(n_s["nodes"])),
-            "storages_added": sorted(set(n_s["storages"]) - set(o_s["storages"])), "storages_removed": sorted(set(o_s["storages"]) - set(n_s["storages"]))}
+            "storages_added": sorted(set(n_s["storages"]) - set(o_s["storages"])), "storages_removed": sorted(set(o_s["storages"]) - set(n_s["storages"])),
+            "operated_added": sorted(set(new.scope.managed_vmids) - set(old.scope.managed_vmids)),
+            "operated_removed": sorted(set(old.scope.managed_vmids) - set(new.scope.managed_vmids)),
+            "pools_added": sorted(set(new.scope.pools) - set(old.scope.pools)), "pools_removed": sorted(set(old.scope.pools) - set(new.scope.pools)),
+            "networks_added": sorted(set(new.scope.networks) - set(old.scope.networks)), "networks_removed": sorted(set(old.scope.networks) - set(new.scope.networks)),
+            "preset": {"before": old.preset, "after": new.preset}}
     # --- impact
     new_nodes = set(new.scope.nodes) if new.mode() != "whole_cluster" else (set(new.scope.nodes) | all_nodes)
     gone_st = set(diff["storages_removed"])
@@ -192,6 +207,12 @@ def build_from(old: Policy, stored_design: dict, new: Policy, facts: pp.Facts | 
               "visibility": {"nodes_visible_before": sorted(n for n in all_nodes if n in _reach(old, all_nodes)["nodes"]), "nodes_visible_after": sorted(n for n in all_nodes if n in new_nodes)},
               "notes": []}
     blocked = list(plan.blocked)
+    if token_change:
+        blocked.append("this permission level needs a different set of Proxmox tokens (" + ", ".join(token_change) + "); a scope change only edits the existing "
+                       "ones. Use 'Change permission level' (re-provisioning with a new restricted token) instead.")
+    if diff["operated_removed"]:
+        impact["notes"].append(f"Office Unbound stops operating guest(s) {', '.join(map(str, diff['operated_removed']))}. They keep running in Proxmox untouched; "
+                               "only Office Unbound's access to them is removed.")
     detach: list[int] = []
     if outside:
         if target.detach_orphans:

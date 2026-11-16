@@ -525,8 +525,10 @@ class PveSim:
         self.need(tid, "root", None, "SDN.Audit")
         return list(self.sdn_vnets.values())
 
+    ADMIN_ONLY = {"User.Modify", "Permissions.Modify", "Sys.Modify", "Sys.Audit", "Realm.Allocate", "Realm.AllocateUser", "Group.Allocate"}
+
     def _all_privs(self):
-        return set().union(*(r for r in self.roles.values())) - {"*"}
+        return (set().union(*(r for r in self.roles.values())) | self.ADMIN_ONLY) - {"*"}
 
     def r_permissions(self, tid, q, f):
         who = q.get("userid") or tid
@@ -556,8 +558,26 @@ class PveSim:
     def r_ticket(self, f):
         uid, pw = f.get("username", ""), f.get("password", "")
         u = self.users.get(uid)
-        if not u or not u.get("enable") or not u.get("password") or u["password"] != pw:
+        ch = f.get("tfa-challenge")
+        if ch:     # PVE >= 7.2 second step: the challenge ticket + '<method>:<code>' (the password is not sent again)
+            if getattr(self, "tfa_challenges", {}).get(ch) != uid or not u:
+                raise HTTPErr(401, "authentication failure")
+            meth, _, code = pw.partition(":")
+            ok = (meth == "totp" and code == u.get("totp")) or (meth == "recovery" and code in u.get("recovery", []))
+            if not ok:
+                raise HTTPErr(401, "authentication failure")
+            if meth == "recovery":
+                u["recovery"].remove(code)
+            del self.tfa_challenges[ch]
+        elif not u or not u.get("enable") or not u.get("password") or u["password"] != pw:
             raise HTTPErr(401, "authentication failure")
+        elif u.get("totp") or u.get("recovery") or u.get("webauthn"):
+            c = {k: v for k, v in (("totp", bool(u.get("totp"))), ("recovery", "available" if u.get("recovery") else None),
+                                   ("webauthn", {"challenge": "x"} if u.get("webauthn") else None)) if v}
+            ticket = "PVE:!tfa!" + urllib.parse.quote(json.dumps(c, separators=(",", ":")), safe="") + f":{len(self.tickets):08X}::sim"
+            self.tfa_challenges = getattr(self, "tfa_challenges", {})
+            self.tfa_challenges[ticket] = uid
+            return {"ticket": ticket, "CSRFPreventionToken": "tfa-pending-csrf", "username": uid, "NeedTFA": 1}
         ticket = f"PVE:{uid}:{len(self.tickets):08X}::sim"
         self.tickets[ticket] = uid
         return {"ticket": ticket, "CSRFPreventionToken": self._csrf(uid), "username": uid}

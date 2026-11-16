@@ -90,7 +90,15 @@ class ScopeLists(BaseModel):
     allowed_templates: list[int] | None = Field(default=None, description="template vmids permitted outside the allowed pools")
     allow_cicustom: bool | None = None
     protected_vmids: list[int] | None = Field(default=None, description="guests that can never be mutated (in addition to the ICS's own VM)")
+    managed_vmids: list[int] | None = Field(default=None, description="EXISTING guests the integration may operate (power control only)")
     defaults: Defaults | None = None
+
+    @field_validator("managed_vmids")
+    @classmethod
+    def _mv(cls, v):
+        if v is not None and (len(v) > 500 or any(not 100 <= x <= 999_999_999 for x in v)):
+            raise ValueError("managed_vmids must be vmids (max 500)")
+        return sorted(set(v)) if v is not None else v
 
     @field_validator("protected_vmids")
     @classmethod
@@ -269,10 +277,11 @@ def precheck(db: Session, rt: Runtime, action: str, p) -> dict:
             raise PlanError(409, "endpoint has no provision credential")
         prov = (ep.provision_token_id and not p.remove_provision) or p.provision_token_id
         pools = p.allowed_pools if p.allowed_pools is not None else ep.allowed_pools
-        if prov and not pools:
-            raise PlanError(422, "a provision credential requires at least one allowed pool")
+        managed = p.managed_vmids if p.managed_vmids is not None else getattr(ep, "managed_vmids", None)
+        if prov and not (pools or managed):
+            raise PlanError(422, "a provision credential requires at least one allowed pool or operated guest")
         nodes = p.allowed_nodes if p.allowed_nodes is not None else ep.allowed_nodes
-        if prov and not nodes:
+        if prov and pools and not nodes:
             raise PlanError(422, "a provision credential requires at least one authorized node")
     elif action == "endpoint.remove":
         if p.confirm_name != ep.name:
@@ -306,15 +315,16 @@ def exec_register(rt: Runtime, db: Session, m, plan, known: list[str]) -> dict:
     b = endpoint_binding(m.base_url, m.token_id, m.fingerprint_sha256, m.ca_pem)
     db.execute(text(
         "INSERT INTO endpoints (id, name, type, base_url, token_id, token_secret_enc, ca_pem, fingerprint_sha256, created_by, display_name, customer_id, "
-        "provision_token_id, provision_secret_enc, allowed_pools, allowed_nodes, allowed_storage, allowed_networks, allowed_templates, allow_cicustom, protected_vmids, defaults, "
-        "last_probe, last_probe_at) VALUES (:id, :n, :t, :u, :ti, :ts, :ca, :fp, :cb, :dn, :cu, :pti, :pse, :ap, :anodes, :ast, :an, :at, :cic, :pv, CAST(:df AS jsonb), "
+        "provision_token_id, provision_secret_enc, allowed_pools, allowed_nodes, allowed_storage, allowed_networks, allowed_templates, allow_cicustom, protected_vmids, managed_vmids, defaults, "
+        "last_probe, last_probe_at) VALUES (:id, :n, :t, :u, :ti, :ts, :ca, :fp, :cb, :dn, :cu, :pti, :pse, :ap, :anodes, :ast, :an, :at, :cic, :pv, :mv, CAST(:df AS jsonb), "
         "CAST(:lp AS jsonb), now())"),
         {"id": str(eid), "n": m.name, "t": m.type, "u": m.base_url, "ti": m.token_id,
          "ts": None, "ca": m.ca_pem, "fp": m.fingerprint_sha256,  # secrets live only in the credential vault
          "cb": str(plan.requested_by), "dn": m.display_name, "cu": str(m.customer_id or "00000000-0000-0000-0000-00000000a001"), "pti": m.provision_token_id,
          "pse": b"" if psecret else None,
          "ap": m.allowed_pools or [], "anodes": m.allowed_nodes or [], "ast": m.allowed_storage or [], "an": m.allowed_networks or [], "at": m.allowed_templates or [],
-         "cic": bool(m.allow_cicustom), "pv": m.protected_vmids or [], "df": audit.canon(m.defaults.model_dump(exclude_none=True)) if m.defaults else "{}", "lp": audit.canon(probe_dict(res))})
+         "cic": bool(m.allow_cicustom), "pv": m.protected_vmids or [], "mv": getattr(m, "managed_vmids", None) or [],
+         "df": audit.canon(m.defaults.model_dump(exclude_none=True)) if m.defaults else "{}", "lp": audit.canon(probe_dict(res))})
     db.execute(text("UPDATE endpoints SET trust_binding = :b WHERE id = :e"), {"b": trust_binding(m.base_url, m.token_id, m.fingerprint_sha256, m.ca_pem, m.allowed_nodes), "e": str(eid)})
     epr = _ep(db, eid)
     cred_service.attach_endpoint_credential(db, rt, epr, "inventory", m.token_id, secret, actor=f"plan:{plan.id}", actor_id=plan.requested_by, reason="endpoint.register")
@@ -358,12 +368,16 @@ def exec_update(rt: Runtime, db: Session, m: EndpointUpdate, plan, known: list[s
     nets, tpls = pick(m.allowed_networks, ep.allowed_networks), pick(m.allowed_templates, ep.allowed_templates)
     cic = ep.allow_cicustom if m.allow_cicustom is None else m.allow_cicustom
     prot = pick(m.protected_vmids, ep.protected_vmids)
-    if prov_id and not pools:
-        raise ProxmoxError("a provision credential requires at least one allowed pool")
-    if prov_id and not nodes:
+    managed = pick(m.managed_vmids, getattr(ep, "managed_vmids", None))
+    if set(managed) & set(prot):
+        raise ProxmoxError("a protected guest cannot also be an operated guest")
+    if prov_id and not (pools or managed):
+        raise ProxmoxError("a provision credential requires at least one allowed pool or operated guest")
+    if prov_id and pools and not nodes:
         raise ProxmoxError("a provision credential requires at least one authorized node")
     conn = m.changed() & {"base_url", "ca_pem", "fingerprint_sha256", "token_id", "token_secret", "provision_token_id",
-                          "provision_token_secret", "remove_provision", "allowed_pools", "allowed_nodes", "allowed_storage", "allowed_networks", "protected_vmids"}
+                          "provision_token_secret", "remove_provision", "allowed_pools", "allowed_nodes", "allowed_storage", "allowed_networks", "protected_vmids",
+                          "managed_vmids"}
     probe = None
     if conn:  # re-probe with the NEW configuration; nothing is persisted when it fails
         probe = probe_connection(rt, base_url=base_url, token_id=token_id, token_secret=inv_secret, ca_pem=ca, fingerprint_sha256=fp,
@@ -374,12 +388,12 @@ def exec_update(rt: Runtime, db: Session, m: EndpointUpdate, plan, known: list[s
     db.execute(text(
         "UPDATE endpoints SET display_name = :dn, base_url = :u, ca_pem = :ca, fingerprint_sha256 = :fp, token_id = :ti, token_secret_enc = :ts, "
         "provision_token_id = :pti, provision_secret_enc = :pse, allowed_pools = :ap, allowed_nodes = :anodes, allowed_storage = :ast, allowed_networks = :an, "
-        "allowed_templates = :at, allow_cicustom = :cic, protected_vmids = :pv, defaults = CAST(:df AS jsonb), enabled = :en, last_probe = COALESCE(CAST(:lp AS jsonb), last_probe), "
+        "allowed_templates = :at, allow_cicustom = :cic, protected_vmids = :pv, managed_vmids = :mv, defaults = CAST(:df AS jsonb), enabled = :en, last_probe = COALESCE(CAST(:lp AS jsonb), last_probe), "
         "last_probe_at = CASE WHEN :lp IS NULL THEN last_probe_at ELSE now() END WHERE id = :id"),
         {"id": str(ep.id), "dn": m.display_name if m.display_name is not None else ep.display_name, "u": base_url, "ca": ca, "fp": fp,
          "ti": token_id, "ts": None, "pti": prov_id,
          "pse": b"" if prov_id else None,
-         "ap": pools, "anodes": nodes, "ast": storage, "an": nets, "at": tpls, "cic": cic, "pv": prot, "df": audit.canon(m.defaults.model_dump(exclude_none=True)) if m.defaults is not None else audit.canon(ep.defaults or {}), "en": enabled,
+         "ap": pools, "anodes": nodes, "ast": storage, "an": nets, "at": tpls, "cic": cic, "pv": prot, "mv": managed, "df": audit.canon(m.defaults.model_dump(exclude_none=True)) if m.defaults is not None else audit.canon(ep.defaults or {}), "en": enabled,
          "lp": audit.canon(probe_dict(probe)) if probe else None})
     if m.token_secret is not None or m.token_id:
         cred_service.attach_endpoint_credential(db, rt, ep, "inventory", token_id, inv_secret, actor=f"plan:{plan.id}", actor_id=plan.requested_by, reason="endpoint.update")
@@ -392,7 +406,7 @@ def exec_update(rt: Runtime, db: Session, m: EndpointUpdate, plan, known: list[s
                  details={"name": ep.name, "changed": sorted(m.changed()), "base_url": base_url,
                           "trust": "fingerprint" if fp else "ca_bundle", "token_id": token_id, "provision_token_id": prov_id,
                           "secret_rotated": bool(m.token_secret or m.provision_token_secret), "reprobed": bool(conn), "enabled": enabled,
-                          "allowed_pools": pools, "allowed_nodes": nodes, "allowed_storage": storage, "allowed_networks": nets})
+                          "allowed_pools": pools, "allowed_nodes": nodes, "allowed_storage": storage, "allowed_networks": nets, "managed_vmids": managed})
     return {"endpoint_id": str(ep.id), "changed": sorted(m.changed()), "reprobed": bool(conn), "enabled": enabled}
 
 

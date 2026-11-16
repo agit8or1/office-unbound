@@ -20,6 +20,31 @@ from .provider import map_error
 
 _USER_RE = re.compile(r"^[^@\s!:/]{1,64}@[A-Za-z0-9._-]{1,32}$")
 _SEG = re.compile(r"^[A-Za-z0-9][A-Za-z0-9._@+:-]{0,127}$")
+_TICKET_RE = re.compile(r"^PVE:[\x21-\x7e]{1,4096}$")
+_CSRF_RE = re.compile(r"^[\x21-\x7e]{8,512}$")
+_TFA_CODE = re.compile(r"^[A-Za-z0-9-]{4,64}$")
+
+
+def tfa_methods(challenge_ticket: str) -> list[str]:
+    """Second factors the account offers, read from the PVE challenge ticket ('PVE:!tfa!<url-encoded JSON>:...'). Unknown shape -> TOTP + recovery."""
+    import json
+    from urllib.parse import unquote
+    out: list[str] = []
+    try:
+        part = challenge_ticket.split(":", 2)[1]
+        if part.startswith("!tfa!"):
+            c = json.loads(unquote(part[5:]))
+            if c.get("totp"):
+                out.append("totp")
+            if c.get("yubico"):
+                out.append("yubico")
+            if c.get("webauthn") or c.get("u2f"):
+                out.append("webauthn")
+            if c.get("recovery"):
+                out.append("recovery")
+    except (IndexError, ValueError, AttributeError):
+        pass
+    return out or ["totp", "recovery"]
 
 
 def seg(s: str) -> str:
@@ -32,14 +57,21 @@ def seg(s: str) -> str:
 class ProxmoxAdminClient(ProxmoxWriteClient):
     def __init__(self, base_url: str, *, username: str | None = None, password: str | None = None, token_id: str | None = None,
                  token_secret: str | None = None, ca_pem: str | None = None, fingerprint_sha256: str | None = None, timeout: float = 5.0,
-                 deadline: float = 30.0, max_bytes: int = 16 * 1024 * 1024, allow_loopback: bool = False):
+                 deadline: float = 30.0, max_bytes: int = 16 * 1024 * 1024, allow_loopback: bool = False,
+                 ticket: str | None = None, csrf: str | None = None, tfa_challenge: str | None = None):
         u = urlparse(base_url)
         if u.scheme != "https" or not u.hostname:
             raise ValueError("base_url must be https://host[:port]")
-        use_pw = bool(username and password)
+        use_tk = bool(ticket or csrf)
+        use_ch = bool(tfa_challenge)
+        use_pw = bool(username and password) and not use_tk
         use_tok = bool(token_id and token_secret)
-        if use_pw == use_tok:
-            raise ValueError("supply either username+password or an API token id+secret")
+        if int(use_pw) + int(use_tok) + int(use_tk) + int(use_ch) != 1:
+            raise ValueError("supply either username+password, an API token id+secret, or a session ticket")
+        if use_ch and not (_TICKET_RE.match(tfa_challenge) and username and _USER_RE.match(username)):
+            raise ValueError("provisioning session has an invalid format")
+        if use_tk and not (ticket and csrf and username and _TICKET_RE.match(ticket) and _CSRF_RE.match(csrf) and _USER_RE.match(username)):
+            raise ValueError("provisioning session has an invalid format")
         if use_pw and (not _USER_RE.match(username) or len(password) > 256 or re.search(r"[\x00-\x1f]", password)):
             raise ValueError("provisioning credential has an invalid format")
         if use_tok and (not _TOKEN_ID_RE.match(token_id) or not _SECRET_RE.match(token_secret)):
@@ -53,27 +85,68 @@ class ProxmoxAdminClient(ProxmoxWriteClient):
         self.username = None
         self.mode = "token" if use_tok else "ticket"
         self.discarded = False
-        if use_tok:
+        self.need_tfa, self.tfa_methods, self._tfa_challenge, self._ticket = False, [], None, None
+        if use_ch:
+            self.need_tfa, self._tfa_challenge, self.username = True, tfa_challenge, username
+            self.tfa_methods = tfa_methods(tfa_challenge)
+        elif use_tk:
+            self._set_ticket({"ticket": ticket, "CSRFPreventionToken": csrf, "username": username})
+        elif use_tok:
             self.username = token_id
             self._client.headers["Authorization"] = f"PVEAPIToken={token_id}={token_secret}"
         else:
             try:
-                d = self._request("POST", "/access/ticket", {"username": username, "password": password})
+                d = self._request("POST", "/access/ticket", {"username": username, "password": password, "new-format": "1"})   # PVE 7: challenge-style TFA; ignored by 8+
             except ProxmoxHTTPError as e:
                 self._client.close()
-                raise ProviderError("auth", "Proxmox rejected the provisioning credentials (wrong user/password, disabled user, or two-factor "
-                                            "authentication is required: use a privileged API token instead)." if e.status == 401
+                raise ProviderError("auth", "Proxmox rejected the login (wrong user name, realm or password, or the account is disabled)." if e.status == 401
                                     else f"login failed (HTTP {e.status})") from None
             except ProxmoxError:
                 self._client.close()
                 raise
-            self.username = d["username"]
-            self._client.headers["Cookie"] = f"PVEAuthCookie={d['ticket']}"
-            self._client.headers["CSRFPreventionToken"] = d["CSRFPreventionToken"]
+            if d.get("NeedTFA"):
+                # the account has a second factor: the response carries only a TFA challenge ticket (no access). Nothing works until complete_tfa().
+                self.need_tfa, self._tfa_challenge = True, str(d.get("ticket", ""))
+                self.tfa_methods = tfa_methods(self._tfa_challenge)
+                self.username = str(d.get("username") or username)
+            else:
+                self._set_ticket(d)
             del d, password
+
+    def _set_ticket(self, d: dict) -> None:
+        self.username = d["username"]
+        self._ticket = (d["ticket"], d["CSRFPreventionToken"])
+        self._client.headers["Cookie"] = f"PVEAuthCookie={d['ticket']}"
+        self._client.headers["CSRFPreventionToken"] = d["CSRFPreventionToken"]
+
+    def complete_tfa(self, method: str, code: str) -> None:
+        """Second login step (PVE >= 7.2): POST /access/ticket with the challenge ticket and '<method>:<code>'. TOTP, recovery keys and Yubico OTP
+        are supported. WebAuthn cannot be answered here: the assertion is bound to the Proxmox web origin, not the ICS (see docs)."""
+        self._live()
+        if not self.need_tfa or not self._tfa_challenge:
+            raise ProxmoxError("no second-factor challenge is pending")
+        if method not in ("totp", "recovery", "yubico") or not _TFA_CODE.match(code or ""):
+            raise ProviderError("auth", "second factor has an invalid format")
+        try:
+            d = self._request("POST", "/access/ticket", {"username": self.username, "tfa-challenge": self._tfa_challenge, "password": f"{method}:{code}"})
+        except ProxmoxHTTPError as e:
+            raise ProviderError("auth", "Proxmox rejected the second factor (wrong or expired code)." if e.status == 401
+                                else f"second-factor login failed (HTTP {e.status})") from None
+        if d.get("NeedTFA") or not d.get("CSRFPreventionToken"):
+            raise ProviderError("auth", "Proxmox did not accept the second factor")
+        self.need_tfa, self._tfa_challenge = False, None
+        self._set_ticket(d)
+
+    def export_ticket(self) -> dict:
+        """The session ticket for the ICS's short-lived vault entry (never the password). Only after a complete login."""
+        self._live()
+        if self.need_tfa or not self._ticket:
+            raise ProxmoxError("login is not complete")
+        return {"admin_ticket": self._ticket[0], "admin_csrf": self._ticket[1], "admin_ticket_user": self.username}
 
     def discard(self) -> None:
         """Wipe every trace of the temporary credential held by this client."""
+        self._ticket = self._tfa_challenge = None
         self._client.headers.clear()
         self._client.close()
         self.username = None

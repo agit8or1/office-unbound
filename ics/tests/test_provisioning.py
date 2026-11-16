@@ -568,7 +568,7 @@ def test_bad_admin_password_fails_without_leaking(w, owner):
     params = {"name": "owner", "base_url": owner.url, "fingerprint_sha256": owner.fingerprint, "admin_username": "root@pam",
               "admin_password": "definitely-wrong-pw", "preview_id": pv["preview_id"], "plan_hash": pv["plan_hash"]}
     p, j = w.run("provider.provision.apply", params)
-    assert j["status"] == "failed" and "rejected the provisioning credentials" in j["error"]["message"] and "definitely-wrong-pw" not in json.dumps(j)
+    assert j["status"] == "failed" and "rejected the login" in j["error"]["message"] and "definitely-wrong-pw" not in json.dumps(j)
 
 
 def test_temporary_credentials_expire_after_15_minutes(w, owner, rt, owner_engine):

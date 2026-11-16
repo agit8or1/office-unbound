@@ -5,7 +5,7 @@ import re
 from datetime import datetime, timezone
 from uuid import UUID
 
-from fastapi import Depends, FastAPI, HTTPException, Request
+from fastapi import Body, Depends, FastAPI, HTTPException, Request
 from typing import Literal
 
 from pydantic import BaseModel, ConfigDict, Field, SecretStr, ValidationError, field_validator, model_validator
@@ -17,7 +17,7 @@ from ..auth import User, client_ip, get_db, require
 from ..proxmox import ProxmoxError, fetch_peer_certificate, normalize_fingerprint
 from ..providers.proxmox import EndpointScope, probe_connection
 from ..tenancy import scope as tscope
-from . import health
+from . import health, ledger
 from .collector import RANGES, query_metrics
 
 API = "/api/v1"
@@ -185,7 +185,7 @@ def endpoint_health(r, now: datetime, stale: int) -> dict:
 
 _EP_SQL = ("SELECT e.id, e.name, e.display_name, e.type, e.base_url, e.token_id, e.provision_token_id, e.fingerprint_sha256, "
            "(e.ca_pem IS NOT NULL) AS has_ca_bundle, e.allowed_pools, e.allowed_nodes, e.allowed_storage, e.allowed_networks, e.allowed_templates, "
-           "e.allow_cicustom, e.protected_vmids, e.defaults, e.enabled, e.detached_at, e.created_at, e.last_probe, e.last_probe_at, "
+           "e.allow_cicustom, e.protected_vmids, e.managed_vmids, e.defaults, e.enabled, e.detached_at, e.created_at, e.last_probe, e.last_probe_at, "
            "s.last_discovery_at, s.last_discovery_ok, s.last_error, s.warnings, s.counts, s.last_metrics_at, s.last_metrics_error "
            "FROM endpoints e LEFT JOIN infra_collect_state s ON s.endpoint_id = e.id")
 
@@ -197,7 +197,7 @@ def _ep_out(r, now, stale) -> dict:
         "trust": "fingerprint" if r.fingerprint_sha256 else "ca_bundle", "fingerprint_sha256": r.fingerprint_sha256,
         "credentials": {"inventory": {"present": r.detached_at is None, "token_id": r.token_id},
                         "provision": {"present": r.provision_token_id is not None, "token_id": r.provision_token_id}},
-        "scope": {"allowed_pools": r.allowed_pools, "allowed_nodes": r.allowed_nodes, "allowed_storage": r.allowed_storage, "allowed_networks": r.allowed_networks,
+        "scope": {"allowed_pools": r.allowed_pools, "allowed_nodes": r.allowed_nodes, "allowed_storage": r.allowed_storage, "allowed_networks": r.allowed_networks, "managed_vmids": list(r.managed_vmids or []),
                   "allowed_templates": r.allowed_templates, "allow_cicustom": r.allow_cicustom, "protected_vmids": r.protected_vmids},
         "defaults": r.defaults or {},
         "enabled": r.enabled, "detached_at": _iso(r.detached_at), "created_at": _iso(r.created_at),
@@ -264,7 +264,37 @@ def mount(app: FastAPI) -> None:
                 "guests": {"vms": g.vms, "containers": g.lxc, "running": g.running},
                 "templates": q(f"SELECT count(*) AS c FROM infra_templates WHERE {_active(db)}").c,
                 "storage": {"pools": s.total, "bytes_total": s.bytes_total, "bytes_used": s.bytes_used},
-                "networks": q(f"SELECT count(*) AS c FROM infra_networks WHERE {_active(db)}").c}
+                "networks": q(f"SELECT count(*) AS c FROM infra_networks WHERE {_active(db)}").c,
+                "new_resources": ledger.new_count(db, f"e.detached_at IS NULL AND {tscope.clause(db, 'e.customer_id')}")}
+
+    @app.get(f"{API}/endpoints/{{endpoint_id}}/access")
+    def endpoint_access(endpoint_id: UUID, user: User = Depends(require("viewer")), db: Session = Depends(get_db)):
+        """Authorized vs discovered resources for one integration (inventory ledger + approved scope). Read-only."""
+        ep = db.execute(text(f"SELECT * FROM endpoints e WHERE e.id = :i AND e.detached_at IS NULL AND {tscope.clause(db, 'e.customer_id')}"),
+                        {"i": str(endpoint_id)}).first()
+        if ep is None:
+            raise HTTPException(404, "endpoint not found")
+        return ledger.view(db, ep)
+
+    @app.post(f"{API}/endpoints/{{endpoint_id}}/access/acknowledge")
+    def endpoint_access_ack(endpoint_id: UUID, request: Request, body: dict = Body(default={}), user: User = Depends(require("operator")),
+                            db: Session = Depends(get_db)):
+        """Mark new / changed resources as reviewed. This NEVER grants access (authorization only changes through approved plans)."""
+        ep = db.execute(text(f"SELECT * FROM endpoints e WHERE e.id = :i AND e.detached_at IS NULL AND {tscope.clause(db, 'e.customer_id')}"),
+                        {"i": str(endpoint_id)}).first()
+        if ep is None:
+            raise HTTPException(404, "endpoint not found")
+        keys = body.get("keys") if isinstance(body, dict) else None
+        if keys is not None:
+            if not isinstance(keys, list) or len(keys) > 2000 or not all(isinstance(k, list) and len(k) == 2 and k[0] in ("node", "guest", "storage", "network", "pool")
+                                                                       and isinstance(k[1], str) and len(k[1]) <= 200 for k in keys):
+                raise HTTPException(422, "keys must be a list of [kind, key] pairs")
+            keys = [(k[0], k[1]) for k in keys]
+        n = ledger.acknowledge(db, str(ep.id), keys)
+        audit.append(db, "inventory.acknowledged", actor_id=user.id, actor_name=user.username, ip=client_ip(request), resource="endpoint",
+                     resource_id=str(ep.id), details={"count": n, "all": keys is None})
+        db.commit()
+        return {"acknowledged": n}
 
     def _list(request: Request, db: Session, table: str, kind: str | None, where: list[str], params: dict, order: str, limit: int):
         sql = f"SELECT * FROM {table} WHERE {_active(db)}" + "".join(f" AND {w}" for w in where) + f" ORDER BY {order} LIMIT :lim"

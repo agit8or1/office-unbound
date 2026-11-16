@@ -107,7 +107,7 @@ class PlanBuildError(ValueError):
 
 
 # ---------------------------------------------------------------------------------------------------- design
-CAP_ROLE_SUFFIX = {"monitor": "Monitor", "deploy": "Deploy", "storage": "Storage", "template_clone": "TemplateClone", "network": "Network",
+CAP_ROLE_SUFFIX = {"monitor": "Monitor", "operate": "Operate", "deploy": "Deploy", "storage": "Storage", "template_clone": "TemplateClone", "network": "Network",
                    "backup": "Backup", "custom": "Custom", "full_admin": "FullAdmin", "node_audit": "NodeAudit"}
 
 
@@ -122,8 +122,10 @@ def capabilities(policy: Policy) -> list[str]:
 def _base_capabilities(policy: Policy) -> list[str]:
     if policy.preset == "monitoring":
         return ["monitor"]
+    if policy.preset == "operations":
+        return ["monitor", "operate"]
     if policy.preset == "deploy":
-        caps = ["monitor", "deploy", "storage"]
+        caps = ["monitor", "deploy", "storage"] + (["operate"] if policy.scope.managed_vmids else [])
         if policy.scope.template_vmids:
             caps.append("template_clone")
         if policy.scope.networks:
@@ -148,6 +150,8 @@ def role_privileges(cap: str, policy: Policy, major: int) -> set[str]:
              "VM.Config.Cloudinit", "VM.Config.Options", "VM.Config.HWType", "VM.Config.CDROM", "VM.Snapshot", "VM.Snapshot.Rollback", "VM.Clone", "Pool.Audit"}
         if policy.allow_migrate:
             p.add("VM.Migrate")
+    elif cap == "operate":
+        p = {"VM.Audit", "VM.PowerMgmt"}       # start/stop/shutdown/reboot of individually authorized existing guests; nothing else
     elif cap == "storage":
         p = {"Datastore.AllocateSpace", "Datastore.Audit"}
     elif cap == "template_clone":
@@ -233,6 +237,9 @@ def design(policy: Policy, major: int, final_names: dict[str, str] | None = None
         acl += [AclSpec(f"/pool/{p}", "monitor", 1, both) for p in s.pools]
         acl += [AclSpec(f"/storage/{x}", "monitor", 1, both) for x in s.storages]
         acl += [AclSpec(f"/vms/{t}", "monitor", 0, both) for t in s.template_vmids]
+        acl += [AclSpec(f"/vms/{v}", "monitor", 0, both) for v in s.managed_vmids]        # per-guest ACL: Proxmox enforces it natively
+        if "operate" in caps:
+            acl += [AclSpec(f"/vms/{v}", "operate", 0, prov) for v in s.managed_vmids]
         if "deploy" in caps:
             acl += [AclSpec(f"/pool/{p}", "deploy", 1, prov) for p in s.pools]
         if "storage" in caps:
@@ -381,6 +388,17 @@ def enforcement_matrix(policy: Policy) -> list[EnforcementNote]:
         E("Guest types (qemu/lxc)", "ics", "Not expressible in Proxmox ACLs. Policy guard implemented; broker wiring pending."),
         E("CPU / RAM / disk caps", "ics", "Proxmox has no per-user resource quota in ACLs. Policy guard implemented; broker wiring pending."),
     ]
+    if s.managed_vmids:
+        out += [
+            E(f"Existing guests operated by Office Unbound ({len(s.managed_vmids)})", "proxmox",
+              "ACL on /vms/<vmid> for exactly the selected guests (propagate=0): Proxmox refuses every other guest. Power control only "
+              "(VM.Audit + VM.PowerMgmt); no configuration, disk or deletion rights. Proxmox removes a guest's ACL entries when the guest is destroyed."),
+            E("Selecting a node does not select its guests", "proxmox",
+              "Node ACLs carry Sys.Audit only; no VM.* privilege is ever granted on /nodes, /vms or / for operated guests."),
+            E("Operated guests follow their VMID", "ics",
+              "A selected guest may be migrated inside the cluster and stays authorized (Proxmox ACLs follow the VMID). Inventory sync flags a VMID whose "
+              "name or type changed so a reused VMID never silently inherits access."),
+        ]
     return out + scope_enforcement(policy)
 
 
@@ -637,8 +655,8 @@ def plan_for(policy: Policy, facts: Facts | None, *, pve_major: int | None = Non
             plan.steps.append(Step("token", "create", full, {"kind": kind, "privsep": 1},
                                    "privilege-separated token; the secret is shown once and captured straight into the vault" if mode == "A"
                                    else "privilege-separated token; the secret is printed once on the customer's terminal"))
-    if "provision" in d.tokens and not policy.scope.pools:
-        plan.blocked.append("a provisioning (write) credential needs at least one authorised pool: add scope.pools")
+    if "provision" in d.tokens and not (policy.scope.pools or policy.scope.managed_vmids):
+        plan.blocked.append("a provisioning (write) credential needs at least one authorised pool or selected existing guest")
     # --- ACL entries
     have = {(a["path"], a["ugid"], a["roleid"]) for a in (facts.acl if facts else [])}
     want = acl_entries(d)

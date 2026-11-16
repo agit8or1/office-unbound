@@ -35,7 +35,7 @@ CATEGORY_OF = {
 MUTATING_PREFIXES = ("deployment.", "guest.", "storage.", "network.", "provider.provision.apply", "provider.permissions.", "provider.token.", "provider.scope.", "backup.")
 READ_ONLY = ("provider.provision.plan_preview",)
 EXPANDING_ENDPOINT_FIELDS = {"allowed_pools", "allowed_nodes", "allowed_storage", "allowed_networks", "allowed_templates", "provision_token_id",
-                             "provision_token_secret", "allow_cicustom"}
+                             "provision_token_secret", "allow_cicustom", "managed_vmids"}
 
 
 class PolicyDenied(Exception):

@@ -17,7 +17,24 @@ __all__ = ["SelfIdentity", "local_identity", "probe_connection", "EndpointScope"
 def scope_of(ep) -> EndpointScope:
     return EndpointScope(tuple(ep.allowed_pools or ()), tuple(ep.allowed_storage or ()), tuple(ep.allowed_networks or ()),
                          tuple(getattr(ep, "allowed_templates", None) or ()), bool(ep.allow_cicustom),
-                         tuple(getattr(ep, "protected_vmids", None) or ()), tuple(getattr(ep, "allowed_nodes", None) or ()))
+                         tuple(getattr(ep, "protected_vmids", None) or ()), tuple(getattr(ep, "allowed_nodes", None) or ()),
+                         tuple(getattr(ep, "managed_vmids", None) or ()))
+
+
+def excess_privileges(rt: Runtime, ep) -> list[str]:
+    """Spec: a service credential with BROADER rights than approved stops privileged operations. Read from the last drift check of the endpoint
+    (unexpected, forbidden or out-of-scope grants of either token). Missing privileges do not block here: Proxmox refuses those itself."""
+    from sqlalchemy import text
+    with rt.session() as db:
+        r = db.execute(text("SELECT status, last_drift FROM endpoint_policy WHERE endpoint_id = :e"), {"e": str(ep.id)}).first()
+    if r is None or r.status != "drift" or not r.last_drift:
+        return []
+    out = []
+    for kind, k in (r.last_drift.get("kinds") or {}).items():
+        for key in ("unexpected", "forbidden", "scope_reach"):
+            for e in k.get(key) or []:
+                out.append(f"{kind} token: {', '.join(e.get('privileges', []))} on {e.get('path')}")
+    return out
 
 
 def provision_aad(ep, binding: str) -> str:
@@ -60,6 +77,10 @@ def open_mutations(rt: Runtime, ep, known: list[str] | None = None) -> ProxmoxMu
         raise MutationNotAllowed("this endpoint has only an inventory credential; mutations are refused (register a provision credential)")
     if getattr(ep, "enabled", True) is False or getattr(ep, "detached_at", None) is not None:
         raise MutationNotAllowed("this endpoint is disabled or detached")
+    excess = excess_privileges(rt, ep)
+    if excess:
+        raise MutationNotAllowed("this integration's credential holds MORE privileges than were approved (" + "; ".join(excess[:3]) + "). Changes are "
+                                 "stopped until an administrator reviews it (Manage access > Repair connection, or remove the extra rights in Proxmox).")
     ps = cred_service.endpoint_secret(rt, ep, "provision", actor="job")
     known.append(ps)
     w = ProxmoxWriteClient(ep.base_url, ep.provision_token_id, ps, **_kw(rt, ep))

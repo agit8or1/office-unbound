@@ -53,6 +53,7 @@ class EndpointScope:
     allow_cicustom: bool = False
     protected: tuple[int, ...] = ()         # guests that are never mutated, whatever the ACLs say
     nodes: tuple[str, ...] = ()             # authorized cluster nodes; DENY BY DEFAULT: empty = no mutation is allowed anywhere
+    managed: tuple[int, ...] = ()           # EXISTING guests the administrator authorized individually (operations preset): power control only
 
     def node_ok(self, node: str | None) -> bool:
         return bool(node) and node in self.nodes
@@ -616,10 +617,11 @@ class ProxmoxMutations(ProxmoxProvider):
     def __init__(self, write: ProxmoxWriteClient, *, scope: EndpointScope, token_id: str, allow_simulator: bool = False,
                  sleep: Callable[[float], None] = time.sleep, self_identity: SelfIdentity | None = None):
         require_job_execution()
-        if not scope.pools:
-            raise MutationNotAllowed("endpoint has no allowed pool; mutations refused")
-        if not scope.nodes:
+        if not scope.pools and not scope.managed:
+            raise MutationNotAllowed("endpoint has no allowed pool and no selected existing guest; mutations refused")
+        if scope.pools and not scope.nodes:
             raise MutationNotAllowed("endpoint has no authorized node; mutations refused")
+        # pool verbs (clone/configure/destroy...) re-check pool AND node per call (deny by default); power_managed checks scope.managed
         super().__init__(write, scope=scope, inventory_token_id=token_id, provision_token_id=token_id, allow_simulator=allow_simulator, sleep=sleep,
                          self_identity=self_identity)
         self._w, self._tid = write, token_id
@@ -971,6 +973,27 @@ class ProxmoxMutations(ProxmoxProvider):
         self._guest(ref)
         up = self._do("post", f"/nodes/{_seg(ref.node)}/{_KIND_PATH[ref.kind]}/{int(ref.vmid)}/status/{op}", {})
         return self._task(ref.node, up, ref.vmid, "power-" + op, ref.deployment_id)
+
+    def power_managed(self, vmid: int, op: Literal["start", "shutdown", "stop", "reboot"]) -> TaskRef:
+        """Power control of an EXISTING guest the administrator authorized individually (policy scope.managed_vmids -> Proxmox ACL on /vms/{vmid},
+        natively enforced). Never the ICS itself, never a protected guest, never a template. The guest's node and type are read from Proxmox, never
+        taken from the caller. Nothing else (config, disks, deletion) is reachable through this verb."""
+        require_job_execution()
+        if op not in ("start", "shutdown", "stop", "reboot"):
+            raise ProviderError("invalid_request", "unknown power operation")
+        vmid = int(vmid)
+        if vmid not in self.scope.managed:
+            raise ScopeViolation(f"guest {vmid} is not one of the existing guests this integration may operate")
+        r = next((x for x in self._resources() if x.get("vmid") == vmid), None)
+        if r is None:
+            raise ScopeViolation(f"guest {vmid} is not visible to the provisioning token (removed, or its access was revoked in Proxmox)")
+        if r.get("template"):
+            raise ScopeViolation(f"guest {vmid} is a template")
+        kind = "lxc" if r.get("type") == "lxc" else "vm"
+        node = str(r.get("node") or "")
+        self._refuse_self(vmid, node, kind)
+        up = self._do("post", f"/nodes/{_seg(node)}/{_KIND_PATH[kind]}/{vmid}/status/{op}", {})
+        return self._task(node, up, vmid, "power-" + op, None)
 
     def snapshot(self, ref: VmRef, name: str) -> TaskRef:
         require_job_execution()

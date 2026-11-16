@@ -4,6 +4,33 @@ Evidence: [provider-proxmox-real.md](../status/provider-proxmox-real.md) (real P
 [provider-proxmox.md](../status/provider-proxmox.md) (provider, endpoint settings, safety rules), [proxmox-setup.md](../status/proxmox-setup.md) (original commands),
 [authorized-endpoints.md](../status/authorized-endpoints.md), ADR-0002/0009.
 
+## 0. Recommended: sign in and pick (Connect a cluster / Manage access)
+
+*Infrastructure › Proxmox clusters › Connect a cluster.* Design and limitations: [ADR-0016](../adr/0016-proxmox-connection-wizard.md). **State: simulator-tested only; no real-cluster evidence yet (pve06 pending).**
+
+1. **Connect.** Enter the address, user name, realm (default `pam`) and password.
+   - A publicly trusted certificate is accepted automatically.
+   - For a self-signed certificate, compare the fingerprint shown with the one under *node › System › Certificates*, or paste the cluster CA (`/etc/pve/pve-root-ca.pem`).
+   - If the account has two-factor, enter the authenticator code or a recovery key. Security keys (WebAuthn) cannot be answered outside the Proxmox web page.
+   - Only a Proxmox session ticket is kept, encrypted, for at most 30 minutes. Your password and code are never stored.
+2. **Discover.** You see the cluster overview and the full node › guest tree.
+   - Tick the **existing** VMs and containers Office Unbound may see and operate. Ticking a node never selects its guests.
+   - If the account lacks a setup privilege, the page names it and gives the narrowest `pveum` fix.
+3. **Deployment targets** (optional): the nodes, pool, storage, networks and templates for **new** guests.
+4. **Permissions:** Monitoring, Operations (start / shut down / reboot the ticked guests) or Deployment. Deleting foreign guests, changing storage, network, cluster or permissions, consoles and guest commands are never granted.
+5. **Review.** The exact Proxmox changes are calculated: users, tokens, roles and ACLs, plus what Proxmox enforces and what only Office Unbound enforces.
+   - *Request approval* creates a high-risk plan. Two other people approve it.
+   - The job creates the restricted `ics-svc@pve` account and privilege-separated tokens, verifies them, stores them in the vault, and destroys your sign-in.
+
+**Later changes:** open the cluster and choose **Manage access**. It is the same wizard, with the current choices pre-selected, new guests marked *New*, and missing ones listed.
+- Adding or removing guests, nodes, storage, networks or pools changes only the affected ACLs. The account and tokens are kept.
+- Removing access never deletes a VM.
+- *Connection maintenance* holds Repair (re-apply exactly the approved permissions), Rotate service credentials, and Disconnect.
+- Changing between Monitoring and Operations/Deployment needs a different set of tokens. The preview says so; re-provision the integration instead.
+
+**Automatically, after each inventory sync:** new, missing, renamed, moved and re-created (reused-VMID) resources appear on the cluster dashboard. They are never authorized automatically.
+- If an Office Unbound token is found to hold **more** rights than approved, every change through it stops until someone reviews it.
+
 ## What is proven
 | Capability | State |
 |---|---|

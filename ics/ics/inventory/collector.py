@@ -77,10 +77,12 @@ def collect_discovery(rt: Runtime, db: Session, endpoint_id, known: list[str] | 
         counts[kind] = len(rows)
         if kind in disc.complete:
             db.execute(text(f"DELETE FROM {table} WHERE endpoint_id = :e AND observed_at < :n"), {"e": eid, "n": now})
+    from . import ledger
+    changes = ledger.reconcile(db, eid, set(disc.complete))     # new / missing / moved / renamed (never grants access)
     _storage_samples(db, eid, now)
     _state(db, eid, ok=True, error=None, warnings=disc.warnings, counts=counts)
     db.commit()
-    return {"ok": True, "counts": counts, "warnings": disc.warnings}
+    return {"ok": True, "counts": counts, "warnings": disc.warnings, "changes": changes}
 
 
 def _state(db: Session, eid: str, *, ok: bool, error: str | None, warnings: list[str], counts: dict) -> None:

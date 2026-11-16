@@ -6,8 +6,8 @@ from typing import Literal
 
 from pydantic import BaseModel, ConfigDict, Field, field_validator, model_validator
 
-PRESETS = ("monitoring", "deploy", "custom", "full_admin")
-CAPABILITIES = ("monitor", "deploy", "storage", "template_clone", "network", "backup", "custom", "node_audit")
+PRESETS = ("monitoring", "operations", "deploy", "custom", "full_admin")
+CAPABILITIES = ("monitor", "operate", "deploy", "storage", "template_clone", "network", "backup", "custom", "node_audit")
 _NAME = r"^[A-Za-z0-9][A-Za-z0-9_.-]{0,62}$"
 _NODE = r"^[A-Za-z0-9][A-Za-z0-9.-]{0,62}$"
 _PATH = r"^/[A-Za-z0-9/._:@+-]{0,200}$"
@@ -34,6 +34,9 @@ class AccessScope(BaseModel):
     guest_types: list[Literal["qemu", "lxc"]] = Field(default_factory=lambda: ["qemu"])
     backup_storages: list[str] = Field(default_factory=list, max_length=20)
     protected_vmids: list[int] = Field(default_factory=list, max_length=100)
+    managed_vmids: list[int] = Field(default_factory=list, max_length=500,
+                                     description="EXISTING guests (VMs and containers) authorized individually: ACL on /vms/<vmid>; monitored, and "
+                                                 "power-controlled with the operations/deploy presets. Selecting a node never selects its guests.")
     max_cores: int | None = Field(default=None, ge=1, le=1024)
     max_memory_mb: int | None = Field(default=None, ge=128)
     max_disk_gb: int | None = Field(default=None, ge=1)
@@ -52,7 +55,7 @@ class AccessScope(BaseModel):
             raise ValueError("names may contain letters, digits, . _ - only")
         return sorted(set(v))
 
-    @field_validator("template_vmids", "protected_vmids")
+    @field_validator("template_vmids", "protected_vmids", "managed_vmids")
     @classmethod
     def _ids(cls, v):
         if any(not 100 <= x <= 999_999_999 for x in v):
@@ -70,8 +73,8 @@ class AccessScope(BaseModel):
 class Policy(BaseModel):
     model_config = ConfigDict(extra="forbid")
     provider: Literal["proxmox"] = "proxmox"
-    preset: Literal["monitoring", "deploy", "custom", "full_admin"] = "deploy"
-    capabilities: list[Literal["monitor", "deploy", "storage", "template_clone", "network", "backup", "custom"]] = Field(
+    preset: Literal["monitoring", "operations", "deploy", "custom", "full_admin"] = "deploy"
+    capabilities: list[Literal["monitor", "operate", "deploy", "storage", "template_clone", "network", "backup", "custom"]] = Field(
         default_factory=list, description="only for preset=custom; presets derive their own set")
     scope: AccessScope = Field(default_factory=AccessScope)
     realm: Literal["pve"] = Field(default="pve", description="service-account realm. Only the Proxmox VE realm is accepted: never PAM, never an OS account")
@@ -136,6 +139,12 @@ class Policy(BaseModel):
         if self.custom_grants and not (self.preset == "custom" and "custom" in self.capabilities):
             raise ValueError("custom_grants need preset=custom with the 'custom' capability")
         s = self.scope
-        if self.preset != "full_admin" and not (s.nodes or s.pools or s.storages or s.template_vmids):
-            raise ValueError("scope is empty: choose at least one node, pool, storage or template")
+        if self.preset != "full_admin" and not (s.nodes or s.pools or s.storages or s.template_vmids or s.managed_vmids):
+            raise ValueError("scope is empty: choose at least one node, pool, storage, template or existing guest")
+        if set(s.managed_vmids) & set(s.protected_vmids):
+            raise ValueError("a protected guest cannot also be an operated guest")
+        if set(s.managed_vmids) & set(s.template_vmids):
+            raise ValueError("a template is authorized as a template, not as an operated guest")
+        if self.preset == "operations" and not s.managed_vmids:
+            raise ValueError("the operations preset needs at least one existing guest to operate")
         return self
