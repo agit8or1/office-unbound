@@ -1,0 +1,19 @@
+# Office Unbound: Prosody (Ubuntu noble archive package, signed by the distro) + the Jitsi prosody plugins (jitsi-meet-prosody 1.0.9442-1, extracted from the pinned .deb; includes
+# mod_auth_token / mod_token_verification / luajwtjitsi for JWT rooms). uid 10090. The operator mounts prosody.cfg.lua (must contain `daemonize = false`); nothing phones home.
+ARG BASE=localhost/ou-base-noble:latest
+FROM ${BASE}
+ARG DEBIAN_FRONTEND=noninteractive
+RUN apt-get -o APT::Sandbox::User=root update && apt-get -o APT::Sandbox::User=root install -y --no-install-recommends prosody lua-sec lua-basexx lua-luaossl lua-cjson lua-inspect openssl ca-certificates curl \
+ && rm -rf /var/lib/apt/lists/* /var/cache/apt/archives/* /etc/prosody/conf.d \
+ && usermod -u 10090 prosody && groupmod -g 10090 prosody && chown -R prosody:prosody /var/lib/prosody /etc/prosody \
+ && install -d -o prosody -g prosody /run/prosody /var/lib/prosody
+COPY prosody-plugins/ /usr/share/jitsi-meet/prosody-plugins/
+COPY entrypoint.sh /usr/local/bin/ou-prosody-entrypoint
+RUN chmod -R a+rX /usr/share/jitsi-meet && chmod 0755 /usr/local/bin/ou-prosody-entrypoint
+LABEL org.opencontainers.image.title="Prosody for Jitsi (Office Unbound build)" org.opencontainers.image.version="0.12.4-ou1" org.opencontainers.image.licenses="MIT AND Apache-2.0" \
+      org.opencontainers.image.source="https://archive.ubuntu.com/ubuntu/pool/universe/p/prosody/ and https://download.jitsi.org/stable/jitsi-meet-prosody_1.0.9442-1_all.deb"
+USER 10090:10090
+EXPOSE 5280 5222
+VOLUME ["/var/lib/prosody"]
+HEALTHCHECK --interval=30s --timeout=5s --start-period=20s --retries=3 CMD ["curl","-sS","-o","/dev/null","http://127.0.0.1:5280/http-bind"]
+ENTRYPOINT ["/usr/local/bin/ou-prosody-entrypoint"]

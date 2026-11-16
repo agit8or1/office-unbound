@@ -110,7 +110,7 @@ class Box:
         for p in (t, t / "test-runner.pub", t / "ics-promotion.pub", t / "registry"):
             os.chmod(p, 0o755 if p == t else 0o644)
         self.env = {"PATH": os.environ["PATH"], "OU_OCISIGN_STATE": str(self.state), "OU_OCISIGN_SANDBOX": "1", "OU_OCISIGN_REGISTRY_URL": "http://" + self.reg.addr}
-        self.sbom = self.make_sbom(self.reg.cfg_d)
+        self.sbom = self.make_sbom(self.reg.digest)
 
     @staticmethod
     def make_sbom(version, n=12):
@@ -118,7 +118,7 @@ class Box:
 
     def attestation(self, sbom=None, key=None, **over):
         att = {"v": 1, "kind": "oci-scan", "name": "osv-scan", "sha256": self.reg.digest[7:], "repo": REPO, "config_digest": self.reg.cfg_d,
-               "sbom_sha256": sha(sbom or self.sbom), "result": "pass", "vuln_ids": 3, "max_cvss": 7.5, "log_sha256": "0" * 64, "at": int(time.time())}
+               "sbom_sha256": sha(sbom or self.sbom), "result": "pass", "vuln_ids": 3, "max_cvss": 7.5, "critical_unwaived": 0, "log_sha256": "0" * 64, "at": int(time.time())}
         att.update(over)
         k = key or self.runner
         return json.dumps({"attestation": att, "sig": base64.b64encode(k.sign(PFX_ATT + canon(att))).decode()}).encode(), att
@@ -224,7 +224,7 @@ def test_sbom_must_describe_this_image_and_be_bound_by_hash(box):
     other = Box.make_sbom("sha256:" + "2" * 64)
     sc, _ = box.attestation(sbom=other)
     refused(box.sign(dict(files, **{"sbom.cdx.json": other, "scan.attestation.json": sc})), "describes")           # a (scanned) SBOM of another image
-    thin = Box.make_sbom(box.reg.cfg_d, n=2)
+    thin = Box.make_sbom(box.reg.digest, n=2)
     sc, _ = box.attestation(sbom=thin)
     refused(box.sign(dict(files, **{"sbom.cdx.json": thin, "scan.attestation.json": sc})), "inventory")
     refused(box.sign(dict(files, **{"sbom.cdx.json": b"{}"})))
@@ -256,6 +256,9 @@ def test_staging_and_stable_need_the_previous_channel_and_an_ics_signed_manifest
         return {"request.json": box.request(to), "sbom.cdx.json": box.sbom, "scan.attestation.json": sc, **({"promotion-manifest.json": manifest} if manifest else {})}
     refused(box.sign(promo("staging")), "promotion manifest is required")                                             # no manifest
     refused(box.sign(promo("staging", box.manifest(att))), "never signed for dev")                                    # dev was never signed here
+    crit, catt = box.attestation(max_cvss=9.8, critical_unwaived=2, critical_ids=["CVE-2026-1"])
+    assert box.sign({**files, "scan.attestation.json": crit}).returncode == 0                                         # dev may carry findings (triage channel)
+    refused(box.sign(promo("staging", box.manifest(catt)) | {"scan.attestation.json": crit}), "unwaived critical")     # promotion may not
     assert box.sign(files).returncode == 0
     refused(box.sign({**files, "promotion-manifest.json": box.manifest(att)}), "not accepted for dev")
     good = box.manifest(att)
@@ -296,7 +299,7 @@ def fake_tools(tmp, version, ncomp=12, cvss="7.5"):
     d = tmp / "tools"
     d.mkdir()
     (d / "syft").write_text("#!/bin/sh\necho '%s'\n" % Box.make_sbom(version, ncomp).decode())
-    (d / "osv-scanner").write_text("#!/bin/sh\necho '{\"results\":[{\"packages\":[{\"vulnerabilities\":[{\"id\":\"CVE-1\"}],\"groups\":[{\"max_severity\":\"%s\"}]}]}]}'\nexit 1\n" % cvss)
+    (d / "osv-scanner").write_text("#!/bin/sh\necho '{\"results\":[{\"packages\":[{\"vulnerabilities\":[{\"id\":\"CVE-1\"}],\"groups\":[{\"ids\":[\"CVE-1\"],\"max_severity\":\"%s\"}]}]}]}'\nexit 1\n" % cvss)
     for n in ("syft", "osv-scanner"):
         os.chmod(d / n, 0o755)
     return d
@@ -307,7 +310,7 @@ def run_scan(box, env, rq):
 
 
 def test_runner_pulls_and_scans_by_reference_only_and_its_attestation_is_accepted_by_the_signer(box):
-    env = runner_env(box, fake_tools(box.tmp, box.reg.cfg_d))
+    env = runner_env(box, fake_tools(box.tmp, box.reg.digest))
     (box.state / "trust" / "test-runner.pub").write_text(subprocess.run([sys.executable, KEYGEN, "keygen"], env=env, capture_output=True, text=True).stdout.strip())
     assert subprocess.run([sys.executable, "-I", ATTEST, "scan", "ou/synapse", box.reg.digest], env=env, capture_output=True).returncode == 2         # no argv, no results
     assert run_scan(box, env, {"repo": REPO, "digest": box.reg.digest, "result": "pass"}).returncode == 3                                             # no caller-supplied fields
@@ -322,11 +325,21 @@ def test_runner_pulls_and_scans_by_reference_only_and_its_attestation_is_accepte
     assert run_scan(box, env, {"repo": REPO, "digest": box.reg.digest}).returncode == 3                                                              # registry bytes are re-hashed
 
 
-def test_runner_fails_the_attestation_for_a_critical_finding_or_an_sbom_of_another_image(box):
-    env = runner_env(box, fake_tools(box.tmp, box.reg.cfg_d, cvss="9.8"))
-    r = run_scan(box, env, {"repo": REPO, "digest": box.reg.digest})
-    assert r.returncode == 0 and json.loads(r.stdout)["attestation"]["result"] == "fail"
-    shutil.rmtree(box.tmp / "tools")
+def test_runner_counts_critical_findings_and_honours_only_reasoned_unexpired_waivers(box):
+    env = runner_env(box, fake_tools(box.tmp, box.reg.digest, cvss="9.8"))
+    r = json.loads(run_scan(box, env, {"repo": REPO, "digest": box.reg.digest}).stdout)["attestation"]
+    assert r["result"] == "pass" and r["critical_groups"] == 1 and r["critical_unwaived"] == 1 and r["max_cvss"] == 9.8
+    w = box.tmp / "waivers.json"
+    w.write_text(json.dumps({"waivers": [{"id": "CVE-1", "reason": "", "expires": "2999-01-01"}]}))                  # no reason: ignored
+    env["OU_ATTEST_WAIVERS"] = str(w)
+    assert json.loads(run_scan(box, env, {"repo": REPO, "digest": box.reg.digest}).stdout)["attestation"]["critical_unwaived"] == 1
+    w.write_text(json.dumps({"waivers": [{"id": "CVE-1", "reason": "not reachable", "expires": "2001-01-01"}]}))      # expired: ignored
+    assert json.loads(run_scan(box, env, {"repo": REPO, "digest": box.reg.digest}).stdout)["attestation"]["critical_unwaived"] == 1
+    w.write_text(json.dumps({"waivers": [{"id": "CVE-1", "reason": "not reachable", "expires": "2999-01-01"}]}))
+    assert json.loads(run_scan(box, env, {"repo": REPO, "digest": box.reg.digest}).stdout)["attestation"]["critical_unwaived"] == 0
+
+
+def test_runner_fails_the_attestation_for_an_sbom_of_another_image(box):
     env = runner_env(box, fake_tools(box.tmp, "sha256:" + "4" * 64))
     r = run_scan(box, env, {"repo": REPO, "digest": box.reg.digest})
     assert json.loads(r.stdout)["attestation"]["result"] == "fail"

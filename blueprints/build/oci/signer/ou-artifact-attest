@@ -6,8 +6,10 @@
                               root-owned /etc/office-unbound/oci-registry (digests re-computed, nothing taken on trust), writes an OCI layout, runs its own pinned syft
                               (SBOM) and osv-scanner (OSV database) from /usr/local/lib/ou-testrunner/ (root-owned, sha256-pinned by install-oci-runner.sh) and
                               prints {"attestation": {...kind oci-scan, sha256, sbom_sha256, config digest, vuln counts, result...}, "sig": ..., "sbom": <the SBOM text>}.
-                              result=pass means: the SBOM describes this image (metadata.component.version = config digest), is a CycloneDX inventory, the scan ran,
-                              and no finding has CVSS >= 9.0. The caller supplies no result, no log and no SBOM.
+                              result=pass means: the SBOM describes this image (metadata.component.version = the manifest digest), is a CycloneDX inventory and the scan RAN.
+                              The findings are recorded, not judged here: critical_ids = OSV groups rated CVSS >= 9.0, critical_unwaived = those not covered by an unexpired
+                              entry of the root-owned /etc/office-unbound/oci-vuln-waivers.json ({"waivers":[{"id","reason","expires":"YYYY-MM-DD"}]}); ou-oci-sign
+                              refuses staging/stable while critical_unwaived > 0 (dev may carry findings: it is the channel for triage). The caller supplies nothing.
   image                       stdin: the bootproof evidence JSON (it names image_sha256). Golden image first-boot attestation. NOTE (open, same class as review 7 H-3): the boot-proof executor is not on this host; the runner
                               takes the bootproof evidence JSON on stdin, requires image_sha256 and every pass field, hashes it itself and signs.
                               Until the runner itself executes the boot proof (follow-up: a root-owned executor invoked by the runner) this is a cross-check, not proof.
@@ -118,6 +120,21 @@ def run_tool(args, **kw):
     return p
 
 
+def waivers():
+    p = "/etc/office-unbound/oci-vuln-waivers.json" if not SANDBOX else os.environ.get("OU_ATTEST_WAIVERS", "/etc/office-unbound/oci-vuln-waivers.json")
+    try:
+        st = os.stat(p)
+        if not SANDBOX and (st.st_uid != 0 or st.st_mode & 0o022):
+            die("%s must be root-owned and not writable by others" % p)
+        doc = json.load(open(p))
+    except OSError:
+        return set()
+    except ValueError:
+        die("%s is not valid JSON" % p)
+    today = time.strftime("%Y-%m-%d", time.gmtime())
+    return {w["id"] for w in doc.get("waivers", []) if isinstance(w, dict) and w.get("id") and str(w.get("reason", "")).strip() and str(w.get("expires", "")) >= today}
+
+
 def read_json(limit):
     raw = sys.stdin.buffer.read(limit + 1)
     if len(raw) > limit:
@@ -148,7 +165,7 @@ def scan():
             ver = bom["metadata"]["component"]["version"]
         except (ValueError, KeyError, TypeError):
             die("syft produced no usable SBOM", 4)
-        sp = os.path.join(w, "sbom.json")
+        sp = os.path.join(w, "sbom.cdx.json")
         open(sp, "wb").write(sbom)
         os_ = run_tool([tool("osv-scanner"), "scan", "source", "--sbom", sp, "--format", "json", "--no-ignore"], home=w)
         if os_.returncode not in (0, 1):                       # 1 = vulnerabilities found
@@ -158,18 +175,23 @@ def scan():
             results = rep["results"]
         except (ValueError, KeyError, TypeError):
             die("osv-scanner produced no report", 4)
-        ids, worst = set(), 0.0
+        ids, worst, crit = set(), 0.0, []
         for r in results:
             for pk in (r.get("packages") or []):
                 ids.update(str(v.get("id")) for v in (pk.get("vulnerabilities") or []))
                 for g in (pk.get("groups") or []):
                     try:
-                        worst = max(worst, float(g.get("max_severity") or 0))
+                        sv = float(g.get("max_severity") or 0)
                     except (TypeError, ValueError):
-                        pass
-    ok = ver == cfg and ncomp >= 5 and worst < 9.0
-    emit({"v": 1, "kind": "oci-scan", "name": "osv-scan", "sha256": digest[7:], "repo": repo, "config_digest": cfg, "sbom_sha256": sha(sbom), "sbom_components": ncomp,
-          "vuln_ids": len(ids), "max_cvss": worst, "result": "pass" if ok else "fail", "log_sha256": sha(os_.stdout), "at": int(time.time())},
+                        continue
+                    worst = max(worst, sv)
+                    if sv >= 9.0:
+                        crit.append(sorted(str(i) for i in (g.get("ids") or []) + (g.get("aliases") or [])))
+    waived = waivers()
+    unwaived = [c for c in crit if not (set(c) & waived)]
+    ok = ver == digest and ncomp >= 5
+    emit({"v": 1, "kind": "oci-scan", "name": "osv-scan", "sha256": digest[7:], "repo": repo, "config_digest": cfg, "sbom_sha256": sha(sbom), "sbom_components": ncomp, "sbom_subject": ver,
+          "vuln_ids": len(ids), "max_cvss": worst, "critical_groups": len(crit), "critical_unwaived": len(unwaived), "critical_ids": sorted({i for c in unwaived for i in c})[:50], "result": "pass" if ok else "fail", "log_sha256": sha(os_.stdout), "at": int(time.time())},
          {"sbom": sbom.decode()})
 
 

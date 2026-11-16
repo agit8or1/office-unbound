@@ -16,9 +16,10 @@ and REFUSES unless ALL hold:
   1. repo/tag/digest/channel are well formed (repo under `ou/`); the signer itself validates them, not sudoers;
   2. the registry (fixed in the root-owned trust/registry, never taken from the caller) serves a manifest for exactly that digest, the bytes hash to the
      digest, its config blob exists, and the tag (if it still exists) resolves to the same digest;
-  3. the SBOM is a CycloneDX document with a component inventory whose metadata.component.version is the image's config digest (so it describes THIS image),
+  3. the SBOM is a CycloneDX document with a component inventory whose metadata.component.version is the image's manifest digest (so it describes THIS image),
      and its sha256 equals the one inside the scan attestation (bound by hash);
-  4. the scan attestation carries a valid signature of the test runner (trust/test-runner.pub), is of kind oci-scan, names this digest, passed, is not older than 14 days;
+  4. the scan attestation carries a valid signature of the test runner (trust/test-runner.pub), is of kind oci-scan, names this digest, completed, is not older than 14 days;
+     staging/stable additionally need critical_unwaived == 0 in it;
   5. staging/stable: the previous channel was signed here for this digest, and the ICS-signed promotion manifest (trust/ics-promotion.pub) is for
      <previous>><channel>, names exactly this repo:tag and digest and this scan attestation, has enough distinct approvers (stable: two), is not expired and is single use.
 It prints a tar with payload.json and signature.b64 (the registry attachment is built from them by oci-publish-sig.py, which needs no trust).
@@ -160,7 +161,7 @@ def check_registry(repo, tag, digest):
 
 
 # ---------------------------------------------------------------------------------------------------------------- checks
-def check_sbom(raw, cfg, scan_att):
+def check_sbom(raw, digest, scan_att):
     try:
         bom = json.loads(raw)
         ok = bom["bomFormat"] == "CycloneDX" and isinstance(bom.get("components"), list) and len(bom["components"]) >= 5
@@ -169,8 +170,8 @@ def check_sbom(raw, cfg, scan_att):
         die("the SBOM is not a CycloneDX document with a component inventory")
     if not ok:
         die("the SBOM has no usable component inventory")
-    if ver != cfg:
-        die("the SBOM describes %s, not this image (config digest %s)" % (ver, cfg))
+    if ver != digest:
+        die("the SBOM describes %s, not this image (%s)" % (ver, digest))
     if scan_att.get("sbom_sha256") != sha(raw):
         die("the SBOM is not the one the scan was made on (hash mismatch)")
 
@@ -193,6 +194,12 @@ def check_scan(doc, hexd, cfg, repo):
     if not isinstance(att.get("at"), int) or time.time() - att["at"] > MAX_AGE_ATTEST or att["at"] > time.time() + 300:
         die("the scan attestation is stale (older than 14 days) or from the future")
     return att
+
+
+def check_findings(att):
+    """staging/stable: no critical finding (CVSS >= 9.0) may be left un-waived (waivers are a root-owned file read by the test runner, not by the caller)"""
+    if not isinstance(att.get("critical_unwaived"), int) or att["critical_unwaived"] != 0:
+        die("the scan has %s unwaived critical finding(s) (%s): triage them (dev) or add a reasoned, expiring waiver before promotion" % (att.get("critical_unwaived"), ",".join(att.get("critical_ids") or [])[:200]))
 
 
 def record_path(hexd):
@@ -277,13 +284,14 @@ def cmd_sign():
     except ValueError:
         die("scan attestation is not JSON")
     att = check_scan(sc, hexd, cfg, repo)
-    check_sbom(f["sbom.cdx.json"], cfg, att)
+    check_sbom(f["sbom.cdx.json"], digest, att)
     att_hash = sha(canon(att))
     rec = load_record(hexd) or {"repo": repo, "digest": digest, "channels": {}}
     if rec.get("repo") != repo:
         die("this digest was signed for another repository")
     nonce = None
     if channel != "dev":
+        check_findings(att)
         if PREV[channel] not in rec["channels"]:
             die("this digest was never signed for %s here" % PREV[channel])
         m, nonce = check_promotion(f["promotion-manifest.json"], channel, repo, tag, hexd, att_hash)
