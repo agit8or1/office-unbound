@@ -21,6 +21,11 @@ dns:
   - {host: office, type: A, target: edge}
 health_checks:
   - {name: wopi-discovery, kind: http, port: 9980, path: /hosting/discovery, expect_status: 200}
+  # ou3: discovery only proves the web server answers. After a (re)start the document processes ("kits") can be missing for a while
+  # ("getNewChild: No child available", docs/status/docs-reliability-results.md), so this check runs a REAL conversion through a kit on the node
+  # (ou-docs-ready via the loopback socket ou-docs-health.socket, 503 + reason while not ready). The edge must route exactly this path to
+  # [::1]:9981 (blueprints/build/collabora/deploy/nginx-ou-ready.conf); the check is cached 5 s node-side so polling cannot starve the kits.
+  - {name: kit-ready, kind: http, port: 9980, path: /hosting/ou-ready, expect_status: 200, interval_seconds: 60}
 backup:
   method: stateless
   description: "no persistent data; redeploy from catalog"

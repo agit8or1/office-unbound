@@ -1,0 +1,108 @@
+--- a/common/security.h
++++ b/common/security.h
+@@ -85,7 +85,7 @@
+         return 1;
+     else {
+         fprintf(stderr, "Security: %s incorrect user-name, other than '" COOL_USER_ID "'.\n"
+-                 "Hint: If you are trying to run Collabora Online locally, you need to be using --enable-debug.\n", appName);
++                 "Hint: If you are trying to run Office Unbound Docs locally, you need to be using --enable-debug.\n", appName);
+         return 0;
+     }
+ #endif
+--- a/wsd/AIChatSession.cpp
++++ b/wsd/AIChatSession.cpp
+@@ -110,12 +110,12 @@
+ }
+ 
+ const std::string AI_SYSTEM_PROMPT =
+-    "You are a helpful assistant for Collabora Online. "
++    "You are a helpful assistant for Office Unbound Docs. "
+     "Help users with their documents - answering questions, suggesting edits, "
+     "rewriting text, and more. When the user shares selected text from their document, "
+     "provide relevant help with that text. When no selected text is provided, answer "
+     "general questions about documents, formatting, writing, and the application. "
+-    "When you refer to the application the user is working in, call it Collabora Online "
++    "When you refer to the application the user is working in, call it Office Unbound Docs "
+     "and do not name any other office suite or program as the one in use. "
+     "When providing rewritten or edited text, return it in markdown format preserving "
+     "the original formatting structure. IMPORTANT: Return the markdown text directly "
+--- a/wsd/COOLWSD.cpp
++++ b/wsd/COOLWSD.cpp
+@@ -3330,7 +3330,7 @@
+     Poco::Util::HelpFormatter helpFormatter(options());
+     helpFormatter.setCommand(commandName());
+     helpFormatter.setUsage("OPTIONS");
+-    helpFormatter.setHeader("Collabora Online WebSocket server.");
++    helpFormatter.setHeader("Office Unbound Docs WebSocket server.");
+     helpFormatter.format(std::cout);
+ }
+ 
+--- a/wsd/FileServer.cpp
++++ b/wsd/FileServer.cpp
+@@ -1707,6 +1707,8 @@
+     Poco::replaceInPlace(preprocess, std::string("%LOGO_URL%"), logoUrl);
+     #endif
+ 
++    Poco::replaceInPlace(preprocess, std::string("%OU_HELP_URL%"),
++                         ConfigUtil::getConfigValue<std::string>(config, "help_url", HELP_URL));
+     Poco::replaceInPlace(preprocess, std::string("%ENABLE_WELCOME_MSG%"), enableWelcomeMessage);
+     Poco::replaceInPlace(preprocess, std::string("%AUTO_SHOW_WELCOME%"), autoShowWelcome);
+ 
+--- a/browser/html/cool.html.m4
++++ b/browser/html/cool.html.m4
+@@ -75,6 +75,7 @@
+   <input type="hidden" id="init-css-vars" value="<!--%CSS_VARIABLES%-->" />
+   <input type="hidden" id="init-product-branding-url" value="%PRODUCT_BRANDING_URL%" />
+   <input type="hidden" id="init-product-branding-name" value="%PRODUCT_BRANDING_NAME%" />
++  <input type="hidden" id="init-help-url" value="%OU_HELP_URL%" />
+   <input type="hidden" id="init-logo-url" value="%LOGO_URL%" />
+ ]
+ )
+--- a/browser/src/app/Util.ts
++++ b/browser/src/app/Util.ts
+@@ -219,11 +219,20 @@
+ 		return Math.floor(metrics.width);
+ 	}
+ 
++	/// Base URL of the documentation (coolwsd.xml help_url, passed as a hidden input), '' when help is not configured.
++	public static getHelpBaseUrl(): string {
++		const el = document.getElementById('init-help-url') as HTMLInputElement | null;
++		return el ? el.value.replace(/\/+$/, '') : '';
++	}
++
+ 	public static getProduct(): string {
++		const helpBase = Util.getHelpBaseUrl();
+ 		let brandFAQURL =
+ 			typeof brandProductFAQURL !== 'undefined'
+ 				? brandProductFAQURL
+-				: 'https://www.collaboraoffice.org/post/faq/';
++				: helpBase
++					? helpBase + '/faq'
++					: window.location.origin;
+ 		const customWindow = window as any;
+ 		if (customWindow.feedbackUrl && customWindow.buyProductUrl) {
+ 			const integratorUrl = encodeURIComponent(customWindow.buyProductUrl);
+--- a/browser/src/canvas/sections/FormulaErrorHelpSection.ts
++++ b/browser/src/canvas/sections/FormulaErrorHelpSection.ts
+@@ -95,7 +95,9 @@
+ 			// the UI locale if the site has it, else its bare language, else English
+ 			const candidates = [uiLocale, uiLocale.split('-')[0]];
+ 			const locale = candidates.find((l) => siteLocales.includes(l)) ?? 'en-US';
+-			const url = `https://help.collaboraoffice.com/latest/${locale}/text/scalc/05/02140000.html?DbPAR=CALC`;
++			const helpBase = Util.getHelpBaseUrl();
++			if (!helpBase) return; // help is not configured (help_url): nothing to open
++			const url = `${helpBase}/formula-errors?lang=${encodeURIComponent(locale)}`;
+ 			window.open(url, '_blank', 'noopener');
+ 		});
+ 
+--- a/browser/src/map/handler/Map.WOPI.js
++++ b/browser/src/map/handler/Map.WOPI.js
+@@ -731,7 +731,7 @@
+ 
+ 		// For all other messages, warn if trying to interact before we are completely loaded
+ 		if (!this._appLoaded) {
+-			window.app.console.error('Collabora Online not loaded yet. Listen for App_LoadingStatus (Document_Loaded) event before using PostMessage API. Ignoring post message \'' + msg.MessageId + '\'.');
++			window.app.console.error('Office Unbound Docs not loaded yet. Listen for App_LoadingStatus (Document_Loaded) event before using PostMessage API. Ignoring post message \'' + msg.MessageId + '\'.');
+ 			return;
+ 		}
+ 

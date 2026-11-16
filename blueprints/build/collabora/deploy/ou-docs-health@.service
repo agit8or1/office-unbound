@@ -1,0 +1,17 @@
+[Unit]
+Description=Office Unbound Docs readiness probe (one connection)
+
+[Service]
+User=cool
+Group=cool
+StandardInput=socket
+StandardOutput=socket
+StandardError=journal
+ExecStart=/usr/libexec/ou-docs/ou-docs-ready --http
+RuntimeDirectory=ou-docs
+RuntimeDirectoryPreserve=yes
+TimeoutStartSec=40
+PrivateTmp=yes
+NoNewPrivileges=yes
+ProtectSystem=strict
+ProtectHome=yes

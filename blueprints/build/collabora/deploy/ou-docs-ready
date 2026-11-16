@@ -1,0 +1,62 @@
+#!/bin/bash
+# ou-docs-ready: is the document engine really able to serve documents? (agent BK, docs-reliability)
+# "HTTP 200 on /hosting/discovery" only proves coolwsd's web server is up. After a (re)start the kits (document processes) can
+# still be missing ("getNewChild: No child available"), so a real conversion is run: a tiny text file -> PDF through a kit.
+#   ou-docs-ready               one probe; exit 0 = ready, 1 = not ready (reason on stdout)
+#   ou-docs-ready --wait SECS   retry once a second until ready or SECS elapsed (used as ExecStartPost, in the postinst, in upgrade scripts)
+#   ou-docs-ready --http        inetd/socket-activation mode (ou-docs-health.socket): answers an HTTP request with 200 "ready" / 503 "not ready:..."
+#                               (result cached 5 s in /run/ou-docs so a polling client cannot consume kits faster than they respawn)
+# env: OU_DOCS_HOSTPORTS (space separated host:port, default "::1:9980 127.0.0.1:9980"), OU_DOCS_PROBE_TIMEOUT (seconds per probe, 12)
+set -u
+# bash only (no curl/python dependency: a new package dependency would enter the SBOM and the vulnerability scan): HTTP/1.0 over /dev/tcp
+HOSTPORTS=${OU_DOCS_HOSTPORTS:-"::1:9980 127.0.0.1:9980"}
+TO=${OU_DOCS_PROBE_TIMEOUT:-12}
+T=$(mktemp -d "${TMPDIR:-/tmp}/ou-docs-ready.XXXXXX") || exit 2
+trap 'rm -rf "$T"' EXIT
+
+probe() {
+  last="no listener"
+  B=ou-docs-ready-boundary-7f3a
+  body=$(printf -- '--%s\r\nContent-Disposition: form-data; name="data"; filename="probe.txt"\r\nContent-Type: text/plain\r\n\r\nou-docs-ready probe\n\r\n--%s--\r\n' "$B" "$B"; echo x); body=${body%x}   # "x": keep the trailing CRLF of the multipart body
+  for hp in $HOSTPORTS; do
+    host=${hp%:*}; port=${hp##*:}
+    : > "$T/out"
+    if ! timeout "$TO" bash -c '
+        exec 3<>"/dev/tcp/$1/$2" || exit 3
+        printf "POST /cool/convert-to/pdf HTTP/1.0\r\nHost: localhost\r\nConnection: close\r\nContent-Type: multipart/form-data; boundary=%s\r\nContent-Length: %d\r\n\r\n%s" "$3" "${#4}" "$4" >&3
+        cat <&3' _ "$host" "$port" "$B" "$body" > "$T/out" 2>/dev/null; then
+      last="$hp: no answer within ${TO}s (or connection refused)"; continue
+    fi
+    status=$(head -n1 "$T/out" | tr -d '\r' | cut -c1-40)
+    case "$status" in
+      "HTTP/1."?" 200"*) grep -aq '^%PDF' "$T/out" && { echo ready; return 0; } ;;
+    esac
+    last="$hp: conversion failed (${status:-empty reply})"
+  done
+  echo "not ready: $last"; return 1
+}
+
+wait_ready() {
+  end=$(( $(date +%s) + $1 ))
+  while :; do
+    msg=$(probe) && { echo "$msg"; return 0; }
+    [ "$(date +%s)" -ge "$end" ] && { echo "$msg"; return 1; }
+    sleep 1
+  done
+}
+
+case "${1:-}" in
+  --wait) wait_ready "${2:-120}"; exit $? ;;
+  --http)
+    # consume the request headers, ignore the content (nothing from the client is used)
+    while IFS= read -r line; do [ "$line" = "$(printf '\r')" ] || [ -z "$line" ] && break; done
+    C=/run/ou-docs/ready.cache; now=$(date +%s)
+    if [ -r "$C" ] && [ $((now - $(stat -c %Y "$C"))) -lt 5 ]; then msg=$(cat "$C"); else
+      msg=$(probe); mkdir -p /run/ou-docs 2>/dev/null; printf '%s\n' "$msg" > "$C" 2>/dev/null || true
+    fi
+    if [ "$msg" = ready ]; then st="200 OK"; else st="503 Service Unavailable"; fi
+    printf 'HTTP/1.0 %s\r\nContent-Type: text/plain\r\nCache-Control: no-store\r\nContent-Length: %d\r\nConnection: close\r\n\r\n%s\n' "$st" $(( ${#msg} + 1 )) "$msg"
+    ;;
+  "") probe; exit $? ;;
+  *) echo "usage: $0 [--wait SECS | --http]" >&2; exit 64 ;;
+esac

@@ -1,10 +1,20 @@
 [
  {
-  "sbom": "ou-docs-engine-and-online_26.04.6-ou1.spdx.json",
-  "error": "rc=127  1 Extract calls, 76.11491ms elapsed, 76.116099ms wall time\nError during extraction: (extracting as sbom/spdx) var/lib/office-unbound/pkgbuild/out/collabora/sbom/ou-docs-engine-and-online_26.04.6-ou1.spdx.json: JSON document does not contain spdxVersion field\nextraction failed on specified lockfile\n [Errno 2] No such file or directory: '/var/lib/office-unbound/pkgbuild/out/collabora/vuln/ou-docs-engine-and-online_26.04.6-ou1.osv.json'"
+  "sbom": "ou-docs_26.04.6-ou1.spdx.json",
+  "packages_scanned": 16,
+  "vulnerable_packages": 0,
+  "osv_scanner": "2.7.1",
+  "advisories": []
  },
  {
-  "sbom": "ou-docs_26.04.6-ou1.spdx.json",
+  "sbom": "ou-docs_26.04.6-ou2.spdx.json",
+  "packages_scanned": 16,
+  "vulnerable_packages": 0,
+  "osv_scanner": "2.7.1",
+  "advisories": []
+ },
+ {
+  "sbom": "ou-docs_26.04.6-ou3.spdx.json",
   "packages_scanned": 16,
   "vulnerable_packages": 0,
   "osv_scanner": "2.7.1",

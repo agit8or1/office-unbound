@@ -2,10 +2,12 @@
 """Apply the Office Unbound Docs deployment settings to the patched-default /etc/coolwsd/coolwsd.xml.
 Text-level edits (keeps the shipped comments); every edit must match exactly once or the script aborts.
 Usage: ou-docs-configure.py <wopi-host-url> <ca-file> [coolwsd.xml]
+Help links (ou3): the documentation base URL (<help_url>, shown to users: Help buttons, formula-error help, FAQ) is, in order, the environment
+OU_HELP_BASE_URL, else OU_PORTAL_URL + "/help" (the customer portal, e.g. https://portal.ou-lab.internal), else empty (help hidden).
 Example: ou-docs-configure.py https://cloud.ou-lab.internal:443 /etc/ou-lab/tls/ca.crt
 TLS: terminated by the reverse proxy (nginx, lab cert), coolwsd listens on loopback only.
 """
-import re, sys
+import os, re, sys
 host, ca = sys.argv[1], sys.argv[2]
 path = sys.argv[3] if len(sys.argv) > 3 else "/etc/coolwsd/coolwsd.xml"
 t = open(path).read()
@@ -36,5 +38,10 @@ sub(r'(<alias_groups [^>]*?)mode="first"', r'\1mode="groups"')
 sub(r'(<alias_groups [^>]*>)', r'\1\n<group><host allow="true">%s</host></group>' % host)
 # admin console off
 sub(r'(<admin_console [^>]*>\s*<enable [^>]*>)\w+(</enable>)', r'\1false\2')
+help_base = os.environ.get("OU_HELP_BASE_URL") or ((os.environ.get("OU_PORTAL_URL", "").rstrip("/") + "/help") if os.environ.get("OU_PORTAL_URL") else "")
+if help_base:
+    if not re.fullmatch(r"https?://[A-Za-z0-9_.:@/%+=-]+", help_base):
+        sys.exit("help base URL has unexpected characters: %r" % help_base)
+    sub(r'(<help_url [^>]*>)[^<]*(</help_url>)', r'\g<1>%s\2' % help_base)
 open(path, "w").write(t)
 print("configured", path)

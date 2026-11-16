@@ -4,7 +4,7 @@
 # usage: build-image.sh <artifact.tar> <oci-dir-with-Containerfile-and-scripts>
 set -euo pipefail
 TAR=${1:?artifact tar}; SRC=${2:?dir with Containerfile entrypoint.sh healthcheck.sh}
-VER=${OU_DOCS_VERSION:-26.04.6-ou2}
+VER=${OU_DOCS_VERSION:-26.04.6-ou3}
 CTX=/home/imgbuild/ctx
 KEYDIR=/home/imgbuild/ou-lab-image-key              # PRIVATE lab signing key lives only here (mode 700, never in the repo)
 REG=127.0.0.1:5000
@@ -12,6 +12,7 @@ rm -rf "$CTX"; install -d -o imgbuild -g imgbuild "$CTX" "$CTX/rootfs"
 # extracted as imgbuild (not root): files map to container root inside the user namespace, ownership is not restorable anyway
 su - imgbuild -c "tar -xpf - -C $CTX/rootfs" < "$TAR"
 cp "$SRC"/Containerfile "$SRC"/entrypoint.sh "$SRC"/healthcheck.sh "$CTX"/
+cp "${OU_DEPLOY_DIR:-$SRC/../deploy}/ou-docs-ready" "$CTX"/ou-docs-ready   # real-conversion readiness probe (same file as the package ships)
 chown -R imgbuild:imgbuild "$CTX"
 # reproducibility aid: clamp file mtimes in the context to a fixed epoch (2025-11-12, arbitrary) so layer content does not depend on the build time
 find "$CTX" -exec touch -h -d @1763000000 {} + 2>/dev/null || true
