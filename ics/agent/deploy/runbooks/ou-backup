@@ -24,14 +24,17 @@ import sys
 import time
 
 CONFIG_DIR = "/etc/ou-backup"
+ROOT_UID = 0   # tests substitute the invoking uid
 SPOOL_DIR = "/run/ou-agent-spool"
 RUN_DIR = "/run/ou-rb-backup"
 TIERS = ("files", "identity", "groupware", "ics")
 SNAP_RE = re.compile(r"^[0-9a-f]{8,64}$")
 RID_RE = re.compile(r"^r[0-9a-f]{16}$")
+PROFILE_RE = re.compile(r"^c-[0-9a-f]{32}$")
 ENV = {"PATH": "/usr/local/bin:/usr/bin:/bin", "LANG": "C.UTF-8"}
 BACKUP_SCRIPT = {"files": "files-backup.sh", "identity": "id-backup.sh", "groupware": "gw-backup.sh", "ics": "ics-backup.sh"}
-RESTORE_SCRIPT = {"files": ["files-restore.sh"], "identity": ["id-restore.sh"], "groupware": ["gw-restore.sh", "restore"]}
+RESTORE_SCRIPT = {"files": ["files-restore.sh"], "identity": ["id-restore.sh"], "groupware": ["gw-restore.sh", "restore"], "ics": ["ics-restore.sh"]}
+BACKUP_ENV_KEYS = ("OU_ICS_PREFIX", "OU_ICS_DB", "OU_ICS_ROLES", "OU_ICS_DB_OWNER")   # the only environment a tier config may hand to the backup hook
 SERVICES = {"files": ["opencloud", "opencloud-collaboration", "nginx"], "identity": ["slapd", "postgresql", "keycloak"],
             "groupware": ["mariadb", "gromox-http", "gromox-imap", "nginx", "postfix"]}
 ARCHIVE = {"files": "files.tar", "identity": "identity.tar", "groupware": "groupware.tar", "ics": "ics-backup.tar"}
@@ -45,20 +48,61 @@ def now() -> float:
     return time.time()
 
 
-def load_cfg(tier: str) -> dict:
+def _claims(profile: str | None) -> list[tuple[str, str, str]]:
+    """(profile, role, machine) for every machine named in any tier config of any profile on this node: source ('machine') and scratch."""
+    out = []
+    for d, prof in [(CONFIG_DIR, "")] + [(os.path.join(CONFIG_DIR, e), e) for e in sorted(os.listdir(CONFIG_DIR)) if PROFILE_RE.match(e)]:
+        for f in sorted(os.listdir(d)) if os.path.isdir(d) else []:
+            if f.endswith(".json"):
+                try:
+                    c = json.load(open(os.path.join(d, f)))
+                except (OSError, ValueError):
+                    continue
+                for role in ("machine", "scratch"):
+                    if c.get(role):
+                        out.append((prof, role, c[role]))
+    return out
+
+
+def load_cfg(tier: str, customer: str | None = None) -> dict:
+    """customer = per-customer profile (c-<32 hex>): config, credentials, staging and repository namespace of that customer only. A profile config
+    must prove it is self-contained: its REST user, repository path, credentials dir and staging dir all carry the profile, and none of its machines
+    (source or scratch restore target) is claimed by any other profile's or the legacy config."""
     if tier not in TIERS:
         raise Fail("unknown tier")
-    p = os.path.join(CONFIG_DIR, tier + ".json")
+    if customer is not None and not PROFILE_RE.match(customer):
+        raise Fail("bad customer profile")
+    p = os.path.join(CONFIG_DIR, customer, tier + ".json") if customer else os.path.join(CONFIG_DIR, tier + ".json")
     try:
         st = os.stat(p)
     except OSError:
         raise Fail(f"tier {tier} is not configured on this node") from None
-    if st.st_uid != 0 or st.st_mode & (stat.S_IWGRP | stat.S_IWOTH):
+    if st.st_uid != ROOT_UID or st.st_mode & (stat.S_IWGRP | stat.S_IWOTH):
         raise Fail("tier config must be root-owned and not group/world-writable")
     cfg = json.load(open(p))
     for k in ("machine", "repo_url", "cacert", "creds_dir", "scripts_dir", "stage_dir", "restic", "restic_sha256"):
         if k not in cfg:
             raise Fail(f"tier config lacks {k}")
+    if customer:
+        if cfg.get("customer") != customer:
+            raise Fail("tier config does not belong to this customer profile")
+        for k in ("repo_url", "maint_repo_url"):
+            if cfg.get(k) and not re.match(r"^https://[^/]+/" + re.escape(customer) + r"(/|$)", cfg[k]):
+                raise Fail(f"{k} is outside the customer's repository namespace")
+        if os.path.realpath(cfg["creds_dir"]) != os.path.realpath(os.path.join(CONFIG_DIR, customer, "creds", tier)):
+            raise Fail("creds_dir is not the customer's own credentials directory")
+        if os.path.basename(cfg["stage_dir"].rstrip("/")) != customer:
+            raise Fail("stage_dir is not the customer's own staging directory")
+        mine = {m for m in (cfg.get("machine"), cfg.get("scratch")) if m}
+        for prof, role, m in _claims(customer):
+            if prof != customer and m in mine:
+                raise Fail(f"machine {m} is also configured for another customer profile or the legacy config (isolation)")
+        try:
+            if read_secret(cfg, "rest-user") != customer:
+                raise Fail("the REST user of this profile must be the profile name (rest-server --private-repos)")
+        except Fail as e:
+            if "not provisioned" not in str(e):
+                raise
     return cfg
 
 
@@ -68,7 +112,7 @@ def secret_file(cfg: dict, name: str) -> str:
         st = os.stat(p)
     except OSError:
         raise Fail(f"credential {name} is not provisioned on this node") from None
-    if st.st_uid != 0 or st.st_mode & 0o077:
+    if st.st_uid != ROOT_UID or st.st_mode & 0o077:
         raise Fail(f"credential file {name} must be root-owned 0600")
     return p
 
@@ -159,8 +203,8 @@ def canary(cfg: dict, machine: str, tier: str) -> dict | None:
 
 
 # ---- operations -----------------------------------------------------------------------------------------------------------------------
-def op_run(tier: str) -> dict:
-    cfg = load_cfg(tier)
+def op_run(tier: str, customer: str | None = None) -> dict:
+    cfg = load_cfg(tier, customer)
     scrub = Scrub(cfg)
     t0 = now()
     stage_root = os.path.join(cfg["stage_dir"], tier)
@@ -174,7 +218,8 @@ def op_run(tier: str) -> dict:
         except Fail as e:   # the backup still runs (data protection first); the restore verification will fail loudly without a canary
             expected, canary_error = None, str(e)[:200]
         t1 = now()
-        env = dict(ENV, OU_ONLINE="1")
+        benv = {k: v for k, v in (cfg.get("backup_env") or {}).items() if k in BACKUP_ENV_KEYS and isinstance(v, str) and re.fullmatch(r"[A-Za-z0-9_|/.-]{0,200}", v)}
+        env = dict(ENV, OU_ONLINE="1", **benv)
         script = os.path.join(cfg["scripts_dir"], BACKUP_SCRIPT[tier])
         r = subprocess.run([script, cfg["machine"], os.path.join(stage_root, "inbox")] if tier != "ics" else [script, os.path.join(stage_root, "inbox")],
                            env=env, capture_output=True, text=True, timeout=cfg.get("backup_timeout", 1800), stdin=subprocess.DEVNULL)
@@ -220,8 +265,8 @@ def op_run(tier: str) -> dict:
         shutil.rmtree(stage_root, ignore_errors=True)
 
 
-def op_check(tier: str, percent: int) -> dict:
-    cfg = load_cfg(tier)
+def op_check(tier: str, percent: int, customer: str | None = None) -> dict:
+    cfg = load_cfg(tier, customer)
     scrub = Scrub(cfg)
     t0 = now()
     r = restic(cfg, ["check", f"--read-data-subset={percent}%"], timeout=cfg.get("check_timeout", 3000))
@@ -240,9 +285,11 @@ def wait_ready(machine: str, timeout: int = 90) -> None:
     raise Fail(f"scratch machine {machine} did not come up")
 
 
-def op_restore(tier: str, snapshot: str | None) -> dict:
-    cfg = load_cfg(tier)
-    if tier == "ics" or tier not in RESTORE_SCRIPT or not cfg.get("scratch"):
+def op_restore(tier: str, snapshot: str | None, customer: str | None = None) -> dict:
+    cfg = load_cfg(tier, customer)
+    if tier == "ics":
+        return op_restore_ics(cfg, snapshot)
+    if tier not in RESTORE_SCRIPT or not cfg.get("scratch"):
         raise Fail(f"restore verification is not configured for tier {tier}")
     scrub = Scrub(cfg)
     scratch = cfg["scratch"]
@@ -281,7 +328,8 @@ def op_restore(tier: str, snapshot: str | None) -> dict:
         wait_ready(scratch)
         t2 = now()   # scratch machine is up (a real DR would provision it; reported separately)
         script = os.path.join(cfg["scripts_dir"], RESTORE_SCRIPT[tier][0])
-        rr = subprocess.run([script, *RESTORE_SCRIPT[tier][1:], d, scratch], env=dict(ENV, OU_INTO_EXISTING="1"), capture_output=True, text=True,
+        renv = {k: v for k, v in (cfg.get("restore_env") or {}).items() if k in ("OU_REALM", "OU_DOMAIN") and isinstance(v, str) and re.fullmatch(r"[A-Za-z0-9.-]{1,100}", v)}
+        rr = subprocess.run([script, *RESTORE_SCRIPT[tier][1:], d, scratch], env=dict(ENV, OU_INTO_EXISTING="1", **renv), capture_output=True, text=True,
                             timeout=cfg.get("restore_timeout", 2400), stdin=subprocess.DEVNULL)
         if rr.returncode != 0:
             raise Fail(f"{RESTORE_SCRIPT[tier][0]} failed (rc={rr.returncode}): " + scrub(rr.stderr))
@@ -312,8 +360,154 @@ def op_restore(tier: str, snapshot: str | None) -> dict:
             subprocess.run(["/usr/bin/machinectl", "poweroff", scratch], env=ENV, capture_output=True, timeout=60)
 
 
-def op_prune(tier: str, keep: dict) -> dict:
-    cfg = load_cfg(tier)
+ICS_LOGIN_PY = r"""
+import json, sys, time, urllib.request
+sys.path.insert(0, "/opt/office-unbound/ics")
+import pyotp
+c = json.load(open("/root/ics-login-canary.json"))
+code = pyotp.TOTP(c["totp_secret"]).at(int(time.time()) + 30)   # next step: the original's last accepted step may be in the restored DB (replay protection)
+base = "http://127.0.0.1:8088"
+out = {}
+for _ in range(60):
+    try:
+        urllib.request.urlopen(base + "/healthz", timeout=3).read()
+        break
+    except Exception:
+        time.sleep(2)
+try:
+    urllib.request.urlopen(base + "/readyz", timeout=5)
+    out["ready"] = True
+except urllib.error.HTTPError as e:
+    out["ready"] = False
+    try:
+        out["readyz"] = json.loads(e.read())
+    except Exception:
+        pass
+req = urllib.request.Request(base + "/api/v1/auth/login", data=json.dumps({"username": c["username"], "password": c["password"], "totp_code": code}).encode(),
+                             headers={"Content-Type": "application/json"})
+try:
+    r = urllib.request.urlopen(req, timeout=20)
+    j = json.loads(r.read())
+    out["login"] = {"status": r.status, "csrf": bool(j.get("csrf_token")), "username": j.get("user", {}).get("username")}
+except urllib.error.HTTPError as e:
+    out["login"] = {"status": e.code}
+print(json.dumps(out))
+"""
+
+
+def op_restore_ics(cfg: dict, snapshot: str | None) -> dict:
+    """Passive-restore flow of docs/runbooks/ics-recovery.md into a scratch machine, then the verification of that runbook: audit chain verifies and
+    contains the backup-time head event with the same hash, schema at the backed-up head, worker/monitor OFF (passive), and an operator can log in
+    (password hash + vault key decrypting the TOTP secret + audit key appending). The restored controller can reach no managed node: it is passive."""
+    scrub = Scrub(cfg)
+    scratch = cfg.get("scratch")
+    if not scratch or scratch == cfg["machine"]:
+        raise Fail("ics restore verification needs a scratch machine that differs from the source")
+    canary_file = cfg.get("login_canary_file")
+    if not canary_file:
+        raise Fail("login_canary_file is not configured (a low-privilege operator account of the controller)")
+    if os.path.dirname(canary_file) != cfg["creds_dir"]:
+        raise Fail("login_canary_file must live in the tier's creds dir")
+    cj = json.loads(read_secret(cfg, os.path.basename(canary_file)))
+    if not {"username", "password", "totp_secret"} <= set(cj):
+        raise Fail("login canary file must be in the creds dir and hold username, password, totp_secret")
+    tier = "ics"
+    target = os.path.join(cfg["stage_dir"], "restore-ics")
+    shutil.rmtree(target, ignore_errors=True)
+    os.makedirs(target, mode=0o700)
+    t0 = now()
+    powered = False
+    try:
+        if snapshot:
+            snap = snapshot
+        else:
+            ls = restic(cfg, ["snapshots", "latest", "--json", "--host", cfg["machine"], "--tag", "tier:ics"], timeout=120)
+            found = j(ls.stdout) if ls.returncode == 0 else []
+            if not found:
+                raise Fail("repository holds no snapshot for this tier")
+            snap = found[-1]["id"]
+        r = restic(cfg, ["restore", snap, "--target", target, "--host", cfg["machine"], "--tag", "tier:ics", "--json"], timeout=cfg.get("restic_timeout", 1800))
+        if r.returncode != 0:
+            raise Fail("restic restore failed: " + scrub(r.stderr))
+        t1 = now()
+        d = target + os.path.join(cfg["stage_dir"], "ics", "current")
+        mf = {k: v for k, _, v in (l.partition("=") for l in open(os.path.join(d, "MANIFEST")).read().splitlines())}
+        sha = hashlib.sha256()
+        with open(os.path.join(d, ARCHIVE["ics"]), "rb") as f:
+            for chunk in iter(lambda: f.read(1 << 20), b""):
+                sha.update(chunk)
+        if sha.hexdigest() != mf.get("archive_sha256"):
+            raise Fail("restored archive does not match the MANIFEST checksum (corrupt backup)")
+        subprocess.run(["/usr/bin/machinectl", "start", scratch], env=ENV, capture_output=True, timeout=60)
+        powered = True
+        wait_ready(scratch)
+        t2 = now()
+        script = os.path.join(cfg["scripts_dir"], RESTORE_SCRIPT["ics"][0])
+        rr = subprocess.run([script, d, scratch], env=dict(ENV, OU_INTO_EXISTING="1"), capture_output=True, text=True, timeout=cfg.get("restore_timeout", 2400), stdin=subprocess.DEVNULL)
+        if rr.returncode != 0:
+            raise Fail(f"ics-restore.sh failed (rc={rr.returncode}): " + scrub(rr.stderr))
+        t3 = now()
+        db = mf.get("db_name", "ics")
+        if not re.fullmatch(r"[a-z][a-z0-9_]{0,40}", db) or not re.fullmatch(r"[0-9]{1,12}", mf.get("audit_head_seq", "x")):
+            raise Fail("MANIFEST has malformed database name / audit head")
+        problems = []
+        ch = in_machine(scratch, ["/bin/bash", "-c", "set -a; . /etc/office-unbound/ics.env; set +a; cd /opt/office-unbound/ics && /usr/sbin/runuser -u ics -- "
+                                  "/opt/office-unbound/ics/.venv/bin/python -m ics.cli verify-chain"], timeout=300)
+        chain = {}
+        try:
+            import ast
+            chain = ast.literal_eval(ch.stdout.strip().splitlines()[-1]) if ch.stdout.strip() else {}
+        except (ValueError, SyntaxError):
+            pass
+        if ch.returncode != 0 or not chain.get("ok"):
+            problems.append("audit chain does not verify on the restored controller")
+        head = in_machine(scratch, ["/usr/sbin/runuser", "-u", "postgres", "--", "psql", "-d", db, "-Atc", f"select hash from audit_events where seq = {mf['audit_head_seq']}"], timeout=60).stdout.strip()
+        if head != mf.get("audit_head_hash"):
+            problems.append("restored audit chain lacks the backup-time head event (or its hash differs)")
+        ah = in_machine(scratch, ["/usr/sbin/runuser", "-u", "postgres", "--", "psql", "-d", db, "-Atc", "select version_num from alembic_version"], timeout=60).stdout.strip()
+        if ah != mf.get("alembic_head"):
+            problems.append("restored schema is not at the backed-up alembic head")
+        env_txt = in_machine(scratch, ["/bin/cat", "/etc/office-unbound/ics.env"], timeout=30).stdout
+        passive = "ICS_WORKER_ENABLED=false" in env_txt and "ICS_MONITOR_ENABLED=false" in env_txt
+        if not passive:
+            problems.append("restored controller is not passive (worker/monitor not disabled)")
+        croot = os.stat(os.path.join("/var/lib/machines", scratch, "root")).st_uid   # PrivateUsers=pick uid shift
+        fd = os.open(os.path.join("/var/lib/machines", scratch, "root", "ics-login-canary.json"), os.O_WRONLY | os.O_CREAT | os.O_TRUNC, 0o600)
+        os.fchown(fd, croot, croot)
+        with os.fdopen(fd, "w") as f:
+            json.dump(cj, f)
+        try:
+            lg = in_machine(scratch, ["/opt/office-unbound/ics/.venv/bin/python", "-c", ICS_LOGIN_PY], timeout=240)
+        finally:
+            try:
+                os.unlink(os.path.join("/var/lib/machines", scratch, "root", "ics-login-canary.json"))
+            except OSError:
+                pass
+        try:
+            lgj = json.loads(lg.stdout.strip().splitlines()[-1])
+        except (ValueError, IndexError):
+            lgj = {}
+        login_ok = (lgj.get("login") or {}).get("status") == 200 and (lgj.get("login") or {}).get("csrf") is True
+        if not login_ok:
+            problems.append("operator login on the restored controller failed: " + scrub(json.dumps(lgj.get("login")) + lg.stderr[-200:], 300))
+        if lgj.get("ready") is True:
+            problems.append("restored controller reports ready: a passive controller must not (worker is off)")
+        t4 = now()
+        expected = {"audit_head_seq": mf.get("audit_head_seq"), "audit_head_hash": mf.get("audit_head_hash"), "alembic_head": mf.get("alembic_head")}
+        observed = {"audit_head_seq": mf.get("audit_head_seq") if head == mf.get("audit_head_hash") else None, "audit_head_hash": head or None, "alembic_head": ah or None}
+        return {"tier": "ics", "level": "restore", "snapshot": snap, "services_checked": ["ics"], "match": not problems, "problems": problems,
+                "canary_expected": expected, "canary_observed": observed, "scratch": scratch, "chain_checked": chain.get("checked"), "passive": passive,
+                "operator_login": login_ok, "seconds": {"restic_restore": round(t1 - t0, 1), "scratch_poweron": round(t2 - t1, 1), "data_restore": round(t3 - t2, 1),
+                                                         "canary": round(t4 - t3, 1)},
+                "rto_seconds": round((t1 - t0) + (t3 - t2) + (t4 - t3), 1), "rto_seconds_incl_poweron": round(t4 - t0, 1)}
+    finally:
+        shutil.rmtree(target, ignore_errors=True)
+        if powered:
+            subprocess.run(["/usr/bin/machinectl", "poweroff", scratch], env=ENV, capture_output=True, timeout=60)
+
+
+def op_prune(tier: str, keep: dict, customer: str | None = None) -> dict:
+    cfg = load_cfg(tier, customer)
     scrub = Scrub(cfg)
     t0 = now()
     args = ["forget", "--json", "--prune", "--group-by", "host,tags", "--tag", f"tier:{tier}"]
@@ -335,9 +529,9 @@ def op_prune(tier: str, keep: dict) -> dict:
 
 
 # ---- provisioning (console, direct) ---------------------------------------------------------------------------------------------------
-def op_provision(tier: str) -> dict:
+def op_provision(tier: str, customer: str | None = None) -> dict:
     """Reads one JSON object from stdin: {repo_password, rest_user, rest_password[, maint_user, maint_password]} and installs root-only 0600 files."""
-    cfg = load_cfg(tier)
+    cfg = load_cfg(tier, customer)
     d = json.load(sys.stdin)
     os.makedirs(cfg["creds_dir"], mode=0o700, exist_ok=True)
     os.chmod(cfg["creds_dir"], 0o700)
@@ -353,18 +547,18 @@ def op_provision(tier: str) -> dict:
     return {"provisioned": sorted(k for k in names if k in d)}
 
 
-def op_init(tier: str) -> dict:
-    cfg = load_cfg(tier)
+def op_init(tier: str, customer: str | None = None) -> dict:
+    cfg = load_cfg(tier, customer)
     r = restic(cfg, ["init", "--json"], timeout=120)
     if r.returncode != 0:
         raise Fail("restic init failed: " + Scrub(cfg)(r.stderr))
     return {"repo_id": j(r.stdout).get("id")}
 
 
-def op_recovery_key(tier: str, out: str) -> dict:
+def op_recovery_key(tier: str, out: str, customer: str | None = None) -> dict:
     """Adds a SECOND restic key (random, 256 bit) and writes it to `out` (0600, must not exist). The ICS stores only a fingerprint; the owner
     takes the file offline (print / safe) and shreds it. Losing the vault key then no longer means losing the backups."""
-    cfg = load_cfg(tier)
+    cfg = load_cfg(tier, customer)
     if os.path.exists(out):
         raise Fail("output file exists")
     pw = secrets.token_urlsafe(32)
@@ -388,8 +582,12 @@ def op_recovery_key(tier: str, out: str) -> dict:
 # ---- spool mode (agent runbook) -------------------------------------------------------------------------------------------------------
 def validate(action: str, p: dict) -> dict:
     def exact(keys, req=None):
-        if set(p) - set(keys) or set(req if req is not None else keys) - set(p):
+        req = tuple(req if req is not None else keys)
+        keys = (*keys, "customer")
+        if set(p) - set(keys) or set(req) - set(p):
             raise Fail("bad parameters")
+        if "customer" in p and not (isinstance(p["customer"], str) and PROFILE_RE.match(p["customer"])):
+            raise Fail("bad customer profile")
     if action == "backup.run":
         exact(("tier",))
     elif action == "backup.verify":
@@ -416,13 +614,14 @@ def validate(action: str, p: dict) -> dict:
 
 def dispatch(action: str, p: dict) -> dict:
     p = validate(action, p)
+    c = p.get("customer")
     if action == "backup.run":
-        return op_run(p["tier"])
+        return op_run(p["tier"], c)
     if action == "backup.prune":
-        return op_prune(p["tier"], p)
+        return op_prune(p["tier"], p, c)
     if p["level"] == "check":
-        return op_check(p["tier"], p.get("percent", 10))
-    return op_restore(p["tier"], p.get("snapshot"))
+        return op_check(p["tier"], p.get("percent", 10), c)
+    return op_restore(p["tier"], p.get("snapshot"), c)
 
 
 def main(argv: list[str]) -> int:
@@ -431,12 +630,16 @@ def main(argv: list[str]) -> int:
         return 2
     os.umask(0o077)
     if argv and argv[0] == "--direct":
-        cmd, tier, rest = argv[1], argv[2], argv[3:]
+        a = argv[1:]
+        cust = None
+        if a[:1] == ["--customer"]:
+            cust, a = a[1], a[2:]
+        cmd, tier, rest = a[0], a[1], a[2:]
         try:
-            res = {"init": lambda: op_init(tier), "provision": lambda: op_provision(tier), "recovery-key": lambda: op_recovery_key(tier, rest[0]),
-                   "run": lambda: op_run(tier), "check": lambda: op_check(tier, int(rest[0]) if rest else 10),
-                   "restore": lambda: op_restore(tier, rest[0] if rest else None),
-                   "prune": lambda: op_prune(tier, dict(zip(("last", "daily", "weekly", "monthly"), map(int, rest))))}[cmd]()
+            res = {"init": lambda: op_init(tier, cust), "provision": lambda: op_provision(tier, cust), "recovery-key": lambda: op_recovery_key(tier, rest[0], cust),
+                   "run": lambda: op_run(tier, cust), "check": lambda: op_check(tier, int(rest[0]) if rest else 10, cust),
+                   "restore": lambda: op_restore(tier, rest[0] if rest else None, cust),
+                   "prune": lambda: op_prune(tier, dict(zip(("last", "daily", "weekly", "monthly"), map(int, rest))), cust)}[cmd]()
         except Fail as e:
             print(json.dumps({"error": str(e)}))
             return 1

@@ -38,7 +38,7 @@ def setenv():
             os.write(fd, os.urandom(32))
             os.close(fd)
     os.environ.update(ICS_DATABASE_URL=app, ICS_VAULT_KEY_FILE=os.path.join(D, "vault.key"), ICS_AUDIT_KEY_FILE=os.path.join(D, "audit.key"),
-                      ICS_SIGNING_KEY_FILE=os.path.join(D, "signing.key"), ICS_COOKIE_SECURE="true", ICS_MONITOR_ENABLED="false",
+                      ICS_SIGNING_KEY_FILE=os.path.join(D, "signing.key"), ICS_COOKIE_SECURE="true", ICS_MONITOR_ENABLED="false", ICS_BACKUP_SCHEDULER_ENABLED=os.environ.get("ICS_BACKUP_SCHEDULER_ENABLED", "true"),
                       ICS_ENV_FILE="/nonexistent")
 
 

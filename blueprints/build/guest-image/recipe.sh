@@ -94,7 +94,8 @@ do_verify() {
       gpg --homedir "$gh" --batch --status-fd 1 --verify "$UPSTREAM_SUMS_SIG" "$UPSTREAM_SUMS" 2>/dev/null | grep -q "^\[GNUPG:\] VALIDSIG $UPSTREAM_KEY_FPR " \
         || { echo "REFUSED: signature of $UPSTREAM_SUMS does not verify against the pinned key" >&2; exit 4; }
       grep -F " *$UPSTREAM_IMAGE" "$UPSTREAM_SUMS" | $UPSTREAM_SUM_TOOL -c - || { echo "REFUSED: image checksum mismatch" >&2; exit 4; }
-      check_serial; printf '%s\n' "$UPSTREAM_SERIAL" > "$WORK/upstream-serial.last"
+      check_serial
+      printf '%s\n' "$UPSTREAM_SERIAL" > "$WORK/upstream-serial.last"      # only after signature + checksum passed: the next build may not go below this
       echo "upstream image verified (signature by the pinned key + checksum), build $UPSTREAM_SERIAL" ;;
   esac
 }

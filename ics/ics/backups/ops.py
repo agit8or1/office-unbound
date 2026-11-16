@@ -10,6 +10,7 @@ Secrets never travel in a runbook: the node holds the repository password / REST
 `ics.cli backup-node-secret`, see docs/admin/backup-and-restore.md). The runner returns counts, durations and the canary comparison only.
 """
 import json
+import re
 import logging
 import secrets
 import time
@@ -25,6 +26,7 @@ from .. import agentclient, audit
 from ..agentclient import AgentError
 from ..proxmox import ProxmoxError, check_destination
 from ..runtime import Runtime
+from ..tenancy import scope as tscope
 from . import policy as pol
 
 log = logging.getLogger("ics.backups")
@@ -81,10 +83,43 @@ MODELS = {"backup.policy.create": pol.PolicyCreate, "backup.policy.update": Poli
 SECRETS = {"backup.policy.create": ("repo_password",)}
 
 
-def repo_aad(policy_id, repo_url: str) -> str:
-    """The repository password only decrypts for this policy AND this repository URL: re-pointing the policy voids it (like endpoint tokens)."""
+def repo_aad(policy_id, repo_url: str, customer_id=None) -> str:
+    """The repository password only decrypts for this policy, this repository URL AND (customer policies) this customer: re-pointing the policy
+    or relabelling its row to another customer voids it (like endpoint tokens / agent M's credential AAD)."""
     import hashlib
-    return f"backup-repo:{policy_id}:{hashlib.sha256(repo_url.encode()).hexdigest()[:16]}"
+    c = f":{customer_id}" if customer_id else ""
+    return f"backup-repo:{policy_id}{c}:{hashlib.sha256(repo_url.encode()).hexdigest()[:16]}"
+
+
+def policy_customer(db, name: str) -> str | None:
+    """Owning customer id (str) of the named policy (every policy has one since migration 0010; used for operator scope). KeyError when it does not exist."""
+    r = _policy(db, name)
+    return str(r.customer_id) if r.customer_id else None
+
+
+def _isolated(row) -> str | None:
+    """One model for review 5 M5 (scope: backup_policies.customer_id, always set) and per-customer backup isolation (agent AU): a policy is a
+    customer-ISOLATED one (own runner profile, repository user/path, vault AAD) exactly when its repository path starts with that customer's own
+    namespace, which PolicyCreate enforces for an explicit customer_id. Policies that merely inherited a customer for scoping stay on the shared runner profile."""
+    if not row.customer_id:
+        return None
+    try:
+        # any customer namespace counts (fail closed): a row relabelled to another customer stays isolated and then fails the plan/AAD binding
+        return str(row.customer_id) if re.fullmatch(r"c-[0-9a-f]{32}", pol.repo_first_segment(row.repo["url"])) else None
+    except (TypeError, KeyError):
+        return None
+
+
+def _profile(row) -> dict:
+    """Runbook parameter that selects the customer's runner profile (/etc/ou-backup/<profile>/<tier>.json): derived from the policy row, never from a caller."""
+    c = _isolated(row)
+    return {"customer": pol.customer_profile(c)} if c else {}
+
+
+def _own_plan(row, plan) -> None:
+    """Defence in depth under the plan-time scope check: a job may only act on a policy of the customer its plan was made for."""
+    if _isolated(row) is not None and str(getattr(plan, "customer_id", None)) != str(row.customer_id):
+        raise BackupError("plan and backup policy belong to different customers")
 
 
 def _policy(db, name: str):
@@ -94,9 +129,10 @@ def _policy(db, name: str):
     return row
 
 
-def _node_has(db, node_id, runbook: str, tier: str) -> bool:
+def _node_has(db, node_id, runbook: str, tier: str, customer_id=None) -> bool:
     n = db.execute(text("SELECT capabilities FROM nodes WHERE id = :i"), {"i": str(node_id)}).first()
-    return bool(n and tier in ((n.capabilities or {}).get(runbook) or {}).get("tiers", []))
+    spec = ((n.capabilities or {}).get(runbook) or {}) if n else {}
+    return bool(n and tier in spec.get("tiers", []) and (customer_id is None or pol.customer_profile(customer_id) in spec.get("customers", [])))
 
 
 # ---- plan-time ----------------------------------------------------------------------------------------------------------------------------
@@ -117,9 +153,15 @@ def precheck(db, rt: Runtime, action: str, p) -> dict:
             raise LookupError("backup policy name already exists")
         if db.execute(text("SELECT 1 FROM nodes WHERE id = :i"), {"i": p.runner_node_id}).first() is None:
             raise KeyError("runner node not found (enroll it first)")
+        if p.customer_id:
+            c = db.execute(text("SELECT disabled_at FROM customers WHERE id = :i"), {"i": p.customer_id}).first()
+            if c is None or c.disabled_at is not None:
+                raise KeyError("customer not found")
+        if db.execute(text("SELECT 1 FROM backup_policies WHERE repo->>'url' = :u"), {"u": p.repo.url}).first():
+            raise LookupError("another policy already uses this repository (a repository belongs to exactly one policy)")
         for rb in ("backup.run", "backup.verify", "backup.prune"):
-            if not _node_has(db, p.runner_node_id, rb, p.tier):
-                raise ValueError(f"the node's agent does not allow {rb} for tier {p.tier}")
+            if not _node_has(db, p.runner_node_id, rb, p.tier, p.customer_id):
+                raise ValueError(f"the node's agent does not allow {rb} for tier {p.tier}" + (" and this customer" if p.customer_id else ""))
         try:
             return {"resolved_ips": check_destination(p.repo.host, rt.settings.allow_loopback_endpoints)}
         except ProxmoxError as e:
@@ -130,7 +172,7 @@ def precheck(db, rt: Runtime, action: str, p) -> dict:
     if not row.enabled:
         raise LookupError("policy is disabled")
     need = {"backup.run": "backup.run", "backup.prune": "backup.prune", "backup.verify": "backup.verify"}[action]
-    if not _node_has(db, row.runner_node_id, need, row.tier):
+    if not _node_has(db, row.runner_node_id, need, row.tier, _isolated(row)):
         raise ValueError(f"the runner node's agent does not allow {need} for tier {row.tier}")
     if action == "backup.verify" and p.snapshot and p.level != "restore":
         raise ValueError("snapshot is only meaningful for a restore verification")
@@ -142,16 +184,16 @@ def exec_policy_create(rt: Runtime, db, m: pol.PolicyCreate, plan, known: list[s
     pid = uuid.uuid4()
     pw = m.repo_password.get_secret_value() if m.repo_password else secrets.token_urlsafe(32)
     known.append(pw)
-    enc = rt.vault.encrypt(json.dumps({"repo_password": pw}).encode(), repo_aad(pid, m.repo.url))
+    enc = rt.vault.encrypt(json.dumps({"repo_password": pw}).encode(), repo_aad(pid, m.repo.url, m.customer_id))
     creator = db.execute(text("SELECT requested_by FROM plans WHERE id = :i"), {"i": str(plan.id)}).scalar()
     db.execute(text(
         "INSERT INTO backup_policies (id, name, tier, deployment, runner_node_id, schedule, retention, rpo_seconds, rto_seconds, repo, "
         "copies_required, verify, repo_secret_enc, created_by, customer_id) VALUES (:id, :n, :t, :d, :node, CAST(:s AS jsonb), CAST(:r AS jsonb), :rpo, :rto, "
         "CAST(:repo AS jsonb), :c, CAST(:v AS jsonb), :e, :u, COALESCE(:cu, (SELECT customer_id FROM nodes WHERE id = :node)))"),
-        {"cu": m.customer_id, "id": str(pid), "n": m.name, "t": m.tier, "d": m.deployment, "node": m.runner_node_id, "s": audit.canon(m.schedule.model_dump(exclude_none=True)),
+        {"id": str(pid), "n": m.name, "t": m.tier, "d": m.deployment, "node": m.runner_node_id, "s": audit.canon(m.schedule.model_dump(exclude_none=True)),
          "r": audit.canon(m.retention.model_dump()), "rpo": m.rpo_seconds, "rto": m.rto_seconds, "repo": audit.canon(m.repo.model_dump()),
-         "c": m.copies_required, "v": audit.canon(m.verify.model_dump()), "e": enc, "u": creator})
-    return {"policy_id": str(pid), "name": m.name, "tier": m.tier, "repository_password": "stored in the vault (never shown); "
+         "c": m.copies_required, "v": audit.canon(m.verify.model_dump()), "e": enc, "u": creator, "cu": m.customer_id})
+    return {"policy_id": str(pid), "name": m.name, "tier": m.tier, "customer_id": m.customer_id, "repository_password": "stored in the vault (never shown); "
             "provision it on the node with `ics.cli backup-node-secret`", "next": "init the repository and export the offline recovery key (docs/admin/backup-and-restore.md)"}
 
 
@@ -190,7 +232,8 @@ _SCALAR = (bool, int, float, str, type(None))
 _RUN_KEYS = ("snapshot", "bytes_added", "bytes_added_packed", "bytes_processed", "files_new", "files_changed", "files_unmodified", "archive_bytes",
              "repo_confirmed", "snapshots_total", "repo_id", "canary_recorded", "canary_error", "consistency", "repo_bytes", "repo_blobs", "seconds",
              "kept", "removed", "passed", "read_data_percent", "output_tail", "match", "problems", "canary_expected", "canary_observed", "scratch",
-             "services_checked", "rto_seconds", "rto_seconds_incl_poweron", "restic_restore_bytes", "level", "tier", "run_tag")
+             "services_checked", "rto_seconds", "rto_seconds_incl_poweron", "restic_restore_bytes", "level", "tier", "run_tag",
+             "chain_checked", "passive", "operator_login")
 
 
 def _clean(v, depth: int = 0):
@@ -299,12 +342,13 @@ def _finish_run(rt: Runtime, rid: str, status: str, res: dict | None, err: str |
 
 def exec_run(rt: Runtime, db, m: BackupRun, plan, known: list[str]) -> dict:
     row = _policy(db, m.policy)
+    _own_plan(row, plan)
     node = _node(rt, row)
     jid = rt_job_id(rt, plan)
     rid = _start(rt, "backup_runs", row, {"kind": "backup", "trigger": m.trigger, "status": "running"}, jid)
     t0 = time.monotonic()
     try:
-        res = _call(rt, row, node, "backup.run", {"tier": row.tier}, plan)
+        res = _call(rt, row, node, "backup.run", {"tier": row.tier, **_profile(row)}, plan)
         _pin_repo(rt, row, res.get("repo_id"))
         if res.get("repo_confirmed") is not True:
             raise BackupError("the snapshot was not confirmed in the repository")
@@ -320,11 +364,12 @@ def exec_run(rt: Runtime, db, m: BackupRun, plan, known: list[str]) -> dict:
 
 def exec_prune(rt: Runtime, db, m: BackupPrune, plan, known: list[str]) -> dict:
     row = _policy(db, m.policy)
+    _own_plan(row, plan)
     node = _node(rt, row)
     jid = rt_job_id(rt, plan)
     rid = _start(rt, "backup_runs", row, {"kind": "prune", "trigger": m.trigger, "status": "running"}, jid)
     t0 = time.monotonic()
-    params = {"tier": row.tier, **{k: int(row.retention.get(k, 0)) for k in ("last", "daily", "weekly", "monthly")}}
+    params = {"tier": row.tier, **_profile(row), **{k: int(row.retention.get(k, 0)) for k in ("last", "daily", "weekly", "monthly")}}
     try:
         res = _call(rt, row, node, "backup.prune", params, plan)
     except Exception as e:  # noqa: BLE001
@@ -338,6 +383,7 @@ def exec_verify(rt: Runtime, db, m: BackupVerify, plan, known: list[str]) -> dic
     """Verification state machine: pending -> running -> passed | failed | error. 'failed' = the check/restore ran and the result was bad
     (corrupt pack, canary mismatch); 'error' = it could not run (agent/runner/scratch problem)."""
     row = _policy(db, m.policy)
+    _own_plan(row, plan)
     node = _node(rt, row)
     jid = rt_job_id(rt, plan)
     vid = _start(rt, "backup_verifications", row, {"level": m.level, "state": "pending", "trigger": m.trigger}, jid)
@@ -351,7 +397,7 @@ def exec_verify(rt: Runtime, db, m: BackupVerify, plan, known: list[str]) -> dic
             d.execute(text(f"UPDATE backup_verifications SET {sets} WHERE id = :i"), {"s": new, "i": vid, **cols})
             d.commit()
     move("running")
-    params: dict = {"tier": row.tier, "level": m.level}
+    params: dict = {"tier": row.tier, **_profile(row), "level": m.level}
     if m.level == "check":
         params["percent"] = int(row.verify.get("check_read_data_percent", 10))
     elif m.snapshot:
@@ -400,7 +446,7 @@ def policy_view(db, r, now: datetime | None = None) -> dict:
                       "rto_seconds": float(rst.rto_seconds) if rst.rto_seconds is not None else None} if rst else None,
         check_max_age=int(ver["check_every_seconds"] * 2), restore_max_age=int(ver["restore_every_seconds"] * 1.5),
         last_run_failed=bool(last_any and last_any.status == "failed" and (not last_ok or last_any.started_at > last_ok.finished_at)))
-    return {"id": str(r.id), "name": r.name, "tier": r.tier, "deployment": r.deployment, "runner_node_id": str(r.runner_node_id),
+    return {"id": str(r.id), "name": r.name, "tier": r.tier, "deployment": r.deployment, "customer_id": str(r.customer_id) if r.customer_id else None, "runner_node_id": str(r.runner_node_id),
             "schedule": r.schedule, "retention": r.retention, "rpo_seconds": r.rpo_seconds, "rto_seconds": r.rto_seconds, "repo": r.repo,
             "copies_required": r.copies_required, "verify": r.verify, "enabled": r.enabled, "repo_id": r.repo_id,
             "recovery_key": {"exported": r.recovery_exported_at is not None, "fingerprint": r.recovery_fp, "exported_at": _ts(r.recovery_exported_at)},
@@ -537,7 +583,7 @@ def tick(rt: Runtime, now: datetime | None = None) -> list[str]:
                 want.append(("backup.run", {"policy": r.name, "trigger": "schedule"}))
             if last_ok and (last_chk is None or now - last_chk >= timedelta(seconds=ver["check_every_seconds"])):
                 want.append(("backup.verify", {"policy": r.name, "level": "check", "trigger": "schedule"}))
-            if last_ok and (last_rst is None or now - last_rst >= timedelta(seconds=ver["restore_every_seconds"])) and r.tier != "ics":
+            if last_ok and (last_rst is None or now - last_rst >= timedelta(seconds=ver["restore_every_seconds"])):
                 want.append(("backup.verify", {"policy": r.name, "level": "restore", "trigger": "schedule"}))
             if last_ok and (last_pr is None or now - last_pr >= timedelta(seconds=PRUNE_INTERVAL_SECONDS)):
                 want.append(("backup.prune", {"policy": r.name, "trigger": "schedule"}))
@@ -559,7 +605,7 @@ def tick(rt: Runtime, now: datetime | None = None) -> list[str]:
 def node_secret(rt: Runtime, db, name: str) -> dict:
     """Decrypts the repository password for the node provisioning step (host root only; audited; never logged)."""
     r = _policy(db, name)
-    data = json.loads(rt.vault.decrypt(r.repo_secret_enc, repo_aad(r.id, r.repo["url"])))
+    data = json.loads(rt.vault.decrypt(r.repo_secret_enc, repo_aad(r.id, r.repo["url"], _isolated(r))))
     audit.append(db, "backup.key.exported", actor_name="cli", resource="backup_policy", resource_id=str(r.id),
                  details={"policy": name, "purpose": "node provisioning", "fingerprint": pol.key_fingerprint(data["repo_password"])})
     db.commit()

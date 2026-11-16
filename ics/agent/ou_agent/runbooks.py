@@ -35,6 +35,7 @@ USER_RUNBOOKS = {
 BACKUP_RESULT_DIR = "/run/ou-rb-backup"
 BACKUP_RUNBOOKS = ("backup.run", "backup.verify", "backup.prune")
 BACKUP_TIERS = ("files", "identity", "groupware", "ics")
+CUSTOMER_PROFILE_RE = re.compile(r"^c-[0-9a-f]{32}$")
 SNAPSHOT_RE = re.compile(r"^[0-9a-f]{8,64}$")
 UID_RE = re.compile(r"^[a-z][a-z0-9._-]{1,31}\Z")
 SIP_DEVICES = ("web", "native", "desk")
@@ -50,9 +51,11 @@ def validate_config(cfg: dict) -> dict:
     if not isinstance(rb, dict) or set(rb) - set(RUNBOOKS) - set(USER_RUNBOOKS) - set(guestspec.GUEST_RUNBOOKS) - set(BACKUP_RUNBOOKS):
         raise ValueError("runbooks must be a subset of " + ", ".join(RUNBOOKS + tuple(USER_RUNBOOKS) + guestspec.GUEST_RUNBOOKS + BACKUP_RUNBOOKS))
     for name in BACKUP_RUNBOOKS:
-        if name in rb and (set(rb[name]) != {"tiers"} or not isinstance(rb[name]["tiers"], list) or not rb[name]["tiers"]
-                           or not set(rb[name]["tiers"]) <= set(BACKUP_TIERS)):
-            raise ValueError(f"{name} takes exactly {{\"tiers\": [subset of {', '.join(BACKUP_TIERS)}]}}")
+        if name in rb and (not {"tiers"} <= set(rb[name]) <= {"tiers", "customers"} or not isinstance(rb[name]["tiers"], list) or not rb[name]["tiers"]
+                           or not set(rb[name]["tiers"]) <= set(BACKUP_TIERS)
+                           or not (isinstance(rb[name].get("customers", []), list)
+                                   and all(isinstance(c, str) and CUSTOMER_PROFILE_RE.match(c) for c in rb[name].get("customers", [])))):
+            raise ValueError(f"{name} takes {{\"tiers\": [subset of {', '.join(BACKUP_TIERS)}], \"customers\": [optional c-<32 hex> profiles]}}")
     for name in guestspec.GUEST_RUNBOOKS:
         if name in rb:
             guestspec.validate_runbook_config(name, rb[name])
@@ -76,7 +79,7 @@ def capabilities(cfg: dict) -> dict:
         if k in USER_RUNBOOKS:
             out[k] = {"enabled": True}
         elif k in BACKUP_RUNBOOKS:
-            out[k] = {"tiers": sorted(v["tiers"])}
+            out[k] = {"tiers": sorted(v["tiers"]), **({"customers": sorted(v["customers"])} if v.get("customers") else {})}
         elif k in guestspec.GUEST_RUNBOOKS:
             out[k] = {key: sorted(val) if isinstance(val, list) else val for key, val in v.items()}
         elif k.startswith("service"):
@@ -120,7 +123,9 @@ def check_allowed(cfg: dict, action: str, params: dict) -> dict:
 def check_backup(action: str, p: dict, spec: dict) -> dict:
     """Closed shapes; no free text anywhere: tier (enum, must be enabled in agent.json), level (enum), small ints, a hex snapshot id."""
     def exact(keys, req=None):
-        if not isinstance(p, dict) or set(p) - set(keys) or set(req if req is not None else keys) - set(p):
+        req = tuple(req if req is not None else keys)
+        keys = (*keys, "customer")
+        if not isinstance(p, dict) or set(p) - set(keys) or set(req) - set(p):
             raise Reject("bad_params", "unexpected or missing parameters")
     if action == "backup.run":
         exact(("tier",))
@@ -141,6 +146,8 @@ def check_backup(action: str, p: dict, spec: dict) -> dict:
             raise Reject("bad_params", "retention keeps nothing")
     if not isinstance(p["tier"], str) or p["tier"] not in spec["tiers"]:
         raise Reject("not_allowed", "tier is not enabled for this runbook on this node")
+    if "customer" in p and not (isinstance(p["customer"], str) and CUSTOMER_PROFILE_RE.match(p["customer"]) and p["customer"] in spec.get("customers", [])):
+        raise Reject("not_allowed", "customer profile is not enabled for this runbook on this node")
     return dict(p)
 
 

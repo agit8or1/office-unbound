@@ -48,6 +48,74 @@ def newest_imported(tag_strings, os_id: str) -> str | None:
     return best
 
 
+# ---- review 7 M-4: the trust root and the downgrade floor are SERVER state, never part of a plan or of the caller's spec -------------------------------
+_TRUST: dict = {"pem": None, "pin": None}
+
+
+def configure(pubkey_pem: str | None, pin_sha256: str | None) -> None:
+    """called by Runtime from Settings (ICS_GUEST_RELEASE_PUBKEY_FILE + ICS_GUEST_RELEASE_PIN_SHA256, the operator-confirmed pin of the offline release key)"""
+    _TRUST.update(pem=pubkey_pem, pin=pin_sha256)
+
+
+def trust_root() -> tuple[str, str]:
+    if not _TRUST["pem"] or not _TRUST["pin"]:
+        raise ReleaseError("this ICS has no golden-image release key configured (ICS_GUEST_RELEASE_PUBKEY_FILE / ICS_GUEST_RELEASE_PIN_SHA256): nothing is imported")
+    return _TRUST["pem"], _TRUST["pin"]
+
+
+class FloorStore:
+    """the downgrade floor per OS; the real store is the `image_floor` table (monotonic by trigger)"""
+
+    def get(self, os_id: str) -> str | None:
+        raise NotImplementedError
+
+    def raise_to(self, os_id: str, date: str) -> None:
+        raise NotImplementedError
+
+
+class MemoryFloor(FloorStore):
+    def __init__(self):
+        self.d: dict[str, str] = {}
+
+    def get(self, os_id):
+        return self.d.get(os_id)
+
+    def raise_to(self, os_id, date):
+        if date > self.d.get(os_id, ""):
+            self.d[os_id] = date
+
+
+class DbFloor(FloorStore):
+    def __init__(self, rt):
+        self.rt = rt
+
+    def get(self, os_id):
+        from sqlalchemy import text
+        with self.rt.session() as db:
+            return db.execute(text("SELECT release_date FROM image_floor WHERE os = :o"), {"o": os_id}).scalar()
+
+    def raise_to(self, os_id, date):
+        from sqlalchemy import text
+        with self.rt.session() as db:
+            db.execute(text("INSERT INTO image_floor (os, release_date) VALUES (:o, :d) ON CONFLICT (os) DO UPDATE SET release_date = GREATEST(image_floor.release_date, EXCLUDED.release_date)"),
+                       {"o": os_id, "d": date})
+            db.commit()
+
+
+_FLOOR: FloorStore | None = None
+
+
+def set_floor_store(store: FloorStore | None) -> None:
+    global _FLOOR
+    _FLOOR = store
+
+
+def floor_store() -> FloorStore:
+    if _FLOOR is None:
+        raise ReleaseError("no downgrade-floor store configured: nothing is imported")
+    return _FLOOR
+
+
 def key_pin(pem: str) -> str:
     k = serialization.load_pem_public_key(pem.encode())
     return hashlib.sha256(k.public_bytes(serialization.Encoding.DER, serialization.PublicFormat.SubjectPublicKeyInfo)).hexdigest()

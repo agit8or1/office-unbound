@@ -17,7 +17,7 @@ Plain-language terms used in the console and this guide. "Evidence" is where eac
 | **Runbook** | A fixed, named procedure the node agent may execute. |
 | **Check / incident / remediation** | A check probes a service on a schedule; a failing check opens one incident; a remediation policy may restart the failed service within strict limits. |
 | **Maintenance window** | A period in which alerts and remediation are suppressed (always announced). |
-| **Deployment** | One customer environment planned and created by the ICS from a profile, on an endpoint. **In development.** |
+| **Deployment** | One customer environment planned and created by the ICS from a profile, on an endpoint. **Implementing.** |
 | **Profile** | A size/shape template for a deployment (which components, how many users, high availability or not), defined in `blueprints/catalog/`. |
 | **Component** | One part of a deployment (identity, groupware, files, office, edge, monitoring agent). |
 | **Drift** | The difference between what a deployment should look like and what is actually there. Reported only; the ICS does not auto-repair. |

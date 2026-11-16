@@ -31,7 +31,8 @@ from .proxmox import ProxmoxError, ProxmoxReadClient, check_destination, normali
 from .providers.base import ProviderError, job_execution
 from .credentials import actions as cred_actions, service as cred_service
 from .runtime import Runtime
-from .tenancy import actions as ten_actions, approvals as tapprovals, policy as tpolicy, scope as tscope
+from .epoch import NotActive
+from .tenancy import actions as ten_actions, approvals as tapprovals, policy as tpolicy, resolve as tresolve, scope as tscope
 from .vault import VaultError
 
 log = logging.getLogger("ics.actions")
@@ -628,6 +629,15 @@ def create_plan(db: Session, rt: Runtime, user, action: ActionType, params: dict
         else:
             full[k] = p.__dict__[k].get_secret_value()
     secret_part = {k: full.pop(k) for k in spec["secrets"] if k in full}
+    # review 7 H-4: the customer is DERIVED from every resource the params reference; the caller's customer_id may only confirm it
+    if getattr(user, "customer_ids", None) is not None:
+        for _path, _kind, _c in tresolve.references(db, action.value, full):
+            if _c and not tscope.allowed(user, _c):
+                raise PlanError(404, "not found")   # same answer as a missing object: another customer's resources are not disclosed
+    try:
+        derived_cust = tresolve.derive(db, action.value, full)
+    except tresolve.CustomerConflict as e:
+        raise PlanError(409, str(e)) from None
     risk = spec["risk"](p) if callable(spec["risk"]) else spec["risk"]
     risk = _silencing_risk(db, rt, action, p, user, risk)
     binding = None
@@ -642,6 +652,16 @@ def create_plan(db: Session, rt: Runtime, user, action: ActionType, params: dict
             raise PlanError(409, str(e)) from None
         except (ValueError, IdentityError) as e:
             raise PlanError(422, str(e)) from None
+    backup_cust = None
+    if action in _BACKUP and action != ActionType.backup_policy_create:
+        try:
+            backup_cust = backup_ops.policy_customer(db, p.policy)
+        except KeyError:
+            raise PlanError(404, "backup policy not found") from None
+        if getattr(user, "customer_ids", None) is not None and (backup_cust is None or not tscope.allowed(user, backup_cust)):
+            raise PlanError(404, "backup policy not found")   # same answer as a missing policy: existence is not disclosed to a scoped operator
+    if action == ActionType.backup_policy_create and getattr(user, "customer_ids", None) is not None and not (p.customer_id and tscope.allowed(user, p.customer_id)):
+        raise PlanError(404, "not found")
     if action in _BACKUP:
         try:
             extra.update(backup_ops.precheck(db, rt, action.value, p))
@@ -688,7 +708,9 @@ def create_plan(db: Session, rt: Runtime, user, action: ActionType, params: dict
         if pr in _RISK_ORDER and _RISK_ORDER[pr] > _RISK_ORDER[risk]:
             risk = pr
     # ---- customer scoping + policy (agent M) ----
-    cust = full.get("customer_id") or tscope.customer_of_params(db, full)
+    cust = derived_cust
+    if backup_cust:
+        cust = backup_cust
     if action == ActionType.endpoint_register and not cust:
         cust = full["customer_id"] = tscope.DEFAULT_CUSTOMER
     if action in _PROV:
@@ -887,6 +909,10 @@ def claim_job(rt: Runtime, backup_lane: bool = False) -> dict | None:
     Two lanes: backup.* jobs (minutes to an hour) are claimed only by the backup lane, everything else only by the main lane."""
     s = rt.settings
     with rt.session() as db:
+        try:
+            rt.assert_active(db, lock=True)   # review 7 H-5: a fenced/standby/superseded controller claims NOTHING (FOR SHARE: a concurrent fence waits for this txn)
+        except NotActive:
+            return None
         row = db.execute(text(
             "SELECT id, plan_id, action FROM jobs WHERE status = 'queued' AND (action LIKE 'backup.%') = :b ORDER BY created_at "
             "LIMIT 1 FOR UPDATE SKIP LOCKED"), {"b": backup_lane}).first()
@@ -902,6 +928,10 @@ def claim_job(rt: Runtime, backup_lane: bool = False) -> dict | None:
 
 def reap_expired(rt: Runtime) -> int:
     """Fail jobs whose lease expired (never re-run: at-most-once), wipe their plan secrets, and wipe secrets of expired pending plans."""
+    try:
+        rt.assert_active()    # review 7 H-5
+    except NotActive:
+        return 0
     n = 0
     with rt.session() as db:
         rows = db.execute(text(
@@ -961,6 +991,10 @@ def _verify_approval(rt: Runtime, db: Session, plan) -> None:
 
 
 def run_job(rt: Runtime, job: dict) -> None:
+    try:
+        rt.assert_active()    # review 7 H-5: fenced between claim and run: do not execute (the lease expires and the job is failed, never re-run)
+    except NotActive:
+        return
     result = error = None
     known: list[str] = []
     box: dict = {}

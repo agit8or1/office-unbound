@@ -11,7 +11,7 @@ Evidence: [provider-proxmox-real.md](../status/provider-proxmox-real.md) (real P
 | VM lifecycle through the provider on the real node: refuse wrong pool/storage/node/bridge and the ICS VM; clone a template, tag, configure, resize, start, snapshot, stop, destroy | **Verified** by the lead on one test VM (14 of 15 checks passed; the 15th, destroy right after stop, was fixed and the VM destroyed through the provider) |
 | Endpoint settings (add, edit, disable, enable, remove), node allowlist, protected VMs | Implemented and tested (simulator and unit tests); the node allowlist refusal was also confirmed on the real node |
 | Console guided setup (the wizard that registers an endpoint) | **In development**: deployed and tested against the API and simulator; a real registration through the wizard is not recorded in any evidence document |
-| Deploying a customer stack to Proxmox end to end | **In development**: [deployment-engine.md](../status/deployment-engine.md); will stay so until `docs/status/first-real-deployment.md` exists (it does not yet) |
+| Deploying a customer stack to Proxmox end to end | **Implementing**: one single-container run on the real node, lab only ([first-real-deployment.md](../status/first-real-deployment.md)); see [Deploying a customer environment](deploying-a-customer.md) |
 | Migrate, rollback verbs | Implemented against the simulator only; `migrate` needs `VM.Migrate`, not granted on the real cluster |
 | Automatic (Mode A) or customer-approved package (Mode B) permission setup, permissions/drift view, credential vault pages | Implemented; **simulator-proven only**, never run on a real cluster (sections 8-11) |
 | Token rotation actions (`credential.rotate`, `provider.token.rotate`) | Implemented; simulator/mock-proven only. The manual rotation in section 7 is the only path used on the real node |
@@ -81,6 +81,15 @@ Typed plans, bound to the endpoint's current trust anchors (changing them betwee
 | `endpoint.remove` | high | Needs the endpoint name typed as confirmation; refused while deployments reference it unless `force_detach` is approved. Credentials are destroyed; inventory history is kept but hidden |
 | `inventory.refresh` | low | Inventory also refreshes every 300 s |
 
+## 6a. Scope: one node or the whole cluster
+Label: **Implementing** (simulator-proven; a **read-only** plan was generated against the real cluster but nothing was applied). Evidence: [provider-scope-modes.md](../status/provider-scope-modes.md).
+Every connection has a scope mode. The default and recommended mode is **single node**.
+| Mode | What Proxmox itself is set to allow |
+|---|---|
+| `single_node` | `Sys.Audit` only on `/nodes/<node>`, node-local storage only, no `VM.Migrate`, no cloud-init snippets, no grants on `/`, `/nodes`, `/vms`, `/storage`, `/pool` or `/sdn` roots, and `full_admin` is refused |
+| `whole_cluster` | `Sys.Audit` on `/nodes` (also nodes that join later), shared storage when selected, `VM.Migrate` only if you turn migration on. The ICS allowlist is the node list found at plan time; a node that joins later is not usable until you change scope |
+The connect wizard's Access step offers "Connect one node only (recommended for security)" first. Plans label each rule as enforced by `proxmox`, `ics`, `both` or `not_enforced`; read these labels. Two limits are Proxmox's, not ours: pools are cluster-wide (a guest on another node is stopped by the ICS broker, and by missing node-local storage, not by the pool), and classic bridges sit in a cluster-wide zone.
+**Change scope later** (Permissions page, **Change scope**): a read-only preview (`provider.provision.plan_preview` with purpose `scope_change`) shows the new policy, whether it widens or narrows, the permission changes, capacity, and managed guests that would fall outside. Then `provider.scope.change` runs as Mode A or, with `provider.scope.package`, as Mode B. Widening is **high risk** (two approvers); narrowing is normal risk, and is refused while managed guests would be orphaned unless you choose to detach them (high risk; the guests keep running, unmanaged). If verification fails after an apply, the previous permissions are restored.
 ## 7. Token rotation
 Rotate after any exposure (the real token was pasted in chat and rotation is still an open owner item) and periodically. The ICS rotation actions of section 11 exist but have only run against the simulator; this manual path has not been rehearsed on the real cluster either.
 1. On the node: `pveum user token remove <user> <tokenname>`, `pveum user token add <user> <tokenname> --privsep 1`, then re-apply the token ACLs from sections 1-2 (a recreated token has none).
@@ -99,7 +108,7 @@ Both modes compute the same design: service user `<name>@pve` (never PAM, no pas
 Start with the read-only `provider.provision.plan_preview` (low risk): it lists every role, path and privilege, any conflicts, and any elevated privilege with its reason. Apply is bound to the previewed plan hash and refuses if the cluster changed since. A failed apply rolls back what that run created.
 Never granted by any preset: `Permissions.Modify`, `User.Modify`, `Group.Allocate`, `Realm.*`, and the built-in `Administrator`/`PVEAdmin` roles. `Sys.Modify` (for `cicustom`) only as an explicit elevated privilege with high-risk approval; full cluster administration needs `acknowledge_full_admin` and still withholds those items.
 Console: **Infrastructure > Providers > Proxmox** (list, connect wizard, dashboard, permissions, credentials; [providers-ui.md](../status/providers-ui.md): typechecked, unit-tested and screenshotted against a dev-only mock; **not exercised against a real backend** by its author). The connect wizard's read-only discovery with temporary admin credentials (setup probe stage `discover`) is in main (commit `291bb1e`) and has no results document yet.
-**Customer-owned clusters** can require the customer's approval of the permission design before anything is applied: see [Users and access](users-and-access.md#customers-scoping-and-external-approval-links). Limit: a Mode A plan waiting on a customer link outlives its 15-minute credential and must be re-planned; Mode B is the intended path.
+**Customer-owned clusters** can require the customer's approval of the permission design before anything is applied: see [Customers and approvals](customers-and-approvals.md#6-customer-approval-links-customers-have-no-ics-login). Limit: a Mode A plan waiting on a customer link outlives its 15-minute credential and must be re-planned; Mode B is the intended path.
 
 ## 9. What is enforced where
 | Rule | Enforced by |

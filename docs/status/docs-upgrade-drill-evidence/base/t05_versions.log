@@ -1,0 +1,11 @@
+== T05 Versions list/restore (run 31ec7c8038) ==
+PASS PUT v1 - HTTP 201
+PASS PUT v2 - HTTP 204
+PASS PUT v3 - HTTP 204
+PASS file id - ec3a7ecd-7559-4b70-9d64-04dd6e7f0b56$26b5940b-b727-45d2-bf3f-666fd5a06658!b695539a-b070-4bd8-8ab7-3f4f23a8e6a1
+PASS list versions - 2 old versions listed (3 writes => 2 old)
+PASS restore COPY - HTTP 204
+PASS restored content - content is an earlier version (b'version-1 31ec')
+PASS restored equals first version - hash equals version-1
+PASS restore is versioned - pre-restore content (v3) kept as a version; restored v1 is now current; versions=2
+-- T05 Versions list/restore: 9 PASS, 0 FAIL, 0 SKIP

@@ -30,15 +30,49 @@ def check_active(*, configured_role: str, state: dict) -> int:
     return state["epoch"]
 
 
+def assert_active(rt, db=None, *, lock: bool = False) -> int:
+    """Review 7 H-5: ONE check for every side effect (job claim, provider/agent/backup/notification calls, enrollment, API mutations).
+    Raises NotActive unless (a) this controller is configured primary, (b) controller_state says role=primary and (c) the epoch in the database is still
+    the epoch this process started with (a promotion elsewhere, `ics-promote --fence-old-dsn-file`, an agent-learned self-fence or a DB that was
+    replaced under us all make it differ). The first call fixes the process epoch. A fenced controller stays fenced until it is restarted.
+    `lock=True` reads the row FOR SHARE inside the caller's transaction, so a concurrent fence waits for (or precedes) a job claim."""
+    if getattr(rt, "fenced_reason", None):
+        raise NotActive(rt.fenced_reason)
+    if rt.settings.role != "primary":
+        raise NotActive("this controller is a STANDBY: it must not cause side effects")
+
+    def _read(d):
+        r = d.execute(text("SELECT epoch, role, node_name, changed_at, note FROM controller_state WHERE id = 1" + (" FOR SHARE" if lock else ""))).first()
+        if r is None:
+            raise NotActive("controller_state row missing")
+        return {"epoch": int(r.epoch), "role": r.role}
+    if db is not None:
+        st = _read(db)
+    else:
+        with rt.session() as d:
+            st = _read(d)
+    try:
+        ep = check_active(configured_role=rt.settings.role, state=st)
+        if getattr(rt, "own_epoch", None) is None:
+            rt.own_epoch = ep
+        elif ep != rt.own_epoch:
+            raise NotActive(f"this controller was started at epoch {rt.own_epoch} but the database says epoch {ep}: it was superseded")
+    except NotActive as e:
+        rt.fenced_reason = str(e)         # sticky: only a restart (which re-reads the state) can make this controller active again
+        raise
+    return ep
+
+
 def current_epoch(rt) -> int:
-    with rt.session() as db:
-        return check_active(configured_role=rt.settings.role, state=get_state(db))
+    return assert_active(rt)
 
 
 def self_fence(rt, seen_epoch, *, mine: int | None = None) -> bool:
     """An agent refused us as stale: record that we are fenced (once an agent has seen a higher epoch we are not the primary)."""
     if not isinstance(seen_epoch, int):
         return False
+    if getattr(rt, "fenced_reason", None) is None and isinstance(getattr(rt, "own_epoch", None), int) and seen_epoch > rt.own_epoch:
+        rt.fenced_reason = f"self-fenced: an agent has seen epoch {seen_epoch} > ours {rt.own_epoch}"    # immediate, even if the DB write below fails
     with rt.session() as db:
         st = get_state(db)
         if seen_epoch <= st["epoch"] or st["role"] == "fenced":
