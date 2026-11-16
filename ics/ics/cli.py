@@ -33,12 +33,25 @@ def main(argv=None) -> int:
     du.add_argument("--reason", required=True, help="why the normal approval workflow could not be used (recorded in the audit log)")
     ns = sub.add_parser("backup-node-secret", help="BREAK-GLASS (host root): print the policy's restic repository password as JSON for `ou-backup --direct provision <tier>`; audited, never logged")
     ns.add_argument("--policy", required=True)
+    up = sub.add_parser("upgrade-preflight", help="read-only checks before upgrading the ou-ics package: disk space, backup freshness, running jobs, standby state, schema")
+    up.add_argument("--backup-dir", default="/var/backups/office-unbound/ics")
+    up.add_argument("--max-backup-age-hours", type=float, default=24)
+    up.add_argument("--json", action="store_true")
     ra = sub.add_parser("backup-recovery-ack", help="record that the offline recovery key was exported (fingerprint only, never the key); audited")
     ra.add_argument("--policy", required=True)
     ra.add_argument("--fingerprint", required=True, help="16 hex characters printed by `ou-backup --direct recovery-key`")
     args = ap.parse_args(argv)
     rt = Runtime()
     with rt.session() as db:
+        if args.cmd == "upgrade-preflight":
+            from . import upgrade
+            facts = upgrade.gather(db, rt.settings, backup_dir=args.backup_dir)
+            checks = upgrade.evaluate(facts, int(args.max_backup_age_hours * 3600))
+            if args.json:
+                print(json.dumps({"ready": upgrade.verdict(checks) == 0, "checks": [c.__dict__ for c in checks]}, indent=1))
+            else:
+                print(upgrade.render(checks))
+            return upgrade.verdict(checks)
         if args.cmd == "rewrap-master":
             from .credentials import rewrap
             from .vault import Vault
