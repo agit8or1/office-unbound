@@ -156,7 +156,7 @@ def test_registry_configs_reader_is_readonly_and_push_has_no_network_listener():
     for t in (ro, push):
         assert "delete:\n    enabled: false" in t
     nft = art.render_nft(srv())
-    assert "tcp dport 8446 ip saddr { 127.0.0.1, 192.168.22.167, 10.64.0.0/16 } accept" in nft and "tcp dport 8444 drop" in nft
+    assert "tcp dport 8446 ip saddr { 127.0.0.1, 192.168.22.167, 10.64.0.0/16 } accept" in nft and "tcp dport 8446 drop" in nft
 
 
 def test_render_server_cli_writes_all_files(tmp_path):
