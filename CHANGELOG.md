@@ -13,6 +13,7 @@ isolated lab; nothing is production supported ([ROADMAP.md](ROADMAP.md)).
 Merged on integration branches `integration-5`, `integration-6` and `integration-7` (not yet released). Production schema head is `0009b`; this batch adds `0009a`, `0010`, `0011`.
 
 ### Added
+- **Privilege separation (owner-applied)**: `ics/deploy/privsep/` replaces the operator NOPASSWD ALL by exact signer rules and argument-validated lab shims, adds polkit/ssh/unit hardening, apply/revert scripts and a key-separation test; audit in [docs/status/privilege-audit.md](docs/status/privilege-audit.md). Not yet applied to the host.
 - **Provider scope modes**: `single_node` / `whole_cluster` permission plans and the `provider.scope.change` flow (Mode A/B), console UI. [provider-scope-modes](docs/status/provider-scope-modes.md)
 - **Telephony productization**: Asterisk 22 built from signed source (`ou-asterisk` recipe) and ICS telephony downstream: `idm.user.set_extension`, `idm.user.issue_sip_credential` (one-time SIP credentials, encrypted at rest until revealed), `pbx.*` agent runbooks, migration `0009`. [telephony-productization](docs/status/telephony-productization.md)
 - **Guest bootstrap v2**: no-SSH golden-image path with HMAC callback `POST /api/v1/guest-bootstrap/report`, `guest.await_callback` step, `image.import` verb, migration `0009b`; the SSH path is lab-only behind `ICS_LAB_SSH_BOOTSTRAP` (default off). [bootstrap-v2](docs/status/bootstrap-v2.md), [SSH bootstrap review](docs/status/review-ssh-bootstrap-2026-11-15.md)

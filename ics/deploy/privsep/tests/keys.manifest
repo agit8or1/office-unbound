@@ -1,0 +1,19 @@
+# path-or-glob | identities (besides root) that MAY read it | what it is
+/etc/office-unbound/vault.key|ics|ICS credential-vault master key
+/etc/office-unbound/audit.key|ics|ICS audit-chain HMAC key
+/etc/office-unbound/ics-signing.key|ics|ICS promotion/job signing key (Ed25519)
+/etc/office-unbound/ics.env|ics|ICS runtime config incl. app DB URL
+/etc/office-unbound/ics-migrate.env||DB owner URL (migrations)
+/etc/office-unbound/tls/ca.key||ICS private CA key
+/etc/office-unbound/tls/ics.key||ICS TLS key
+/etc/office-unbound/backup-lab/*.pw||backup repository passwords
+/etc/office-unbound/bootstrap/*.token||Proxmox API token (bootstrap)
+/etc/office-unbound/release||legacy release key directory (must hold nothing)
+/var/lib/ou-release/passphrase|ou-release|release signing key passphrase
+/var/lib/ou-release/gnupg/private-keys-v1.d|ou-release|release/channel private keys
+/var/lib/ou-imgsign/key.pem|ou-imgsign|image manifest signing key
+/var/lib/ou-imgsign/passphrase|ou-imgsign|image signing key passphrase
+/var/lib/ou-testrunner/key|ou-testrunner|test-runner attestation key
+/root/ou-release-revocation-*.asc||release key revocation certificate
+/etc/ssh/ssh_host_ed25519_key||ssh host key
+/etc/shadow||password hashes

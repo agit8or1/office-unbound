@@ -1,0 +1,8 @@
+// Office Unbound privilege separation: service and signer accounts never get any polkit authorisation (no unit control, no machine control, no power).
+// The node agent on guests has its own generated rule (ics/agent/deploy/render_polkit.py); this file is for the ICS host only.
+polkit.addRule(function(action, subject) {
+    var denied = ["ics", "postgres", "www-data", "ou-release", "ou-imgsign", "ou-testrunner", "ou-agent"];
+    if (denied.indexOf(subject.user) >= 0) {
+        return polkit.Result.NO;
+    }
+});
