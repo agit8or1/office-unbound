@@ -1,0 +1,114 @@
+OU patch 0004: EWS send-as / send-on-behalf. config/sendas.txt is honoured by EWS (was denied); delegates.txt / folder-ACL Send bit = on-behalf with a Sender header.
+Apply with patch -p1 from the Gromox 3.13 source root after 0003.
+
+--- a/exch/ews/context.cpp
++++ b/exch/ews/context.cpp
+@@ -3788,9 +3788,66 @@
+ 		return; /* alias of the caller's own mailbox */
+ 	uint32_t permission = 0;
+ 	if (!m_plugin.exmdb.get_mbox_perm(maildir.c_str(),
+-	    m_auth_info.username, &permission) ||
+-	    !(permission & (frightsGromoxSendAs | frightsGromoxStoreOwner)))
++	    m_auth_info.username, &permission))
+ 		throw EWSError::AccessDenied(E3474);
++	if (permission & (frightsGromoxSendAs | frightsGromoxStoreOwner))
++		return;
++	/* OU: config/sendas.txt (the Send-As list admin tools write) is honoured, like zcore/emsmdb do */
++	if (!in_sendas_list(maildir))
++		throw EWSError::AccessDenied(E3474);
++}
++
++/**
++ * @brief      Is the caller on the Send-As list (config/sendas.txt) of a mailbox?
++ *
++ * @param      maildir   Store directory of the identity being claimed
++ */
++bool EWSContext::in_sendas_list(const std::string &maildir) const
++{
++	std::vector<std::string> list;
++	if (!m_plugin.exmdb.read_delegates(maildir.c_str(), 1, &list))
++		return false;
++	for (const auto &d : list)
++		if (strcasecmp(d.c_str(), m_auth_info.username) == 0 ||
++		    mysql_adaptor_check_mlist_include(d.c_str(), m_auth_info.username))
++			return true;
++	return false;
++}
++
++/**
++ * @brief      Does the message claim an identity the caller may only use "on behalf of"?
++ *
++ * True when the representing identity is a foreign mailbox for which the caller
++ * has a delegate grant (delegates.txt / folder ACL Send bit) but is neither the
++ * store owner nor on config/sendas.txt. Such a message must carry the caller as
++ * Sender (From: delegator, Sender: caller), like the MAPI submit path does. Never
++ * throws: validate_sendas_perms decides about denial.
++ */
++bool EWSContext::is_send_on_behalf(const MESSAGE_CONTENT &content) const
++{
++	auto &pl = content.proplist;
++	std::string identity;
++	if (auto a = pl.get<const char>(PR_SENT_REPRESENTING_SMTP_ADDRESS)) {
++		identity = a;
++	} else if (auto e = pl.get<const char>(PR_SENT_REPRESENTING_EMAIL_ADDRESS)) {
++		auto t = pl.get<const char>(PR_SENT_REPRESENTING_ADDRTYPE);
++		identity = t != nullptr && strcasecmp(t, "EX") == 0 ? essdn_to_username(e) : e;
++	}
++	if (identity.empty() || strcasecmp(identity.c_str(), m_auth_info.username) == 0)
++		return false;
++	try {
++		auto maildir = get_maildir(identity);
++		if (maildir == m_auth_info.maildir)
++			return false;
++		uint32_t permission = 0;
++		if (!m_plugin.exmdb.get_mbox_perm(maildir.c_str(),
++		    m_auth_info.username, &permission) ||
++		    (permission & frightsGromoxStoreOwner) || in_sendas_list(maildir))
++			return false;
++		return permission & frightsGromoxSendAs;
++	} catch (...) {
++		return false;
++	}
+ }
+ 
+ /**
+@@ -4009,7 +4066,27 @@
+ 		log_id = dir + ":m" + std::to_string(log_msg_id);
+ 	cvt.log_id = log_id.c_str();
+ 	cvt.alloc = alloc;
+-	if (cvt.mapi_to_inet(content, mail) != ecSuccess)
++	/* OU: send-on-behalf = From: delegator + Sender: caller (the Send-As path leaves Sender out) */
++	message_content_ptr obcopy;
++	const MESSAGE_CONTENT *pcontent = &content;
++	if (is_send_on_behalf(content)) {
++		obcopy.reset(content.dup());
++		if (obcopy != nullptr) {
++			std::string dn;
++			if (!mysql_adaptor_get_user_displayname(m_auth_info.username, dn))
++				dn = m_auth_info.username;
++			auto &opl = obcopy->proplist;
++			if (opl.set(PR_SENDER_SMTP_ADDRESS, m_auth_info.username) != ecSuccess ||
++			    opl.set(PR_SENDER_EMAIL_ADDRESS, m_auth_info.username) != ecSuccess ||
++			    opl.set(PR_SENDER_ADDRTYPE, "SMTP") != ecSuccess ||
++			    opl.set(PR_SENDER_NAME, dn.c_str()) != ecSuccess)
++				throw EWSError::NotEnoughMemory(E3381);
++			opl.erase(PR_SENDER_ENTRYID);
++			opl.erase(PR_SENDER_SEARCH_KEY);
++			pcontent = obcopy.get();
++		}
++	}
++	if (cvt.mapi_to_inet(*pcontent, mail) != ecSuccess)
+ 		throw EWSError::ItemCorrupt(E3116);
+ 
+ 	std::vector<std::string> rcpts;
+--- a/exch/ews/ews.hpp
++++ b/exch/ews/ews.hpp
+@@ -331,6 +331,8 @@
+ 	int notify();
+ 	uint32_t permissions(const std::string&, uint64_t) const;
+ 	void validate_sendas_perms(const std::string &) const;
++	bool in_sendas_list(const std::string &maildir) const;
++	bool is_send_on_behalf(const MESSAGE_CONTENT &) const;
+ 	void validate_sendas_perms(const MESSAGE_CONTENT &) const;
+ 	Structures::tDelegatePermissions readDelegatePermissions(const std::string&, const std::string&) const;
+ 	Structures::sFolderSpec resolveFolder(const Structures::tDistinguishedFolderId&) const;

@@ -49,9 +49,12 @@ const c=(await gen.next()).value;
 const found={source:c.source,inc:[c.incoming.type,c.incoming.hostname,c.incoming.port,c.incoming.socketType,c.incoming.auth],out:[c.outgoing.type,c.outgoing.hostname,c.outgoing.port,c.outgoing.socketType,c.outgoing.auth]};
 AccountConfig.replaceVariables(c,'Lab '+mail.split('@')[0],mail,pw);
 await CreateInBackend.createAccountInBackend(c);
-// The lab MTA has no :587 submission service (autoconfig advertises it anyway, see below): point the SMTP server at :25
-// STARTTLS, no AUTH (lab relay by mynetworks) - a MANUAL correction in the client, recorded in the report.
-for(const s of MailServices.outgoingServer.servers){ if(s.username==mail){ const q=s.QueryInterface(Ci.nsISmtpServer); q.port=25; q.authMethod=Ci.nsMsgAuthMethod.none; q.socketType=Ci.nsMsgSocketType.alwaysSTARTTLS; } }
+// What a user's first start does after the wizard: let the IMAP server list its folders (XLIST/SPECIAL-USE flags) before anything is sent.
+for(const a of MailServices.accounts.accounts){ if(a.incomingServer.username==mail){
+  const srv=a.incomingServer.QueryInterface(Ci.nsIImapIncomingServer);
+  a.incomingServer.rootFolder; srv.discoverAllFolders(a.incomingServer.rootFolder);
+  await waitFor(()=>a.incomingServer.rootFolder.getFolderWithFlags(Ci.nsMsgFolderFlags.SentMail),30000).catch(()=>null);
+} }
 return found;
 """, [[mail, L.pw(uid)]])
     rep.check("autoconfig %s" % uid, r["source"] == "xml" and r["inc"][1] == L.HOST and r["inc"][2] == 993 and r["out"][2] == 587,
@@ -63,7 +66,7 @@ try:
     socket.create_connection((L.HOST, 587), 5); adv = True
 except OSError as e:
     adv = False
-rep.check("autoconfig-advertised SMTP 587 STARTTLS is reachable", adv, "port 587 open", "connection refused: the lab MTA has no submission service; portal autoconfig advertises one that does not exist (SMTP had to be set to :25 manually)", "TCP connect")
+rep.check("autoconfig-advertised SMTP 587 STARTTLS is reachable", adv, "port 587 open (submission service present)", "connection refused: no submission service behind the advertised port", "TCP connect")
 
 # ---- 2. compose + send over SMTP submission (cctb1 -> cctb2), driven through the client
 subj = "tb-send-%s" % L.RUN
@@ -86,11 +89,13 @@ const res=await new Promise(resolve2=>{
 });
 return res;
 """, [[L.addr("cctb1"), L.addr("cctb2"), subj, body]])
-rep.check("send via SMTP submission", r.get("sent"), "client reports sent (SMTP :25 STARTTLS, lab relay, no AUTH)", str(r), "nsIMsgCompose.sendMsg(Now) via Marionette")
+rep.check("send via SMTP submission", r.get("sent"), "client reports sent (autoconfig SMTP submission 587 STARTTLS + AUTH, no manual override)", str(r), "nsIMsgCompose.sendMsg(Now) via Marionette")
 got = L.imap_find("cctb2", subj)
 rep.check("server-side: mail arrived in cctb2 INBOX", got is not None, "found by independent IMAP session; From/To headers ok" if got else "", "not found within 40 s", "imaplib SEARCH")
 print("server folders cctb1:", L.imap_folders("cctb1"))
 sent = L.imap_find("cctb1", subj, "Sent Items", wait=5) or L.imap_find("cctb1", subj, "Sent", wait=15)
+_dup = [x for x in L.imap_folders("cctb1") if x in ("Sent", "Trash")]
+rep.check("no duplicate Sent/Trash folders created by the client", not _dup, "only the server's Sent Items / Deleted Items exist (SPECIAL-USE honoured)", "duplicate folders on the server: %s" % _dup, "IMAP LIST")
 rep.check("server-side: copy in cctb1 Sent folder", sent is not None, "Fcc copy stored via IMAP APPEND by the client", "no copy found (Fcc folder mapping?)", "imaplib SEARCH")
 
 # ---- 3. receive in client (cctb2) + read body

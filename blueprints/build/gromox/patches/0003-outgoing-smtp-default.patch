@@ -1,0 +1,85 @@
+OU patch 0003: outgoing_smtp_url default smtp://127.0.0.1:25 (sendmail:// default does not exist in our mail library build; a host name may resolve to ::1).
+Apply with patch -p1 from the Gromox 3.13 source root after 0001/0002.
+
+--- a/lib/ruleproc.cpp
++++ b/lib/ruleproc.cpp
+@@ -2270,7 +2270,7 @@
+ }
+ 
+ static constexpr cfg_directive rp_config_defaults[] = {
+-	{"outgoing_smtp_url", "sendmail://localhost"},
++	{"outgoing_smtp_url", "smtp://127.0.0.1:25"},
+ 	{"ruleproc_debug", "0", CFG_BOOL},
+ 	CFG_TABLE_END,
+ };
+--- a/exch/emsmdb/main.cpp
++++ b/exch/emsmdb/main.cpp
+@@ -51,7 +51,7 @@
+ static constexpr cfg_directive emsmdb_gxcfg_dflt[] = {
+ 	{"backfill_transport_headers", "0", CFG_BOOL},
+ 	{"emsmdb_compress_threshold", "-1", CFG_SIZE},
+-	{"outgoing_smtp_url", "sendmail://localhost"},
++	{"outgoing_smtp_url", "smtp://127.0.0.1:25"},
+ 	{"reported_server_version", "15.00.0847.4040"},
+ 	CFG_TABLE_END,
+ };
+--- a/exch/exmdb/main.cpp
++++ b/exch/exmdb/main.cpp
+@@ -57,7 +57,7 @@
+ 	{"exmdb_parallelize_schemaup", "4"},
+ 	{"exmdb_parallelize_sqliteshut", "4"},
+ 	{"istore_standalone", "0"},
+-	{"outgoing_smtp_url", "sendmail://localhost"},
++	{"outgoing_smtp_url", "smtp://127.0.0.1:25"},
+ 	CFG_TABLE_END,
+ };
+ 
+--- a/exch/zcore/main.cpp
++++ b/exch/zcore/main.cpp
+@@ -81,7 +81,7 @@
+ 	{"backfill_transport_headers", "0", CFG_BOOL},
+ 	{"daemons_fd_limit", "zcore_fd_limit", CFG_ALIAS},
+ 	{"malloc_trim_interval", "30min", CFG_TIME, "0"},
+-	{"outgoing_smtp_url", "sendmail://localhost"},
++	{"outgoing_smtp_url", "smtp://127.0.0.1:25"},
+ 	{"zcore_fd_limit", "0", CFG_SIZE},
+ 	CFG_TABLE_END,
+ };
+--- a/exch/ews/ews.cpp
++++ b/exch/ews/ews.cpp
+@@ -519,7 +519,7 @@
+ };
+ 
+ static constexpr struct cfg_directive ews_gxcfg_deflt[] = {
+-	{"outgoing_smtp_url", "sendmail://localhost"},
++	{"outgoing_smtp_url", "smtp://127.0.0.1:25"},
+ 	{"reported_server_version", "15.00.0847.4040"},
+ 	CFG_TABLE_END,
+ };
+--- a/mda/delivery_app/main.cpp
++++ b/mda/delivery_app/main.cpp
+@@ -53,7 +53,7 @@
+ 	{"daemons_fd_limit", "lda_fd_limit", CFG_ALIAS},
+ 	{"lda_fd_limit", "0", CFG_SIZE},
+ 	{"malloc_trim_interval", "30min", CFG_TIME, "0"},
+-	{"outgoing_smtp_url", "sendmail://localhost"},
++	{"outgoing_smtp_url", "smtp://127.0.0.1:25"},
+ 	CFG_TABLE_END,
+ };
+ 
+--- a/doc/gromox.cfg.5
++++ b/doc/gromox.cfg.5
+@@ -125,7 +125,12 @@
+ way to use a custom outgoing SMTP server is to configre the localhost MTA to
+ perform relaying.
+ .br
+-Default: \fIsendmail://localhost\fP
++Default: \fIsmtp://127.0.0.1:25\fP
++.br
++(Office Unbound build: the sendmail:// transport is not compiled into the
++bundled mail library, and a host name such as "localhost" may resolve to ::1
++while the MTA only listens on IPv4, so the default is an explicit IPv4
++loopback SMTP URL.)
+ .TP
+ \fBruleproc_debug\fP
+ Make the "TWOSTEP" Client-Side Inbox Rule Processor emit information about the

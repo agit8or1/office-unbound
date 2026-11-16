@@ -285,6 +285,17 @@ def test_autoconfig_public_and_valid(env):
         assert root.find("emailProvider/outgoingServer/socketType").text == "STARTTLS"
 
 
+def test_autoconfig_matches_node_submission_services():
+    """The groupware node (blueprints/lab/spike-groupware/gw-mta.sh) provides submission on 587 (STARTTLS) and 465 (implicit TLS): the document must advertise exactly those."""
+    import dataclasses
+    from app import devices
+    for port, sock in ((587, "STARTTLS"), (465, "SSL")):
+        root = ET.fromstring(devices.autoconfig_xml(dataclasses.replace(CFG, smtp_port=port)))
+        assert root.find("emailProvider/outgoingServer/port").text == str(port)
+        assert root.find("emailProvider/outgoingServer/socketType").text == sock
+        assert root.find("emailProvider/outgoingServer/authentication").text == "password-cleartext"  # only ever offered after TLS
+
+
 def test_mobileconfig_content_and_no_secrets(env):
     c, m, _ = env
     _, q = login(c, m)
