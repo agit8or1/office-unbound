@@ -1,0 +1,397 @@
+#!/usr/bin/env python3
+"""ou-artifact-publish: the ONLY write path into the artifact service (ADR-0015). Runs as root on the artifact host; guests never reach it.
+
+  apt  --src DIR [--channels dev,stable]     verify, then atomically publish a signed apt repository tree
+  oci  --from URL --repo ou/x --ref TAG|sha256:.. --channel dev|staging|stable [--tag-as TAG]
+                                             copy ONE image and its sigstore signature attachment into the registry, only if the signature verifies
+  status                                     what is published
+
+Nothing here is trusted just because it was handed to us:
+  * apt: every channel's InRelease must verify against that channel's PINNED key (fingerprint in server.json, key file in the keys dir), must not be
+    expired, and every file it lists (Packages, Sources) and every .deb/.dsc those list must exist with the listed size and sha256. One bad file
+    refuses the whole publication; the live tree is replaced by an atomic symlink flip, the previous release is kept for rollback.
+  * oci: manifest, config and layers are re-hashed against their digests; the cosign-format signature attachment (tag sha256-<hex>.sig) must carry an
+    ECDSA P-256/SHA-256 signature over its payload that verifies with the channel's pinned image key and names exactly this manifest digest.
+    Only then are the blobs pushed, through the unix socket of the push-only registry instance, which is started for the duration and stopped afterwards.
+Exit codes: 0 ok, 3 refused (nothing published), 1 other error."""
+import argparse
+import base64
+import gzip
+import hashlib
+import http.client
+import json
+import os
+import re
+import shutil
+import socket
+import subprocess
+import sys
+import tempfile
+import time
+import urllib.parse
+import urllib.request
+
+ETC = os.environ.get("OU_ARTIFACTS_ETC", "/etc/office-unbound/artifacts")
+CHANNELS = ("dev", "staging", "stable")
+DIGEST_RE = re.compile(r"^sha256:[0-9a-f]{64}$")
+REPO_RE = re.compile(r"^ou/[a-z0-9]+(?:[._-][a-z0-9]+)*(?:/[a-z0-9]+(?:[._-][a-z0-9]+)*){0,2}$")
+TAG_RE = re.compile(r"^[A-Za-z0-9_][A-Za-z0-9._-]{0,127}$")
+ACCEPT = ", ".join(["application/vnd.oci.image.manifest.v1+json", "application/vnd.docker.distribution.manifest.v2+json"])
+KEEP_RELEASES = 3
+
+
+class Refused(Exception):
+    pass
+
+
+def cfg() -> dict:
+    with open(os.path.join(ETC, "server.json")) as f:
+        return json.load(f)
+
+
+# ----------------------------------------------------------------------------------------------------------------- apt
+def sha256_file(p: str) -> str:
+    h = hashlib.sha256()
+    with open(p, "rb") as f:
+        for b in iter(lambda: f.read(1 << 20), b""):
+            h.update(b)
+    return h.hexdigest()
+
+
+def gpg_verify_inrelease(path: str, key_file: str, fpr: str) -> str:
+    """Verify a clearsigned InRelease with a throw-away keyring holding ONLY the pinned key; return the signed text."""
+    with tempfile.TemporaryDirectory() as gh:
+        os.chmod(gh, 0o700)
+        env = {"PATH": "/usr/bin:/bin", "LANG": "C", "GNUPGHOME": gh}
+        run = lambda *a: subprocess.run(["gpg", "--batch", "--no-tty", *a], env=env, capture_output=True, text=True, timeout=60)  # noqa: E731
+        imp = run("--import", key_file)
+        if imp.returncode != 0:
+            raise Refused("cannot import the channel key")
+        v = run("--status-fd", "1", "--verify", path)
+        valid = [ln.split() for ln in v.stdout.splitlines() if ln.startswith("[GNUPG:] VALIDSIG")]
+        if v.returncode != 0 or not valid or not any(x[2].upper() == fpr or (len(x) > 11 and x[11].upper() == fpr) for x in valid):
+            raise Refused(f"InRelease is not signed by the pinned key {fpr}")
+        out = run("--decrypt", path)
+        if out.returncode != 0:
+            raise Refused("cannot read the signed InRelease text")
+        return out.stdout
+
+
+def parse_release_hashes(text: str) -> dict:
+    files, on = {}, False
+    for ln in text.splitlines():
+        if ln.startswith("SHA256:"):
+            on = True
+            continue
+        if on:
+            if not ln.startswith(" "):
+                break
+            h, size, name = ln.split()
+            files[name] = (h, int(size))
+    if not files:
+        raise Refused("InRelease lists no SHA256 hashes")
+    return files
+
+
+def parse_stanzas(raw: bytes) -> list:
+    out = []
+    for blk in raw.decode("utf-8", "replace").split("\n\n"):
+        d, key = {}, None
+        for ln in blk.splitlines():
+            if ln[:1] in (" ", "\t") and key:
+                d[key] += "\n" + ln
+            elif ":" in ln:
+                key, _, v = ln.partition(":")
+                d[key] = v.strip()
+        if d:
+            out.append(d)
+    return out
+
+
+def check_channel(src: str, ch: str, key_file: str, fpr: str, now: float) -> dict:
+    base = os.path.join(src, "dists", ch)
+    text = gpg_verify_inrelease(os.path.join(base, "InRelease"), key_file, fpr)
+    m = re.search(r"^Valid-Until:\s*(.+)$", text, re.M)
+    if m:
+        vu = time.mktime(time.strptime(m.group(1).strip().replace("UTC", "GMT"), "%a, %d %b %Y %H:%M:%S %Z")) - time.timezone
+        if vu < now:
+            raise Refused(f"{ch}: InRelease expired ({m.group(1).strip()})")
+    if not re.search(rf"^Suite:\s*{ch}\s*$", text, re.M):
+        raise Refused(f"{ch}: InRelease is for another suite")
+    listed = parse_release_hashes(text)
+    n = 0
+    for name, (h, size) in listed.items():
+        p = os.path.join(base, name)
+        if not os.path.isfile(p) or os.path.getsize(p) != size or sha256_file(p) != h:
+            raise Refused(f"{ch}: {name} is missing or does not match the signed InRelease")
+        n += 1
+    for name in listed:
+        if not (name.endswith("/Packages") or name.endswith("/Sources")):
+            continue
+        with open(os.path.join(base, name), "rb") as f:
+            raw = f.read()
+        for st in parse_stanzas(raw):
+            if "Filename" in st:                                   # Packages
+                files = [(st["Filename"], st.get("SHA256"), int(st["Size"]))]
+            else:                                                  # Sources: Directory + Checksums-Sha256
+                files = []
+                for ln in st.get("Checksums-Sha256", "").splitlines()[1:]:
+                    h, sz, fn = ln.split()
+                    files.append((st["Directory"] + "/" + fn, h, int(sz)))
+            for fn, h, sz in files:
+                if ".." in fn.split("/") or fn.startswith("/"):
+                    raise Refused(f"{ch}: unsafe path in index: {fn}")
+                p = os.path.join(src, fn)
+                if not os.path.isfile(p) or os.path.getsize(p) != sz or (h and sha256_file(p) != h):
+                    raise Refused(f"{ch}: {fn} is missing or does not match the signed index")
+                n += 1
+    return {"channel": ch, "files_checked": n}
+
+
+def link_or_copy(a, b):
+    if os.path.lexists(b):
+        os.unlink(b)
+    try:
+        os.link(a, b)
+    except OSError:
+        shutil.copy2(a, b)
+
+
+def copy_tree(s_dir: str, d_dir: str, link: bool):
+    for d, _, fs in os.walk(s_dir):
+        t = os.path.join(d_dir, os.path.relpath(d, s_dir))
+        os.makedirs(t, exist_ok=True)
+        for f in fs:
+            sp, tp = os.path.join(d, f), os.path.join(t, f)
+            if os.path.islink(sp):
+                raise Refused(f"symlink in the source tree: {sp}")
+            if link:
+                link_or_copy(sp, tp)
+            else:
+                if os.path.lexists(tp):
+                    os.unlink(tp)
+                shutil.copyfile(sp, tp)
+
+
+def publish_apt(args) -> int:
+    c = cfg()
+    src = os.path.realpath(args.src)
+    chans = [x for x in args.channels.split(",") if x] if args.channels else [x for x in CHANNELS if os.path.isdir(os.path.join(src, "dists", x))]
+    if not chans or any(x not in CHANNELS for x in chans):
+        raise Refused("no valid channel to publish")
+    keys = {}
+    for ch in chans:
+        fpr = (c.get("channel_fprs") or {}).get(ch)
+        kf = os.path.join(ETC, "keys", f"ou-release-{ch}.pub.asc")
+        if not fpr or not os.path.isfile(kf):
+            raise Refused(f"no pinned key for channel {ch} (server.json channel_fprs + keys/ou-release-{ch}.pub.asc)")
+        keys[ch] = (kf, fpr)
+    root = os.path.join(c["data_dir"], "apt")
+    rel = os.path.join(root, "releases")
+    os.makedirs(rel, exist_ok=True)
+    new = os.path.join(rel, time.strftime("%Y%m%dT%H%M%SZ", time.gmtime()))
+    os.makedirs(new)
+    cur = os.path.join(root, "current")
+    prev = os.path.realpath(cur) if os.path.islink(cur) else None
+    try:
+        if prev and os.path.isdir(prev):                       # channels not named now stay exactly as they are (hard links, root-owned)
+            copy_tree(prev, new, link=True)
+        for ch in chans:
+            shutil.rmtree(os.path.join(new, "dists", ch), ignore_errors=True)
+            shutil.rmtree(os.path.join(new, "pool", ch), ignore_errors=True)
+            for sub in (f"dists/{ch}", f"pool/{ch}"):
+                if os.path.isdir(os.path.join(src, sub)):
+                    copy_tree(os.path.join(src, sub), os.path.join(new, sub), link=False)   # a COPY: the builder can not change served bytes afterwards
+        now = time.time()
+        checked = [check_channel(new, ch, *keys[ch], now) for ch in chans]   # verified in the tree that will be served, after copying
+    except BaseException:
+        shutil.rmtree(new, ignore_errors=True)
+        raise
+    for d, _, fs in os.walk(new):
+        os.chmod(d, 0o755)
+        for f in fs:
+            os.chmod(os.path.join(d, f), 0o644)
+    tmp = cur + ".new"
+    if os.path.lexists(tmp):
+        os.unlink(tmp)
+    os.symlink(new, tmp)
+    os.replace(tmp, cur)                                               # atomic switch
+    for o in sorted(os.listdir(rel))[:-KEEP_RELEASES]:
+        shutil.rmtree(os.path.join(rel, o), ignore_errors=True)
+    print(json.dumps({"published": "apt", "release": os.path.basename(new), "channels": checked, "previous": os.path.basename(prev) if prev else None}))
+    return 0
+
+
+# ----------------------------------------------------------------------------------------------------------------- oci
+class UnixConn(http.client.HTTPConnection):
+    def __init__(self, path):
+        super().__init__("localhost", timeout=300)
+        self._p = path
+
+    def connect(self):
+        self.sock = socket.socket(socket.AF_UNIX, socket.SOCK_STREAM)
+        self.sock.settimeout(300)
+        self.sock.connect(self._p)
+
+
+def src_get(base: str, path: str, accept=None):
+    req = urllib.request.Request(base.rstrip("/") + path, headers={"Accept": accept or ACCEPT})
+    return urllib.request.urlopen(req, timeout=300)
+
+
+def fetch_blob(base: str, repo: str, digest: str, dest_dir: str) -> str:
+    if not DIGEST_RE.fullmatch(digest):
+        raise Refused("bad blob digest")
+    p = os.path.join(dest_dir, digest.split(":")[1])
+    h = hashlib.sha256()
+    with src_get(base, f"/v2/{repo}/blobs/{digest}", "*/*") as r, open(p, "wb") as f:
+        for b in iter(lambda: r.read(1 << 20), b""):
+            h.update(b)
+            f.write(b)
+    if "sha256:" + h.hexdigest() != digest:
+        raise Refused(f"blob {digest[:19]} does not hash to its digest")
+    return p
+
+
+def verify_signature(payload: bytes, sig_b64: str, pubkey_pem: str, digest: str):
+    from cryptography.exceptions import InvalidSignature
+    from cryptography.hazmat.primitives import hashes, serialization
+    from cryptography.hazmat.primitives.asymmetric import ec
+    pk = serialization.load_pem_public_key(pubkey_pem.encode())
+    if not isinstance(pk, ec.EllipticCurvePublicKey) or pk.curve.name != "secp256r1":
+        raise Refused("the channel image key is not ECDSA P-256")
+    try:
+        pk.verify(base64.b64decode(sig_b64, validate=True), payload, ec.ECDSA(hashes.SHA256()))
+    except (InvalidSignature, ValueError):
+        raise Refused("the image signature does not verify with the pinned channel key") from None
+    j = json.loads(payload)
+    if j["critical"]["image"]["docker-manifest-digest"] != digest or j["critical"]["type"] != "cosign container image signature":
+        raise Refused("the signature payload names another image")
+
+
+class Pusher:
+    def __init__(self, sock):
+        self.sock = sock
+
+    def req(self, method, path, body=None, headers=None):
+        c = UnixConn(self.sock)
+        try:
+            c.request(method, path, body=body, headers=headers or {})
+            r = c.getresponse()
+            return r.status, r.read(), dict(r.getheaders())
+        finally:
+            c.close()
+
+    def blob(self, repo, digest, path):
+        st, _, _ = self.req("HEAD", f"/v2/{repo}/blobs/{digest}")
+        if st == 200:
+            return
+        st, _, h = self.req("POST", f"/v2/{repo}/blobs/uploads/", b"", {"Content-Length": "0"})
+        if st != 202:
+            raise RuntimeError(f"upload start failed ({st})")
+        loc = urllib.parse.urlsplit(h.get("Location") or h.get("location")).path + "?" + urllib.parse.urlsplit(h.get("Location") or h.get("location")).query
+        loc += ("&" if "?" in loc else "?") + "digest=" + digest
+        with open(path, "rb") as f:
+            st, body, _ = self.req("PUT", loc, f.read(), {"Content-Type": "application/octet-stream"})
+        if st != 201:
+            raise RuntimeError(f"blob push failed ({st}) {body[:100]!r}")
+
+    def manifest(self, repo, ref, data, mt):
+        st, body, _ = self.req("PUT", f"/v2/{repo}/manifests/{ref}", data, {"Content-Type": mt})
+        if st != 201:
+            raise RuntimeError(f"manifest push failed ({st}) {body[:200]!r}")
+
+
+def publish_oci(args) -> int:
+    c = cfg()
+    if not REPO_RE.fullmatch(args.repo) or args.channel not in CHANNELS:
+        raise Refused("bad repo or channel")
+    pub = os.path.join(ETC, "keys", f"ou-image-{args.channel}.pub.pem")
+    if not os.path.isfile(pub):
+        raise Refused(f"no pinned image key for channel {args.channel} ({pub})")
+    pem = open(pub).read()
+    ref = args.ref
+    if not (DIGEST_RE.fullmatch(ref) or TAG_RE.fullmatch(ref)):
+        raise Refused("bad ref")
+    with tempfile.TemporaryDirectory() as td:
+        try:
+            r = src_get(args.src_url, f"/v2/{args.repo}/manifests/{ref}")
+            mdata, mt = r.read(), r.headers.get("Content-Type", "").split(";")[0]
+        except Exception as e:  # noqa: BLE001
+            raise Refused(f"cannot read the manifest from the source: {type(e).__name__}") from None
+        digest = "sha256:" + hashlib.sha256(mdata).hexdigest()
+        if DIGEST_RE.fullmatch(ref) and ref != digest:
+            raise Refused("the source served another manifest than the requested digest")
+        m = json.loads(mdata)
+        if m.get("mediaType", mt) not in ("application/vnd.oci.image.manifest.v1+json", "application/vnd.docker.distribution.manifest.v2+json"):
+            raise Refused("only single-platform image manifests are published (no index)")
+        sig_tag = "sha256-" + digest.split(":")[1] + ".sig"
+        try:
+            sdata = src_get(args.src_url, f"/v2/{args.repo}/manifests/{sig_tag}", "application/vnd.oci.image.manifest.v1+json").read()
+        except Exception:  # noqa: BLE001
+            raise Refused("the image has no signature attachment: unsigned images are never published") from None
+        sm = json.loads(sdata)
+        lay = sm["layers"][0]
+        sig_b64 = lay["annotations"]["dev.cosignproject.cosign/signature"]
+        payload_path = fetch_blob(args.src_url, args.repo, lay["digest"], td)
+        verify_signature(open(payload_path, "rb").read(), sig_b64, pem, digest)
+        blobs = {}
+        for d in [m["config"]["digest"], *[x["digest"] for x in m["layers"]]]:
+            blobs[d] = fetch_blob(args.src_url, args.repo, d, td)
+        sblobs = {sm["config"]["digest"]: fetch_blob(args.src_url, args.repo, sm["config"]["digest"], td), lay["digest"]: payload_path}
+        subprocess.run(["systemctl", "start", "ou-registry-push.service"], check=True, timeout=60)
+        try:
+            sock = c.get("push_socket", "/run/ou-artifacts/push.sock")
+            for _ in range(50):
+                if os.path.exists(sock):
+                    break
+                time.sleep(0.2)
+            p = Pusher(sock)
+            for d, path in {**blobs, **sblobs}.items():
+                p.blob(args.repo, d, path)
+            mt = m.get("mediaType", mt)
+            p.manifest(args.repo, digest, mdata, mt)
+            if args.tag_as or TAG_RE.fullmatch(ref) and not DIGEST_RE.fullmatch(ref):
+                p.manifest(args.repo, args.tag_as or ref, mdata, mt)
+            p.manifest(args.repo, sig_tag, sdata, "application/vnd.oci.image.manifest.v1+json")
+        finally:
+            subprocess.run(["systemctl", "stop", "ou-registry-push.service"], timeout=60)
+    print(json.dumps({"published": "oci", "repo": args.repo, "digest": digest, "channel": args.channel, "signature_tag": sig_tag}))
+    return 0
+
+
+def status(_args) -> int:
+    c = cfg()
+    cur = os.path.join(c["data_dir"], "apt", "current")
+    out = {"apt_release": os.path.basename(os.path.realpath(cur)) if os.path.islink(cur) else None,
+           "channels": sorted(os.listdir(os.path.join(cur, "dists"))) if os.path.isdir(os.path.join(cur, "dists")) else []}
+    print(json.dumps(out))
+    return 0
+
+
+def main(argv=None) -> int:
+    ap = argparse.ArgumentParser(prog="ou-artifact-publish")
+    sp = ap.add_subparsers(dest="cmd", required=True)
+    a = sp.add_parser("apt")
+    a.add_argument("--src", required=True)
+    a.add_argument("--channels", default="")
+    o = sp.add_parser("oci")
+    o.add_argument("--from", dest="src_url", required=True)
+    o.add_argument("--repo", required=True)
+    o.add_argument("--ref", required=True)
+    o.add_argument("--channel", required=True)
+    o.add_argument("--tag-as", default="")
+    sp.add_parser("status")
+    args = ap.parse_args(argv)
+    if os.geteuid() != 0 and args.cmd != "status":
+        print("run as root", file=sys.stderr)
+        return 1
+    try:
+        return {"apt": publish_apt, "oci": publish_oci, "status": status}[args.cmd](args)
+    except Refused as e:
+        print(f"REFUSED: {e}", file=sys.stderr)
+        return 3
+
+
+if __name__ == "__main__":
+    sys.exit(main())

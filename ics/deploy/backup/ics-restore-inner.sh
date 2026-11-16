@@ -16,6 +16,7 @@ for i in $(seq 1 30); do ip -4 route | grep -q default && break; sleep 1; done
 apt-get -qq update; DEBIAN_FRONTEND=noninteractive apt-get -qq install -y python3-venv postgresql-16 >/dev/null
 getent passwd ics >/dev/null || useradd --system --no-create-home --home-dir /nonexistent --shell /usr/sbin/nologin ics
 tar --numeric-owner -xpzf etc.tgz -C /
+[ ! -f artifacts-data.tgz ] || tar --numeric-owner -xpzf artifacts-data.tgz -C /   # ADR-0015: present only when taken with OU_ICS_BACKUP_ARTIFACT_DATA=1
 # numeric gid of 'ics' differs on a new host: re-apply the intended ownership by name
 chown root:ics /etc/office-unbound/ics.env /etc/office-unbound/vault.key /etc/office-unbound/audit.key /etc/office-unbound/ics-signing.key
 chmod 0640 /etc/office-unbound/ics.env /etc/office-unbound/vault.key /etc/office-unbound/audit.key /etc/office-unbound/ics-signing.key

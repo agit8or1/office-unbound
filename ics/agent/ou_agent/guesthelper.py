@@ -295,7 +295,8 @@ def facts(p, cfg):
 
 # ---------------------------------------------------------------- pkg.install_pinned (root)
 def _apt_opts():
-    return ["-o", f"Dir::Etc::sourcelist={APT_DIR}/sources.list", "-o", "Dir::Etc::sourceparts=/nonexistent",
+    extra = os.path.join(APT_DIR, "apt-extra.conf")   # ADR-0015: artifact CA scoped to the artifact hosts (root-owned, written at bootstrap)
+    return (["-c", extra] if os.path.isfile(extra) else []) + ["-o", f"Dir::Etc::sourcelist={APT_DIR}/sources.list", "-o", "Dir::Etc::sourceparts=/nonexistent",
             "-o", f"Dir::State::lists={APT_STATE}/lists", "-o", "Acquire::AllowInsecureRepositories=false",
             "-o", "Acquire::AllowDowngradeToInsecureRepositories=false", "-o", "APT::Get::AllowUnauthenticated=false"]
 

@@ -11,6 +11,7 @@
 FAIL CLOSED: the image ships SSH masked and an nftables default-deny ruleset with no inbound service. Any failure (no/invalid SMBIOS, pin mismatch,
 bad ack, bad configuration, timeout) leaves exactly that state (a `failed` marker is written, the agent is never started, nothing listens) and the
 unit exits non-zero. There is no retry that weakens anything, no fallback and no SSH at any point."""
+import base64
 import hashlib
 import hmac
 import http.client
@@ -138,7 +139,7 @@ def _cidrs(v) -> list[str]:
 def validate_config(c: dict) -> dict:
     """Closed schema (unknown fields refused); every value is validated again here, the image trusts nothing it has not checked itself."""
     allowed = {"v", "hostname", "agent_port", "mgmt_sources", "ports", "agent_config", "image_registries", "insecure_registries", "signing_pubkey_pem",
-               "signing_key_sha256", "enroll_ttl_seconds"}
+               "signing_key_sha256", "enroll_ttl_seconds", "ou_repos", "signed_registry", "image_repos", "artifact_ca_pem", "artifact_ca_sha256", "artifact_tls_hosts", "apt_base_sources"}
     if set(c) - allowed or c.get("v") != 1:
         raise Refused("the configuration has an unknown version or unknown fields")
     if not isinstance(c.get("hostname"), str) or not re.fullmatch(r"[a-z0-9]([a-z0-9-]{0,61}[a-z0-9])?", c["hostname"]):
@@ -177,7 +178,115 @@ def validate_config(c: dict) -> dict:
     if pem is not None and (not isinstance(pem, str) or len(pem) > 2000 or not pem.startswith("-----BEGIN PUBLIC KEY-----")):
         raise Refused("invalid image signing key")
     out["signing_pubkey_pem"], out["signing_key_sha256"] = pem, c.get("signing_key_sha256")
+    out.update(validate_artifacts(c, regs))
     return out
+
+
+APT_DIR = "/etc/ou-agent/apt"
+ARTIFACT_CA = "/etc/ou-agent/artifact-ca.crt"
+SUITE_RE = re.compile(r"^(dev|staging|stable)$")
+URL_RE = re.compile(r"^https://[a-z0-9][A-Za-z0-9.-]{0,100}(:[0-9]{1,5})?(/[A-Za-z0-9._~-]+){0,10}/?$")
+SRC_RE = re.compile(r"deb \[signed-by=[A-Za-z0-9/._-]+\] [A-Za-z0-9.:/_~-]+ [a-z0-9-]+( [a-z0-9-]+){1,8}")
+
+
+def validate_artifacts(c: dict, regs: list) -> dict:
+    """ADR-0015: per-channel apt repositories (each with its OWN pinned key) and the artifact CA, scoped to named hosts. Everything is re-checked
+    here: the key block must hash to the declared fingerprint (computed on the guest, the ICS only declares it), the CA must match its sha256."""
+    out = {"ou_repos": [], "artifact_ca_pem": None, "artifact_tls_hosts": [], "apt_base_sources": c.get("apt_base_sources"), "signed_registry": None}
+    sr = c.get("signed_registry")
+    if sr is not None:
+        if not isinstance(sr, str) or not guestspec.REGISTRY_RE.fullmatch(sr):
+            raise Refused("invalid signed registry")
+        out["signed_registry"] = sr
+    ir = c.get("image_repos", [])
+    if not isinstance(ir, list) or len(ir) > 64 or not all(isinstance(x, str) and re.fullmatch(r"ou/[a-z0-9]+(?:[._-][a-z0-9]+)*(?:/[a-z0-9]+(?:[._-][a-z0-9]+)*){0,2}", x) for x in ir):
+        raise Refused("invalid image repositories")
+    if bool(sr) != bool(ir):
+        raise Refused("signed_registry and image_repos go together")
+    out["image_repos"] = sorted(set(ir))
+    bs = c.get("apt_base_sources")
+    if bs is not None and (not isinstance(bs, str) or len(bs) > 4000 or any(not SRC_RE.fullmatch(ln) for ln in bs.splitlines() if ln.strip())):
+        raise Refused("invalid base apt sources")
+    repos = c.get("ou_repos", [])
+    if not isinstance(repos, list) or len(repos) > 3:
+        raise Refused("invalid repositories")
+    seen = set()
+    for r in repos:
+        if not isinstance(r, dict) or set(r) != {"suite", "url", "components", "key_armored", "key_fingerprint"}:
+            raise Refused("invalid repository entry")
+        if not isinstance(r["suite"], str) or not SUITE_RE.fullmatch(r["suite"]) or r["suite"] in seen:
+            raise Refused("invalid or duplicate repository channel")
+        seen.add(r["suite"])
+        if not isinstance(r["url"], str) or not URL_RE.fullmatch(r["url"]):
+            raise Refused("invalid repository url (https only)")
+        if not isinstance(r["components"], list) or not r["components"] or not all(isinstance(x, str) and re.fullmatch(r"[a-z0-9][a-z0-9-]{0,30}", x) for x in r["components"]):
+            raise Refused("invalid repository components")
+        if not isinstance(r["key_armored"], str) or len(r["key_armored"]) > 20000 or not r["key_armored"].startswith("-----BEGIN PGP PUBLIC KEY BLOCK-----") \
+                or r["key_armored"].count("-----BEGIN") != 1:
+            raise Refused("invalid repository key")
+        if not isinstance(r["key_fingerprint"], str) or not re.fullmatch(r"[0-9A-F]{40}", r["key_fingerprint"]) or openpgp_fingerprint(r["key_armored"]) != r["key_fingerprint"]:
+            raise Refused("the repository key does not match its pinned fingerprint")
+        out["ou_repos"].append({k: r[k] for k in ("suite", "url", "components", "key_armored", "key_fingerprint")})
+    pem, pin, hosts = c.get("artifact_ca_pem"), c.get("artifact_ca_sha256"), c.get("artifact_tls_hosts", [])
+    if bool(pem) != bool(pin) or bool(pem) != bool(hosts):
+        raise Refused("artifact CA, pin and hosts go together")
+    if pem:
+        m = re.fullmatch(r"\s*-----BEGIN CERTIFICATE-----\s*([A-Za-z0-9+/=\s]+?)\s*-----END CERTIFICATE-----\s*", pem) if isinstance(pem, str) and len(pem) < 8000 else None
+        try:
+            der = base64.b64decode("".join(m.group(1).split()), validate=True) if m else b""
+        except ValueError:
+            der = b""
+        if not der or not isinstance(pin, str) or hashlib.sha256(der).hexdigest() != pin:
+            raise Refused("the artifact CA does not match its pinned sha256")
+        if not isinstance(hosts, list) or len(hosts) > 4 or not all(isinstance(h, str) and guestspec.REGISTRY_RE.fullmatch(h) for h in hosts):
+            raise Refused("invalid artifact TLS hosts")
+        out["artifact_ca_pem"], out["artifact_tls_hosts"] = pem if pem.endswith("\n") else pem + "\n", sorted(set(hosts))
+    return out
+
+
+def openpgp_fingerprint(armored: str) -> str:
+    """v4 fingerprint of the primary key of an armored public key block (SHA-1 over 0x99 || len || key body); no gpg needed on the guest."""
+    body, on, hdr = [], False, True
+    for ln in armored.splitlines():
+        ln = ln.strip()
+        if ln.startswith("-----BEGIN PGP PUBLIC KEY BLOCK-----"):
+            on, hdr = True, True
+            continue
+        if not on:
+            continue
+        if ln.startswith("-----END") or ln.startswith("="):
+            break
+        if hdr:
+            if ": " in ln:
+                continue
+            hdr = False
+            if not ln:
+                continue
+        if ln:
+            body.append(ln)
+    try:
+        raw = base64.b64decode("".join(body), validate=True)
+        tag = raw[0]
+        if tag & 0x40:
+            t, i, n = tag & 0x3F, 1, raw[1]
+            if n < 192:
+                i = 2
+            elif n < 224:
+                n, i = ((n - 192) << 8) + raw[2] + 192, 3
+            else:
+                return ""
+        else:
+            t, lt = (tag >> 2) & 0xF, tag & 3
+            sz = {0: 1, 1: 2, 2: 4}.get(lt)
+            if sz is None:
+                return ""
+            n, i = int.from_bytes(raw[1:1 + sz], "big"), 1 + sz
+        kb = raw[i:i + n]
+        if t != 6 or not kb or kb[0] != 4:
+            return ""
+        return hashlib.sha1(b"\x99" + len(kb).to_bytes(2, "big") + kb).hexdigest().upper()  # noqa: S324 (the OpenPGP v4 definition)
+    except (ValueError, IndexError):
+        return ""
 
 
 def nft_ruleset(conf: dict) -> str:
@@ -252,18 +361,7 @@ def prepare_agent(g: Guest, address: str, hostname: str, ttl: int) -> tuple[str,
 
 
 def apply_config(g: Guest, conf: dict) -> None:
-    g.write("/etc/ou-agent/agent.json", json.dumps(conf["agent_config"], indent=2, sort_keys=True) + "\n")
-    if conf["signing_pubkey_pem"] and conf["image_registries"]:
-        pub = conf["signing_pubkey_pem"] if conf["signing_pubkey_pem"].endswith("\n") else conf["signing_pubkey_pem"] + "\n"
-        g.write("/etc/ou-agent/image-signing.pub", pub)
-        d = "/opt/ou-agent/deploy/render_image_policy.py"
-        for kind, dest in (("policy", "/etc/ou-agent/image-policy.json"), ("pullonly", "/etc/ou-agent/image-policy-pullonly.json"),
-                           ("registries", "/etc/containers/registries.d/ou-agent.yaml")):
-            out = g.run(["python3", d, g.p("/etc/ou-agent/agent.json"), g.p("/etc/ou-agent/image-signing.pub"), kind])
-            g.write(dest, out.stdout.decode() if isinstance(out.stdout, bytes) else str(out.stdout))
-        if conf["insecure_registries"]:
-            g.write("/etc/containers/registries.conf.d/50-ou-insecure.conf", "".join(
-                f'[[registry]]\nlocation = "{r}"\ninsecure = true\n\n' for r in sorted(conf["insecure_registries"])))
+    apply_trust(g, conf)
     pol = g.run(["python3", "/opt/ou-agent/deploy/render_polkit.py", g.p("/etc/ou-agent/agent.json")])   # the agent's only privilege: restart allowlisted units
     g.write("/etc/polkit-1/rules.d/50-ou-agent.rules", pol.stdout.decode() if isinstance(pol.stdout, bytes) else str(pol.stdout))
     rules = nft_ruleset(conf)
@@ -273,6 +371,47 @@ def apply_config(g: Guest, conf: dict) -> None:
     g.run(["nft", "-f", g.p("/etc/nftables.conf")])
     g.run(["hostnamectl", "set-hostname", conf["hostname"]])
     g.run(["systemctl", "enable", "--now", "ou-agent.service"])
+
+
+def apply_trust(g: Guest, conf: dict) -> None:
+    """Everything that decides WHAT this guest will install: runbook allowlists, the sigstoreSigned image policy with the one pinned key, registries.d,
+    the per-channel apt sources/keys/pins and the artifact CA (ADR-0015). Split from apply_config so the lab and the tests exercise exactly this code."""
+    g.write("/etc/ou-agent/agent.json", json.dumps(conf["agent_config"], indent=2, sort_keys=True) + "\n")
+    if conf["signing_pubkey_pem"] and conf["image_registries"]:
+        pub = conf["signing_pubkey_pem"] if conf["signing_pubkey_pem"].endswith("\n") else conf["signing_pubkey_pem"] + "\n"
+        g.write("/etc/ou-agent/image-signing.pub", pub)
+        if conf.get("signed_registry"):   # signatures name this registry; every allowlisted ARTIFACT registry is remapped onto it (ADR-0015)
+            g.write("/etc/ou-agent/image-identity.json", json.dumps({h: {"signed": conf["signed_registry"], "repos": conf["image_repos"]}
+                                                                     for h in conf["artifact_tls_hosts"] if h in conf["image_registries"]}) + "\n")
+        d = "/opt/ou-agent/deploy/render_image_policy.py"
+        for kind, dest in (("policy", "/etc/ou-agent/image-policy.json"), ("pullonly", "/etc/ou-agent/image-policy-pullonly.json"),
+                           ("registries", "/etc/containers/registries.d/ou-agent.yaml")):
+            out = g.run(["python3", d, g.p("/etc/ou-agent/agent.json"), g.p("/etc/ou-agent/image-signing.pub"), kind])
+            g.write(dest, out.stdout.decode() if isinstance(out.stdout, bytes) else str(out.stdout))
+        if conf["insecure_registries"]:
+            g.write("/etc/containers/registries.conf.d/50-ou-insecure.conf", "".join(
+                f'[[registry]]\nlocation = "{r}"\ninsecure = true\n\n' for r in sorted(conf["insecure_registries"])))
+    apply_artifacts(g, conf)
+
+
+def apply_artifacts(g: Guest, conf: dict) -> None:
+    """apt sources (system archives + our channels), per-channel keyrings, pinned fingerprints, and the artifact CA scoped to the artifact hosts:
+    apt reads it through the agent's private apt-extra.conf (`Acquire::https::<host>::CaInfo`), podman through /etc/containers/certs.d/<host>/ca.crt."""
+    if conf["ou_repos"]:
+        lines = [(conf["apt_base_sources"] or "").rstrip("\n")] if conf.get("apt_base_sources") else []
+        for r in sorted(conf["ou_repos"], key=lambda r: r["suite"]):
+            lines.append(f"deb [signed-by={APT_DIR}/keyrings/ou-{r['suite']}.asc] {r['url']} {r['suite']} {' '.join(r['components'])}")
+            g.write(f"{APT_DIR}/keyrings/ou-{r['suite']}.asc", r["key_armored"] if r["key_armored"].endswith("\n") else r["key_armored"] + "\n")
+        g.write(f"{APT_DIR}/sources.list", "# generated: the ONLY sources pkg.install_pinned uses\n" + "\n".join(lines) + "\n")
+        g.write(f"{APT_DIR}/pinned-fingerprints", "# pinned OpenPGP fingerprints; pkg.install_pinned refuses any other key\n" +
+                "".join(r["key_fingerprint"] + "\n" for r in sorted(conf["ou_repos"], key=lambda r: r["suite"])))
+    if conf["artifact_ca_pem"]:
+        g.write(ARTIFACT_CA, conf["artifact_ca_pem"])
+        g.write(f"{APT_DIR}/apt-extra.conf", "# generated: artifact CA, scoped per host (not in the system trust store)\n" + "".join(
+            f'Acquire::https::{h.split(":", 1)[0]}::CaInfo "{ARTIFACT_CA}";\n' for h in conf["artifact_tls_hosts"]))
+        for h in conf["artifact_tls_hosts"]:
+            if h in conf["image_registries"]:
+                g.write(f"/etc/containers/certs.d/{h}/ca.crt", conf["artifact_ca_pem"])
 
 
 def bootstrap(g: Guest, smbios_dir: str = SMBIOS_DIR, post=post_pinned, *, retry_seconds: float = 0.0, sleep=time.sleep, clock=time.monotonic) -> dict:

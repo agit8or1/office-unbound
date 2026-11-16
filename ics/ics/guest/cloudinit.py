@@ -87,6 +87,16 @@ class GuestSpec(BaseModel):
     unattended: Literal["security", "none"] = "security"
     extra_packages: list[str] = []
     ou_repo: OuRepo | None = None
+    # ADR-0015: one repo line per release CHANNEL the VM installs from, each with its OWN pinned key (security review 7: separate channel keys);
+    # `ou_repo` (single, key file ou-repo.asc) is the older form and cannot be combined with this one.
+    ou_repos: list[OuRepo] = Field(default=[], max_length=3)
+    # private CA of the artifact service, trusted ONLY for `artifact_tls_hosts` (apt: Acquire::https::<host>::CaInfo, podman: certs.d/<host>),
+    # never added to the system trust store; pinned by sha256 and checked at render time like the image signing key
+    artifact_ca_pem: str | None = Field(default=None, max_length=8000)
+    artifact_ca_sha256: str | None = None
+    artifact_tls_hosts: list[str] = []
+    signed_registry: str | None = None         # registry host named inside the image signatures when it differs from the one guests pull from
+    image_repos: list[str] = []                # with signed_registry: the repositories (ou/...) this VM may pull; every other one is refused
     agent_address: str | None = None           # None => first global IPv4 at boot
     agent_port: int = Field(8443, ge=1024, le=65535)
     mgmt_sources: list[str] = Field(min_length=1)   # who may reach the agent (the ICS); required, nothing is open to the world
@@ -158,6 +168,27 @@ class GuestSpec(BaseModel):
             raise ValueError("invalid registry")
         return v
 
+    @field_validator("image_repos")
+    @classmethod
+    def _ir(cls, v):
+        if len(v) > 64 or not all(re.fullmatch(r"ou/[a-z0-9]+(?:[._-][a-z0-9]+)*(?:/[a-z0-9]+(?:[._-][a-z0-9]+)*){0,2}", x) for x in v):
+            raise ValueError("invalid image repository")
+        return v
+
+    @field_validator("signed_registry")
+    @classmethod
+    def _sr(cls, v):
+        if v is not None and not REGISTRY_RE.fullmatch(v):
+            raise ValueError("invalid signed registry")
+        return v
+
+    @field_validator("artifact_tls_hosts")
+    @classmethod
+    def _th(cls, v):
+        if len(v) > 4 or not all(REGISTRY_RE.fullmatch(x) for x in v):
+            raise ValueError("invalid artifact TLS host")
+        return v
+
     @field_validator("mgmt_sources")
     @classmethod
     def _m(cls, v):
@@ -197,8 +228,26 @@ class GuestSpec(BaseModel):
                 raise ValueError("image signing key does not match its pinned fingerprint")
         if hashlib.sha256(base64.b64decode(self.agent_bundle_b64, validate=True)).hexdigest() != self.agent_bundle_sha256:
             raise ValueError("agent bundle does not match its sha256")
-        if self.pkg_allowlist and not self.ou_repo:
+        if bool(self.signed_registry) != bool(self.image_repos):
+            raise ValueError("signed_registry and image_repos go together")
+        if self.ou_repo and self.ou_repos:
+            raise ValueError("ou_repo and ou_repos are mutually exclusive")
+        if len({r.suite for r in self.ou_repos}) != len(self.ou_repos):
+            raise ValueError("one repository line per channel")
+        if self.pkg_allowlist and not (self.ou_repo or self.ou_repos):
             raise ValueError("pkg_allowlist needs ou_repo (packages come from the allowlisted repository only)")
+        if bool(self.artifact_ca_pem) != bool(self.artifact_ca_sha256) or bool(self.artifact_ca_pem) != bool(self.artifact_tls_hosts):
+            raise ValueError("artifact_ca_pem, artifact_ca_sha256 and artifact_tls_hosts go together")
+        if self.artifact_ca_pem:
+            m = re.fullmatch(r"\s*-----BEGIN CERTIFICATE-----\s*([A-Za-z0-9+/=\s]+?)\s*-----END CERTIFICATE-----\s*", self.artifact_ca_pem)
+            if not m or not HEX64.fullmatch(self.artifact_ca_sha256 or ""):
+                raise ValueError("artifact_ca_pem must be exactly one PEM certificate and artifact_ca_sha256 64 hex")
+            try:
+                der = base64.b64decode("".join(m.group(1).split()), validate=True)
+            except ValueError as e:
+                raise ValueError("artifact_ca_pem is not valid base64") from e
+            if hashlib.sha256(der).hexdigest() != self.artifact_ca_sha256:
+                raise ValueError("artifact CA does not match its pinned sha256")
         return self
 
 
@@ -282,6 +331,23 @@ def unattended_conf(s: GuestSpec) -> tuple[str, str]:
     return auto, uu
 
 
+APT_DIR = "/etc/ou-agent/apt"
+ARTIFACT_CA = "/etc/ou-agent/artifact-ca.crt"
+
+
+def repo_list(s: GuestSpec) -> list[tuple[str, OuRepo]]:
+    """(key file name inside the agent keyring dir, repository) for every Office Unbound apt line of this guest."""
+    if s.ou_repo:
+        return [("ou-repo.asc", s.ou_repo)]
+    return [(f"ou-{r.suite}.asc", r) for r in sorted(s.ou_repos, key=lambda r: r.suite)]
+
+
+def apt_extra_conf(s: GuestSpec) -> str:
+    """Extra apt configuration of the agent's PRIVATE apt (read with `-c`): the artifact CA is bound to the artifact hosts only."""
+    return "# generated: artifact CA, scoped per host (not in the system trust store)\n" + "".join(
+        f'Acquire::https::{h.split(":", 1)[0]}::CaInfo "{ARTIFACT_CA}";\n' for h in sorted(set(s.artifact_tls_hosts)))
+
+
 def apt_sources(s: GuestSpec) -> str:
     distro, suite = SUITES[s.os]
     mirror = {"ubuntu": ("http://archive.ubuntu.com/ubuntu", "http://security.ubuntu.com/ubuntu", "main universe"),
@@ -290,8 +356,8 @@ def apt_sources(s: GuestSpec) -> str:
     lines = [f"deb [signed-by={kr}] {mirror[0]} {suite} {mirror[2]}", f"deb [signed-by={kr}] {mirror[0]} {suite}-updates {mirror[2]}",
              f"deb [signed-by={kr}] {mirror[1]} {suite}-security {mirror[2]}" if distro == "ubuntu" else
              f"deb [signed-by={kr}] {mirror[1]} {suite}-security {mirror[2]}"]
-    if s.ou_repo:
-        lines.append(f"deb [signed-by=/etc/ou-agent/apt/keyrings/ou-repo.asc] {s.ou_repo.url} {s.ou_repo.suite} {' '.join(s.ou_repo.components)}")
+    for kf, r in repo_list(s):
+        lines.append(f"deb [signed-by={APT_DIR}/keyrings/{kf}] {r.url} {r.suite} {' '.join(r.components)}")
     return "# generated: the ONLY sources pkg.install_pinned uses (system sources are not consulted)\n" + "\n".join(lines) + "\n"
 
 
@@ -373,12 +439,21 @@ def build(s: GuestSpec) -> dict:
                          "".join(f'[[registry]]\nlocation = "{r}"\ninsecure = true\n\n' for r in sorted(s.insecure_registries))))
     if s.image_signing_pubkey_pem:
         files.append(_wf("/etc/ou-agent/image-signing.pub", s.image_signing_pubkey_pem if s.image_signing_pubkey_pem.endswith("\n") else s.image_signing_pubkey_pem + "\n"))
-    if s.ou_repo:
-        files += [_wf("/etc/ou-agent/apt/sources.list", apt_sources(s)),
-                  _wf("/etc/ou-agent/apt/keyrings/ou-repo.asc", s.ou_repo.key_armored if s.ou_repo.key_armored.endswith("\n") else s.ou_repo.key_armored + "\n"),
-                  _wf("/etc/ou-agent/apt/pinned-fingerprints", "# pinned OpenPGP fingerprints; pkg.install_pinned refuses any other key\n" + s.ou_repo.key_fingerprint + "\n")]
+    if s.ou_repo or s.ou_repos:
+        rl = repo_list(s)
+        files += [_wf(f"{APT_DIR}/sources.list", apt_sources(s))]
+        files += [_wf(f"{APT_DIR}/keyrings/{kf}", r.key_armored if r.key_armored.endswith("\n") else r.key_armored + "\n") for kf, r in rl]
+        files += [_wf(f"{APT_DIR}/pinned-fingerprints", "# pinned OpenPGP fingerprints; pkg.install_pinned refuses any other key\n" +
+                      "".join(r.key_fingerprint + "\n" for _, r in rl))]
     elif s.pkg_allowlist:
         raise ValueError("pkg_allowlist without ou_repo")
+    if s.artifact_ca_pem:
+        ca = s.artifact_ca_pem if s.artifact_ca_pem.endswith("\n") else s.artifact_ca_pem + "\n"
+        files += [_wf(ARTIFACT_CA, ca), _wf(f"{APT_DIR}/apt-extra.conf", apt_extra_conf(s))]
+        files += [_wf(f"/etc/containers/certs.d/{h}/ca.crt", ca) for h in sorted(set(s.artifact_tls_hosts) & set(s.image_registries))]
+        if s.signed_registry:
+            files.append(_wf("/etc/ou-agent/image-identity.json", json.dumps({h: {"signed": s.signed_registry, "repos": sorted(set(s.image_repos))}
+                                                                              for h in sorted(set(s.artifact_tls_hosts) & set(s.image_registries))}) + "\n"))
     users = [{"name": SERVICE_USER, "gecos": "Office Unbound workload (rootless Podman)", "homedir": SERVICE_HOME, "shell": "/usr/sbin/nologin",
               "lock_passwd": True, "system": False}]
     if s.break_glass_ssh_key:
@@ -400,3 +475,19 @@ def build(s: GuestSpec) -> dict:
 
 def render(s: GuestSpec) -> str:
     return "#cloud-config\n" + yaml.safe_dump(build(s), sort_keys=True, default_flow_style=False, width=1000)
+
+
+def callback_config(s: GuestSpec, hostname: str, agent_port: int, mgmt_sources: list[str] | None, ports: list[dict]) -> dict:
+    """What the golden image's first-boot unit applies after the ICS authenticated itself (closed schema, validated again on the guest by
+    ou_agent.firstboot.validate_config). `mgmt_sources` None = the ICS address towards the guest (known only at callback time)."""
+    out = {"v": 1, "hostname": hostname, "agent_port": agent_port, "mgmt_sources": mgmt_sources, "ports": ports,
+           "agent_config": agent_config(s), "image_registries": s.image_registries, "insecure_registries": s.insecure_registries,
+           "signing_pubkey_pem": s.image_signing_pubkey_pem, "signing_key_sha256": s.image_signing_key_sha256, "enroll_ttl_seconds": s.enroll_ttl_seconds}
+    if s.ou_repos:   # ADR-0015: per-channel repositories; the system archive lines are carried separately, our lines are rebuilt on the guest
+        out["ou_repos"] = [r.model_dump(mode="json") for r in s.ou_repos]
+        out["apt_base_sources"] = "\n".join(ln for ln in apt_sources(s).splitlines() if ln.startswith("deb ") and APT_DIR not in ln)
+    if s.artifact_ca_pem:
+        out.update(artifact_ca_pem=s.artifact_ca_pem, artifact_ca_sha256=s.artifact_ca_sha256, artifact_tls_hosts=s.artifact_tls_hosts)
+        if s.signed_registry:
+            out["signed_registry"], out["image_repos"] = s.signed_registry, sorted(set(s.image_repos))
+    return out

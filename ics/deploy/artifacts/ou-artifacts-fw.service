@@ -1,0 +1,14 @@
+[Unit]
+Description=Office Unbound artifact service source restriction (customer VNets only)
+Before=nginx.service
+After=network-pre.target
+
+[Service]
+Type=oneshot
+RemainAfterExit=yes
+ExecStartPre=-/usr/sbin/nft delete table inet ou_artifacts
+ExecStart=/usr/sbin/nft -f /etc/office-unbound/artifacts/ou-artifacts-fw.nft
+ExecStop=/usr/sbin/nft delete table inet ou_artifacts
+
+[Install]
+WantedBy=multi-user.target

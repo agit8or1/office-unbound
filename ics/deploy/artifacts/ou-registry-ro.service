@@ -1,0 +1,45 @@
+[Unit]
+Description=Office Unbound artifact registry (READ-ONLY reader behind nginx, loopback only)
+After=network.target
+
+[Service]
+Type=simple
+User=ou-artifacts
+Group=ou-artifacts
+ExecStart=/usr/bin/docker-registry serve /etc/office-unbound/artifacts/registry-ro.yml
+Restart=on-failure
+RestartSec=3
+UMask=0027
+
+# --- hardening (the registry needs nothing but its storage tree, read-only, and one loopback port) ---
+NoNewPrivileges=true
+ProtectSystem=strict
+ProtectHome=true
+PrivateTmp=true
+PrivateDevices=true
+ProtectKernelTunables=true
+ProtectKernelModules=true
+ProtectKernelLogs=true
+ProtectControlGroups=true
+ProtectClock=true
+ProtectHostname=true
+LockPersonality=true
+RestrictRealtime=true
+RestrictSUIDSGID=true
+RestrictNamespaces=true
+MemoryDenyWriteExecute=true
+RemoveIPC=true
+CapabilityBoundingSet=
+AmbientCapabilities=
+RestrictAddressFamilies=AF_INET AF_UNIX
+# not ~@resources: the Go runtime raises RLIMIT_NOFILE (prlimit) at start
+SystemCallFilter=@system-service
+SystemCallFilter=~@privileged
+SystemCallArchitectures=native
+ReadOnlyPaths=/var/lib/office-unbound/artifacts
+IPAddressAllow=localhost
+IPAddressDeny=any
+MemoryMax=512M
+
+[Install]
+WantedBy=multi-user.target

@@ -21,9 +21,17 @@ printf 'db_name=%s\ndb_owner=%s\n' "$DB" "$OWNER" > "$W/meta.env"
 # optional front-end files exist only on hosts installed with TLS (bootstrap.sh --skip-tls has none)
 FILES=(etc/office-unbound/ics.env etc/office-unbound/ics-migrate.env etc/office-unbound/vault.key etc/office-unbound/audit.key etc/office-unbound/ics-signing.key
        etc/systemd/system/ics.service etc/systemd/system/ics-migrate.service)
-for f in etc/office-unbound/tls etc/office-unbound/ics-admin-fw.nft etc/systemd/system/ics-admin-fw.service etc/nginx/sites-available/ics.conf; do
+# ADR-0015 artifact distribution: configuration, its private CA key, pinned public keys, units and the nginx site (all small). The published DATA
+# (apt tree, registry blobs; can be GBs) is rebuildable from the build/release pipeline and its promotion records, so it is included only on request:
+#   OU_ICS_BACKUP_ARTIFACT_DATA=1  -> artifacts-data.tgz (the CURRENT apt release + the registry tree)
+for f in etc/office-unbound/tls etc/office-unbound/ics-admin-fw.nft etc/systemd/system/ics-admin-fw.service etc/nginx/sites-available/ics.conf \
+         etc/office-unbound/artifacts etc/nginx/conf.d/ou-artifacts.conf etc/systemd/system/ou-registry-ro.service etc/systemd/system/ou-registry-push.service \
+         etc/systemd/system/ou-artifacts-fw.service; do
   [ -e "$P/$f" ] && FILES+=("$f"); done
 tar --numeric-owner -cpzf "$W/etc.tgz" -C "${P:-/}" "${FILES[@]}"
+if [ "${OU_ICS_BACKUP_ARTIFACT_DATA:-0}" = 1 ] && [ -d "$P/var/lib/office-unbound/artifacts" ]; then
+  tar --numeric-owner -cpzf "$W/artifacts-data.tgz" -C "${P:-/}" var/lib/office-unbound/artifacts
+fi
 # the deployed release that produced this DB schema (code only; the venv is rebuilt from requirements.lock with --require-hashes)
 tar -cpzf "$W/release.tgz" -C "$P/opt/office-unbound" --exclude .venv --exclude __pycache__ ics $( [ -d "$P/opt/office-unbound/blueprints" ] && echo blueprints )
 ( cd "$W" && sha256sum ./* > SHA256SUMS ) && tar -cf "$DEST/ics-backup.tar" -C "$W" .

@@ -1,0 +1,42 @@
+[Unit]
+Description=Office Unbound artifact registry (PUSH instance: unix socket only, started by ou-artifact-publish for the duration of a publication)
+After=network.target
+
+[Service]
+Type=simple
+User=ou-artifacts
+Group=ou-artifacts
+# /run/ou-artifacts/push.sock: reachable by root (the publisher) and the ou-artifacts group only; there is NO network listener
+RuntimeDirectory=ou-artifacts
+RuntimeDirectoryMode=0750
+UMask=0007
+ExecStart=/usr/bin/docker-registry serve /etc/office-unbound/artifacts/registry-push.yml
+Restart=no
+
+NoNewPrivileges=true
+ProtectSystem=strict
+ProtectHome=true
+PrivateTmp=true
+PrivateDevices=true
+ProtectKernelTunables=true
+ProtectKernelModules=true
+ProtectKernelLogs=true
+ProtectControlGroups=true
+ProtectClock=true
+ProtectHostname=true
+LockPersonality=true
+RestrictRealtime=true
+RestrictSUIDSGID=true
+RestrictNamespaces=true
+MemoryDenyWriteExecute=true
+RemoveIPC=true
+CapabilityBoundingSet=
+AmbientCapabilities=
+RestrictAddressFamilies=AF_UNIX
+# not ~@resources: the Go runtime raises RLIMIT_NOFILE (prlimit) at start
+SystemCallFilter=@system-service
+SystemCallFilter=~@privileged
+SystemCallArchitectures=native
+ReadWritePaths=/var/lib/office-unbound/artifacts/registry
+IPAddressDeny=any
+MemoryMax=512M

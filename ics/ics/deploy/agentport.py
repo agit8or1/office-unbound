@@ -22,7 +22,7 @@ from pathlib import Path
 
 from sqlalchemy import text
 
-from .. import agentclient, audit
+from .. import agentclient, artifacts, audit
 from ..agentclient import AgentError
 from ..guest import agentcall, bootsecrets, cloudinit, neigh, sshboot
 from ..proxmox import normalize_fingerprint
@@ -391,17 +391,44 @@ class GuestAgentPort:
             key_sha = s.guest_image_signing_key_sha256
         import base64
         import hashlib
+        extra = self._artifact_fields(vm, bool(pub))
         raw = bundle if bundle is not None else b"golden-image"   # the golden image carries the agent; only the rendering rules are needed here
         try:
             return cloudinit.GuestSpec(
                 hostname=vm, os=os_id, agent_address=addr, agent_port=AGENT_PORT, mgmt_sources=mgmt, declared_ports=ports,
-                image_registries=list(s.guest_image_registries) if pub else [], insecure_registries=list(s.guest_insecure_registries) if pub else [],
+                image_registries=sorted({*s.guest_image_registries, *extra.pop("_registries", [])}) if pub else [],
+                insecure_registries=list(s.guest_insecure_registries) if pub else [], **extra,
                 image_signing_pubkey_pem=pub, image_signing_key_sha256=key_sha, bootstrap_user=sshboot.BOOT_USER if lab else None,
                 enroll_token_sha256=token_sha256, enroll_ttl_seconds=3600,
                 agent_bundle_b64=base64.b64encode(raw).decode(), agent_bundle_sha256=hashlib.sha256(raw).hexdigest(),
                 subid_start=100000, subid_count=65536)
         except ValueError as e:
             raise StepFailed("the guest specification is invalid: " + str(e)[:200], "Check the ICS_GUEST_* settings.", retryable=False) from None
+
+    def _artifact_fields(self, vm: str, have_image_key: bool) -> dict:
+        """ADR-0015: the artifact service's coordinates as bootstrap metadata: one apt line per release channel THIS VM installs from (each with its
+        own pinned key), the pinned CA scoped to the two artifact hosts, and the registry host. Empty when OU_ARTIFACT_BASE is not configured."""
+        amap = artifacts.load_map()
+        if amap is None:
+            return {}
+        out: dict = {"_registries": [amap.registry_host] if have_image_key else []}
+        chans = artifacts.channels_needed(self.plan, vm)
+        repos = []
+        for ch in chans:
+            k = amap.key(ch)
+            if k is None:
+                raise StepFailed(f"the plan installs packages from the {ch} channel but no key pin for it is configured", "Set OU_ARTIFACT_CHANNEL_FPRS.", retryable=False)
+            repos.append({"url": amap.apt_url, "suite": ch, "components": ["main"], "key_armored": k[0], "key_fingerprint": k[1]})
+        if repos:
+            out["ou_repos"] = repos
+            out["pkg_allowlist"] = sorted({x["package"] for x in self.plan.get("services", []) if x.get("vm") == vm and x.get("package")})
+        if amap.ca_pem:
+            out.update(artifact_ca_pem=amap.ca_pem, artifact_ca_sha256=amap.ca_sha256, artifact_tls_hosts=sorted({amap.apt_host, amap.registry_host}))
+        if amap.signed_registry:
+            pre = amap.registry_host + "/"
+            out.update(signed_registry=amap.signed_registry, image_repos=sorted({c["image"][len(pre):] for c in self.plan.get("containers", [])
+                                                                                 if c.get("vm") == vm and c["image"].startswith(pre)}))
+        return out
 
     def _render(self, vm: str, ident: sshboot.BootIdentity, addr: str) -> str:
         mgmt = list(self.rt.settings.guest_mgmt_sources) or [self._source_towards(addr) + "/32"]
@@ -421,10 +448,7 @@ class GuestAgentPort:
                 ports.append({"port": f["port"], "proto": f["proto"], "sources": []})
             elif f["from"] == "ics-control":
                 ports.append({"port": f["port"], "proto": f["proto"], "sources": list(s.guest_mgmt_sources) or None})
-        return {"v": 1, "hostname": vm, "agent_port": AGENT_PORT, "mgmt_sources": list(s.guest_mgmt_sources) or None, "ports": ports,
-                "agent_config": cloudinit.agent_config(spec), "image_registries": spec.image_registries, "insecure_registries": spec.insecure_registries,
-                "signing_pubkey_pem": spec.image_signing_pubkey_pem, "signing_key_sha256": spec.image_signing_key_sha256,
-                "enroll_ttl_seconds": spec.enroll_ttl_seconds}
+        return cloudinit.callback_config(spec, vm, AGENT_PORT, list(s.guest_mgmt_sources) or None, ports)
 
     @staticmethod
     def _source_towards(addr: str) -> str:

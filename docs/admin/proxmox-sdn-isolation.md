@@ -14,8 +14,8 @@ Target: pve06 (PVE 9.2), one Simple SDN zone, one VNet per customer, default-DRO
 # --- fill in ---
 ICS_IP=192.168.22.167           # ICS host (agent client, callback listener)
 CALLBACK_PORT=8445              # ICS_GUEST_CALLBACK_URL port (dedicated serve_callback behind TLS)
-REPO_IPS="CHANGE_ME"            # signed apt repo / OCI registry host(s), space separated; the ICS host if it serves them
-REPO_PORT=443
+REPO_IPS="192.168.22.167"      # artifact distribution service (ADR-0015, placement (a)): the ICS host address given to --artifacts-listen-ip; space separated
+REPO_PORT=8444                 # --artifacts-port (apt /apt + OCI registry /v2, TLS, read-only)
 BACKUP_IPS="CHANGE_ME"          # backup target (restic repository host), NOT on PVE06-Storage
 BACKUP_PORT=8000
 DNS_IPS="192.168.22.1"          # resolvers guests use (also given to the ICS plan)
