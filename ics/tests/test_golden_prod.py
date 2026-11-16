@@ -248,10 +248,18 @@ def test_icssim_end_to_end_with_the_real_guest_post_pinned(tmp_path):
             c2 = dict(cfg, port=sim2.port, bid=sim2.bid, secret=sim2.secret, pin="00" * 32)
             with pytest.raises(firstboot.Refused, match="pin"):
                 firstboot.post_pinned(c2, firstboot.build_report(c2, agent, "t" * 43))
+            for _ in range(50):
+                if sim2.handshakes >= 1:
+                    break
+                time.sleep(0.1)
             assert sim2.requests == 0 and sim2.handshakes >= 1
             c3 = dict(c2, pin=sim2.pin, secret=os.urandom(32).hex())                         # wrong secret: the simulator rejects the proof
             with pytest.raises(firstboot.Refused):
                 firstboot.post_pinned(c3, firstboot.build_report(c3, agent, "t" * 43))
+            for _ in range(50):
+                if sim2.rejected >= 1:
+                    break
+                time.sleep(0.1)
             assert sim2.rejected == 1 and sim2.valid_reports == 0
         finally:
             sim2.stop()

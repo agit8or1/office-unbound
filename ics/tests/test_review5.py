@@ -219,7 +219,7 @@ RECIPE = os.path.join(os.path.dirname(__file__), "..", "..", "blueprints", "buil
 
 def run_recipe(tmp_path, **env):
     e = {"PATH": os.environ["PATH"], "WORK": str(tmp_path / "w"), "UPSTREAM_KEY_FPR": "A" * 40, **env}
-    return subprocess.run(["bash", RECIPE, "ubuntu-24.04", "fetch"], env=e, capture_output=True, text=True)
+    return subprocess.run(["bash", RECIPE, "ubuntu-24.04", "fetch-upstream"], env=e, capture_output=True, text=True)
 
 
 def test_l7_upstream_must_be_pinned_fresh_and_never_older_than_the_last(tmp_path):

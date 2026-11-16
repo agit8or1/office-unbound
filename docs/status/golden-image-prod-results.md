@@ -39,7 +39,12 @@ Only the 2018 key is pinned (noble is not signed by the 2012 key). `recipe.sh` r
 
 **Executed result (builder `ou-img1`, epoch 1794787200 = 2026-11-16T00:00:00Z):**
 
-@@REPRO@@
+| OS | build A | build B | result |
+|---|---|---|---|
+| Debian 12 | qcow2 `41f1c236bbb0d9bec878ab12f9b862fc08a8c44dd0c71e28a1155c1bad86894a` | same | **`cmp` identical** (190 MiB); SBOM `dc719087...`, package list `c3d73dae...`, provenance `5aea56c5...` identical too |
+| Ubuntu 24.04 | qcow2 `2f25ddd54bae26edc865c85434a8f001712a8fe1e43b44088b1d3b44e7e62089` | same | **`cmp` identical** (168 MiB); SBOM `07f15a98...`, package list `47f362dc...`, provenance `a041c5e5...` identical too |
+
+The path to that result is the evidence that the check is real: build 1 vs 2 first differed in ~161,000 bytes (inode times), then 2 bytes (FAT creation times), then 3 bytes (`/root/.gnupg/pubring.kbx` timestamps), then 0. The two builds of each pair ran concurrently on the same builder. The licence report is also identical (Debian 240 components, 87 allowed, 153 review, 0 denied; Ubuntu 234 / 89 / 144 / 0).
 
 **Remaining honest limits.** (a) Reproducibility was demonstrated on **one builder** (same host file system, same tool versions): readdir order for `mke2fs -d` and the exact `mmdebstrap`/`systemd-repart`/`e2fsprogs`/`libfaketime` versions are part of the input; they are recorded in `*.provenance.json` and a different builder with different versions is not claimed to match. (b) The package lock is only as old as the archive keeps those versions. (c) The agent `.deb` is taken from the lab repo (`dev` suite); its own reproducibility was shown earlier (identical sha256 on two builds) but the repo's `Valid-Until` and signature are not part of the image bytes. (d) `unattended-upgrades` changes a running guest by design (security origin only); the golden image is the *initial* state.
 
@@ -64,7 +69,15 @@ Only the 2018 key is pinned (noble is not signed by the 2012 key). `recipe.sh` r
 | D: impostor ICS (right certificate, acknowledgement made with the wrong secret) | the guest sent one authenticated report, **refused the bad acknowledgement**, agent never starts, `failed` marker, firewall unchanged |
 | E: wrong HMAC secret in the guest (clone/stolen serial) | the ICS side **rejects the report** (`valid=0`), nothing enrolled, agent never starts |
 
-@@SUITE@@
+**Executed results (2026-11-16, inside builder machine `ou-img1`, qemu TCG, no KVM; the final fixed suite, logs in `docs/status/golden-image-prod-evidence/suite-*.log`):**
+
+| Image (sha256 prefix) | checks | passed | failed | complete | wall clock |
+|---|---|---|---|---|---|
+| `ou-golden-debian-12-20261116.qcow2` (`41f1c236bbb0d9be`) | 97 | **97** | 0 | yes | 14 min (02:10:18 - 01:56:23), while two builds and a pytest run shared the machine |
+| `ou-golden-ubuntu-24.04-20261116.qcow2` (`2f25ddd54bae26ed`) | 97 | **97** | 0 | yes | 22 min under the same kind of load |
+
+Defects the suite found in its own first run (fixed, then re-run from scratch): the persistent `/root/.ssh` directory exists but is empty (check relaxed from "absent" to "no files in it"); a guest that fails the callback still has its own freshly generated agent key/cert/token-hash files because `firstboot` prepares them *before* calling the ICS (they are unusable without the ICS answer; check C07 now asserts "never enabled, never enrolled" instead of "no files"). **Control for the default-deny probe:** the same image booted with `systemd.mask=nftables.service` answers a connection to an unused forwarded port with a reset ("closed"), the shipped image answers with silence ("silent"): the check distinguishes a loaded default-deny policy from "nothing listening".
+**What the suite does not prove:** it did not run against a *mutant* image in the boot stages (static checks are exercised against good and bad synthetic trees in `test_golden_prod.py`, the boot-stage refusals are the guest's own behaviour in C/D/E); the real ICS code (PostgreSQL, `bootsecrets`) is not in the loop (the older `bootproof.sh` is), the simulator's protocol is pinned to the real functions by a unit test instead; and the suite ran in the same machine the builds ran in.
 
 ## 6. Signed manifest v2, rollback floor, attestor and signer contracts
 
@@ -78,17 +91,20 @@ Only the 2018 key is pinned (noble is not signed by the 2012 key). `recipe.sh` r
 ```
 systemd-run -M "$M" --wait --pipe -q /bin/bash -c 'cd /var/tmp/ou-guest-image/tests && OU_TEST_WORK=/var/tmp ./image-boot-suite /var/tmp/under-test.qcow2' | tee "$LOG"
 ```
-and take the verdict from `${PIPESTATUS[0]}` (0 pass, 1 fail, other infra) **and** require the final `SUMMARY ... 0 failed ... complete=True` line and the first line's `sha256=` to equal the runner's hash of the copy. Install the suite root-owned into the machine with `tests/install-testsuite.sh` (from a reviewed checkout, not from builder output). The runner's `image-first-boot` timeout is 1800 s in `ou-test-attest` (`KINDS`): the suite needs @@TIME@@ under TCG, so that constant must be raised (suggest 3600). Merge notes: `oci-signing` also rewrote `ics/tests/test_golden_image.py` (v1 `verify_release`); this branch replaced the v1 verification tests there with v2 and moved the helpers `make_release`/`verify` (conflict to resolve in favour of v2). Migration `0012` here follows `0011`; `fixes-r7` renamed its own to `0012r7/0013r7`, so the chain must be re-ordered at merge.
+and take the verdict from `${PIPESTATUS[0]}` (0 pass, 1 fail, other infra) **and** require the final `SUMMARY ... 0 failed ... complete=True` line and the first line's `sha256=` to equal the runner's hash of the copy. Install the suite root-owned into the machine with `tests/install-testsuite.sh` (from a reviewed checkout, not from builder output). The runner's `image-first-boot` timeout is 1800 s in `ou-test-attest` (`KINDS`): the suite needs 14-22 minutes (24 min if loaded) under TCG, so that constant must be raised (suggest 3600). Merge notes: `oci-signing` also rewrote `ics/tests/test_golden_image.py` (v1 `verify_release`); this branch replaced the v1 verification tests there with v2 and moved the helpers `make_release`/`verify` (conflict to resolve in favour of v2). Migration `0012` here follows `0011`; `fixes-r7` renamed its own to `0012r7/0013r7`, so the chain must be re-ordered at merge.
 
 **Signer contract (for `ou-image-sign`, not implemented here).** New command `sign-manifest` (stdin: tar of `manifest.json`-less inputs: image, SBOM, package list, provenance, `<image>.attestation.json`): the signer must (1) re-hash every file itself; (2) verify the attestation signature with its root-owned `trust/test-runner.pub`, `sha256` == image hash, kind `image-first-boot`, `pass`; (3) build the manifest **itself** with `manifest.py build` semantics (never accept a builder-made `manifest.json`), taking `version` from its own state and refusing `version <= last signed version for that OS`; (4) sign the canonical bytes; print `manifest.json` + `manifest.json.sig`. Until then `recipe.sh ... sign` falls back to `manifest.py lab-sign` with a throw-away lab key (evidence in s7; not a release key).
 
 ## 7. End-to-end lab evidence of the manifest chain
 
-@@E2E@@
+Lab-only chain executed for both images with **throw-away keys generated by me** (the Ed25519 "test runner" key stands in for `ou-test-attest`, which is not installed on this host; the P-256 signer key stands in for `ou-image-sign`; script kept as `docs/status/golden-image-prod-evidence/lab-attest-LAB-ONLY.py`, it must never be used for a release): `recipe.sh <os> manifest` (`manifest.py build`, refuses an attestation that is not a passing image-first-boot for this image hash) -> `recipe.sh <os> sign` (`manifest.py lab-sign`) -> copy the six files to the ICS host -> `ics.guest.golden.verify_release` with the signer's SPKI pin and the lab attestor key: **accepted for both** (`ou-golden-debian-12-20261116.qcow2` version 1, `ou-golden-ubuntu-24.04-20261116.qcow2` version 1); the same Debian release with a floor of 2 is **refused** ("below the rollback floor 2"). Manifests, signatures and provenance are in `docs/status/golden-image-prod-evidence/`. The attestation's `log_sha256` is the SHA-256 of the suite log of that run.
 
 ## 8. Tests
 
-@@TESTS@@
+* New `ics/tests/test_golden_prod.py` (56 tests): v2 acceptance, 26 parametrised tamper/bad-field refusals, wrong keys/pins, self-attested boot test refused, floor rules, DB floor monotonic + trigger + no DELETE + `verify_for_import` from Settings, manifest tool output verified by the ICS, simulator == real `ics.guest.callback`/`ou_agent.firstboot` (real guest client against the simulator: right pin once, replay refused, wrong pin sends nothing, wrong secret rejected), static checks on a clean tree and 17 single-regression trees, symlink escape, runner program contract.
+* Adapted: `test_golden_image.py` (v2 `make_release`/`verify`, Ubuntu upstream checks now `verify-upstream`, key pins incl. the 2018 archive key), `test_image_import.py` (Trust/Floor in the spec, floor from the caller), `test_migration_chain.py` (head `0012`), `test_review5.py` (`fetch-upstream`).
+* Targeted run after the last change: `test_review5 test_golden_prod test_golden_image test_image_import` = **82 passed**.
+* Full suite (`ICS_TEST_ENV_FILE=/etc/office-unbound/ics-test-g.env pytest -q -p no:cacheprovider`, DB `ics_test_g`, log only): first run **925 passed, 2 failed** (a race in my own test and the old `fetch` step name in `test_review5`, both fixed); final run: @@FULL@@
 
 ## 9. Requirement-by-requirement
 
@@ -120,4 +136,4 @@ Columns follow ADR-0000 evidence levels: **Unit tested** (pytest/offline), **Int
 * Reproducibility is per-builder; the lock needs the archive to still serve those versions; `libfaketime` is a new builder tool (recorded in the provenance).
 * Same-day versions: `version` is an integer chosen by the signer; the image file name carries only the date.
 * The suite parses a hostile journal with the host's `journalctl` (best effort, `timeout 60`); the authoritative leak check is the raw byte scan. A memory-corruption bug in `journalctl` or `debugfs` would be a host risk: run it in the throw-away machine only.
-* 154 (Debian) / @@UREVIEW@@ (Ubuntu) licence "review" items and vulnerability triage of the images are still open.
+* 154 (Debian) / 144 (Ubuntu) licence "review" items and vulnerability triage of the images are still open.

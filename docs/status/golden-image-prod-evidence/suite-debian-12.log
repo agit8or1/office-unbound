@@ -1,0 +1,102 @@
+START=2026-11-16T01:56:23Z
+ou-image-hardening-suite-v1 image=ou-golden-debian-12-20261116.qcow2 sha256=41f1c236bbb0d9bec878ab12f9b862fc08a8c44dd0c71e28a1155c1bad86894a
+PASS OFFLINE/S01-packages-present 229 packages installed
+PASS OFFLINE/S02-no-sshd-or-remote-shell-packages none of 14 denied packages installed
+PASS OFFLINE/S03-no-sshd-binary-or-config no sshd binary, config or unit
+PASS OFFLINE/S04-no-ssh-host-keys []
+PASS OFFLINE/S05-no-authorized-keys-or-private-ssh-keys []
+PASS OFFLINE/S06-no-ssh-unit-enabled 
+PASS OFFLINE/S07-root-locked root password field: locked
+PASS OFFLINE/S08-no-account-has-a-password-or-an-empty-password all 25 accounts locked
+PASS OFFLINE/S09-only-root-has-uid-0 ['root']
+PASS OFFLINE/S10-no-pam-permit-auth-backdoor []
+PASS OFFLINE/S11-nftables-default-deny-input-and-forward shipped ruleset
+PASS OFFLINE/S12-nftables-has-no-tcp-service-rule only DHCP/ICMP/established in the shipped file
+PASS OFFLINE/S13-nftables-service-enabled loaded at boot
+PASS OFFLINE/S14-agent-not-enabled-before-enrollment no wants symlink for ou-agent.service
+PASS OFFLINE/S15-no-agent-state-or-keys-in-image /etc/ou-agent=[] /var/lib/ou-agent=[]
+PASS OFFLINE/S16-bootstrap-unit-enabled-and-unsealed first boot is pending
+PASS OFFLINE/S17-bootstrap-unit-refuses-rerun-and-seals Condition*=!sealed/done, ExecStartPost=ou-seal, Restart=no
+PASS OFFLINE/S18-ou-seal-present 
+PASS OFFLINE/S19-cloud-init-absent-or-disabled absent
+PASS OFFLINE/S20-no-qemu-guest-agent-channel no host-to-guest exec channel
+PASS OFFLINE/S21-machine-id-empty-for-per-vm-generation 
+PASS OFFLINE/S22-no-secret-material-in-image 
+PASS OFFLINE/S23-no-permissive-sshd-config 
+PASS A/B01-guest-calls-back-once-with-valid-hmac valid reports=1 rejected=0 after 77s
+PASS A/N01-agent-not-reachable-before-the-ICS-answered TLS handshake to the agent port during the callback: none
+PASS A/N02-no-ssh-banner-on-22 port 22: silent
+PASS A/N03-default-deny-loaded-unlisted-port-is-dropped-not-reset tcp 9999 with nothing listening: silent (silent = dropped by the loaded nftables policy, closed = reset)
+PASS A/B02-guest-reported-private-ipv4-and-fingerprints reported 10.0.2.15:8443
+PASS A/A01-agent-starts-only-after-the-authenticated-answer agent TLS up yes
+PASS A/A02-agent-tls-certificate-matches-the-reported-pin reported 38cade85cb7b.. seen 38cade85cb7b..
+PASS A/A03-agent-key-matches-reported-fingerprint-and-is-not-enrolled identity 200 enrolled=False keyfp-match=True
+PASS A/X01-unsigned-exec-refused-before-enrollment POST /v1/exec: 403 not_enrolled
+PASS A/X02-no-other-execution-endpoint unknown paths answer 404
+PASS A/T01-wrong-enrollment-token-refused 403 bad_token
+PASS A/T02-guest-generated-token-enrolls-once 200
+PASS A/T03-token-cannot-be-used-twice 403 already_enrolled
+PASS A/X03-signed-but-not-allowlisted-action-refused 403 not_allowed
+PASS A/X04-request-signed-by-another-key-refused 403 bad_signature
+PASS A/N04-no-ssh-banner-after-enrollment 
+PASS A/N05-default-deny-still-drops-unlisted-ports 
+PASS A/B03-exactly-one-valid-report-and-no-replay valid=1 replays=0 requests=1
+PASS A/P01-guest-powers-off-cleanly ACPI power button
+PASS A/Z01-first-boot-completed-and-sealed done+sealed, no failed marker
+PASS A/Z02-bootstrap-unit-disabled-itself no wants symlink left for ou-bootstrap.service
+PASS A/Z03-agent-enabled-by-the-bootstrap-only 
+PASS A/Z04-enrollment-token-consumed-at-rest enroll.json removed, trust.json written
+PASS A/Z05-firewall-now-ICS-authenticated-and-still-default-deny ruleset replaced, policy drop kept, no ssh
+PASS A/Z06-no-ssh-anything-after-boot no ssh server package, no keys in /root/.ssh, no host keys
+PASS A/L01-secret-and-token-not-on-disk searched the whole disk (incl. free blocks and the journal) for the SMBIOS secret and the enrollment token: 0 hits
+PASS A/L02-secret-and-token-not-on-console serial console log
+PASS A/L03-journal-persistent-and-nonempty journal text 722034 bytes (persistent journal required)
+PASS A/L04-secret-and-token-not-in-journal decoded journal (covers compressed entries)
+PASS A/Z07-journal-shows-bootstrap-ran-and-sealed journal mentions ou-bootstrap.service completing
+PASS A/Z08-hardening-regressions-absent-after-boot rechecked on the booted disk
+PASS B/R01-enrolled-agent-comes-up-after-reboot agent TLS up after reboot: True
+PASS B/R02-enrollment-persisted enrolled=True
+PASS B/R03-sealed-bootstrap-does-not-call-the-ICS-again simulator counters before=(1, 1, 1) after=(1, 1, 1)
+PASS B/R04-still-no-ssh-and-default-deny 
+PASS B/R05-secret-still-valid-secret-cannot-be-replayed-by-the-guest 
+PASS B/R06-still-sealed-no-failed-marker 
+PASS B/L01-secret-and-token-not-on-disk searched the whole disk (incl. free blocks and the journal) for the SMBIOS secret and the enrollment token: 0 hits
+PASS B/L02-secret-and-token-not-on-console serial console log
+PASS B/L03-journal-persistent-and-nonempty journal text 1411713 bytes (persistent journal required)
+PASS B/L04-secret-and-token-not-in-journal decoded journal (covers compressed entries)
+PASS C/C01-guest-reached-the-simulator TLS handshakes=1 after 79s
+PASS C/C02-wrong-pin-no-report-is-sent TLS handshakes=1, HTTP requests=0 (the guest checks the pin before sending a byte)
+PASS C/C03-agent-never-starts agent port silent
+PASS C/C04-no-ssh-and-default-deny 
+PASS C/C05-failed-closed-marker-and-no-done failed marker written, never done
+PASS C/C06-firewall-unchanged-default-deny shipped ruleset still in place
+PASS C/C07-agent-not-enabled-and-never-enrolled ou-agent not enabled, no trust.json (the guest's own key/cert/token-hash files may exist: prepared before the callback, unusable without the ICS)
+PASS C/L01-secret-and-token-not-on-disk searched the whole disk (incl. free blocks and the journal) for the SMBIOS secret and the enrollment token: 0 hits
+PASS C/L02-secret-and-token-not-on-console serial console log
+PASS C/L03-journal-persistent-and-nonempty journal text 694559 bytes (persistent journal required)
+PASS C/L04-secret-and-token-not-in-journal decoded journal (covers compressed entries)
+PASS D/C01-guest-reached-the-simulator TLS handshakes=1 after 80s
+PASS D/C02-impostor-ICS-ack-refused-by-the-guest the guest did send exactly one authenticated report (1) and then refused the bad acknowledgement
+PASS D/C03-agent-never-starts agent port silent
+PASS D/C04-no-ssh-and-default-deny 
+PASS D/C05-failed-closed-marker-and-no-done failed marker written, never done
+PASS D/C06-firewall-unchanged-default-deny shipped ruleset still in place
+PASS D/C07-agent-not-enabled-and-never-enrolled ou-agent not enabled, no trust.json (the guest's own key/cert/token-hash files may exist: prepared before the callback, unusable without the ICS)
+PASS D/L01-secret-and-token-not-on-disk searched the whole disk (incl. free blocks and the journal) for the SMBIOS secret and the enrollment token: 0 hits
+PASS D/L02-secret-and-token-not-on-console serial console log
+PASS D/L03-journal-persistent-and-nonempty journal text 691394 bytes (persistent journal required)
+PASS D/L04-secret-and-token-not-in-journal decoded journal (covers compressed entries)
+PASS E/C01-guest-reached-the-simulator TLS handshakes=1 after 84s
+PASS E/C02-wrong-secret-report-rejected-by-the-ICS requests=1 rejected=1 valid=0
+PASS E/C03-agent-never-starts agent port silent
+PASS E/C04-no-ssh-and-default-deny 
+PASS E/C05-failed-closed-marker-and-no-done failed marker written, never done
+PASS E/C06-firewall-unchanged-default-deny shipped ruleset still in place
+PASS E/C07-agent-not-enabled-and-never-enrolled ou-agent not enabled, no trust.json (the guest's own key/cert/token-hash files may exist: prepared before the callback, unusable without the ICS)
+PASS E/L01-secret-and-token-not-on-disk searched the whole disk (incl. free blocks and the journal) for the SMBIOS secret and the enrollment token: 0 hits
+PASS E/L02-secret-and-token-not-on-console serial console log
+PASS E/L03-journal-persistent-and-nonempty journal text 696311 bytes (persistent journal required)
+PASS E/L04-secret-and-token-not-in-journal decoded journal (covers compressed entries)
+SUMMARY ou-image-hardening-suite-v1: 97 checks, 97 passed, 0 failed, stages=['A', 'B', 'C', 'D', 'E', 'OFFLINE'] complete=True
+EXIT=0
+END=2026-11-16T02:10:18Z

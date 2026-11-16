@@ -1,0 +1,20 @@
+{
+ "archive_inrelease_sha256": {
+  "archive.ubuntu.com_ubuntu_dists_noble-security_InRelease": "b26a00fd20bcf0f31cb3e132702958eba8d50cd81d3b20bfe7433b77ebf7f775",
+  "archive.ubuntu.com_ubuntu_dists_noble-updates_InRelease": "cc12944ff54a4dfde90014a9532b6c924139a888e53e5f0cb9e010b44f81c83f",
+  "archive.ubuntu.com_ubuntu_dists_noble_InRelease": "cdb2f31d809f589719a53c6ad15f255b27569c4059542ada282aaa21b8e164b0"
+ },
+ "os": "ubuntu-24.04",
+ "package_lock_sha256": "47f362dc6999256831b69e1e6ee0d769c25d6d64c3781efb9885ef3431ec0e71",
+ "recipe_commit": "unknown",
+ "recipe_sha256": "995c604d8f73ad053a418939ef766ebf3f8d49267440924e1b3fae02d3603637",
+ "source_date_epoch": 1794787200,
+ "tools": {
+  "faketime": "0.9.10-2.1",
+  "mkfs.ext4": "mke2fs 1.47.0 (5-Feb-2023)",
+  "mmdebstrap": "mmdebstrap 1.4.3",
+  "qemu-img": "qemu-img version 8.2.2 (Debian 1:8.2.2+ds-0ubuntu1.18)",
+  "syft": "1.57.1",
+  "systemd-repart": "systemd 255 (255.4-1ubuntu8.18)"
+ }
+}
