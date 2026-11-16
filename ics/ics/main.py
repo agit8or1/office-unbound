@@ -241,7 +241,7 @@ def create_app(settings: Settings | None = None, runtime: Runtime | None = None)
         except Exception:  # noqa: BLE001
             db.rollback()
             db_rev = None
-        return {"product": i["product"], "version": i["version"], "commit": i.get("commit"), "dirty": i.get("dirty"),
+        return {"product": i["product"], "version": i["version"], "codename": ver.codename(i), "commit": i.get("commit"), "dirty": i.get("dirty"),
                 "built_at": i.get("built_at"), "build_source": i.get("source"), "api": ver.API_VERSION,
                 "schema": {"build_head": i.get("schema_head"), "database": db_rev},
                 "components": {"ics": i["version"], **i.get("components", {})}, "interfaces": i.get("interfaces", {})}
