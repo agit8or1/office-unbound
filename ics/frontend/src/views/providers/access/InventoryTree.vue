@@ -29,6 +29,12 @@ function toggleNode(n: string) {
   if (i >= 0) props.sel.nodes.splice(i, 1)
   else props.sel.nodes.push(n)
 }
+function toggleWatch(n: string) {
+  const i = props.sel.watch.indexOf(n)
+  if (i >= 0) props.sel.watch.splice(i, 1)
+  else props.sel.watch.push(n)
+}
+const guestNode = computed(() => new Set(props.inv.guests.filter((g) => props.sel.operate.includes(g.vmid)).map((g) => g.node)))
 function selectAllShown(node: string, on: boolean) {
   for (const g of byNode.value.get(node) ?? []) {
     if (prot.value.has(g.vmid)) continue
@@ -58,6 +64,10 @@ const badge = (a?: string, seen?: boolean) => (a === 'protected' ? ['Protected',
           <span class="muted small">{{ n.guests.length }} guest(s)</span>
           <span v-if="edit && n.authorization === 'authorized'" class="ax-badge ok">Deployment target</span>
           <span class="spacer" />
+          <label v-if="!deployNodes" class="ax-deploy" :title="'Office Unbound may see the status, health and metrics of ' + n.name + '. Its guests are NOT included: tick those one by one.'">
+            <input type="checkbox" :checked="sel.watch.includes(n.name) || guestNode.has(n.name)" :disabled="guestNode.has(n.name)" @change="toggleWatch(n.name)" />
+            {{ guestNode.has(n.name) ? 'Monitored (a selected guest runs here)' : 'Monitor this node' }}
+          </label>
           <label v-if="deployNodes" class="ax-deploy" :title="'Allow Office Unbound to create NEW guests on ' + n.name + '. Existing guests are not affected.'">
             <input type="checkbox" :checked="sel.nodes.includes(n.name)" :disabled="n.status !== 'online'" @change="toggleNode(n.name)" /> Deploy new guests here
           </label>
@@ -79,7 +89,7 @@ const badge = (a?: string, seen?: boolean) => (a === 'protected' ? ['Protected',
         </div>
       </li>
     </ul>
-    <p class="muted small">{{ sel.operate.length }} existing guest(s) selected<span v-if="deployNodes"> · {{ sel.nodes.length }} node(s) for new deployments</span>. Templates are chosen with the deployment targets.</p>
+    <p class="muted small"><span v-if="!deployNodes">{{ sel.watch.length }} node(s) monitored · </span>{{ sel.operate.length }} existing guest(s) selected<span v-if="deployNodes"> · {{ sel.nodes.length }} node(s) for new deployments</span>. Templates are chosen with the deployment targets.</p>
   </div>
 </template>
 

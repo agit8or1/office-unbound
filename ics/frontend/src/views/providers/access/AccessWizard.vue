@@ -209,8 +209,8 @@ function next() {
         </Banner>
         <Banner v-if="edit && newCount" kind="info" title="New since the last sync">{{ newCount }} guest(s) appeared that Office Unbound has not seen before. They are shown as New and are NOT authorized unless you select them.</Banner>
         <Banner v-if="edit && inv.missing?.length" kind="warn" title="No longer found">{{ inv.missing.map((x) => `${x.kind} ${x.key}`).join(', ') }}: deleted in Proxmox, or no longer visible.</Banner>
-        <h2>Existing guests Office Unbound may manage</h2>
-        <p class="muted">Tick only the VMs and containers Office Unbound should see and operate. Everything else stays invisible to it. Selecting a node does not select its guests.</p>
+        <h2>What may Office Unbound see and manage?</h2>
+        <p class="muted">Tick the nodes Office Unbound should monitor, and the VMs and containers it should see and operate. Everything else stays invisible to it. Ticking a node does not include its guests.</p>
         <InventoryTree :inv="inv" :sel="sel" :edit="edit" :deploy-nodes="false" />
         <div class="row"><button type="button" class="wz-btn" :disabled="busy" @click="rescan">Rescan</button></div>
         <MaintenancePanel v-if="edit && session && id" :endpoint-id="id" :session-id="session.id" :endpoint-name="epName" />

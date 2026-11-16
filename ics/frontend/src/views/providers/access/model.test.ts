@@ -50,6 +50,16 @@ describe('access wizard model', () => {
   })
 })
 
+describe('monitored nodes', () => {
+  it('a ticked node is visible on its own, never with its guests, and is enough to continue', () => {
+    const s = { ...emptySelection(), watch: ['pve06'] }
+    expect(validate(s, GUESTS)).toEqual({})
+    const p = toPolicy(s, GUESTS) as { scope: { nodes: string[]; managed_vmids: number[] } }
+    expect(p.scope.nodes).toEqual(['pve06']); expect(p.scope.managed_vmids).toEqual([])
+    expect(diffSelection(emptySelection(), s).added).toEqual(['Monitor node pve06'])
+  })
+})
+
 describe('edit mode', () => {
   it('starts from the approved scope and level', async () => {
     const { fromApproved } = await import('./model')

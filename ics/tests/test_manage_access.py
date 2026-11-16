@@ -124,3 +124,21 @@ def test_repair_rotate_and_disconnect_through_the_sign_in(w, owner, rt):  # noqa
     _, j5 = run_as_admin(w, "provider.token.revoke", {"endpoint_id": eid, "confirm_name": "owner", "admin_session": s3["id"]})
     assert j5["status"] == "succeeded", j5
     assert not any(k.startswith("ics-svc@pve!") for k in owner.sim.tokens) and {105, 106, 107, 108} <= set(owner.sim.vms)
+
+
+def test_monitoring_a_node_only_connects_without_any_guest(w, owner, rt):  # noqa: F811
+    """Ticking just a node (Monitoring): Office Unbound sees that node's status, no guest and no other node."""
+    owner.sim.add_vm(105, "pve06", "app-a", status="running", storage="PVE06-Storage")
+    s = sign_in(w, owner)
+    base = {"name": "owner", "base_url": owner.url, "fingerprint_sha256": owner.fingerprint, "admin_session": s["id"]}
+    pol = {"preset": "monitoring", "scope_mode": "single_node", "scope": {"nodes": ["pve06"], "protected_vmids": [126]}}
+    _, j = run_as_admin(w, "provider.provision.plan_preview", {**base, "policy": pol})
+    assert j["status"] == "succeeded", j
+    assert not j["result"]["plan"]["blocked"], j["result"]["plan"]["blocked"]
+    _, j2 = run_as_admin(w, "provider.provision.apply", {**base, "preview_id": j["result"]["preview_id"], "plan_hash": j["result"]["plan_hash"]})
+    assert j2["status"] == "succeeded", j2
+    paths = {e["path"] for e in owner.sim.acl_entries if e["ugid"].startswith("ics-svc@pve")}
+    assert "/nodes/pve06" in paths and not any(p.startswith("/vms/") for p in paths), paths
+    with rt.session() as db:
+        r = db.execute(text("SELECT allowed_nodes, managed_vmids, allowed_pools FROM endpoints WHERE id = :i"), {"i": j2["result"]["endpoint_id"]}).first()
+    assert list(r.allowed_nodes) == ["pve06"] and list(r.managed_vmids) == [] and list(r.allowed_pools) == []

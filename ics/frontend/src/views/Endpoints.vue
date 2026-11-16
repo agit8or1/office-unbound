@@ -150,7 +150,7 @@ async function doConfirm() {
         <Field v-if="f.trust === 'fingerprint'" label="SHA-256 fingerprint" for="ep-fp"><input id="ep-fp" v-model="f.fingerprint" class="mono" required></Field>
         <Field v-else label="CA certificate (PEM)" for="ep-ca"><textarea id="ep-ca" v-model="f.ca_pem" rows="5" class="mono" required></textarea></Field>
         </template>
-        <div v-if="drawer === 'edit'" class="alert info"><span>Changing the URL, certificate trust or credentials is a high-risk change: use the connection step of the setup wizard so new details are probed first<template v-if="wizard"> (<router-link :to="'/setup?endpoint=' + (editing?.id ?? '')">Change connection</router-link>)</template>. All edits are submitted for approval.</span></div>
+        <div v-if="drawer === 'edit'" class="alert info"><span>Changing the URL, certificate trust or credentials is a high-risk change: use Manage access: you sign in to Proxmox once and it checks and applies the change<template v-if="editing"> (<router-link :to="'/infrastructure/providers/' + editing.id + '/access'">Manage access</router-link>)</template>. All edits are submitted for approval.</span></div>
         <Field label="Allowed pools (optional)" for="ep-p" help="Comma separated. Limits where ICS may create or change guests."><input id="ep-p" v-model="f.pools"></Field>
         <Field label="Allowed storage (optional)" for="ep-s"><input id="ep-s" v-model="f.storage"></Field>
         <Field label="Allowed networks (optional)" for="ep-n"><input id="ep-n" v-model="f.networks"></Field>
