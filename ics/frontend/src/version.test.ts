@@ -16,6 +16,7 @@ afterEach(() => { app?.unmount(); app = null; vi.unstubAllGlobals() })
 describe('build label', () => {
   it('formats the console footer from API data', () => {
     expect(buildLabel({ version: '0.1.0', commit: 'abc1234def5678' })).toBe('Office Unbound ICS v0.1.0 (abc1234)')
+    expect(buildLabel({ version: '0.2.0-dev', codename: 'Beacon', commit: 'abc1234def5678' })).toBe('Office Unbound ICS v0.2.0-dev “Beacon” (abc1234)')
     expect(buildLabel({ version: '0.1.0', commit: 'abc1234def', dirty: true })).toBe('Office Unbound ICS v0.1.0 (abc1234, modified)')
     expect(buildLabel({ version: '0.1.0' })).toBe('Office Unbound ICS v0.1.0')
     expect(buildLabel(null)).toBe('Office Unbound ICS')

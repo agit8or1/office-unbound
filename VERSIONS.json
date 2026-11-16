@@ -1,15 +1,24 @@
 {
-  "schema": "office-unbound-versions/1",
-  "_note": "Per-component versions for independently shipped parts. The product version is the VERSION file (ADR-0011). ICS core always equals the product version.",
-  "components": {
-    "node_agent": "0.1.0",
-    "portal": "0.1.0",
-    "migration_toolkit": "0.1.0",
-    "docs_engine": "cp-26.04.6-1+ou1"
-  },
-  "interfaces": {
-    "api": "v1",
-    "progress_feed_schema": "office-unbound-progress/1",
-    "catalog_schema": "1"
-  }
+ "schema": "office-unbound-versions/1",
+ "_note": "Per-component versions for independently shipped parts. The product version is the VERSION file (ADR-0011). ICS core always equals the product version.",
+ "components": {
+  "node_agent": "0.1.0",
+  "portal": "0.2.0",
+  "migration_toolkit": "0.1.0",
+  "docs_engine": "cp-26.04.6-1+ou1"
+ },
+ "interfaces": {
+  "api": "v1",
+  "msp_api": "v1",
+  "progress_feed_schema": "office-unbound-progress/1",
+  "catalog_schema": "1"
+ },
+ "release_names": {
+  "_note": "One name per MINOR release line, alphabetical (ADR-0011 \u00a71). Add the next name when a line opens.",
+  "0.1": "Anchor",
+  "0.2": "Beacon",
+  "0.3": "Compass",
+  "0.4": "Daybreak",
+  "0.5": "Ember"
+ }
 }

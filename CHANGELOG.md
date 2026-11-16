@@ -10,7 +10,21 @@ isolated lab; nothing is production supported ([ROADMAP.md](ROADMAP.md)).
 
 ## [Unreleased]
 
-Merged on integration branch `integration-5` (not yet released). The release-engineering pipeline branch (`release-ag`) is **not** included.
+Target: 0.2.0 "Beacon" (alpha readiness: security hardening, production no-SSH deployment, full stack).
+
+### Added
+- **Organization Admin** (tenant admin API `/api/v1/tenant/*`, portal area, welcome page, per-customer branding): a customer's own administrators manage people, groups/apps, domains and branding through ordinary `idm.*` plans under the customer's approval policy. Portal 0.2.0. [org-admin-results](docs/status/org-admin-results.md)
+- **Mailbox administration**: aliases, shared mailboxes with grants, mail and file-storage quotas (typed `idm.user.set_aliases`, `idm.shared_mailbox.*`, `idm.user.set_*_quota`, fixed gromox runbooks, tenant API and portal pages). [mailbox-admin-results](docs/status/mailbox-admin-results.md)
+- **MSP provisioning API v1** (`/api/msp/v1`, interface `msp_api: v1`, ADR-0013): HMAC-signed, idempotent, customer-scoped; signed webhooks, metering, OpenAPI spec and a reference Python client. [msp-api-results](docs/status/msp-api-results.md)
+- **Collaboration catalog components**: chat, meetings and telephony (source-built images, unsigned/unpinned artifact refusal, new check kinds). [catalog-collab-components](docs/status/catalog-collab-components.md)
+- Database migrations `0011a` (tenant admin, `idm_stacks.customer_id`), `0011b` (MSP API), `0011c` (check kinds), `0011d` (mailbox admin), chained after `0009b`.
+
+### Security
+- **Security review 6 (tenant/MSP findings)**: administrator/privileged-account credential resets, re-enables and disables are high risk and never shown to the requester (H2); API-key holders cannot approve plans submitted through their client (M1); webhook SSRF guard with pinned connections and no redirects (M2); no implicit deployment-to-customer slug binding (M3); throttled, unaudited unauthenticated tenant failures (M4); one `idm_stacks.customer_id` definition (M5); SVG allow-list, `realm_access`-only roles, mTLS proxy secret and other Lows. [report and remediation](docs/status/security-review-6-2026-11-15.md)
+
+## [0.1.0] - 2026-11-16
+
+Release name: **Anchor**. This is the build deployed to the lab ICS (commit 416aafe).
 
 ### Added
 - **Provider scope modes**: `single_node` / `whole_cluster` permission plans and the `provider.scope.change` flow (Mode A/B), console UI. [provider-scope-modes](docs/status/provider-scope-modes.md)
@@ -28,7 +42,10 @@ Merged on integration branch `integration-5` (not yet released). The release-eng
 ### Fixed
 - Production monitor loop (`_next_vault`): failure-based worker health and thread joins on stop.
 
-## [0.1.0] - 2026-11-15
+### Known issues
+- Lab pre-alpha, not production supported. The packages and images built for this release are signed with lab keys only.
+- Security reviews 5–7 have open High findings in release signing, test attestation, cross-tenant plan scoping, controller fencing and org-admin account recovery. They are being fixed for 0.2.0. Details: [security review 7](docs/status/security-review-7-2026-11-16.md), [execution queue](docs/status/ALPHA-EXECUTION-QUEUE.md).
+
 
 First tagged state of the project: a lab-integrated pre-alpha. Installable ICS, console, groupware, identity, files, document
 editing, chat/meetings, telephony prototype, migration tooling and package pipeline, all verified only in an isolated lab.
