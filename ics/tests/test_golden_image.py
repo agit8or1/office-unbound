@@ -18,8 +18,8 @@ from ics.guest import golden
 RECIPE_DIR = os.path.join(os.path.dirname(__file__), "..", "..", "blueprints", "build", "guest-image")
 
 
-def make_release(tmp_path, name="ou-golden-debian-12-20261115.qcow2", image=b"QFI\xfbimage", sbom=b'{"bomFormat":"CycloneDX"}'):
-    k = ec.generate_private_key(ec.SECP256R1())
+def make_release(tmp_path, name="ou-golden-debian-12-20261115.qcow2", image=b"QFI\xfbimage", sbom=b'{"bomFormat":"CycloneDX"}', key=None):
+    k = key or ec.generate_private_key(ec.SECP256R1())
     pem = k.public_key().public_bytes(serialization.Encoding.PEM, serialization.PublicFormat.SubjectPublicKeyInfo).decode()
     d = tmp_path / "rel"
     d.mkdir()
