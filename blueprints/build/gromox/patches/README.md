@@ -45,3 +45,28 @@ a login and the end of its first processing pass (a few ms) is not covered by `a
 Signature first: the token is parsed as JSON only after the RS256 signature verified, `exp`/`nbf` must satisfy `isInt64()` (jsoncpp 1.9.5 throws
 `Json::LogicError` for values above INT64_MAX), and `login_token()` catches `std::exception`. `blueprints/lab/tests/gromox_bearer_claims_test.sh` now
 sends forged tokens with `exp`/`nbf` = 18446744073709551615 and 1e19 and checks that zcore stays up (`NRestarts=0`).
+
+
+## 0003-outgoing-smtp-default.patch (client compatibility, agent BJ)
+`outgoing_smtp_url` defaulted to `sendmail://localhost` in six places (ruleproc, exmdb, emsmdb, zcore, ews, delivery). Our mail library (wmime) is built with
+the sendmail transport OFF, so a node without that line failed every EWS/MAPI send, meeting invitation and AcceptItem with `E-3117 ... No factory available`
+(first seen in `docs/status/client-compat-results.md`). The default is now the explicit IPv4 URL `smtp://127.0.0.1:25` (Postfix on the node listens there;
+a host NAME such as `localhost` may resolve to `::1` first), and `doc/gromox.cfg.5` says so. `gw-mta.sh` additionally writes the line into `gromox.cfg`.
+
+## 0004-ews-sendas-sendonbehalf.patch (send-as / send-on-behalf over EWS, agent BJ)
+Finding (3.13 source + lab measurements, `docs/status/gw-client-fixes-results.md`): EWS CreateItem/SendItem authorised `From:` only through
+`get_mbox_perm()` bits: store owner, a folder-ACL row with bit 0x4 (`frightsGromoxSendAs`) or a `config/delegates.txt` entry (which `get_mbox_perm`
+turns into the same bit). `config/sendas.txt` (what admin-api and our `gromox.shared_access` runbook write for send-as) was only read by zcore/emsmdb, so an
+EWS client of a user on sendas.txt got `ErrorAccessDenied`, and a delegates.txt user could impersonate the mailbox with NO `Sender:` header.
+Change (2 files): `validate_sendas_perms` also accepts membership of `sendas.txt` (user or mailing list); new `is_send_on_behalf()` marks a message whose
+identity is foreign and which the caller may use only through the delegate bit, and `send()` then sets `PR_SENDER_*` to the caller, so the mail carries
+`From: <mailbox>` + `Sender: <caller>` (same as the MAPI path); send-as (store owner, sendas.txt) keeps `From` only. Denied without any grant (unchanged).
+Note for clients: the EWS `From` mailbox needs `RoutingType=SMTP`; without it the exporter drops the From header.
+Test: `blueprints/lab/tests/gw_sendas_test.py` (five grant combinations, delivered headers).
+
+## 0005-midb-default-subscriptions.patch (duplicate Sent/Trash in Thunderbird, agent BJ)
+Root cause of Thunderbird's duplicate `Sent`/`Trash` (client-compat-results.md 3.1): Gromox advertises SPECIAL-USE and flags the folders correctly
+(`LIST ... RETURN (SPECIAL-USE)` and `XLIST` return `\Sent`, `\Trash`, `\Drafts`, `\Junk`; measured), but midb subscribes ONLY the INBOX of a new mailbox
+("Only INBOX gets to be subscribed by default"). Thunderbird lists subscribed folders only, never sees `Sent Items`/`Deleted Items`, and creates its own.
+Change: `me_default_subscribed()` (INBOX, Drafts, Sent Items, Deleted Items, Junk Email) in both folder-insert paths of `exch/midb/mail_engine.cpp`.
+Existing mailboxes: `blueprints/lab/spike-groupware/gw-subscribe-defaults.sh` (one-time, marker file, restarts midb + imap).

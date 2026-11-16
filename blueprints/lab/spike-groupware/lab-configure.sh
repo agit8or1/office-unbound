@@ -62,6 +62,8 @@ lda_listen=127.0.0.1:24
 lda_listen_tls=
 imap_listen=0.0.0.0:143
 imap_listen_tls=0.0.0.0:993
+# explicit IPv4 loopback: not the sendmail:// default (absent in our mail library), not a name that may resolve to ::1 (gw-mta.sh, gw-client-fixes-results.md)
+outgoing_smtp_url=smtp://127.0.0.1:25
 EOF
 cat > /etc/gromox/http.cfg <<EOF
 http_support_tls=false
@@ -123,6 +125,8 @@ postconf -e "myhostname=$HOSTN" "mydestination=localhost" "virtual_mailbox_domai
   "default_transport=error:lab: no outbound relay" "relayhost=" \
   "smtpd_tls_cert_file=/etc/ou-lab-tls/server-chain.pem" "smtpd_tls_key_file=/etc/ou-lab-tls/server.key" "smtpd_tls_security_level=may"
 usermod -aG gromoxcf postfix || true
+# client submission (587 STARTTLS / 465 TLS, SASL via pam_gromox) + the outgoing_smtp_url line; idempotent
+bash "$(dirname "$(readlink -f "$0")")/gw-mta.sh"
 ## --- start the services (A22 clean-room: never scripted, gw1 had them enabled by hand; lab-ldap.sh then skipped its restart/--create-domain
 ## step because gromox-imap was inactive) ---
 systemctl daemon-reload

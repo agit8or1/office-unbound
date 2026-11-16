@@ -1,0 +1,52 @@
+OU patch 0005: midb subscribes INBOX, Drafts, Sent Items, Deleted Items and Junk Email by default (clients that list only subscribed folders otherwise create duplicate Sent/Trash).
+Apply with patch -p1 from the Gromox 3.13 source root after 0004.
+
+--- a/exch/midb/mail_engine.cpp
++++ b/exch/midb/mail_engine.cpp
+@@ -1732,6 +1732,19 @@
+ 	return false;
+ }
+ 
++/*
++ * OU: folders a mail client expects to see without having to subscribe to
++ * them first. A client that lists only subscribed folders (Thunderbird,
++ * several mobile clients) otherwise never sees "Sent Items"/"Deleted Items"
++ * and creates its own "Sent"/"Trash" next to them.
++ */
++static bool me_default_subscribed(uint64_t fid)
++{
++	return fid == PRIVATE_FID_INBOX || fid == PRIVATE_FID_DRAFT ||
++	       fid == PRIVATE_FID_SENT_ITEMS || fid == PRIVATE_FID_DELETED_ITEMS ||
++	       fid == PRIVATE_FID_JUNK;
++}
++
+ /**
+  * @pstmt:        prepared statement for lookup of folder names
+  *                (re-uses in-memory copy of folder list)
+@@ -1899,8 +1912,8 @@
+ 			stm_insert.bind_int64(2, parent_fid);
+ 			stm_insert.bind_int64(3, commit_max);
+ 			stm_insert.bind_text(4, encoded_name);
+-			/* Only INBOX gets to be subscribed by default */
+-			stm_insert.bind_int64(5, folder_id == PRIVATE_FID_INBOX ? 0 : 1);
++			/* OU: INBOX and the special-use folders are subscribed by default */
++			stm_insert.bind_int64(5, me_default_subscribed(folder_id) ? 0 : 1);
+ 			auto rx = stm_insert.step();
+ 			if (rx == SQLITE_CONSTRAINT) {
+ 				mlog(LV_ERR, "E-1224: XXX: Not implemented: midb is unable to cope with folder deletions that occurred while midb was not connected to exmdb");
+@@ -4376,13 +4389,13 @@
+ 	}
+ 	auto stm = gx_sql_prep(pidb->psqlite, "INSERT INTO folders (folder_id, parent_fid, "
+ 	           "commit_max, name, unsub) VALUES (?, ?, ?, ?, ?)");
+-	/* Only INBOX gets to be subscribed by default */
++	/* OU: INBOX and the special-use folders are subscribed by default */
+ 	if (stm == nullptr ||
+ 	    stm.bind_int64(1, folder_id) != SQLITE_OK ||
+ 	    stm.bind_int64(2, parent_id) != SQLITE_OK ||
+ 	    stm.bind_int64(3, commit_max) != SQLITE_OK ||
+ 	    stm.bind_text(4, temp_name) != SQLITE_OK ||
+-	    stm.bind_int64(5, folder_id == PRIVATE_FID_INBOX ? 0 : 1) != SQLITE_OK ||
++	    stm.bind_int64(5, me_default_subscribed(folder_id) ? 0 : 1) != SQLITE_OK ||
+ 	    stm.step() != SQLITE_DONE)
+ 		return FALSE;
+ 	return TRUE;

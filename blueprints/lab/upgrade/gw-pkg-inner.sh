@@ -89,6 +89,8 @@ migrate() {
   for a in sync dav web; do install -m 0644 "$BK/cfg/$a.config.php" /etc/grommunio-$a/config.php; done
   # php ini: the package ships /etc/php/8.2/cli/conf.d/mapi.ini (identical to the lab's mods-available one); the fpm pool keeps the lab's 20-mapi.ini link
   grep -q "^bearer_issuer" /etc/gromox/gromox.cfg || printf 'bearer_issuer=%s\nbearer_audience=%s\n' "$BEARER_ISSUER" "$BEARER_AUDIENCE" >> /etc/gromox/gromox.cfg
+  [ -f /root/gw-subscribe-defaults.sh ] && bash /root/gw-subscribe-defaults.sh || true   # one-time, after the node runs patch 0005
+  [ -x /root/gw-mta.sh ] && bash /root/gw-mta.sh || log "gw-mta.sh not on the node: outgoing_smtp_url / submission not (re)applied"
   systemctl daemon-reload
   for s in $SVCS_START; do systemctl enable $s >/dev/null 2>&1 || true; done
   log "start"; svc_start

@@ -178,13 +178,12 @@ cmd("evo1", "mail-flag", s_recv, "Inbox", "answered")
 time.sleep(3)
 fl = L.imap_flags("ccev1", s_recv) or ""
 rep.check("Mail: set read + answered in client -> server flags", "\\Seen" in fl and "\\Answered" in fl, "server FLAGS (%s)" % fl, "server FLAGS (%s) from client %s" % (fl, r), "CamelFolder.set_message_flags + synchronize; imaplib FETCH FLAGS")
-r = cmd("evo1", "mail-flag", s_recv, "Inbox", "flagged")
+# Evolution's "Mark for Follow-Up" (user tag follow-up) is what evolution-ews pushes (PidTagFlagStatus 0x1090 = 2); the CAMEL "important"
+# flag (the star in some views) is NOT sent by evolution-ews at all (evidence: EWS_DEBUG=2 request log, gw-client-fixes-results.md section 5)
+r = cmd("evo1", "mail-followup", s_recv, "Inbox")
 time.sleep(3)
 fl = L.imap_flags("ccev1", s_recv) or ""
-if "\\Flagged" in fl:
-    rep.passed("Mail: flag (star) in client -> server", "server FLAGS (%s)" % fl, "CamelFolder.set_message_flags; imaplib")
-else:
-    rep.fail("Mail: flag (star) in client -> server", "client marked FLAGGED but the server shows (%s): the follow-up flag set over EWS is not reflected as \\Flagged by Gromox" % fl, "CamelFolder.set_message_flags + synchronize; imaplib FETCH FLAGS")
+rep.check("Mail: follow-up flag in client -> server \\Flagged", "\\Flagged" in fl, "server FLAGS (%s): PidTagFlagStatus=2 over EWS maps to \\Flagged" % fl, "client set follow-up but the server shows (%s) %s" % (fl, r), "CamelMessageInfo user tag follow-up + synchronize; imaplib FETCH FLAGS")
 fname = "CC-%s" % tag
 r = cmd("evo1", "mail-mkfolder", fname)
 fo = L.imap_folders("ccev1")

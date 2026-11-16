@@ -7,7 +7,7 @@ case "$1" in
     for n in 1 2; do
       pkill -u "evo$n" 2>/dev/null
       systemctl stop "evo${n}srv" 2>/dev/null; systemctl reset-failed "evo${n}srv" 2>/dev/null
-      systemd-run --quiet --unit="evo${n}srv" /root/cc/evo-session.sh "evo$n" python3 -u /root/cc/cc_evo_worker.py serve "700$n"
+      systemd-run --quiet --unit="evo${n}srv" -E EWS_DEBUG="${EWS_DEBUG:-0}" /root/cc/evo-session.sh "evo$n" python3 -u /root/cc/cc_evo_worker.py serve "700$n"
     done
     sleep 3; ss -ltn | grep ':700[12]' ;;
   stop)
