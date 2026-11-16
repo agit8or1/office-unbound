@@ -53,10 +53,25 @@ pinned_keyring() {   # Debian: builds the dearmored keyring from the key files s
   for p in $ARCHIVE_KEY_FPRS; do gpg --show-keys --with-colons "$out" 2>/dev/null | grep -q "^fpr:::::::::$p:" || { echo "REFUSED: pinned key $p missing" >&2; exit 4; }; done
 }
 
+check_serial() {   # review 5 L7: dated pin + freshness + never backwards
+  [ -n "${UPSTREAM_SERIAL:-}" ] || { echo "os/$OS.env: UPSTREAM_SERIAL is not pinned (a dated upstream build such as 20261101-1234 or release-20261101); 'latest' is not accepted." >&2; exit 3; }
+  local d; d=$(printf '%s' "$UPSTREAM_SERIAL" | grep -oE '[0-9]{8}' | head -1)
+  [ -n "$d" ] || { echo "UPSTREAM_SERIAL has no YYYYMMDD date" >&2; exit 3; }
+  local today; today=${OU_TODAY:-$(date -u +%Y%m%d)}
+  if [ "${OU_ALLOW_STALE_UPSTREAM:-0}" != 1 ]; then
+    local age=$(( ( $(date -u -d "$today" +%s) - $(date -u -d "$d" +%s) ) / 86400 ))
+    [ "$age" -le "${UPSTREAM_MAX_AGE_DAYS:-60}" ] || { echo "upstream build $UPSTREAM_SERIAL is $age days old (max ${UPSTREAM_MAX_AGE_DAYS:-60}); pin a newer, verified build" >&2; exit 3; }
+  fi
+  local last; last=$(cat "$WORK/upstream-serial.last" 2>/dev/null | grep -oE '[0-9]{8}' | head -1 || true)
+  if [ -n "$last" ] && [ "$d" -lt "$last" ]; then echo "upstream build $UPSTREAM_SERIAL ($d) is OLDER than the last accepted build ($last): refusing to go backwards" >&2; exit 3; fi
+  UPSTREAM_BASE=${UPSTREAM_BASE:-$UPSTREAM_BASE_ROOT/$UPSTREAM_SERIAL}
+}
+
 do_fetch() {
   case "$UPSTREAM_MODE" in
     bootstrap) echo "bootstrap mode: nothing to download here; packages are fetched by mmdebstrap and verified against the pinned archive keys in the build step"; pinned_keyring "$WORK/up/archive-pinned.gpg" ;;
     cloudimage)
+      check_serial
       [ -n "${UPSTREAM_KEY_FPR:-}" ] || { echo "os/$OS.env: UPSTREAM_KEY_FPR is not pinned" >&2; exit 3; }
       need curl curl; cd "$WORK/up"
       for f in "$UPSTREAM_IMAGE" "$UPSTREAM_SUMS" "$UPSTREAM_SUMS_SIG"; do curl -fsSLO --proto '=https' --tlsv1.2 "$UPSTREAM_BASE/$f"; done
@@ -79,7 +94,9 @@ do_verify() {
       gpg --homedir "$gh" --batch --status-fd 1 --verify "$UPSTREAM_SUMS_SIG" "$UPSTREAM_SUMS" 2>/dev/null | grep -q "^\[GNUPG:\] VALIDSIG $UPSTREAM_KEY_FPR " \
         || { echo "REFUSED: signature of $UPSTREAM_SUMS does not verify against the pinned key" >&2; exit 4; }
       grep -F " *$UPSTREAM_IMAGE" "$UPSTREAM_SUMS" | $UPSTREAM_SUM_TOOL -c - || { echo "REFUSED: image checksum mismatch" >&2; exit 4; }
-      echo "upstream image verified (signature by the pinned key + checksum)" ;;
+      check_serial
+      printf '%s\n' "$UPSTREAM_SERIAL" > "$WORK/upstream-serial.last"      # only after signature + checksum passed: the next build may not go below this
+      echo "upstream image verified (signature by the pinned key + checksum), build $UPSTREAM_SERIAL" ;;
   esac
 }
 

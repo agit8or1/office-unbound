@@ -30,6 +30,23 @@ class Release:
     sha256: str
     sbom_path: str
 
+    @property
+    def date(self) -> str:
+        return self.name.rsplit("-", 1)[1].split(".")[0]
+
+
+REL_TAG = re.compile(r"(?:^|[;, ])ou-rel-(debian-12|ubuntu-24\.04)-(\d{8})(?:$|[;, ])")
+
+
+def newest_imported(tag_strings, os_id: str) -> str | None:
+    """Review 5 M7 (rollback protection): the newest release date already imported for this OS, read from the template tags the verb itself sets."""
+    best = None
+    for t in tag_strings:
+        for m in REL_TAG.finditer(";" + str(t) + ";"):
+            if m.group(1) == os_id and (best is None or m.group(2) > best):
+                best = m.group(2)
+    return best
+
 
 def key_pin(pem: str) -> str:
     k = serialization.load_pem_public_key(pem.encode())

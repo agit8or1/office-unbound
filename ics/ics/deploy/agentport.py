@@ -24,7 +24,7 @@ from sqlalchemy import text
 
 from .. import agentclient, audit
 from ..agentclient import AgentError
-from ..guest import agentcall, bootsecrets, cloudinit, sshboot
+from ..guest import agentcall, bootsecrets, cloudinit, neigh, sshboot
 from ..proxmox import normalize_fingerprint
 from ..providers.base import ProviderError, VmConfigSpec, VmRef
 from . import state
@@ -32,6 +32,7 @@ from .ports import Fenced, StepFailed
 
 log = logging.getLogger("ics.deploy.agentport")
 AGENT_PORT = 8443
+neighbour_mac = neigh.mac_of     # replaced by tests
 
 
 def _agent_dir(rt) -> str:
@@ -199,9 +200,27 @@ class GuestAgentPort:
                "agent_key_fingerprint_sha256": rep.get("agent_key_fingerprint_sha256")}
         if any(v is None for v in fps.values()):
             raise StepFailed("the guest's report lacks its agent fingerprints", "", retryable=False)
+        self._bind_to_vm(vm, ref, fps["address"])
         nid = self._enroll_retry(name, fps, rec.token)
         bootsecrets.set_state(self.rt, rec.id, "enrolled")
         return nid
+
+    def _bind_to_vm(self, vm: str, ref: VmRef, address: str) -> None:
+        """Review 5 M2: possession of the secret is not enough. The address that reported must be the one the VM's own NIC (MAC from the
+        Proxmox config, net0) answers for in the ICS host's neighbour table. Unknown/other MAC => fail closed (the caller stops the VM)."""
+        if not self.rt.settings.guest_require_nic_binding:
+            return
+        want = self.provider.guest_mac(ref).lower()
+        got = neighbour_mac(address)
+        if got is None:
+            self._audit("guest.bootstrap_nic_unverified", vm, address=address)
+            raise StepFailed("the reporting address could not be tied to the VM's network card (no neighbour entry)",
+                             "The VM must be on a segment the ICS host is attached to (or set ICS_GUEST_REQUIRE_NIC_BINDING=false for routed guest networks, "
+                             "which weakens the binding).", retryable=False)
+        if got != want:
+            self._audit("guest.bootstrap_nic_mismatch", vm, address=address, expected_mac=want, seen_mac=got)
+            raise StepFailed("the host that reported is not the VM Proxmox created (hardware address mismatch)",
+                             "Someone else used the bootstrap secret, or the VM's NIC changed. The VM was stopped; see the audit log.", retryable=False)
 
     def _enroll_retry(self, name: str, fps: dict, token: str) -> str:
         last = None
@@ -434,10 +453,12 @@ class GuestAgentPort:
         with rt.session() as db:
             db.execute(text(
                 "INSERT INTO nodes (id, name, address, port, tls_fingerprint_sha256, agent_pubkey, agent_key_fp, capabilities, agent_version, "
-                "last_seen_at, created_by) VALUES (:id, :n, :a, :p, :t, :k, :f, CAST(:c AS jsonb), :v, now(), :cb)"),
+                "last_seen_at, created_by, customer_id) VALUES (:id, :n, :a, :p, :t, :k, :f, CAST(:c AS jsonb), :v, now(), :cb, "
+                "COALESCE((SELECT e.customer_id FROM deployments d JOIN endpoints e ON e.id = d.endpoint_id WHERE d.id = CAST(:dep AS uuid)), "
+                "'00000000-0000-0000-0000-00000000a001'))"),
                 {"id": str(nid), "n": name, "a": a, "p": p, "t": tls, "k": ident["agent_pubkey"], "f": fps["agent_key_fingerprint_sha256"],
                  "c": audit.canon(audit.sanitize(resp.get("capabilities", {}))), "v": str(audit.sanitize(resp.get("agent_version")))[:40],
-                 "cb": self.dep.get("created_by")})
+                 "cb": self.dep.get("created_by"), "dep": str(self.dep["id"])})
             audit.append(db, "node.enrolled", actor_name="worker", resource="node", resource_id=str(nid),
                          details={"name": name, "address": a, "port": p, "via": "deployment bootstrap", "tls_fingerprint": tls,
                                   "agent_key_fingerprint": fps["agent_key_fingerprint_sha256"], "capabilities": resp.get("capabilities", {})})

@@ -128,3 +128,23 @@ def secrets_wiped(rt, rid: str) -> bool:
     with rt.session() as db:
         return bool(db.execute(text("SELECT secret_enc IS NULL AND ssh_key_enc IS NULL AND token_enc IS NULL FROM guest_bootstrap WHERE id = :i"),
                                {"i": rid}).scalar())
+
+
+SWEEP_GRACE_MINUTES = 15
+
+
+def sweep(rt) -> int:
+    """Review 5 L1: one-time bootstrap material of abandoned deployments (never reported, or reported but never enrolled) must not outlive its TTL.
+    Everything whose expiry passed more than the grace period ago loses its vault columns; the row stays as the audit trail."""
+    from .. import audit
+    with rt.session() as db:
+        rows = db.execute(text(
+            "UPDATE guest_bootstrap SET secret_enc = NULL, ssh_key_enc = NULL, token_enc = NULL, secret_deleted_at = now(), "
+            "state = CASE WHEN state IN ('enrolled', 'sealed') THEN state ELSE 'expired' END "
+            "WHERE expires_at < now() - make_interval(mins => :g) AND (secret_enc IS NOT NULL OR ssh_key_enc IS NOT NULL OR token_enc IS NOT NULL) "
+            "RETURNING id, bid, deployment_id, vm, state"), {"g": SWEEP_GRACE_MINUTES}).all()
+        for r in rows:
+            audit.append(db, "guest.bootstrap_secret_swept", actor_name="worker", resource="guest_bootstrap", resource_id=r.bid,
+                         details={"deployment_id": str(r.deployment_id), "vm": r.vm, "state": r.state})
+        db.commit()
+    return len(rows)

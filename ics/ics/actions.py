@@ -18,6 +18,7 @@ from pydantic import BaseModel, ConfigDict, Field, SecretStr, field_validator, m
 from sqlalchemy import text
 from sqlalchemy.orm import Session
 
+from . import release as release_ops
 from . import agentclient, alerts, audit, auth, checks as checkmod, endpoint_actions, identity, monitor, removal
 from .deploy import ops as deploy_ops
 from .deploy import ports as deploy_ports
@@ -100,6 +101,7 @@ class ActionType(StrEnum):
     backup_run = "backup.run"
     backup_verify = "backup.verify"
     backup_prune = "backup.prune"
+    release_promote = "release.promote"
 
 
 class EndpointRegister(endpoint_actions.ScopeLists):
@@ -229,6 +231,7 @@ NAME_RE = r"^[A-Za-z0-9][A-Za-z0-9_.-]{0,62}$"
 
 class NodeEnroll(BaseModel):
     model_config = ConfigDict(extra="forbid")
+    customer_id: UUID | None = Field(default=None, description="owning customer (default: derived from the referenced object, else MSP-internal)")
     name: str = Field(pattern=NAME_RE)
     address: str = Field(pattern=checkmod.HOST_RE)
     port: int = Field(default=8443, ge=1, le=65535)
@@ -252,6 +255,7 @@ class NodeEnroll(BaseModel):
 
 class CheckCreate(BaseModel):
     model_config = ConfigDict(extra="forbid")
+    customer_id: UUID | None = Field(default=None, description="owning customer (default: derived from the referenced object, else MSP-internal)")
     name: str = Field(pattern=NAME_RE)
     kind: Literal["http", "tcp_tls", "imap_login", "smtp_banner", "ews_getfolder", "backup"]
     config: dict
@@ -286,6 +290,7 @@ class CheckBindRemediation(BaseModel):
 
 class MaintenanceCreate(BaseModel):
     model_config = ConfigDict(extra="forbid")
+    customer_id: UUID | None = Field(default=None, description="owning customer (default: derived from the referenced object, else MSP-internal)")
     name: str = Field(min_length=1, max_length=100)
     check_id: UUID | None = None
     duration_minutes: int = Field(ge=1, le=480)
@@ -294,6 +299,7 @@ class MaintenanceCreate(BaseModel):
 
 class AlertChannelCreate(BaseModel):
     model_config = ConfigDict(extra="forbid")
+    customer_id: UUID | None = Field(default=None, description="owning customer (default: derived from the referenced object, else MSP-internal)")
     name: str = Field(pattern=NAME_RE)
     kind: Literal["email", "webhook", "pushover", "sms"]
     config: dict
@@ -402,6 +408,7 @@ CATALOG: dict[ActionType, dict] = {
     ActionType.backup_run: {"model": backup_ops.BackupRun, "risk": "low", "secrets": ()},
     ActionType.backup_verify: {"model": backup_ops.BackupVerify, "risk": "low", "secrets": ()},
     ActionType.backup_prune: {"model": backup_ops.BackupPrune, "risk": "low", "secrets": ()},
+    ActionType.release_promote: {"model": release_ops.ReleasePromote, "risk": release_ops.risk, "secrets": (), "admin_only": True},
 }
 CATALOG.update({ActionType(k): v for k, v in prov_actions.CATALOG.items()})   # provider provisioning (ics/provisioning/actions.py)
 _PROV = {ActionType(k) for k in prov_actions.CATALOG}
@@ -557,7 +564,7 @@ _PRECHECK = {ActionType.node_enroll: _pre_node_enroll, ActionType.check_create: 
              ActionType.alert_channel_test: _pre_channel_test, ActionType.incident_ack: _pre_ack, ActionType.runbook_execute: _pre_runbook,
              ActionType.check_delete: removal.pre_check_delete, ActionType.alert_channel_delete: removal.pre_channel_delete,
              ActionType.node_decommission: removal.pre_node_decommission, ActionType.maintenance_cancel: removal.pre_maintenance_cancel,
-             ActionType.maintenance_delete: removal.pre_maintenance_delete, ActionType.plan_archive: removal.pre_plan_archive,
+             ActionType.maintenance_delete: removal.pre_maintenance_delete, ActionType.plan_archive: removal.pre_plan_archive, ActionType.release_promote: release_ops.precheck,
 **{ActionType(k): v for k, v in {**cred_actions.PRECHECK, **ten_actions.PRECHECK}.items()}}
 
 
@@ -677,6 +684,9 @@ def create_plan(db: Session, rt: Runtime, user, action: ActionType, params: dict
         extra.update(_PRECHECK[action](db, rt, p) or {})
     if action in _PROV:
         extra.update(prov_actions.precheck(db, rt, action.value, p))
+        pr = extra.get("preview_risk")
+        if pr in _RISK_ORDER and _RISK_ORDER[pr] > _RISK_ORDER[risk]:
+            risk = pr
     # ---- customer scoping + policy (agent M) ----
     cust = full.get("customer_id") or tscope.customer_of_params(db, full)
     if action == ActionType.endpoint_register and not cust:
@@ -815,6 +825,9 @@ def decide_plan(db: Session, rt: Runtime, user, plan_id: UUID, approve: bool, ip
     plan = db.execute(text("SELECT * FROM plans WHERE id = :i FOR UPDATE"), {"i": str(plan_id)}).first()
     if plan is None:
         raise PlanError(404, "plan not found")
+    # review 5 M4: the approver must be in scope of the plan's customer (a customer-less plan is MSP-wide: scoped operators may not decide it)
+    if (plan.customer_id is not None and not tscope.allowed(user, plan.customer_id)) or (plan.customer_id is None and getattr(user, "customer_ids", None) is not None):
+        raise PlanError(404, "plan not found")
     if plan.requested_by == user.id:
         _refuse(db, user, ip, plan_id, "plan.self_decision_rejected", "requester cannot approve or reject their own plan")
     if _provenance_conflict(db, user.id, plan.requested_by):
@@ -907,6 +920,12 @@ def reap_expired(rt: Runtime) -> int:
                         "AND created_at < now() - make_interval(secs => :e)"), {"e": rt.settings.plan_expiry_seconds})
         prov_actions.scrub_expired_credentials(db)   # temporary provisioning credentials live at most 15 minutes
         db.commit()
+    try:      # review 5 L1: sweepers for one-time secrets that outlived their purpose
+        from .guest import bootsecrets
+        bootsecrets.sweep(rt)
+        identity.sweep_sip_credentials(rt)
+    except Exception:  # noqa: BLE001
+        log.exception("secret sweeper failed")
     return n
 
 
@@ -1156,8 +1175,8 @@ def _exec_node_enroll(rt: Runtime, db: Session, m: NodeEnroll, plan, known: list
                               node_id=str(nid), expect_agent_pubkey_b64=ident["agent_pubkey"], allow_loopback=lb)
     db.execute(text(
         "INSERT INTO nodes (id, name, address, port, tls_fingerprint_sha256, agent_pubkey, agent_key_fp, capabilities, agent_version, "
-        "last_seen_at, created_by) VALUES (:id, :n, :a, :p, :t, :k, :f, CAST(:c AS jsonb), :v, now(), :cb)"),
-        {"id": str(nid), "n": m.name, "a": m.address, "p": m.port, "t": m.tls_fingerprint_sha256, "k": ident["agent_pubkey"],
+        "last_seen_at, created_by, customer_id) VALUES (:id, :n, :a, :p, :t, :k, :f, CAST(:c AS jsonb), :v, now(), :cb, :cu)"),
+        {"cu": str(plan.customer_id or tscope.DEFAULT_CUSTOMER), "id": str(nid), "n": m.name, "a": m.address, "p": m.port, "t": m.tls_fingerprint_sha256, "k": ident["agent_pubkey"],
          "f": m.agent_key_fingerprint_sha256, "c": audit.canon(audit.sanitize(resp.get("capabilities", {}))),
          "v": str(audit.sanitize(resp.get("agent_version")))[:40], "cb": str(plan.requested_by)})
     audit.append(db, "node.enrolled", actor_name="worker", resource="node", resource_id=str(nid),
@@ -1173,9 +1192,9 @@ def _exec_check_create(rt: Runtime, db: Session, m: CheckCreate, plan, known: li
         known.append(m.password.get_secret_value())
         enc = rt.vault.encrypt(m.password.get_secret_value().encode(), monitor.check_aad(cid, m.config))
     db.execute(text(
-        "INSERT INTO checks (id, name, kind, config, secret_enc, interval_seconds, fail_threshold, recover_threshold, remediation, created_by) "
-        "VALUES (:id, :n, :k, CAST(:c AS jsonb), :s, :i, :ft, :rt, CAST(:r AS jsonb), :cb)"),
-        {"id": str(cid), "n": m.name, "k": m.kind, "c": audit.canon(m.config), "s": enc, "i": m.interval_seconds, "ft": m.fail_threshold,
+        "INSERT INTO checks (id, name, kind, config, secret_enc, interval_seconds, fail_threshold, recover_threshold, remediation, created_by, customer_id) "
+        "VALUES (:id, :n, :k, CAST(:c AS jsonb), :s, :i, :ft, :rt, CAST(:r AS jsonb), :cb, :cu)"),
+        {"cu": str(plan.customer_id or tscope.DEFAULT_CUSTOMER), "id": str(cid), "n": m.name, "k": m.kind, "c": audit.canon(m.config), "s": enc, "i": m.interval_seconds, "ft": m.fail_threshold,
          "rt": m.recover_threshold, "r": audit.canon(m.remediation.model_dump(mode="json", exclude_none=True)) if m.remediation else None,
          "cb": str(plan.requested_by)})
     audit.append(db, "check.created", actor_name="worker", resource="check", resource_id=str(cid),
@@ -1207,9 +1226,9 @@ def _exec_check_bind(rt, db, m: CheckBindRemediation, plan, known) -> dict:
 
 def _exec_maintenance(rt, db, m: MaintenanceCreate, plan, known) -> dict:
     wid = db.execute(text(
-        "INSERT INTO maintenance_windows (name, check_id, starts_at, ends_at, reason, created_by) "
-        "VALUES (:n, :c, now(), now() + make_interval(mins => :d), :r, :u) RETURNING id"),
-        {"n": m.name, "c": str(m.check_id) if m.check_id else None, "d": m.duration_minutes, "r": m.reason, "u": str(plan.requested_by)}).scalar()
+        "INSERT INTO maintenance_windows (name, check_id, starts_at, ends_at, reason, created_by, customer_id) "
+        "VALUES (:n, :c, now(), now() + make_interval(mins => :d), :r, :u, :cu) RETURNING id"),
+        {"cu": str(plan.customer_id or tscope.DEFAULT_CUSTOMER), "n": m.name, "c": str(m.check_id) if m.check_id else None, "d": m.duration_minutes, "r": m.reason, "u": str(plan.requested_by)}).scalar()
     # review 3 L2: only a window someone OTHER than the requester approved may later lower a deployment change's approval tier
     if db.execute(text("SELECT 1 FROM plan_approvals WHERE plan_id = :p AND approver_id <> :u"), {"p": str(plan.id), "u": str(plan.requested_by)}).first():
         db.execute(text("UPDATE maintenance_windows SET independently_approved = true WHERE id = :i"), {"i": wid})
@@ -1229,9 +1248,9 @@ def _exec_channel_create(rt: Runtime, db: Session, m: AlertChannelCreate, plan, 
     if m.secret:
         known.append(m.secret.get_secret_value())
         enc = rt.vault.encrypt(m.secret.get_secret_value().encode(), monitor.channel_aad(cid, m.config))
-    db.execute(text("INSERT INTO alert_channels (id, name, kind, config, secret_enc, enabled, created_by) "
-                    "VALUES (:id, :n, :k, CAST(:c AS jsonb), :s, :e, :u)"),
-               {"id": str(cid), "n": m.name, "k": m.kind, "c": audit.canon(m.config), "s": enc, "e": bool(m.enabled), "u": str(plan.requested_by)})
+    db.execute(text("INSERT INTO alert_channels (id, name, kind, config, secret_enc, enabled, created_by, customer_id) "
+                    "VALUES (:id, :n, :k, CAST(:c AS jsonb), :s, :e, :u, :cu)"),
+               {"cu": str(plan.customer_id or tscope.DEFAULT_CUSTOMER), "id": str(cid), "n": m.name, "k": m.kind, "c": audit.canon(m.config), "s": enc, "e": bool(m.enabled), "u": str(plan.requested_by)})
     audit.append(db, "alert_channel.created", actor_name="worker", resource="alert_channel", resource_id=str(cid),
                  details={"name": m.name, "kind": m.kind, "enabled": bool(m.enabled), "has_secret": enc is not None,
                           "config": {k: v for k, v in m.config.items() if k not in ("ca_pem", "user_key")}})
@@ -1331,4 +1350,5 @@ _EXEC = {ActionType.endpoint_register: endpoint_actions.exec_register, ActionTyp
          **{ActionType(k): v for k, v in endpoint_actions.EXECUTORS.items()},
          **{ActionType(k): v for k, v in prov_actions.EXECUTORS.items()},
          **{ActionType(k): v for k, v in {**cred_actions.EXECUTORS, **ten_actions.EXECUTORS}.items()},
+         ActionType.release_promote: release_ops.exec_promote,
          **{ActionType(k): v for k, v in backup_ops.EXECUTORS.items()}}
