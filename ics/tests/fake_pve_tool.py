@@ -144,7 +144,9 @@ def main():
         txt = open(p).read() if os.path.exists(p) else ""
         sys.exit(0 if ("ALL=(root)" in txt and txt.endswith("\n")) else 1)
     elif NAME == "test":
-        sys.exit(0 if os.access(m(a[1]), os.X_OK) else 1) if a[:1] == ["-x"] else sys.exit(1)
+        if a[:1] == ["-x"]:
+            sys.exit(0 if os.access(m(a[1]), os.X_OK) else 1)
+        sys.exit(0 if a[:1] == ["-e"] and os.path.lexists(m(a[1])) else 1)
     elif NAME == "apt-get":
         if os.path.exists(state("apt-fail")):
             sys.stderr.write("E: Unable to locate package sudo\n")

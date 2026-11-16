@@ -4,6 +4,7 @@ the onboarding job ends, on cancel and on expiry."""
 from __future__ import annotations
 
 import json
+import logging
 import uuid
 from datetime import datetime, timedelta, timezone
 
@@ -20,6 +21,8 @@ PROVIDER = "pve-ssh"
 TTL_SECONDS = 30 * 60
 PUBLIC = ("id, customer_id, host, port, username, auth, use_sudo, api_url, state, hk_algo, hk_candidate AS hostkey_candidate, hk_pinned AS hostkey_pinned, "
           "api_cert_ssh, api_cert_seen, api_cert_pinned, api_trust, api_proxy, created_at, expires_at, finished_at")
+
+log = logging.getLogger(__name__)
 
 
 class SessionError(Exception):
@@ -90,9 +93,13 @@ def fetch_candidate(db: Session, rt: Runtime, sid) -> dict:
         raise SessionError(409, "the host key was already confirmed for this session")
     try:
         check_destination(r.host, rt.settings.allow_loopback_endpoints)
-        hk = fetch_host_key(r.host, r.port)
-    except (ProxmoxError, SshError) as e:
+    except ProxmoxError as e:
         raise SessionError(502, str(e)) from None
+    try:
+        hk = fetch_host_key(r.host, r.port)
+    except Exception as e:  # noqa: BLE001  review 8 L-3 (paramiko raises bare SSHException/EOFError for a non-SSH peer): one answer for closed port / no SSH / no host key, so this is no port-probe oracle (the detail is logged)
+        log.info("ssh host key fetch for session %s failed: %s", sid, str(e)[:200])
+        raise SessionError(502, f"could not read an SSH host key from {r.host}:{r.port}") from None
     db.execute(text("UPDATE ssh_sessions SET hk_algo = :a, hk_candidate = :f WHERE id = :i"), {"a": hk.algo, "f": hk.fingerprint, "i": str(sid)})
     audit.append(db, "ssh.hostkey.presented", actor_name="ics", resource="ssh_session", resource_id=str(sid),
                  details={"host": r.host, "port": r.port, "algo": hk.algo, "fingerprint": hk.fingerprint})

@@ -118,6 +118,23 @@ def test_host_key_fingerprint_matches_ssh_keygen_and_nothing_runs_before_confirm
     assert node.executed() == []
 
 
+def test_l3_host_key_fetch_failures_all_give_one_answer(w, node):
+    """review 8 L-3: closed port and 'not SSH' look the same to the caller (no port-probe oracle)"""
+    import socket
+    srv = socket.socket(); srv.bind(("127.0.0.1", 0)); srv.listen(1)            # open, but not SSH
+    closed = socket.socket(); closed.bind(("127.0.0.1", 0)); cport = closed.getsockname()[1]; closed.close()
+    try:
+        texts = []
+        for port in (cport, srv.getsockname()[1]):
+            sid = new_session(w, node, port=port)["id"]
+            r = w.o.post(f"{H}/ssh-sessions/{sid}/hostkey", headers=w.oh)
+            assert r.status_code == 502
+            texts.append(r.json()["detail"].replace(str(port), "P"))
+        assert texts[0] == texts[1] and "could not read an SSH host key" in texts[0], texts
+    finally:
+        srv.close()
+
+
 def test_pinned_key_mismatch_sends_nothing(node):
     with pytest.raises(C.SshError, match="host key does not match"):
         C.SshSession("127.0.0.1", node.port, node.user, C.HostKey("ssh-ed25519", "SHA256:" + "B" * 43), pem=node.admin_key)
@@ -433,6 +450,15 @@ def test_helper_actions_through_the_pipeline(w, node, owner, rt):
     assert j2["status"] == "succeeded" and {x["subject"] for x in j2["result"]["permissions"]} >= {"officeunbound@pve"}
     r = w.o.post(f"{H}/plans", json={"action": "provider.ssh.helper", "params": {"endpoint_id": eid, "op": "discover", "kind": "x; id"}}, headers=w.oh)
     assert r.status_code == 422
+    # review 8 M-3: root reads beyond the token scope need an approver, and resources are filtered to the endpoint's pools/nodes
+    owner.sim.add_vm(5001, "pve06", "someone-else", pool="other-customer")
+    owner.sim.add_vm(5002, "pve06", "ours", pool="officeunbound")
+    p, j2 = w.run("provider.ssh.helper", {"endpoint_id": eid, "op": "discover", "kind": "resources"})
+    names = {x.get("name") for x in j2["result"]["result"]}
+    assert p["risk"] == "normal" and j2["status"] == "succeeded" and "ours" in names and "someone-else" not in names, (p["risk"], names)
+    for kind in ("users", "acl", "fw-cluster"):
+        assert w.plan("provider.ssh.helper", {"endpoint_id": eid, "op": "discover", "kind": kind})["status"] == "pending_approval", kind
+    assert w.plan("provider.ssh.helper", {"endpoint_id": eid, "op": "discover", "kind": "storage"})["status"] == "approved"
 
 
 # ======================================================================================= failure / rollback / wipe
@@ -553,6 +579,53 @@ def test_rerun_rotates_the_token_reuses_the_account_and_offboard_removes_everyth
         assert c.execute(text("SELECT removed_at IS NOT NULL FROM ssh_identities WHERE endpoint_id = :i"), {"i": eid}).scalar()
         # nothing usable is left: no ICS SSH key (also not the one replaced by the re-run) and no admin credential except the never-used session's
         assert c.execute(text("SELECT count(*) FROM credentials WHERE provider = 'pve-ssh' AND purged_at IS NULL AND id <> :a"), {"a": abandoned}).scalar() == 0
+
+
+def test_m1_an_existing_account_or_install_is_never_adopted(w, node, owner, owner_engine):
+    """review 8 M-1: a pre-existing account (or another integration's install) blocks the preview; nothing runs and nothing is deleted"""
+    (node.root / "state" / f"user-{node.user}").write_text("{}")                 # e.g. an admin's own account with the chosen name
+    sid = connected(w, node)
+    discover(w, sid)
+    pv = preview(w, sid)
+    assert any("already exists on the node" in b for b in pv["blocked"])
+    r = w.o.post(f"{H}/plans", json={"action": "provider.ssh_onboard", "params": {"ssh_session_id": sid, "preview_id": pv["preview_id"], "bind_hash": pv["bind_hash"], "name": "onb"}}, headers=w.oh)
+    assert r.status_code == 409
+    assert node.has_account(node.user) and not any(e[0] in ("userdel", "useradd") for e in node.executed())
+    (node.root / "state" / f"user-{node.user}").unlink()
+    node.file("/etc/sudoers.d/ou-ics").write_text("x\n")                          # another integration's node identity
+    sid = connected(w, node)
+    discover(w, sid)
+    assert any("another Office Unbound node identity" in b for b in preview(w, sid, name="onb2")["blocked"])
+
+
+def test_m1_a_failed_reonboarding_keeps_the_existing_identity(w, node, owner, monkeypatch):
+    sid, pv, p, j = flow(w, node)
+    eid = j["result"]["endpoint_id"]
+    sid2 = connected(w, node)
+    discover(w, sid2)
+    pv2 = preview(w, sid2, endpoint_id=eid)
+    assert not pv2["blocked"], pv2["blocked"]                                     # its own recorded identity: re-onboarding is allowed
+    from ics.sshonboard import admin as A
+    monkeypatch.setattr(A, "verify_files", lambda adm, i: (_ for _ in ()).throw(__import__("ics.proxmox", fromlist=["ProxmoxError"]).ProxmoxError("boom")))
+    p2, j2 = w.run("provider.ssh_onboard", {"ssh_session_id": sid2, "preview_id": pv2["preview_id"], "bind_hash": pv2["bind_hash"], "endpoint_id": eid})
+    assert j2["status"] == "failed"
+    assert node.has_account(node.user) and not any(e[0] == "userdel" for e in node.executed())
+
+
+def test_m2_offboard_through_a_session_to_another_host_is_refused(w, node, owner, owner_engine):
+    """review 8 M-2: the offboarding session must reach the host (and host key) the endpoint was onboarded on"""
+    sid, pv, p, j = flow(w, node)
+    eid = j["result"]["endpoint_id"]
+    with owner_engine.begin() as c:                                                  # the endpoint was onboarded on ANOTHER cluster than this session reaches
+        c.execute(text("UPDATE ssh_identities SET host = 'pve.other.example' WHERE endpoint_id = :e"), {"e": eid})
+    other = connected(w, node)
+    r = w.o.post(f"{H}/plans", json={"action": "provider.ssh_offboard", "params": {"ssh_session_id": other, "endpoint_id": eid, "confirm_name": "onb"}}, headers=w.oh)
+    assert r.status_code == 409 and "onboarded on" in r.text
+    with owner_engine.begin() as c:                                                  # same host, but a different host key than recorded
+        c.execute(text("UPDATE ssh_identities SET host = '127.0.0.1', hostkey_fp = :f WHERE endpoint_id = :e"), {"e": eid, "f": "SHA256:" + "A" * 43})
+    r = w.o.post(f"{H}/plans", json={"action": "provider.ssh_offboard", "params": {"ssh_session_id": other, "endpoint_id": eid, "confirm_name": "onb"}}, headers=w.oh)
+    assert r.status_code == 409 and "host key" in r.text
+    assert pve_state(owner)["users"] and node.has_account(node.user)
 
 
 def test_offboard_keeps_a_pool_that_still_has_guests(w, node, owner):

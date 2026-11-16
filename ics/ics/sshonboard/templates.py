@@ -169,6 +169,11 @@ SUDO_BIN = "/usr/bin/sudo"
 _APT = ("env", "DEBIAN_FRONTEND=noninteractive", "apt-get")
 
 
+def install_present() -> Cmd:
+    """review 8 M-1: an Office Unbound node identity (fixed paths) is already installed on this node"""
+    return Cmd("install.present", ("test", "-e", SUDOERS_PATH))
+
+
 def sudo_present() -> Cmd:
     return Cmd("sudo.present", ("test", "-x", SUDO_BIN))
 

@@ -98,12 +98,21 @@ class SshNarrow(BaseModel):
     subject: str = Field(pattern=r"^[A-Za-z0-9][A-Za-z0-9_.-]{0,31}@[A-Za-z0-9._-]{1,32}(![A-Za-z0-9][A-Za-z0-9_.-]{0,62})?$")
 
 
+# review 8 M-3: the helper reads as root on the node. Cluster-wide reads that reach beyond the endpoint's token scope (other customers' guests,
+# PVE users/ACLs, firewall rules) need an approver; `resources` output is also filtered to the endpoint's scope.
+HELPER_SENSITIVE = {"resources", "users", "acl", "roles", "network", "fw-cluster", "fw-options", "fw-rules"}
+
+
+def helper_risk(p) -> str:
+    return "normal" if p.op == "discover" and p.kind in HELPER_SENSITIVE else "low"
+
+
 CATALOG = {
     "provider.ssh.discover": {"model": SshDiscover, "risk": "low", "secrets": ()},
     "provider.ssh.preview": {"model": SshPreview, "risk": "low", "secrets": ()},
     "provider.ssh_onboard": {"model": SshOnboard, "risk": "normal", "secrets": ()},   # owner decision 2026-11-16; the preview raises it to high for widening / elevated plans
     "provider.ssh_offboard": {"model": SshOffboard, "risk": "high", "secrets": ()},
-    "provider.ssh.helper": {"model": SshHelper, "risk": "low", "secrets": ()},
+    "provider.ssh.helper": {"model": SshHelper, "risk": helper_risk, "secrets": ()},
     "provider.ssh.narrow": {"model": SshNarrow, "risk": "normal", "secrets": ()},
 }
 SESSION_ACTIONS = {"provider.ssh.discover", "provider.ssh.preview", "provider.ssh_onboard", "provider.ssh_offboard"}
@@ -204,10 +213,29 @@ def precheck(db: Session, rt: Runtime, action: str, p, user) -> dict:
         if db.execute(text("SELECT 1 FROM ssh_identities WHERE endpoint_id = :e AND removed_at IS NULL"), {"e": str(p.endpoint_id)}).first() is None \
                 and prov._stored(db, p.endpoint_id) is None:
             raise PlanError(409, "this endpoint was not onboarded by the ICS: nothing to offboard")
+        prob = _offboard_target_problem(S.live(db, p.ssh_session_id, user.id), ep, _identity(db, p.endpoint_id))
+        if prob:
+            raise PlanError(409, prob)
+        extra["offboard_target"] = {"endpoint": ep.name, "api": ep.base_url}
     if action in ("provider.ssh.helper", "provider.ssh.narrow"):
         if _identity(db, p.endpoint_id) is None:
             raise PlanError(409, "this endpoint has no ICS SSH identity")
     return extra
+
+
+def _offboard_target_problem(r, ep, ident) -> str | None:
+    """review 8 M-2: offboarding deletes users/roles/ACLs by NAME; those names are the same in every integration, so the SSH session must reach the
+    host (and host key) the endpoint was onboarded on, or, without an SSH identity, the endpoint's API host."""
+    import hmac
+    from urllib.parse import urlparse
+    if ident is not None:
+        if r.host != ident.host or int(r.port) != int(ident.port):
+            return f"this SSH session is to {r.host}:{r.port}, but the endpoint was onboarded on {ident.host}:{ident.port}"
+        if r.hk_pinned and not hmac.compare_digest(str(r.hk_pinned), str(ident.hostkey_fp)):
+            return "the SSH host key of this session differs from the one recorded when the endpoint was onboarded"
+        return None
+    h = (urlparse(ep.base_url).hostname or "").lower()
+    return None if r.host.lower() == h else f"this SSH session is to {r.host}, but the endpoint's API host is {h}"
 
 
 def _identity(db: Session, eid):
@@ -384,6 +412,17 @@ def _compute(rt: Runtime, db: Session, adm: A.SshAdmin, r, policy: Policy, ep, i
     if policy.service_user != SERVICE_USER and ep is None:
         blocked_extra.append(f"the service user must be named '{SERVICE_USER}' for SSH onboarding")
     local = cl["local"]
+    # review 8 M-1: never adopt an account (or a node install) that is not this endpoint's recorded ICS identity: a failed run or an offboard would delete it
+    acct_exists = adm.run_rc(T.account_exists(account)) == 0
+    install_exists = adm.run_rc(T.install_present()) == 0
+    ours = ep is not None and db.execute(text("SELECT 1 FROM ssh_identities WHERE endpoint_id = :e AND account = :a AND host = :h AND removed_at IS NULL"),
+                                         {"e": str(ep.id), "a": account, "h": r.host}).first() is not None
+    if acct_exists and not ours:
+        blocked_extra.append(f"the account '{account}' already exists on the node and is not this endpoint's ICS identity: the ICS never adopts an existing "
+                             f"account (a rollback or offboarding would delete it). Choose another account name or remove that account first")
+    if install_exists and not ours:
+        blocked_extra.append("another Office Unbound node identity is already installed on this node (/etc/sudoers.d/ou-ics): offboard that integration "
+                             "first, or re-onboard the endpoint it belongs to")
     if policy.mode() == "single_node" and local not in policy.scope.nodes:
         blocked_extra.append(f"single-node scope: this SSH session is on {local}, which is not the selected node; the ICS's SSH identity is only installed "
                              f"on the node it is limited to. Connect to {', '.join(policy.scope.nodes)} instead")
@@ -413,7 +452,8 @@ def _compute(rt: Runtime, db: Session, adm: A.SshAdmin, r, policy: Policy, ep, i
     lines += [c.line(True) for c in A.install_commands(ident)]
     ssh = {"host": r.host, "port": r.port, "username": r.username, "sudo": bool(r.use_sudo), "host_key_algo": r.hk_algo, "host_key": r.hk_pinned,
            **_bind_trust(r)}
-    bind = {"plan_hash": pd["plan_hash"], "ssh": ssh, "commands": lines, "identity": ident.summary(), "rotates": rotates}
+    bind = {"plan_hash": pd["plan_hash"], "ssh": ssh, "commands": lines, "identity": ident.summary(), "rotates": rotates,
+            "node_state": {"account_exists": acct_exists, "install_exists": install_exists, "reonboard": ours}}
     bind_hash = hashlib.sha256(audit.canon(bind).encode()).hexdigest()
     return pl, d, pd, facts, cl, ident, rotates, lines, bind, bind_hash
 
@@ -505,6 +545,7 @@ def exec_onboard(rt: Runtime, db: Session, m: SshOnboard, plan, known: list[str]
     res = None
     ident = None
     installed = False
+    pre_existing = True                     # until known: never delete an account this run did not create
     installed_sudo = False
     rolled = False
     try:
@@ -522,6 +563,7 @@ def exec_onboard(rt: Runtime, db: Session, m: SshOnboard, plan, known: list[str]
             u, _, n = tok.partition("!")
             adm.token_delete(u, n)
         res = pp.apply_plan(adm, pl, d)
+        pre_existing = adm.run_rc(T.account_exists(ident.account)) == 0     # review 8 M-1: only an account THIS run creates is removed on failure
         installed = True                    # set first: a failure part-way must still remove what was created
         sudo_state = A.install_identity(adm, ident)
         installed_sudo = sudo_state["sudo_installed"]
@@ -564,8 +606,10 @@ def exec_onboard(rt: Runtime, db: Session, m: SshOnboard, plan, known: list[str]
             try:
                 if res is not None:
                     left += pp.rollback_created(adm, res)
-                if ident is not None and installed:
+                if ident is not None and installed and not pre_existing:
                     left += A.remove_identity(adm, ident.account, remove_sudo=installed_sudo)
+                elif ident is not None and installed:
+                    left.append(f"node identity {ident.account} existed before this run (re-onboarding): kept, not deleted")
             except Exception:  # noqa: BLE001
                 left.append("rollback itself failed")
         db.rollback()                       # release the audit-chain lock, then record the rollback and wipe the credential in an independent transaction
@@ -605,7 +649,20 @@ def exec_offboard(rt: Runtime, db: Session, m: SshOffboard, plan, known: list[st
     ep = prov._ep(db, m.endpoint_id)
     st = prov._stored(db, ep.id)
     ident = _identity(db, ep.id)
+    prob = _offboard_target_problem(r, ep, ident) or (None if ident is None or r.hk_pinned else "the session's host key is not pinned")
+    if prob:
+        _wipe_independent(rt, db, r.id, "offboarding refused: wrong target")
+        raise ProxmoxError(prob + ": nothing was removed")
     adm = _connect(rt, db, r, known, f"job:{plan.id}")
+    if ident is not None:
+        try:
+            local = _cluster(adm)["local"]
+        except Exception:  # noqa: BLE001
+            local = None
+        if local != ident.node:
+            adm.discard()
+            _wipe_independent(rt, db, r.id, "offboarding refused: wrong node")
+            raise ProxmoxError(f"the SSH session reached node {local!r}, but the endpoint's identity is on {ident.node!r}: nothing was removed")
     done: list[str] = []
     left: list[str] = []
     try:
@@ -679,7 +736,10 @@ def exec_helper(rt: Runtime, db: Session, m: SshHelper, plan, known: list[str]) 
         if m.op == "self-check":
             out = h.self_check()
         elif m.op == "discover":
-            out = {"result": h.discover(m.kind, m.pve_node)}
+            res = h.discover(m.kind, m.pve_node)
+            if m.kind == "resources":
+                res = _scope_resources(db, m.endpoint_id, res)
+            out = {"result": res}
         elif m.op == "drift":
             out = {"permissions": h.drift()}
         else:
@@ -687,6 +747,24 @@ def exec_helper(rt: Runtime, db: Session, m: SshHelper, plan, known: list[str]) 
     finally:
         h.close()
     audit.append(db, "provider.ssh.helper", actor_name="worker", resource="endpoint", resource_id=str(m.endpoint_id), details={"op": m.op, "kind": m.kind})
+    return out
+
+
+def _scope_resources(db: Session, eid, items):
+    """review 8 M-3: only guests in the endpoint's pools, and nodes/storage of its nodes (all nodes when it has none recorded)"""
+    ep = prov._ep(db, eid)
+    pools, nodes = set(ep.allowed_pools or ()), set(ep.allowed_nodes or ())
+    out = []
+    for x in items if isinstance(items, list) else []:
+        if not isinstance(x, dict):
+            continue
+        t = x.get("type")
+        if t in ("qemu", "lxc") and x.get("pool") in pools:
+            out.append(x)
+        elif t == "pool" and x.get("pool") in pools:
+            out.append(x)
+        elif t in ("node", "storage") and (not nodes or x.get("node") in nodes):
+            out.append(x)
     return out
 
 
