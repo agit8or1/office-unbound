@@ -99,24 +99,102 @@ def check_envelope(req, *, now: int, node_id: str) -> dict:
     return req
 
 
+RESEED_PREFIX = b"ou-agent-epoch-reseed-v1\n"
+
+
+def _sum(n: int) -> str:
+    import hashlib
+    return hashlib.sha256(b"ou-epoch-v1:%d" % n).hexdigest()
+
+
+def _read_mark(path: str):
+    """-> ("missing", None) | ("ok", n) | ("bad", None)"""
+    try:
+        with open(path) as f:
+            raw = f.read()
+    except FileNotFoundError:
+        return "missing", None
+    except OSError:
+        return "bad", None
+    try:
+        d = json.loads(raw)
+        n = d["max_epoch"]
+        if type(n) is not int or not 0 <= n < 2**62:
+            return "bad", None
+        if "sum" in d and d["sum"] != _sum(n):
+            return "bad", None
+        return "ok", n
+    except (ValueError, KeyError, TypeError):
+        return "bad", None
+
+
+def _atomic_write(path: str, data: str) -> None:
+    """tmp + fsync + rename + fsync of the directory (review 7 L-2: the rename itself must survive a power loss)"""
+    import os
+    tmp = path + ".tmp"
+    fd = os.open(tmp, os.O_WRONLY | os.O_CREAT | os.O_TRUNC, 0o600)
+    with os.fdopen(fd, "w") as f:
+        f.write(data)
+        f.flush()
+        os.fsync(f.fileno())
+    os.replace(tmp, path)
+    dfd = os.open(os.path.dirname(path) or ".", os.O_RDONLY)
+    try:
+        os.fsync(dfd)
+    finally:
+        os.close(dfd)
+
+
 class EpochGate:
     """Highest controller epoch ever accepted (ADR-0012 fencing). Persisted with fsync BEFORE a request runs, so it survives crashes.
     A request with a LOWER epoch is refused (a resurrected old primary cannot drive this node); a higher epoch raises the mark
     (the agent learns a promotion from the first authenticated request of the promoted controller). A request WITHOUT an epoch is
-    only accepted while the mark is still 0 (a node that never met an epoch-aware controller keeps working through the upgrade)."""
+    only accepted while the mark is still 0 (a node that never met an epoch-aware controller keeps working through the upgrade).
+
+    Review 7 L-2: the mark is stored twice (epoch.json + epoch.json.bak, each atomically written with fsync of file and directory). If a file EXISTS but
+    neither copy is readable (corrupt, empty, truncated) the gate FAILS CLOSED: every request is refused with `epoch_state_corrupt` until an operator
+    re-seeds the mark on the node console with a doc signed by the CURRENT controller (`ou-agent reseed-epoch`, doc from `ics-cli epoch-attest`).
+    Only a state directory with no epoch file at all counts as a node that never saw an epoch (mark 0)."""
 
     def __init__(self, path: str):
         import threading
         self.path, self.lock = path, threading.Lock()
-        try:
-            with open(path) as f:
-                self.max_epoch = int(json.load(f)["max_epoch"])
-        except (FileNotFoundError, ValueError, KeyError, TypeError):
-            self.max_epoch = 0
+        self.max_epoch, self.corrupt = 0, False
+        self._load()
+
+    def _load(self) -> None:
+        (s1, n1), (s2, n2) = _read_mark(self.path), _read_mark(self.path + ".bak")
+        oks = [n for s, n in ((s1, n1), (s2, n2)) if s == "ok"]
+        if oks:
+            self.max_epoch, self.corrupt = max(oks), False
+            if s1 != "ok" or s2 != "ok" or n1 != n2:      # heal: both copies carry the highest value again
+                try:
+                    self._store(self.max_epoch)
+                except OSError:
+                    pass
+        elif s1 == "missing" and s2 == "missing":
+            self.max_epoch, self.corrupt = 0, False
+        else:
+            self.max_epoch, self.corrupt = 0, True
+
+    def _store(self, epoch: int) -> None:
+        body = json.dumps({"max_epoch": epoch, "sum": _sum(epoch)})
+        _atomic_write(self.path, body)
+        _atomic_write(self.path + ".bak", body)
+
+    def reseed(self, epoch: int) -> None:
+        """operator action after the signed re-seed doc was verified (cli.reseed_epoch): sets the mark and ends the fail-closed state"""
+        with self.lock:
+            self._store(epoch)
+            self.max_epoch, self.corrupt = epoch, False
 
     def admit(self, epoch) -> int:
         """Call only for an authenticated, structurally valid request. Returns the (possibly raised) mark or raises Reject."""
         with self.lock:
+            if self.corrupt:
+                self._load()          # an operator may have re-seeded from the console meanwhile
+                if self.corrupt:
+                    raise Reject("epoch_state_corrupt", "the stored controller epoch is unreadable: refusing everything until an operator re-seeds it (ou-agent reseed-epoch)")
             if epoch is None:
                 if self.max_epoch > 0:
                     raise Reject("epoch_required", f"controller epoch required (highest seen {self.max_epoch})")
@@ -124,13 +202,6 @@ class EpochGate:
             if epoch < self.max_epoch:
                 raise Reject("stale_epoch", f"controller epoch {epoch} is lower than the highest seen {self.max_epoch}: this controller was fenced")
             if epoch > self.max_epoch:
-                import os
-                tmp = self.path + ".tmp"
-                fd = os.open(tmp, os.O_WRONLY | os.O_CREAT | os.O_TRUNC, 0o600)
-                with os.fdopen(fd, "w") as f:
-                    json.dump({"max_epoch": epoch}, f)
-                    f.flush()
-                    os.fsync(f.fileno())
-                os.replace(tmp, self.path)
+                self._store(epoch)
                 self.max_epoch = epoch
             return self.max_epoch

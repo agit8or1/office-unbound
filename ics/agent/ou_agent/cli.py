@@ -67,6 +67,28 @@ def fingerprints(state: str) -> tuple[str, str]:
     return tls, hashlib.sha256(pub).hexdigest()
 
 
+def reseed_epoch(state: str, doc_path: str, now: int | None = None) -> int:
+    """Review 7 L-2: after the stored epoch became unreadable the agent refuses everything. The operator re-seeds it on the node console with a doc that the
+    CURRENT controller signed (`ics-cli epoch-attest --node <id>`): ICS signing key (pinned in trust.json), this node's id, issued at most 1 h ago."""
+    from . import proto
+    with open(os.path.join(state, "trust.json")) as f:
+        trust = json.load(f)
+    with open(doc_path) as f:
+        doc = json.load(f)
+    body, sig = doc["attest"], doc["sig"]
+    ok = proto.verify(proto.pub_from_b64(trust["ics_pubkey"]), proto.RESEED_PREFIX, body, sig)
+    now = int(time.time()) if now is None else now
+    if (not ok or body.get("v") != 1 or body.get("node_id") != trust["node_id"] or type(body.get("epoch")) is not int or not 0 <= body["epoch"] < 2**62
+            or type(body.get("issued_at")) is not int or not 0 <= now - body["issued_at"] <= 3600):
+        raise SystemExit("the re-seed document is not valid for this node (signature, node id, age)")
+    gate = proto.EpochGate(os.path.join(state, "epoch.json"))
+    if body["epoch"] < gate.max_epoch:
+        raise SystemExit(f"refusing to LOWER the mark ({gate.max_epoch} -> {body['epoch']})")
+    gate.reseed(body["epoch"])
+    print(f"epoch mark set to {body['epoch']}")
+    return 0
+
+
 def main(argv=None) -> int:
     ap = argparse.ArgumentParser(prog="ou-agent")
     ap.add_argument("--state", default=STATE)
@@ -79,7 +101,11 @@ def main(argv=None) -> int:
         sp.add_argument("--ttl", type=int, default=3600)
     sub.add_parser("show")
     sub.add_parser("serve")
+    rs = sub.add_parser("reseed-epoch", help="re-seed an unreadable controller epoch from a doc signed by the current controller (ics-cli epoch-attest)")
+    rs.add_argument("doc")
     a = ap.parse_args(argv)
+    if a.cmd == "reseed-epoch":
+        return reseed_epoch(a.state, a.doc)
     if a.cmd == "serve":
         server.serve(a.config, a.state)
         return 0
