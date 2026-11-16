@@ -123,7 +123,10 @@ OS_CODENAME="${OSP% *}"; PGVER="${OSP#* }"
 if [ -n "$FROM_REPO" ]; then
   case "$FROM_REPO" in dev|staging|stable) ;; *) die "--from-repo must be dev, staging or stable";; esac
   [[ "$REPO_URL" =~ ^https?://[A-Za-z0-9._:/-]+$ ]] || die "--from-repo needs --repo-url http(s)://host[:port][/path]"
-  [ -n "$REPO_KEY" ] || REPO_KEY="$SRC/../blueprints/build/keys/ou-release-lab.pub.asc"
+  if [ -z "$REPO_KEY" ]; then   # per-channel key (ou-release-<channel>.pub.asc) when the tree carries one, else the lab key
+    REPO_KEY="$SRC/../blueprints/build/keys/ou-release-$FROM_REPO.pub.asc"
+    [ -f "$REPO_KEY" ] || REPO_KEY="$SRC/../blueprints/build/keys/ou-release-lab.pub.asc"
+  fi
   [ -f "$REPO_KEY" ] || die "repository key $REPO_KEY not found (--repo-key)"
   if [ -z "$REPO_FPR" ]; then
     FPRF="${REPO_KEY%.pub.asc}.FINGERPRINT"; [ -f "$FPRF" ] || die "no pinned fingerprint: give --repo-key-fingerprint (no $FPRF)"

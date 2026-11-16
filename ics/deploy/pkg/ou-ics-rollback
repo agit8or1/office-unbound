@@ -14,7 +14,7 @@ die() { echo "ou-ics-rollback: ERROR: $*" >&2; exit 1; }
 [ -f "$B/MANIFEST" ] && [ -f "$B/ics-backup.tar" ] || die "$B is not an ICS backup directory"
 [ "$(sha256sum < "$B/ics-backup.tar" | cut -d' ' -f1)" = "$(sed -n 's/^archive_sha256=//p' "$B/MANIFEST")" ] || die "backup archive checksum mismatch"
 bhead="$(sed -n 's/^alembic_head=//p' "$B/MANIFEST")"
-grep -rlE "^revision(:[^=]*)?= *['\"]$bhead['\"]" "$OPT/migrations/versions" >/dev/null 2>&1 \
+grep -rlE "^revision[[:space:]]*(:[^=]*)?=[[:space:]]*['\"]$bhead['\"]" "$OPT/migrations/versions" >/dev/null 2>&1 \
   || die "the installed ICS code does not know the backup's schema revision $bhead: install the ou-ics version that wrote the backup first"
 W="$(mktemp -d)"; chmod 700 "$W"; trap 'rm -rf "$W"' EXIT
 tar -xf "$B/ics-backup.tar" -C "$W"

@@ -55,12 +55,18 @@ configure)
   # 4. is the database schema known to this code? (anything else = a downgrade across a schema change)
   DBHEAD=""
   if [ "$(pg -c "select to_regclass('public.alembic_version') is not null" 2>/dev/null || true)" = t ]; then DBHEAD="$(pg -c 'select version_num from alembic_version')"; fi
-  if [ -n "$DBHEAD" ] && ! grep -rlE "^revision(:[^=]*)?= *['\"]$DBHEAD['\"]" "$OPT/migrations/versions" >/dev/null 2>&1; then
+  if [ -n "$DBHEAD" ] && ! grep -rlE "^revision[[:space:]]*(:[^=]*)?=[[:space:]]*['\"]$DBHEAD['\"]" "$OPT/migrations/versions" >/dev/null 2>&1; then
     printf 'database schema %s is newer than this ou-ics\n' "$DBHEAD" > "$MARK_RESTORE"
+    # newest backup whose schema this (older) code knows = the pre-upgrade backup (the pre-downgrade one just taken has the NEWER schema)
+    CAND=""
+    for d in $(ls -1d /var/backups/office-unbound/ics/*/ 2>/dev/null | sort -r); do
+      h="$(sed -n 's/^alembic_head=//p' "$d/MANIFEST" 2>/dev/null)"
+      if [ -n "$h" ] && grep -rlE "^revision[[:space:]]*(:[^=]*)?=[[:space:]]*['\"]$h['\"]" "$OPT/migrations/versions" >/dev/null 2>&1; then CAND="${d%/}"; break; fi
+    done
     say "================================================================================"
     say "ROLLBACK: the database is at schema '$DBHEAD', which this version does not know."
     say "alembic downgrade is NOT used. The ICS stays STOPPED. Restore the pre-upgrade backup:"
-    say "    ou-ics-rollback <backup dir>     (e.g. the newest in /var/backups/office-unbound/ics/, see $MARK_PRE)"
+    say "    ou-ics-rollback ${CAND:-<backup dir under /var/backups/office-unbound/ics whose schema this version knows>}"
     say "================================================================================"
     exit 0
   fi

@@ -63,7 +63,10 @@ index() {
 publish() {
   c=$1; d="$REPO/pool/dev/$c"
   python3 -I "$BUILD/lib/artifact-check.py" verify "$STATE/out/$c/artifacts" "$c" "$BUILD" >/dev/null   # names, regular files, dpkg-deb control fields
-  rm -rf "$d"; mkdir -p "$d"                                                                               # a rebuilt component replaces its previous dev files
+  # a rebuilt component replaces its previous dev files, EXCEPT release-tag components (recipe `keep_versions: true`, ou-ics): older versions stay
+  # installable so a rollback can `apt-get install ou-ics=<previous>`. The same version rebuilt overwrites its own files only.
+  if python3 -I -c 'import sys,yaml; sys.exit(0 if yaml.safe_load(open(sys.argv[1])).get("keep_versions") else 1)' "$BUILD/$c/recipe.yaml"; then mkdir -p "$d"
+  else rm -rf "$d"; mkdir -p "$d"; fi
   for f in $(pkgfiles "$c"); do
     [ -f "$f" ] && [ ! -L "$f" ] || { echo "REFUSED: $f is not a regular file"; exit 3; }
     cp --no-dereference -p "$f" "$d/"

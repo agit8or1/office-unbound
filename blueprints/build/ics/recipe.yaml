@@ -19,6 +19,7 @@ prefetch: |
   export SOURCE_DATE_EPOCH=$SOURCE_DATE_EPOCH PYTHONHASHSEED=0
   bash "$PWD/debian/fetch-wheels.sh" "$PWD"
 packages: [ou-ics]
+keep_versions: true     # repo.sh publish keeps older ou-ics versions in the pool (rollback = apt-get install ou-ics=<previous>)
 bundles_lock_packages: true
 python_wheels: true
 licenses: [AGPL-3.0-only, AGPL-3.0-or-later, MIT, Apache-2.0, BSD-3-Clause, BSD-2-Clause]
