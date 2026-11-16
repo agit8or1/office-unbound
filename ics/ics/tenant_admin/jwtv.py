@@ -70,6 +70,8 @@ def verify(token: str, jwks: dict, *, issuer: str, client_id: str, now: float | 
         raise TokenError("token expired or implausible lifetime")
     if claims.get("iss") != issuer:
         raise TokenError("wrong issuer")
+    if claims.get("typ") != "Bearer":   # an ID token (typ ID) or a refresh token is not an access token (review 6 L2)
+        raise TokenError("not an access token")
     if claims.get("azp") != client_id:
         raise TokenError("token was not issued to the portal client")
     if not claims.get("sub") or not isinstance(claims.get("sub"), str):
@@ -82,6 +84,4 @@ def realm_roles(claims: dict) -> set[str]:
     ra = claims.get("realm_access")
     if isinstance(ra, dict) and isinstance(ra.get("roles"), list):
         r |= {x for x in ra["roles"] if isinstance(x, str)}
-    if isinstance(claims.get("roles"), list):
-        r |= {x for x in claims["roles"] if isinstance(x, str)}
-    return r
+    return r   # ONLY realm_access.roles: a flat `roles` claim can come from a mapper over user-editable attributes (review 6 L2)

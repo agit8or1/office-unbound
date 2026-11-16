@@ -37,9 +37,9 @@ class Realm:
         self.enabled: dict[str, bool] = {}
         self.admins: set[str] = set()      # usernames that hold the org-admin realm role (what target_privileged asks Keycloak)
 
-    def token(self, sub, username, roles=("org-admin",), azp="ou-portal", iss=None, exp=300, iat=None, alg="RS256", key=None, extra=None):
+    def token(self, sub, username, roles=("org-admin",), azp="ou-portal", iss=None, exp=300, iat=None, alg="RS256", key=None, extra=None, typ="Bearer"):
         now = int(time.time()) if iat is None else iat
-        claims = {"sub": sub, "preferred_username": username, "name": username.title(), "iss": iss or self.issuer, "azp": azp, "iat": now, "exp": now + exp,
+        claims = {"typ": typ, "sub": sub, "preferred_username": username, "name": username.title(), "iss": iss or self.issuer, "azp": azp, "iat": now, "exp": now + exp,
                   "realm_access": {"roles": list(roles)}, **(extra or {})}
         head = {"alg": alg, "kid": self.kid, "typ": "JWT"}
         body = f"{b64(json.dumps(head).encode())}.{b64(json.dumps(claims).encode())}"
@@ -64,6 +64,7 @@ class Tenant:
 @pytest.fixture()
 def tn(client, mk_user, login, rt, world, monkeypatch):  # noqa: F811
     service._JWKS.clear()
+    service._fails.clear()
     op, oh = login(mk_user("root", "admin"))
     realms = {"acme": Realm("acme"), "globex": Realm("globex")}
     monkeypatch.setitem(service.HOOKS, "fetch_jwks", lambda cfg: realms[cfg["kc_realm"]].jwks)
@@ -167,9 +168,10 @@ def test_role_claim_forgery_and_token_checks(tn):
     with tn["op"].app.state.rt.session() as d:
         n = d.execute(text("SELECT count(*) FROM audit_events WHERE action = 'tenant.auth_failed'")).scalar()
     assert n >= 9
-    # `roles` flat claim (Keycloak client-role mapper style) is accepted when properly signed
-    ok = a.realm.token(sub, "flat", roles=(), extra={"roles": ["org-admin"]})
-    assert c.get(f"{T}/users", headers={**base, "X-OU-User-Token": ok}).status_code == 200
+    # review 6 L2: a flat top-level `roles` claim does NOT grant the role, and an ID token is not an access token
+    flat = a.realm.token(sub, "flat", roles=(), extra={"roles": ["org-admin"]})
+    assert c.get(f"{T}/users", headers={**base, "X-OU-User-Token": flat}).status_code == 403
+    assert c.get(f"{T}/users", headers={**base, "X-OU-User-Token": a.realm.token(sub, "idt", typ="ID")}).status_code == 401
 
 
 def test_disabled_admin_cannot_change_anything_but_valid_token_can_read(tn):
@@ -359,7 +361,7 @@ def test_jwt_and_dns_wire_helpers():
     r = Realm("x")
     t = r.token("s", "u")
     assert jwtv.verify(t, r.jwks, issuer=r.issuer, client_id="ou-portal")["sub"] == "s"
-    assert jwtv.realm_roles({"realm_access": {"roles": ["a"]}, "roles": ["b"]}) == {"a", "b"}
+    assert jwtv.realm_roles({"realm_access": {"roles": ["a"]}, "roles": ["b"]}) == {"a"}   # review 6 L2: the flat claim is ignored
     # DNS response parsing (TXT with compression pointer)
     import struct
     q = b"\x03abc\x04test\x00\x00\x10\x00\x01"
@@ -449,3 +451,54 @@ def test_h2_target_check_fails_closed_and_ordinary_users_stay_self_service(tn, r
             raise identity.IdentityError("down")
     monkeypatch.setattr(identity, "Keycloak", Boom)
     assert service.target_privileged_check(rt, None, "alice", "org-admin") is True
+
+
+# ---- review 6 M4: unauthenticated failures are throttled and not audited one by one ----------------------------------------------------------
+def test_m4_bad_service_credentials_are_throttled_and_cost_no_audit_rows(tn, rt):
+    c = tn["client"]
+    with rt.session() as d:
+        before = d.execute(text("SELECT count(*) FROM audit_events")).scalar()
+    codes = [c.get(f"{T}/users", headers={"X-OU-Tenant-Key": "tsk_aaaaaaaaaaaa." + "A" * 43, "X-OU-User-Token": "x"}).status_code for _ in range(service.FAIL_LIMIT + 15)]
+    assert codes[:service.FAIL_LIMIT] == [401] * service.FAIL_LIMIT and set(codes[service.FAIL_LIMIT:]) == {429}
+    assert c.get(f"{T}/users").status_code == 429                      # a missing key from the same address is throttled too, without a DB write
+    with rt.session() as d:
+        assert d.execute(text("SELECT count(*) FROM audit_events")).scalar() == before
+        assert d.execute(text("SELECT count(*) FROM audit_events WHERE action = 'tenant.auth_failed'")).scalar() == 0
+    # the window passes -> the legitimate caller from that address works again
+    service._fails.clear()
+    assert c.get(f"{T}/users", headers=tn["acme"].hdr()).status_code == 200
+
+
+def test_m4_summary_row_is_written_at_most_once_per_window(tn, rt, monkeypatch):
+    c = tn["client"]
+    monkeypatch.setattr(service, "SUMMARY_EVERY", 0.0)
+    for _ in range(3):
+        c.get(f"{T}/users", headers={"X-OU-Tenant-Key": "tsk_bbbbbbbbbbbb." + "B" * 43, "X-OU-User-Token": "x"})
+    with rt.session() as d:
+        n = d.execute(text("SELECT count(*) FROM audit_events WHERE action = 'tenant.auth_failed_summary'")).scalar()
+    assert n == 3     # with a zero window every failure may flush; with the production window only the first after 300 s does
+    monkeypatch.setattr(service, "SUMMARY_EVERY", 300.0)
+    service._agg["last_flush"] = time.monotonic()
+    for _ in range(5):
+        c.get(f"{T}/users", headers={"X-OU-Tenant-Key": "tsk_bbbbbbbbbbbb." + "B" * 43, "X-OU-User-Token": "x"})
+    with rt.session() as d:
+        assert d.execute(text("SELECT count(*) FROM audit_events WHERE action = 'tenant.auth_failed_summary'")).scalar() == 3
+
+
+# ---- review 6 L1: SVG allowlist ---------------------------------------------------------------------------------------------------------------
+@pytest.mark.parametrize("svg", [
+    b'<svg xmlns="http://www.w3.org/2000/svg" xmlns:x="http://www.w3.org/2000/svg"><x:script>alert(1)</x:script></svg>',
+    b'<svg xmlns="http://www.w3.org/2000/svg"><a href="javascript:alert(1)"><circle r="1"/></a></svg>',
+    b'<svg xmlns="http://www.w3.org/2000/svg"><a><set attributeName="href" to="java&#x73;cript:alert(1)"/><text>x</text></a></svg>',
+    b'<svg xmlns="http://www.w3.org/2000/svg"><use href="https://evil.example/x.svg#a"/></svg>',
+    b'<svg xmlns="http://www.w3.org/2000/svg"><circle r="1" style="fill:url(https://evil.example/x)"/></svg>',
+    b'<!DOCTYPE svg [<!ENTITY a "b">]><svg xmlns="http://www.w3.org/2000/svg"><text>&a;</text></svg>',
+    b'<svg xmlns="http://www.w3.org/2000/svg"><foreignObject><div xmlns="http://www.w3.org/1999/xhtml"/></foreignObject></svg>',
+])
+def test_l1_svg_allowlist_refuses_scripting_variants(svg):
+    with pytest.raises(service.TenantError):
+        service.sniff_logo(svg)
+
+
+def test_l1_plain_svg_is_accepted():
+    assert service.sniff_logo(b'<?xml version="1.0"?><svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 10 10"><defs><linearGradient id="g"><stop offset="0" stop-color="#fff"/></linearGradient></defs><circle cx="5" cy="5" r="4" fill="url(#g)"/></svg>') == "image/svg+xml"

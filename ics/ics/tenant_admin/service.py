@@ -178,6 +178,40 @@ class Ctx:
         return {"tenant_user_sub": self.sub, "tenant_user": self.username, "customer_id": self.customer_id, "realm": self.cfg["kc_realm"]}
 
 
+# ---- unauthenticated-failure throttle + aggregate counters (review 6 M4) ----------------------------------------------------------------
+# A request without a valid service credential must cost the ICS no database write: no audit row (each takes the global audit lock) and no unbounded
+# growth. Failures are counted per address (in memory, bounded) and answered 429 over the limit; the totals are written as ONE summary row per window.
+FAIL_LIMIT, FAIL_WINDOW, FAIL_TRACKED, SUMMARY_EVERY = 20, 60.0, 5000, 300.0
+_fails: dict[str, list[float]] = {}
+_agg = {"count": 0, "throttled": 0, "last_flush": time.monotonic()}
+
+
+def _over_limit(ip: str | None) -> bool:
+    now = time.monotonic()
+    hits = [t for t in _fails.get(ip or "?", []) if now - t < FAIL_WINDOW]
+    return len(hits) >= FAIL_LIMIT
+
+
+def _note_unauth_failure(db, ip: str | None) -> None:
+    now = time.monotonic()
+    k = ip or "?"
+    if k not in _fails and len(_fails) >= FAIL_TRACKED:   # evict the stalest address instead of clearing everything
+        _fails.pop(min(_fails, key=lambda a: _fails[a][-1] if _fails[a] else 0.0), None)
+    _fails[k] = [t for t in _fails.get(k, []) if now - t < FAIL_WINDOW] + [now]
+    _agg["count"] += 1
+    if now - _agg["last_flush"] >= SUMMARY_EVERY:
+        n, th = _agg["count"], _agg["throttled"]
+        _agg.update(count=0, throttled=0, last_flush=now)
+        audit.append(db, "tenant.auth_failed_summary", actor_name="tenant-api", details={"unauthenticated_failures": n, "throttled": th,
+                                                                                          "window_seconds": int(SUMMARY_EVERY)})
+        db.commit()
+
+
+def _fail_unauth(db, request: Request) -> None:
+    _note_unauth_failure(db, auth.client_ip(request))
+    raise HTTPException(401, "not authorised")
+
+
 def _fail(db, request: Request, why: str, status: int, **d):
     audit.append(db, "tenant.auth_failed", actor_name="tenant-api", ip=auth.client_ip(request), details={"reason": why, "path": request.scope["path"], **d})
     db.commit()
@@ -185,6 +219,9 @@ def _fail(db, request: Request, why: str, status: int, **d):
 
 
 def authenticate(db, rt, request: Request, *, need_user: bool = True, mutating: bool = False) -> Ctx:
+    if _over_limit(auth.client_ip(request)):
+        _agg["throttled"] += 1
+        raise HTTPException(429, "too many failed attempts; try again in a minute")
     key = request.headers.get("x-ou-tenant-key", "")
     m = KEY_RE.match(key)
     row = None
@@ -193,7 +230,7 @@ def authenticate(db, rt, request: Request, *, need_user: bool = True, mutating: 
                          {"k": m.group(1)}).first()
     ok = row is not None and hmac.compare_digest(row.key_sha256, hashlib.sha256((m.group(2) if m else "").encode()).hexdigest())
     if not ok or row.disabled_at is not None or row.c_disabled is not None:
-        _fail(db, request, "bad_service_credential", 401)
+        _fail_unauth(db, request)   # no audit row per request (M4); counted and summarised
     stack_row = db.execute(text("SELECT * FROM idm_stacks WHERE id = :i"), {"i": str(row.stack_id)}).first()
     ctx = Ctx(db, rt, row, stack_row, auth.client_ip(request))
     if not need_user:
@@ -476,7 +513,41 @@ def set_branding(ctx: Ctx, display_name: str | None, accent: str | None) -> dict
     return b
 
 
-SVG_BAD = re.compile(rb"<\s*(script|foreignObject|iframe|object|embed)|\bon[a-z]+\s*=|javascript:|(?:xlink:)?href\s*=\s*[\"']?\s*(?!#)", re.I)
+SVG_NS = "http://www.w3.org/2000/svg"
+SVG_ELEMENTS = {"svg", "g", "path", "rect", "circle", "ellipse", "line", "polyline", "polygon", "text", "tspan", "defs", "lineargradient", "radialgradient",
+                "stop", "clippath", "mask", "title", "desc", "use", "symbol"}
+SVG_ATTRS = {"xmlns", "viewbox", "width", "height", "x", "y", "x1", "y1", "x2", "y2", "cx", "cy", "r", "rx", "ry", "d", "points", "fill", "fill-opacity",
+             "fill-rule", "stroke", "stroke-width", "stroke-linecap", "stroke-linejoin", "stroke-opacity", "stroke-dasharray", "opacity", "transform",
+             "id", "offset", "stop-color", "stop-opacity", "gradientunits", "gradienttransform", "clip-path", "clip-rule", "mask", "preserveaspectratio",
+             "font-family", "font-size", "font-weight", "text-anchor", "dx", "dy", "version", "class", "href", "xlink:href", "xmlns:xlink", "fx", "fy"}
+
+
+def _svg_check(data: bytes) -> bool:
+    """Allowlist parse (review 6 L1): XML parser, no DTD/entities, every element in the SVG namespace and on the allowlist, every attribute on the allowlist,
+    references only to in-document ids. Namespaced scripts (`<x:script xmlns:x=svg-ns>`), `<set>`/`<animate>` and data/javascript URLs are all refused."""
+    import xml.etree.ElementTree as ET
+    if re.search(rb"<!\s*(DOCTYPE|ENTITY)", data, re.I):
+        return False
+    try:
+        root = ET.fromstring(data)
+    except ET.ParseError:
+        return False
+    for el in root.iter():
+        if not isinstance(el.tag, str) or not el.tag.startswith("{" + SVG_NS + "}"):
+            return False
+        if el.tag.rsplit("}", 1)[1].lower() not in SVG_ELEMENTS:
+            return False
+        for k, v in el.attrib.items():
+            name = k.rsplit("}", 1)[1] if k.startswith("{") else k
+            if k.startswith("{"):
+                name = "xlink:" + name if k.startswith("{http://www.w3.org/1999/xlink}") else None
+            if name is None or name.lower() not in SVG_ATTRS:
+                return False
+            if name.lower() in ("href", "xlink:href") and not v.strip().startswith("#"):
+                return False
+            if re.search(r"url\s*\(\s*[\"']?\s*(?!#)|javascript:|data:|expression\s*\(", v, re.I):
+                return False
+    return True
 
 
 def sniff_logo(data: bytes) -> str:
@@ -487,7 +558,7 @@ def sniff_logo(data: bytes) -> str:
     if data.startswith(b"\xff\xd8\xff"):
         return "image/jpeg"
     if re.match(rb"\s*(<\?xml[^>]*>\s*)?(<!--.*?-->\s*)*<svg[\s>]", data, re.S | re.I):
-        if SVG_BAD.search(data):
+        if not _svg_check(data):
             raise TenantError(422, "This SVG contains scripts or links and cannot be used. Export a plain logo.")
         return "image/svg+xml"
     raise TenantError(422, "Use a PNG, JPEG or plain SVG image.")
