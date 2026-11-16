@@ -97,6 +97,13 @@ class RateLimiter:
                     self._hits.pop(k, None)
             return True
 
+    def is_limited(self, key: str, limit: int, window: float, now: float | None = None) -> bool:
+        """Read-only peek for the console: would the next request be refused? (consumes nothing)"""
+        now = time.monotonic() if now is None else now
+        with self._lock:
+            q = self._hits.get(key)
+            return bool(q) and sum(1 for t in q if t > now - window) >= limit
+
     def reset(self) -> None:
         with self._lock:
             self._hits.clear()

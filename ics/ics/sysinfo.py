@@ -9,7 +9,7 @@ from fastapi import Depends, FastAPI
 from sqlalchemy import text
 from sqlalchemy.orm import Session
 
-from . import audit
+from . import audit, epoch, standby
 from . import version as ver
 from .auth import User, get_db, require
 
@@ -69,6 +69,20 @@ def register(app: FastAPI, rt, API: str, worker) -> None:
             disk = {"total": du.total, "free": du.free}
         except OSError:
             disk = None
+        controller = {"role": s.role, "epoch": None, "fenced": None, "node_name": None, "changed_at": None, "replication": None, "last_promotion": None,
+                      "max_lag_seconds": s.standby_max_lag_seconds}
+        try:
+            st = epoch.get_state(db)
+            controller.update(epoch=st["epoch"], fenced=st["role"] != "primary", node_name=st["node_name"], changed_at=st["changed_at"])
+            if s.role == "standby":
+                controller["replication"] = standby.replication_status(db, s.standby_max_lag_seconds)
+            lp = db.execute(text("SELECT at, actor_name, resource_id, details FROM audit_events WHERE action = 'controller.promoted' ORDER BY seq DESC LIMIT 1")).first()
+            if lp is not None:
+                d = lp.details or {}
+                controller["last_promotion"] = {"at": lp.at.isoformat(), "by": lp.actor_name, "host": lp.resource_id, "old_epoch": d.get("old_epoch"), "new_epoch": d.get("new_epoch"),
+                                                "last_replayed_commit": d.get("last_replayed_commit")}
+        except Exception:  # noqa: BLE001
+            db.rollback()
         bi = ver.build_info()
         return {"product": bi["product"], "version": ver.__version__, "commit": bi.get("commit"), "dirty": bi.get("dirty"), "built_at": bi.get("built_at"),
                 "build_source": bi.get("source"), "api": ver.API_VERSION, "schema": {"build_head": bi.get("schema_head"), "database": head},
@@ -76,4 +90,4 @@ def register(app: FastAPI, rt, API: str, worker) -> None:
                 "updates": ver.update_status(),   # read-only comparison with the bundled release list; no network
                 "migration_head": head, "ready": len(checks) == 3 and all(checks.values()), "checks": checks,
                 "heartbeat_age_seconds": round(hb_age) if hb_age is not None else None, "worker_enabled": worker is not None,
-                "threads": threads, "database_bytes": size, "disk": disk, "backup": _last_backup()}
+                "threads": threads, "database_bytes": size, "disk": disk, "backup": _last_backup(), "controller": controller}

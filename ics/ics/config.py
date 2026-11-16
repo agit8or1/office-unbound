@@ -34,6 +34,8 @@ class Settings:
     signing_key_file: str | None = None  # Ed25519 key (32 raw bytes) that signs ICS->agent requests; root:ics 0640
     guest_callback_dedicated: bool = False      # the callback is served by `python -m ics.serve_callback` only, not by the console app (review 5 L4)
     guest_require_nic_binding: bool = True     # production bootstrap: the reporting address must resolve to the VM's net0 MAC (review 5 M2)
+    release_repo_dir: str | None = None     # read-only view of the served signed repo tree (console Releases page); unset = page says not configured
+    release_records_dir: str | None = None  # signer test records (records/<sha256>.json), read-only; needs group read for the ics user
     release_promote_cmd: str | None = None  # release.promote executor: command taking a signed manifest file (repo.sh promote-manifest)
     cookie_secure: bool = True
     worker_enabled: bool = True
@@ -155,6 +157,8 @@ def load_settings() -> Settings:
             vault_key_file=env["ICS_VAULT_KEY_FILE"],
             audit_key_file=env["ICS_AUDIT_KEY_FILE"],
             signing_key_file=env.get("ICS_SIGNING_KEY_FILE") or None,
+            release_repo_dir=env.get("ICS_RELEASE_REPO_DIR") or None,
+            release_records_dir=env.get("ICS_RELEASE_RECORDS_DIR") or None,
             release_promote_cmd=env.get("ICS_RELEASE_PROMOTE_CMD") or None,
             guest_callback_dedicated=b("ICS_GUEST_CALLBACK_DEDICATED", False),
             guest_require_nic_binding=b("ICS_GUEST_REQUIRE_NIC_BINDING", True),
