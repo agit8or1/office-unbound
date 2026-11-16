@@ -77,7 +77,9 @@ def channel_aad(ch_id, cfg: dict) -> str:
 
 def in_maintenance(db: Session, check_id) -> bool:
     return bool(db.execute(text(
-        "SELECT 1 FROM maintenance_windows WHERE starts_at <= now() AND ends_at > now() AND (check_id IS NULL OR check_id = :c) LIMIT 1"),
+        # review 7 H-4: a window without check_id is limited to ITS OWN customer's checks (it used to mute every customer)
+        "SELECT 1 FROM maintenance_windows w WHERE w.starts_at <= now() AND w.ends_at > now() AND (w.check_id = :c OR "
+        "(w.check_id IS NULL AND w.customer_id = (SELECT customer_id FROM checks WHERE id = :c))) LIMIT 1"),
         {"c": str(check_id)}).first())
 
 
@@ -85,7 +87,8 @@ def in_maintenance(db: Session, check_id) -> bool:
 
 def enqueue_notifications(db: Session, check, incident_id, event: str, detail: str | None = None, *, force: bool = False) -> int:
     """`force` = never suppressed by a maintenance window (window start/end notices, check disabled while an incident is open)."""
-    chans = db.execute(text("SELECT id FROM alert_channels WHERE enabled")).all()
+    # review 7 H-4: a check's alerts go to ITS customer's channels (they went to every customer's channels)
+    chans = db.execute(text("SELECT id FROM alert_channels WHERE enabled AND customer_id = (SELECT customer_id FROM checks WHERE id = :c)"), {"c": str(check.id)}).all()
     supp = False if force else in_maintenance(db, check.id)
     for c in chans:
         db.execute(text("INSERT INTO notifications (incident_id, channel_id, event, status, detail) VALUES (:i, :c, :e, :s, :d)"),

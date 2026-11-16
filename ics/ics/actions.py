@@ -31,7 +31,7 @@ from .proxmox import ProxmoxError, ProxmoxReadClient, check_destination, normali
 from .providers.base import ProviderError, job_execution
 from .credentials import actions as cred_actions, service as cred_service
 from .runtime import Runtime
-from .tenancy import actions as ten_actions, approvals as tapprovals, policy as tpolicy, scope as tscope
+from .tenancy import actions as ten_actions, approvals as tapprovals, policy as tpolicy, resolve as tresolve, scope as tscope
 from .vault import VaultError
 
 log = logging.getLogger("ics.actions")
@@ -628,6 +628,15 @@ def create_plan(db: Session, rt: Runtime, user, action: ActionType, params: dict
         else:
             full[k] = p.__dict__[k].get_secret_value()
     secret_part = {k: full.pop(k) for k in spec["secrets"] if k in full}
+    # review 7 H-4: the customer is DERIVED from every resource the params reference; the caller's customer_id may only confirm it
+    if getattr(user, "customer_ids", None) is not None:
+        for _path, _kind, _c in tresolve.references(db, action.value, full):
+            if _c and not tscope.allowed(user, _c):
+                raise PlanError(404, "not found")   # same answer as a missing object: another customer's resources are not disclosed
+    try:
+        derived_cust = tresolve.derive(db, action.value, full)
+    except tresolve.CustomerConflict as e:
+        raise PlanError(409, str(e)) from None
     risk = spec["risk"](p) if callable(spec["risk"]) else spec["risk"]
     risk = _silencing_risk(db, rt, action, p, user, risk)
     binding = None
@@ -698,7 +707,7 @@ def create_plan(db: Session, rt: Runtime, user, action: ActionType, params: dict
         if pr in _RISK_ORDER and _RISK_ORDER[pr] > _RISK_ORDER[risk]:
             risk = pr
     # ---- customer scoping + policy (agent M) ----
-    cust = full.get("customer_id") or tscope.customer_of_params(db, full)
+    cust = derived_cust
     if backup_cust:
         cust = backup_cust
     if action == ActionType.endpoint_register and not cust:
