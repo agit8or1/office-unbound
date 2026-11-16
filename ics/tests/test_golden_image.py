@@ -155,7 +155,7 @@ def test_the_ubuntu_profile_refuses_a_wrong_pin_a_tampered_checksum_file_and_a_w
     real = "D2EB44626FDDC30B513D5BB71A5D6C4C7DB87C81"
 
     def run():
-        e = {"PATH": os.environ["PATH"], "WORK": str(tmp_path / "w"), "OUT": str(tmp_path / "o"), "UPSTREAM_KEY_FILE": str(key), "HOME": str(tmp_path)}
+        e = {"PATH": os.environ["PATH"], "WORK": str(tmp_path / "w"), "OUT": str(tmp_path / "o"), "UPSTREAM_KEY_FILE": str(key), "HOME": str(tmp_path), "UPSTREAM_SERIAL": "release-20261101", "OU_TODAY": "20261115"}      # frozen clock: review 5 L7 freshness is a real check, the test must not depend on the wall clock
         return subprocess.run(["bash", str(rd / "recipe.sh"), "ubuntu-24.04", "verify"], capture_output=True, text=True, timeout=60, env=e)
     envf.write_text(orig.replace(real, fpr))
     r = run()
