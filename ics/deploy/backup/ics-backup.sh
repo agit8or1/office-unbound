@@ -21,7 +21,7 @@ printf 'db_name=%s\ndb_owner=%s\n' "$DB" "$OWNER" > "$W/meta.env"
 # optional front-end files exist only on hosts installed with TLS (bootstrap.sh --skip-tls has none)
 FILES=(etc/office-unbound/ics.env etc/office-unbound/ics-migrate.env etc/office-unbound/vault.key etc/office-unbound/audit.key etc/office-unbound/ics-signing.key
        etc/systemd/system/ics.service etc/systemd/system/ics-migrate.service)
-for f in etc/office-unbound/tls etc/office-unbound/ics-admin-fw.nft etc/systemd/system/ics-admin-fw.service etc/nginx/sites-available/ics.conf; do
+for f in etc/office-unbound/tls etc/office-unbound/callback.env etc/office-unbound/callback-tls etc/office-unbound/ics-callback-fw.nft etc/systemd/system/ics-callback-fw.service etc/systemd/system/ics-bootstrap.service etc/office-unbound/ics-admin-fw.nft etc/systemd/system/ics-admin-fw.service etc/nginx/sites-available/ics.conf; do
   [ -e "$P/$f" ] && FILES+=("$f"); done
 tar --numeric-owner -cpzf "$W/etc.tgz" -C "${P:-/}" "${FILES[@]}"
 # the deployed release that produced this DB schema (code only; the venv is rebuilt from requirements.lock with --require-hashes)

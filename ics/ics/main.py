@@ -23,6 +23,7 @@ from . import userdir
 from .config import Settings
 from .deploy.api import register_routes as register_deploy_routes
 from .sysinfo import register as register_system_routes
+from . import ratelimit
 from .guest import callback as guest_callback
 from .inventory import api as inventory_api
 from . import version as ver
@@ -163,6 +164,9 @@ class UIStaticFiles(StaticFiles):
         return resp
 
 
+WORKER_LOCK_KEY = 0x4F55574B   # 'OUWK': pg advisory-lock key of the single background-worker leader
+
+
 def create_app(settings: Settings | None = None, runtime: Runtime | None = None) -> FastAPI:
     rt = runtime or Runtime(settings)
     worker = Worker(rt) if rt.settings.worker_enabled and rt.settings.role == "primary" else None
@@ -177,11 +181,24 @@ def create_app(settings: Settings | None = None, runtime: Runtime | None = None)
             import logging
             if rt.settings.role != "standby":
                 logging.getLogger("ics").exception("credential migration failed; endpoints keep using legacy secrets until it succeeds")
+        # several uvicorn workers (ICS_WORKERS > 1): exactly one process runs the background worker (jobs, monitor, inventory, backups). Leader election
+        # = a session-level advisory lock on a connection held for the process lifetime; if the leader dies, uvicorn's supervisor restarts it
+        # and the new process takes the lock.
+        lead = None
         if worker:
-            worker.start()
+            conn = rt.engine.connect()
+            if conn.execute(text("SELECT pg_try_advisory_lock(:k)"), {"k": WORKER_LOCK_KEY}).scalar():
+                conn.commit()
+                lead = conn
+                worker.start()
+            else:
+                conn.close()   # not the leader: nothing was locked
         yield
-        if worker:
+        if lead is not None:
             worker.stop()
+            lead.execute(text("SELECT pg_advisory_unlock(:k)"), {"k": WORKER_LOCK_KEY})   # session lock: a pooled connection keeps it unless released
+            lead.commit()
+            lead.close()
 
     docs = rt.settings.enable_docs  # off in production: Swagger UI is CDN-hosted (M6)
     app = FastAPI(title="Office Unbound ICS", version=ver.__version__, lifespan=lifespan,
@@ -504,8 +521,6 @@ def create_app(settings: Settings | None = None, runtime: Runtime | None = None)
         return [_row(r) for r in rows]
 
     # ---- identity lifecycle (mutations are typed plans idm.*; these are the one-time enrollment flow and read-only views) ----
-    enroll_hits: dict[str, list[float]] = {}
-
     @app.post(f"{API}/identity/enrollments/{{plan_id}}/reveal")
     def idm_reveal(plan_id: UUID, request: Request, user: User = Depends(require("operator")), db: Session = Depends(get_db)):
         """Shows the one-time enrollment token of a user.create/user.enable plan to ITS REQUESTER, once. Hand it to the new user out of band."""
@@ -533,12 +548,9 @@ def create_app(settings: Settings | None = None, runtime: Runtime | None = None)
     @app.post(f"{API}/identity/enroll")
     def idm_enroll(body: IdmEnrollIn, request: Request, db: Session = Depends(get_db)):
         """The new user sets their OWN initial password with the one-time token (never stored, never logged). Unauthenticated by design."""
-        import time as _t
         ip = client_ip(request) or "?"
-        hits = [x for x in enroll_hits.get(ip, []) if _t.monotonic() - x < 60]
-        if len(hits) >= 20 or len(enroll_hits) > 5000:
+        if not ratelimit.allow(rt, "enroll-ip:" + ip, 20, 60.0):
             raise HTTPException(429, "too many attempts")
-        enroll_hits[ip] = hits + [_t.monotonic()]
         try:
             identity.redeem_enrollment(db, rt, body.stack, body.uid, body.token, body.password, ip)
         except identity.EnrollRefused:

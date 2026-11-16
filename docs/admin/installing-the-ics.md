@@ -47,6 +47,12 @@ What it does (every step compares before writing, so a re-run changes nothing th
 
 Not exercised: `--tls-cert/--tls-key`, certificate renewal near expiry, a connection from outside `--allow-cidr`, IPv6. Multi-host/ACME certificates are **Planned**.
 
+### Guest-bootstrap listener (golden-image deployments)
+
+Add `--callback-listen <ip>[:8444] --callback-allow-cidr <guest network>` (repeatable) to enable the dedicated listener `ics-bootstrap.service` (own port, own
+certificate that guests pin, firewall restricted to the guest networks). `install.sh` always deploys and enables the unit, which stays inactive until
+`/etc/office-unbound/callback.env` exists. The backup includes `callback.env`, `callback-tls/`, the unit and its firewall file. Details: [security.md](security.md).
+
 ## Create the accounts you need
 Roles: `viewer < operator < approver < admin`. Operators and admins create plans; approvers decide them. **High-risk plans need two different approvers and the requester can never be one of them**,
 so a working installation needs at least three people: one requester and two approvers. Registering a Proxmox endpoint is high risk, so you need these before [Connecting Proxmox](connecting-proxmox.md).

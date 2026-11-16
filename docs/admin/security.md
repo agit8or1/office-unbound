@@ -88,3 +88,26 @@ chmod 0440 /etc/sudoers.d/ou-lab-workflow && visudo -cf /etc/sudoers.d/ou-lab-wo
 # 3. administrator keeps the password-protected group rule (%sudo ALL=(ALL:ALL) ALL) for everything else: interactive, with a password
 ```
 Residual risk the owner must know: `systemd-run -M <machine> *` runs arbitrary commands as root **inside** the named container, and the nspawn machines are not a security boundary against a host-root equivalent (builder: `PrivateUsers=pick`, but `machinectl clone` of images and `/etc/systemd/nspawn/*.nspawn` creation by `tee` also need root). The builder/test steps therefore still amount to "can run code as root in the build containers", which is acceptable only because the containers hold no release key. Installs, `bootstrap.sh`, agent installs and service changes need a password-protected `sudo` (interactive) or a root session. Long term: run builds as a separate account (`ou-build`) on a separate host, with the signer on a third; production signing stays offline/HSM.
+
+## Guest-bootstrap listener, shared rate limits, several workers (hardening, review 5 follow-up)
+
+**Dedicated listener.** `bootstrap.sh --callback-listen IP[:PORT] --callback-allow-cidr CIDR [...]` installs `ics-bootstrap.service`: its own process and socket
+(default `IP:8444`), its **own self-signed certificate** (`/etc/office-unbound/callback-tls/`, key root 0600, handed to the unit with `LoadCredential`), serving only
+`POST /api/v1/guest-bootstrap/report` and `GET /healthz`. The installer sets `ICS_GUEST_CALLBACK_DEDICATED=true` (the console stops serving the route),
+`ICS_GUEST_CALLBACK_URL` and `ICS_GUEST_CALLBACK_PIN_SHA256` (SHA-256 of the DER certificate = what guests pin through SMBIOS) in `ics.env`.
+Without the flag the old behaviour stays (console serves the route): that is the transition setting; there is no automatic switch for existing installs.
+Limits (server side, before any application code): 4 KiB body cap (Content-Length and chunked), 16 KiB header buffer, 10 s per request, 64 concurrent
+connections, 5 s keep-alive, no HTTP/2, no WebSocket. The firewall (nftables table `inet ics_callback`, `ics-callback-fw.service`) lets only the
+`--callback-allow-cidr` networks reach the port, at most 8 concurrent and 30 new connections/min per source. Re-issuing the certificate (expiry, IP change)
+changes the pin: VMs that were provisioned but have not reported yet carry the old pin and fail closed; re-run the deployment step for them.
+
+**Rate limits are shared.** Login throttling was already in PostgreSQL (`login_attempts`). The remaining in-process buckets (guest callback per source /
+per bootstrap id / unknown ids, public approval links, identity enrollment) now use `rate_limits` (UNLOGGED token buckets, one atomic upsert per decision,
+`ics/ratelimit.py`), so the limits hold across any number of uvicorn workers or hosts sharing the database. A database error answers 5xx (fail closed).
+`ics.service` runs `ICS_WORKERS=2` (override in `ics.env`, 1..16). The background worker (jobs, monitor, inventory, backups) runs in exactly one process,
+chosen by a PostgreSQL advisory lock; if that process dies the supervisor restarts it and the lock is taken again.
+
+**Proxmox exposure of the one-time SMBIOS secret.** See [hardening-results.md](../status/hardening-results.md). In short: the value is logged by Proxmox in the
+cluster log and the node syslog on every config update (not in a task log: the ICS uses the synchronous PUT), and on a running VM the "clear" stays in the
+`pending` section until the VM is stopped and started again. Grant `Sys.Syslog` on `/` only to Proxmox administrators, keep `ICS_GUEST_BOOTSTRAP_TTL_SECONDS`
+short (300-900), and treat a consumed or expired secret as inert (single use, replay alarm).
