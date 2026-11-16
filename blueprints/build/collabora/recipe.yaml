@@ -16,7 +16,7 @@ source:
 verification:
   kind: sha-pin
   note: annotated tag; commit SHA pin checked by recipe.sh (do_fetch) on the build machine. Engine external tarballs are fetched by the engine build with the checksums of its own download list (engine/download.lst), see sbom/engine-external-tarballs.txt.
-ou_revision: ou1
+ou_revision: ou2
 stage:
   machine: ou-build1                       # nspawn machine (Ubuntu 24.04) that holds the staged tree; the .deb is assembled THERE (1.3 GB tree is not copied around)
   tree: /root/build/out/instdir            # DESTDIR of recipe.sh install

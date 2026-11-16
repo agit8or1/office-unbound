@@ -5,17 +5,17 @@
 # Break-glass (login page loops / Keycloak down): on the node `touch /etc/gromox/DISABLE_KEYCLOAK`-style is NOT available upstream; use
 #   mv /etc/gromox/keycloak.json /etc/gromox/keycloak.json.off && systemctl restart php8.2-fpm      (re-enable: mv back)
 set -eu
-M="${GW_MACHINE:?}"; GW_HOST="${GW_HOST:?}"; ID=ou-id1; HERE="$(cd "$(dirname "$0")" && pwd)"
+M="${GW_MACHINE:?}"; GW_HOST="${GW_HOST:?}"; ID=${ID_MACHINE:-ou-id1}; LD=${LAB_DOMAIN:-ou-lab.internal}; IDIP=${ID_IP:-192.168.186.241}; HERE="$(cd "$(dirname "$0")" && pwd)"
 IDX() { sudo systemd-run -M $ID --quiet --pipe --wait /bin/bash -c "$1"; }
 MX()  { sudo systemd-run -M $M --quiet --pipe --wait /bin/bash -c "$1"; }
 
-# 0: auth.ou-lab.internal must resolve on the node (hosts entry like ou-gw-sso1 has), php-gd (profile picture; without it the web UI aborts the hierarchy load)
-MX "grep -q 'auth.ou-lab.internal' /etc/hosts || echo '192.168.186.241 auth.ou-lab.internal' >> /etc/hosts
+# 0: auth.$LD must resolve on the node (hosts entry like ou-gw-sso1 has), php-gd (profile picture; without it the web UI aborts the hierarchy load)
+MX "grep -q 'auth.$LD' /etc/hosts || echo '$IDIP auth.$LD' >> /etc/hosts
 dpkg -s php8.2-gd >/dev/null 2>&1 || (apt-get update -qq >/dev/null; DEBIAN_FRONTEND=noninteractive apt-get install -y -qq php8.2-gd >/dev/null)"
 
 # 4: Keycloak client ou-webmail (shared across nodes: redirect URIs are merged, not replaced)
 sudo install -m 0755 "$HERE/kc-webmail-client.py" /var/lib/machines/$ID/root/kc-webmail-client.py
-IDX "export KC_URL=https://auth.ou-lab.internal KC_CA=/root/ou-lab-ca/ca.crt KC_ADMIN_USER=kcadmin WEBMAIL_URL=https://$GW_HOST OUT_SECRET_FILE=/root/ou-lab-secrets/kc-webmail-client-secret
+IDX "export KC_URL=https://auth.$LD KC_CA=/root/ou-lab-ca/ca.crt KC_ADMIN_USER=kcadmin WEBMAIL_URL=https://$GW_HOST OUT_SECRET_FILE=/root/ou-lab-secrets/kc-webmail-client-secret
 KC_ADMIN_PASSWORD=\$(cat /root/ou-lab-secrets/keycloak-admin-password); export KC_ADMIN_PASSWORD; python3 /root/kc-webmail-client.py"
 
 # 5: trust the lab CA, realm key follower (writes /etc/gromox/bearer_pubkey), keycloak.json; restart only zcore + php-fpm
@@ -26,7 +26,7 @@ printf '%s' "$SECRET" | MX "read -r S
 cd /etc/gromox
 ( umask 027
   cat > keycloak.json <<JSON
-{\"realm\":\"ou-lab\",\"auth-server-url\":\"https://auth.ou-lab.internal/\",\"ssl-required\":\"external\",\"resource\":\"ou-webmail\",
+{\"realm\":\"ou-lab\",\"auth-server-url\":\"https://auth.$LD/\",\"ssl-required\":\"external\",\"resource\":\"ou-webmail\",
  \"redirect-url\":\"https://$GW_HOST/web\",\"credentials\":{\"secret\":\"\$S\"},\"confidential-port\":0}
 JSON
 )

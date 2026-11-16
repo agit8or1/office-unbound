@@ -1,0 +1,16 @@
+#!/bin/sh
+# (Re)writes the boot loader configuration for the newest installed kernel. /boot is the FAT boot partition (BIOS: syslinux, UEFI: systemd-boot),
+# so the kernel and initrd that initramfs-tools places in /boot are read directly by both loaders. Called at build time and by kernel hooks.
+set -eu
+ROOT_UUID=${ROOT_UUID:-$(sed -n 's/^PARTUUID=\([^ ]*\) \/ .*/\1/p' /etc/fstab)}
+k=$(ls /boot/vmlinuz-* 2>/dev/null | sed 's|/boot/vmlinuz-||' | sort -V | tail -1)
+[ -n "$k" ] || exit 0
+[ -f "/boot/initrd.img-$k" ] || exit 0
+CMD="root=PARTUUID=$ROOT_UUID ro console=tty0 console=ttyS0,115200n8 quiet"
+install -d /boot/syslinux /boot/loader/entries /boot/EFI/BOOT
+cp /usr/lib/syslinux/modules/bios/ldlinux.c32 /boot/syslinux/ldlinux.c32 2>/dev/null || true
+printf 'SERIAL 0 115200\nDEFAULT ou\nTIMEOUT 10\nPROMPT 0\nLABEL ou\n  LINUX /vmlinuz-%s\n  INITRD /initrd.img-%s\n  APPEND %s\n' "$k" "$k" "$CMD" > /boot/syslinux/syslinux.cfg
+printf 'default ou.conf\ntimeout 1\n' > /boot/loader/loader.conf
+printf 'title Office Unbound guest\nlinux /vmlinuz-%s\ninitrd /initrd.img-%s\noptions %s\n' "$k" "$k" "$CMD" > /boot/loader/entries/ou.conf
+[ -f /usr/lib/systemd/boot/efi/systemd-bootx64.efi ] && cp /usr/lib/systemd/boot/efi/systemd-bootx64.efi /boot/EFI/BOOT/BOOTX64.EFI
+exit 0

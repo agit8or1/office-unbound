@@ -111,7 +111,7 @@ def write_if_changed(path: str, content: str, group: str | None) -> bool:
 
 def main(argv=None) -> int:
     ap = argparse.ArgumentParser()
-    ap.add_argument("--realm-url", default="https://auth.ou-lab.internal/realms/ou-lab")
+    ap.add_argument("--realm-url", default=os.environ.get("KC_REALM_URL", "https://auth.ou-lab.internal/realms/ou-lab"))
     ap.add_argument("--ca", default="/usr/local/share/ca-certificates/ou-lab-ca.crt", help="PEM of the CA that issued the realm host certificate (pinned; NOT the system bundle)")
     ap.add_argument("--out", default="/etc/gromox/bearer_pubkey")
     ap.add_argument("--group", default="gromoxcf")

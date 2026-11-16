@@ -14,7 +14,7 @@ from pydantic import BaseModel, Field, ValidationError
 from sqlalchemy import text
 from sqlalchemy.orm import Session
 
-from . import audit, auth, identity
+from . import audit, auth, epoch as epochmod, identity, standby
 from .actions import CATALOG, ActionType, PlanError, create_plan, decide_plan
 from .auth import ROLES, User, client_ip, cookie_name, get_db, require
 from .backups import ops as backup_ops
@@ -163,15 +163,18 @@ class UIStaticFiles(StaticFiles):
 
 def create_app(settings: Settings | None = None, runtime: Runtime | None = None) -> FastAPI:
     rt = runtime or Runtime(settings)
-    worker = Worker(rt) if rt.settings.worker_enabled else None
+    worker = Worker(rt) if rt.settings.worker_enabled and rt.settings.role == "primary" else None
 
     @asynccontextmanager
     async def lifespan(app: FastAPI):
         try:
+            if rt.settings.role == "standby":
+                raise RuntimeError("standby: passive, nothing to adopt")
             cred_service.adopt_all(rt)  # idempotent: moves any legacy per-endpoint secret into the credential vault
         except Exception:  # noqa: BLE001
             import logging
-            logging.getLogger("ics").exception("credential migration failed; endpoints keep using legacy secrets until it succeeds")
+            if rt.settings.role != "standby":
+                logging.getLogger("ics").exception("credential migration failed; endpoints keep using legacy secrets until it succeeds")
         if worker:
             worker.start()
         yield
@@ -182,6 +185,8 @@ def create_app(settings: Settings | None = None, runtime: Runtime | None = None)
     app = FastAPI(title="Office Unbound ICS", version=ver.__version__, lifespan=lifespan,
                   docs_url="/docs" if docs else None, redoc_url=None, openapi_url="/openapi.json" if docs else None)
     app.state.rt = rt
+    if rt.settings.role == "standby":
+        app.add_middleware(standby.StandbyGuard)
     app.add_middleware(SecurityHeadersAndLimits, max_body=rt.settings.max_body_bytes, relax_paths=("/docs",) if docs else ())
 
     # ---- health ----
@@ -192,13 +197,19 @@ def create_app(settings: Settings | None = None, runtime: Runtime | None = None)
     @app.get("/readyz")
     def readyz(response: Response):
         checks: dict = {}
+        role: dict = {"role": rt.settings.role}
         try:
             with rt.session() as db:
                 db.execute(text("SELECT 1"))
                 checks["database"] = {"ok": True}
-                hb = db.execute(text("SELECT max(at) FROM worker_heartbeat")).scalar()
-                age = (datetime.now(timezone.utc) - hb).total_seconds() if hb else None
-                checks["worker"] = {"ok": age is not None and age <= rt.settings.heartbeat_max_age_seconds}
+                st = epochmod.get_state(db)
+                role.update(epoch=st["epoch"], fenced=st["role"] != "primary")
+                if rt.settings.role == "standby":
+                    checks["replication"] = standby.replication_status(db, rt.settings.standby_max_lag_seconds)
+                else:
+                    hb = db.execute(text("SELECT max(at) FROM worker_heartbeat")).scalar()
+                    age = (datetime.now(timezone.utc) - hb).total_seconds() if hb else None
+                    checks["worker"] = {"ok": age is not None and age <= rt.settings.heartbeat_max_age_seconds and st["role"] == "primary"}
                 v = audit.verify_chain(db, tail=200)
                 checks["audit_chain"] = {"ok": v["ok"]}
         except Exception:  # noqa: BLE001
@@ -206,7 +217,7 @@ def create_app(settings: Settings | None = None, runtime: Runtime | None = None)
         ok = all(c.get("ok") for c in checks.values()) and len(checks) == 3
         if not ok:
             response.status_code = 503
-        return {"ready": ok, "version": ver.__version__, "checks": checks}
+        return {"ready": ok, "version": ver.__version__, **role, "checks": checks}
 
     # ---- version (ADR-0011) ----
     def _full_version(db: Session) -> dict:

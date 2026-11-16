@@ -222,7 +222,7 @@ def _call(rt: Runtime, row, node, runbook: str, params: dict, plan) -> dict:
     pol.runbook_params(runbook, params)   # ICS-side shape check; the agent and the root helper check again
     jid = str(rt_job_id(rt, plan))
     priv = agentclient.load_signing_key(rt.settings.signing_key_file)
-    body = agentclient.build_request(priv, action=runbook, params=params, node_id=str(node.id), job_id=jid, ttl=rt.settings.agent_request_ttl_seconds)
+    body = agentclient.build_request(priv, action=runbook, params=params, node_id=str(node.id), job_id=jid, ttl=rt.settings.agent_request_ttl_seconds, epoch=rt.agent_epoch())
     req = body["req"]
     with rt.session() as d2:
         d2.execute(text("INSERT INTO agent_requests (node_id, job_id, nonce, action, issued_at, expires_at) "

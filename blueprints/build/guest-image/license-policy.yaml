@@ -1,0 +1,42 @@
+# Licence policy for the build pipeline (ADR-0007 gate, ADR-0008 step 3).
+# Every id here has been reviewed against docs/status/third-party-inventory.md and docs/status/groupware-source-eval.md section 1.
+# An id found in a source tree or lock file that is NOT listed here fails the build ("unknown licence = fail").
+# Adding an id is a reviewed change: record it in the inventory in the same commit.
+allowed:
+  - AGPL-3.0-only
+  - AGPL-3.0-or-later
+  - GPL-2.0-only
+  - GPL-2.0-or-later
+  - GPL-3.0-only
+  - GPL-3.0-or-later
+  - LGPL-2.1-only
+  - LGPL-2.1-or-later
+  - LGPL-3.0-only
+  - LGPL-3.0-or-later
+  - MPL-2.0
+  - Apache-2.0
+  - MIT
+  - MIT-0
+  - BSD-2-Clause
+  - BSD-3-Clause
+  - ISC
+  - 0BSD
+  - Zlib
+  - CC0-1.0
+  - OFL-1.1
+  - CC-BY-SA-4.0
+  - CC-BY-4.0
+  - Unlicense
+  - BlueOak-1.0.0
+  - Python-2.0
+  - WTFPL
+  - ICU
+  - Artistic-2.0
+allowed_exceptions:          # SPDX "WITH" exceptions reviewed for Gromox / vmime / pdf.js fonts
+  - Font-exception-2.0
+  - OpenSSL-Exception
+  - GPL-3.0-linking-exception
+  - GPL-2.0-with-linking-exception
+  - Linux-syscall-note
+  - linking exception        # Gromox custom exception text, LICENSE.txt l.1260-1270 (inventory: open lawyer item 1)
+  - licensing exception
