@@ -12,6 +12,7 @@ from .backups import ops as backups_ops
 from .inventory import collector
 from .provisioning import service as prov_service
 from .actions import claim_job, reap_expired, run_job
+from .epoch import NotActive
 from .runtime import Runtime
 
 log = logging.getLogger("ics.worker")
@@ -26,6 +27,10 @@ def heartbeat(rt: Runtime, name: str = "inproc") -> None:
 
 def run_once(rt: Runtime, beat: bool = True, backup_lane: bool = False) -> bool:
     """Heartbeat (unless the Worker's own watchdog owns it), then claim and run at most one job. Returns True if a job ran."""
+    try:
+        rt.assert_active()      # review 7 H-5: fenced/standby/superseded -> nothing is claimed, run or reaped and no heartbeat is written
+    except NotActive:
+        return False
     if beat:
         heartbeat(rt)
     reap_expired(rt)
@@ -59,9 +64,23 @@ class Worker(threading.Thread):
     def _job_progress(self) -> None:
         self.progress["jobs"] = time.monotonic()
 
+    def active(self) -> bool:
+        """Review 7 H-5: False once this controller is fenced, superseded or a standby. Every loop checks it before each pass and does NOTHING
+        otherwise (no jobs, backups, checks, notifications, inventory, provider calls); the heartbeat is withheld so /readyz turns red."""
+        try:
+            self.rt.assert_active()
+            return True
+        except NotActive as e:
+            if not getattr(self, "_fence_logged", False):
+                self._fence_logged = True
+                log.error("controller is not active (%s): all worker loops are stopped", e)
+            return False
+        except Exception:  # noqa: BLE001  (database unreachable: nothing to do either)
+            return False
+
     def healthy(self) -> bool:
         now = time.monotonic()
-        return (now - self.progress["jobs"] <= self.job_stall_seconds
+        return self.active() and (now - self.progress["jobs"] <= self.job_stall_seconds
                 and (not self.rt.settings.monitor_enabled or (now - self.progress["monitor"] <= self.monitor_stall_seconds
                                                                and self.monitor_failures < self.MONITOR_MAX_CONSECUTIVE_FAILURES)))
 
@@ -83,6 +102,9 @@ class Worker(threading.Thread):
     def _job_loop(self) -> None:
         while not self._stop_evt.is_set():
             try:
+                if not self.active():
+                    self._stop_evt.wait(self.interval)
+                    continue
                 self.progress["jobs"] = time.monotonic()
                 while run_once(self.rt, beat=False):
                     self.progress["jobs"] = time.monotonic()
@@ -94,6 +116,9 @@ class Worker(threading.Thread):
         """backup.* jobs on their own lane + the backup scheduler (due backups / repository checks / restore verifications / prune)."""
         while not self._stop_evt.is_set():
             try:
+                if not self.active():
+                    self._stop_evt.wait(self.interval)
+                    continue
                 if self.rt.settings.backup_scheduler_enabled:
                     backups_ops.tick(self.rt)
                 while run_once(self.rt, beat=False, backup_lane=True):
@@ -105,6 +130,9 @@ class Worker(threading.Thread):
     def _monitor_loop(self) -> None:
         while not self._stop_evt.is_set():
             try:
+                if not self.active():
+                    self._stop_evt.wait(self.interval)
+                    continue
                 self.progress["monitor"] = time.monotonic()
                 monitor.tick(self.rt)
                 self.progress["monitor"] = time.monotonic()
@@ -125,6 +153,9 @@ class Worker(threading.Thread):
         """Inventory/metrics collection on its own thread: a slow provider can never stall checks, jobs or the heartbeat."""
         while not self._stop_evt.is_set():
             try:
+                if not self.active():
+                    self._stop_evt.wait(self.interval)
+                    continue
                 self.progress["inventory"] = time.monotonic()
                 collector.tick(self.rt)
                 prov_service.tick(self.rt)

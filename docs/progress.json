@@ -209,7 +209,7 @@
             "docs/status/ALPHA-EXECUTION-QUEUE.md",
             "scripts/security_remediation_check.py"
           ],
-          "note": "132 findings tracked with verified evidence; tenant-msp (review 6), hardening and privsep fixes landed on main via integration-8; fixes-r7 and oci-signing still pending merge; independent review 8 follows"
+          "note": "132 findings tracked with verified evidence; after integration-8 every finding with a code fix is on main (96 Fixed, 0 pending merge; tenant-msp, hardening, privsep, fixes-r5/r7 landed); the 5 Highs still Partial (R4-H2, R5-H2, R7-H3, R7-H5 need the owner to remove administrator NOPASSWD:ALL / lab drills; R6-H1 needs oci-signing); stays implementing until the independent review 8"
         },
         {
           "id": "P1.14",
@@ -230,9 +230,12 @@
           "evidence": [
             "docs/runbooks/ics-recovery.md",
             "docs/adr/0012-ics-warm-standby.md",
-            "docs/status/ics-standby-results.md"
+            "docs/status/ics-standby-results.md",
+            "ics/ics/lease.py",
+            "ics/ics/witness.py",
+            "docs/admin/security.md"
           ],
-          "note": "Streaming standby, operator-triggered fenced promotion with controller epoch (3.1 s in lab) and old-agent fallback; lease-based self-fencing, witness mode and a two-controller partition test are not done (branches fixes-r7, ha-proof; pending merge)"
+          "note": "Streaming standby, operator-triggered fenced promotion with controller epoch (3.1 s in lab) and old-agent fallback; lease-based self-fencing with a witness (side effects only under a live grant) is on main; a two-controller partition test in the lab is not done (branch ha-proof, pending merge)"
         }
       ]
     },
@@ -286,7 +289,7 @@
             "docs/RELEASING.md",
             "docs/adr/0008-build-release-pipeline.md"
           ],
-          "note": "Signed apt pipeline with dev/staging/stable on main; hardened signer, per-channel keys, ICS-approved promotion and independent test attestation on branch fixes-r7 (pending merge); production keys need an owner key ceremony"
+          "note": "Signed apt pipeline with dev/staging/stable on main; hardened signer, per-channel keys, ICS-approved promotion and independent test attestation (the test runner runs the tests) on main; production keys need an owner key ceremony"
         },
         {
           "id": "P2.6",
@@ -507,21 +510,21 @@
     },
     {
       "id": "P9",
-      "name": "Full PDF Reader, Editor and Document Management (DEFERRED — final development priority)",
+      "name": "Office Unbound PDF Studio: full PDF reader, editor, forms and document management (DEFERRED \u2014 absolute last priority)",
       "status": "deferred",
       "items": [
         {
           "id": "P9.0",
-          "title": "Technology and licensing evaluation (first step when P9 starts)",
+          "title": "Engine research, licence audit and feature/dependency matrix (PDF.js, Nib, Stirling PDF as reference only, others)",
           "status": "deferred",
           "evidence": [
             "docs/requirements/P9-pdf-reader-editor.md"
           ],
-          "note": "Deferred until alpha readiness and MSP pilot objectives are complete (owner, 2026-11-16)"
+          "note": "Deferred: starts only after every other planned core feature and integration is complete and stable (owner, 2026-11-16)"
         },
         {
           "id": "P9.1",
-          "title": "PDF reader",
+          "title": "PDF reader (tabs, presentation mode, protected documents, attachments)",
           "status": "deferred",
           "evidence": []
         },
@@ -551,7 +554,7 @@
         },
         {
           "id": "P9.6",
-          "title": "Cryptographic digital signatures (PKCS#12/X.509, PAdES, OCSP/CRL)",
+          "title": "Cryptographic digital signatures (PKCS#12/X.509, PAdES, RFC 3161 timestamps, OCSP/CRL)",
           "status": "deferred",
           "evidence": []
         },
@@ -581,7 +584,7 @@
         },
         {
           "id": "P9.11",
-          "title": "Advanced tools: compare, Bates, accessibility, batch",
+          "title": "Advanced tools: compare, Bates, headers/footers, PDF/UA validation, reading-order editing, batch",
           "status": "deferred",
           "evidence": []
         },

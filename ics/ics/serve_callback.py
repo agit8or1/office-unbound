@@ -101,7 +101,7 @@ def make_config(env=None) -> uvicorn.Config:
         raise SystemExit("ics.serve_callback: a non-loopback listener requires ICS_GUEST_CALLBACK_TLS_CERT and ICS_GUEST_CALLBACK_TLS_KEY (guests pin this certificate)")
     # X-Forwarded-For is only honoured behind a local proxy, never on a directly exposed socket
     tp = load_settings().trusted_proxy if loopback else None
-    return uvicorn.Config("ics.serve_callback:create_limited_app", factory=True, host=host, port=int(port), http="h11", ws="none", lifespan="off",
+    return uvicorn.Config("ics.serve_callback:create_limited_app", factory=True, host=host, port=int(port), http="h11", ws="none", lifespan="on",
                           ssl_certfile=cert or None, ssl_keyfile=key or None,
                           proxy_headers=bool(tp), forwarded_allow_ips=tp or "", server_header=False, date_header=True,
                           limit_concurrency=MAX_CONCURRENCY, timeout_keep_alive=5, backlog=128, h11_max_incomplete_event_size=16384,

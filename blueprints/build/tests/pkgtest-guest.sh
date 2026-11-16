@@ -9,13 +9,13 @@ export DEBIAN_FRONTEND=noninteractive LC_ALL=C.UTF-8
 PASS=0; FAIL=0
 ok() { echo "PASS  $*"; PASS=$((PASS+1)); }
 no() { echo "FAIL  $*"; FAIL=$((FAIL+1)); }
-KEYRING=/usr/share/keyrings/ou-release-lab.gpg
+KEYRING=/usr/share/keyrings/ou-release-channel.gpg
 
 setup() {
   url=$1; suite=$2; fpr=$3
-  got=$(gpg --show-keys --with-colons /tmp/ou-release-lab.pub.asc | awk -F: '/^fpr/{print $10; exit}')
+  got=$(gpg --show-keys --with-colons /tmp/ou-release-$suite.pub.asc | awk -F: '/^fpr/{print $10; exit}')
   [ "$got" = "$fpr" ] || { echo "key fingerprint mismatch: $got != $fpr"; exit 1; }
-  gpg --dearmor < /tmp/ou-release-lab.pub.asc > $KEYRING
+  gpg --dearmor < /tmp/ou-release-$suite.pub.asc > $KEYRING
   cat > /etc/apt/sources.list <<EOF
 deb http://deb.debian.org/debian bookworm main
 deb http://deb.debian.org/debian bookworm-updates main

@@ -13,9 +13,13 @@ Cmnd_Alias OU_RELSIGN = \
     /usr/local/sbin/ou-release-sign status, /usr/local/sbin/ou-release-sign record-test, \
     /usr/local/sbin/ou-release-sign promote dev staging, /usr/local/sbin/ou-release-sign promote staging stable
 Cmnd_Alias OU_IMGSIGN = /usr/local/sbin/ou-image-sign sign, /usr/local/sbin/ou-image-sign record-test, /usr/local/sbin/ou-image-sign pubkey
-# The test runner takes `run <kind> <ref>` (kind and ref vary per package, so no argument pattern can be written; the program accepts a sha256 or a
-# path below the image output directory and nothing else, and has no way to take a result as input). `keygen` refuses when a key exists.
-Cmnd_Alias OU_ATTEST = /usr/local/sbin/ou-test-attest
+# The test runner takes `run <kind> <ref>` and nothing else (security review 7 H-3: it runs the tests itself and cannot be handed a result, a name
+# or a log hash). The arguments are pinned with sudoers regular expressions (sudo >= 1.9.10, ^...$ on the whole argument string): a .deb is named by its
+# 64-hex sha256 (the runner fetches the admitted bytes from the signer's blob store), an image by an absolute path directly below the image output
+# directory (the program additionally realpath-checks it, refuses symlinks and copies it). `keygen` is deliberately NOT granted (install-time, root).
+Cmnd_Alias OU_ATTEST = \
+    /usr/local/sbin/ou-test-attest ^run deb-install-smoke [0-9a-f]{64}$, \
+    /usr/local/sbin/ou-test-attest ^run image-first-boot /var/lib/ou-imgbuild/out/[A-Za-z0-9._-]+$
 
 Defaults!OU_RELSIGN, OU_IMGSIGN, OU_ATTEST env_reset, !setenv, !env_editor
 @OPERATOR@ ALL=(ou-release)    NOPASSWD: OU_RELSIGN

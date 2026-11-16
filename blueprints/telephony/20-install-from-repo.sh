@@ -2,18 +2,20 @@
 # Run as root INSIDE ou-pbx2 (done by 10-deploy-pbx2.sh). Debian 12. Installs ou-asterisk (Asterisk 22 LTS, ADR-0008 pipeline) FROM THE SIGNED OFFICE UNBOUND
 # REPO ONLY (no Ubuntu package, no upstream binaries), plus nginx-light, the provisioner and the softphone. Site configuration lives in /etc/asterisk/ou/
 # (the package's own conffiles are not edited, so package upgrades never prompt).
-# Expects /root/stage/{pbx,phone,secrets,ou-release-lab.pub.asc,ou-release-lab.FINGERPRINT}. Env: REPO_URL, REPO_SUITE.
+# Expects /root/stage/{pbx,phone,secrets,ou-release-<suite>.pub.asc,ou-release-<suite>.FINGERPRINT}. Env: REPO_URL, REPO_SUITE.
 set -euo pipefail
 ST=/root/stage
 export DEBIAN_FRONTEND=noninteractive
 : "${REPO_URL:?}"; SUITE=${REPO_SUITE:-dev}
-KEYRING=/usr/share/keyrings/ou-release-lab.gpg
-FPR=$(cat $ST/ou-release-lab.FINGERPRINT)
-got=$(gpg --show-keys --with-colons $ST/ou-release-lab.pub.asc | awk -F: '/^fpr/{print $10; exit}')
+KEYRING=/usr/share/keyrings/ou-release-$SUITE.gpg
+FPR=$(cat $ST/ou-release-$SUITE.FINGERPRINT)
+got=$(gpg --show-keys --with-colons $ST/ou-release-$SUITE.pub.asc | awk -F: '/^fpr/{print $10; exit}')
 [ "$got" = "$FPR" ] || { echo "release key fingerprint mismatch: $got != $FPR"; exit 1; }
-gpg --dearmor < $ST/ou-release-lab.pub.asc > $KEYRING
+gpg --dearmor < $ST/ou-release-$SUITE.pub.asc > $KEYRING
 echo "deb [signed-by=$KEYRING] $REPO_URL $SUITE main" > /etc/apt/sources.list.d/office-unbound.list
+echo 'Acquire::AllowReleaseInfoChange "false";' > /etc/apt/apt.conf.d/50ou-release-strict
 apt-get update -qq
+for f in /var/lib/apt/lists/*_dists_${SUITE}_InRelease; do grep -q "^Suite: $SUITE$" "$f" && grep -q "^Codename: $SUITE$" "$f" || { echo "channel confusion: Release is not of suite $SUITE"; exit 1; }; done
 apt-get install -y -qq --no-install-recommends gnupg ca-certificates >/dev/null
 apt-get install -y -qq --no-install-recommends ou-asterisk nginx-light python3-fastapi python3-uvicorn python3-ldap3 python3-httpx python3-jwt baresip sox sudo >/dev/null   # sudo: only used by the lab test suites (sudo -u ou-pbx ou-pbx ...)
 apt-cache policy ou-asterisk | sed -n 1,4p; dpkg -s ou-asterisk | grep -E '^(Version|Status)'

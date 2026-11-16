@@ -45,16 +45,27 @@ class Box:
     def __init__(self, tmp):
         self.state = str(tmp / "signer")
         self.runner = str(tmp / "runner")
+        self.lib = str(tmp / "lib")
         gh = os.path.join(self.state, "gnupg")
         os.makedirs(gh, mode=0o700)
         os.makedirs(os.path.join(self.state, "trust"))
+        os.makedirs(self.lib)
+        # the fixed test program of the sandbox runner: fails for packages whose Description says "failme" (a real install smoke runs in nspawn-smoke)
+        smoke = os.path.join(self.lib, "smoke-deb")
+        open(smoke, "w").write('#!/bin/bash\necho "smoke of $(dpkg-deb -f "$1" Package)"\nif dpkg-deb -f "$1" Description | grep -q failme; then exit 1; fi\nexit 0\n')
+        os.chmod(smoke, 0o755)
+        os.chmod(self.lib, 0o755)
         open(os.path.join(self.state, "passphrase"), "w").write("pw\n")
         open(os.path.join(gh, "gpg-agent.conf"), "w").write("default-cache-ttl 1\nmax-cache-ttl 1\n")
-        self.env = {**os.environ, "OU_RELEASE_STATE": self.state, "OU_TESTRUNNER_STATE": self.runner, "OU_RELEASE_SANDBOX": "1", "GNUPGHOME": gh}
-        subprocess.run(["gpg", "--batch", "--pinentry-mode", "loopback", "--passphrase-file", os.path.join(self.state, "passphrase"), "--quick-generate-key",
-                        "Sandbox <s@s>", "ed25519", "sign", "1d"], env=self.env, capture_output=True, check=True)
-        fpr = subprocess.run(["gpg", "--list-secret-keys", "--with-colons"], env=self.env, capture_output=True, text=True).stdout
-        open(os.path.join(self.state, "FINGERPRINT"), "w").write([ln for ln in fpr.splitlines() if ln.startswith("fpr")][0].split(":")[9])
+        self.env = {**os.environ, "OU_RELEASE_STATE": self.state, "OU_TESTRUNNER_STATE": self.runner, "OU_RELEASE_SANDBOX": "1", "GNUPGHOME": gh,
+                    "OU_TESTRUNNER_LIB": self.lib}
+        self.fprs = {}
+        for suite in ("dev", "staging", "stable"):     # ONE KEY PER CHANNEL (review 7 H-2)
+            subprocess.run(["gpg", "--batch", "--pinentry-mode", "loopback", "--passphrase-file", os.path.join(self.state, "passphrase"), "--quick-generate-key",
+                            "Sandbox %s <s@s>" % suite, "ed25519", "sign", "1d"], env=self.env, capture_output=True, check=True)
+            out = subprocess.run(["gpg", "--list-secret-keys", "--with-colons", "Sandbox %s" % suite], env=self.env, capture_output=True, text=True).stdout
+            self.fprs[suite] = [ln for ln in out.splitlines() if ln.startswith("fpr")][0].split(":")[9]
+            open(os.path.join(self.state, "FINGERPRINT-" + suite), "w").write(self.fprs[suite])
         self.ics = Ed25519PrivateKey.generate()
         open(os.path.join(self.state, "trust", "ics-promotion.pub"), "w").write(b64pub(self.ics))
         rp = subprocess.run([sys.executable, ATTEST, "keygen"], env=self.env, capture_output=True, text=True, check=True).stdout.strip()
@@ -67,12 +78,12 @@ class Box:
     def run(self, args, stdin=b"", prog=SIGNER):
         return subprocess.run([sys.executable, "-I", prog, *args], input=stdin, env=self.env, capture_output=True)
 
-    def deb(self, name, ver, content="x"):
+    def deb(self, name, ver, content="x", desc="t", extra=""):
         d = self.tmp / f"d-{name}-{ver}-{content}"
         (d / "DEBIAN").mkdir(parents=True)
         (d / "usr").mkdir()
         (d / "usr" / "f").write_text(content)
-        (d / "DEBIAN" / "control").write_text(f"Package: {name}\nVersion: {ver}\nArchitecture: amd64\nMaintainer: t <t@t>\nDescription: t\n")
+        (d / "DEBIAN" / "control").write_text(f"Package: {name}\nVersion: {ver}\nArchitecture: amd64\nMaintainer: t <t@t>\n{extra}Description: {desc}\n")
         out = self.tmp / f"{name}_{ver}_amd64.deb"
         subprocess.run(["dpkg-deb", "--root-owner-group", "-Znone", "--build", str(d), str(out)], check=True, capture_output=True)
         return out.name, out.read_bytes()
@@ -81,9 +92,10 @@ class Box:
         r = self.run(["admit", "dev"], tar_of(files))
         assert r.returncode == 0, r.stderr
 
-    def attest(self, blob, res="pass", log="l"):
+    def attest(self, blob):
+        """ask the runner to RUN the install smoke for this artifact (a caller can not hand it a result)"""
         h = hashlib.sha256(blob).hexdigest()
-        r = self.run(["attest", h, "install-smoke", res, hashlib.sha256(log.encode()).hexdigest()], prog=ATTEST)
+        r = self.run(["run", "deb-install-smoke", h], prog=ATTEST)
         assert r.returncode == 0, r.stderr
         return r.stdout
 
@@ -101,11 +113,33 @@ def box(tmp_path):
     return Box(tmp_path)
 
 
+def control_of(blob):
+    p = subprocess.run(["dpkg-deb", "-f", "/dev/stdin"], input=blob, capture_output=True)
+    if p.returncode != 0:      # dpkg-deb needs a file
+        import tempfile
+        with tempfile.NamedTemporaryFile(suffix=".deb") as t:
+            t.write(blob)
+            t.flush()
+            p = subprocess.run(["dpkg-deb", "-f", t.name], capture_output=True, check=True)
+    return p.stdout.decode()
+
+
+def stanza(suite, fn, blob, comp="c", **over):
+    """a Packages stanza as apt-ftparchive writes it: the control fields + Filename/Size/hashes (over: replace or add fields)"""
+    f = {}
+    for ln in control_of(blob).strip("\n").split("\n"):
+        if ln[0] not in " \t":
+            k, v = ln.split(":", 1)
+            f[k] = v.strip()
+    f.update({"Filename": f"pool/{suite}/{comp}/{fn}", "Size": str(len(blob)), "MD5sum": hashlib.md5(blob).hexdigest(), "SHA1": hashlib.sha1(blob).hexdigest(),
+              "SHA256": hashlib.sha256(blob).hexdigest()})
+    f.update(over)
+    return "".join(f"{k}: {v}\n" for k, v in f.items() if v is not None) + "\n"
+
+
 def index_set(suite, debs):
-    def stanza(fn, h, size):
-        return f"Package: {fn.split('_')[0]}\nVersion: 1\nArchitecture: amd64\nFilename: pool/{suite}/c/{fn}\nSize: {size}\nSHA256: {h}\n\n"
-    pk = "".join(stanza(n, hashlib.sha256(b).hexdigest(), len(b)) for n, b in debs.items())
-    return pk, "Package: s\nDirectory: pool/%s/c\n\n" % suite
+    pk = "".join(stanza(suite, n, b) for n, b in debs.items())
+    return pk, ""
 
 
 def release(files, suite="dev", extra_hdr="", extra_lines=()):
@@ -291,14 +325,15 @@ def test_h2_stable_needs_two_approvers_and_works_with_two(box):
 
 
 def test_h2_failed_test_blocks_promotion(box):
-    deb = dict([box.deb("ou-a", "1")])
+    deb = dict([box.deb("ou-a", "1", desc="failme")])
     box.admit(deb)
     blob = list(deb.values())[0]
-    att = box.attest(blob, res="fail")
+    att = box.attest(blob)
+    assert json.loads(att)["attestation"]["result"] == "fail"
     assert box.run(["record-test"], att).returncode == 0
     ev = [{"sha256": hashlib.sha256(blob).hexdigest(), "attestation_sha256": hashlib.sha256(canon(json.loads(att)["attestation"])).hexdigest()}]
     assert promote(box, "dev", "staging", deb, box.manifest("dev", "staging", deb, ev, approvers=("a1",))).returncode != 0
 
 
 def test_h2_attest_refuses_unadmitted_package(box):
-    assert box.run(["attest", "a" * 64, "install-smoke", "pass", "b" * 64], prog=ATTEST).returncode != 0
+    assert box.run(["run", "deb-install-smoke", "a" * 64], prog=ATTEST).returncode != 0

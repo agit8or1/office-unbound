@@ -12,7 +12,7 @@ STATE=${OU_PKG_STATE:-/var/lib/office-unbound/pkgbuild}
 SUITE=$1; shift
 PKGS="$*"
 LOG=$STATE/out/pkgtest-$SUITE.log
-FPR=$(cat "$BUILD/keys/ou-release-lab.FINGERPRINT")
+FPR=$(cat "$BUILD/keys/ou-release-$SUITE.FINGERPRINT")
 exec > >(tee "$LOG") 2>&1
 inm() { sudo systemd-run -M "$TESTER" --wait --pipe -q /bin/bash -c "$1"; }
 
@@ -26,7 +26,7 @@ sudo machinectl start "$TESTER"; sudo systemctl set-property "systemd-nspawn@$TE
 sleep 10
 inm "apt-get update -q >/dev/null 2>&1; apt-get install -y -q --no-install-recommends gnupg ca-certificates curl python3 >/dev/null 2>&1; echo base ready"
 # ship public key + guest script (tester never sees the private key)
-tar -C "$BUILD/keys" -c ou-release-lab.pub.asc | sudo systemd-run -M "$TESTER" --wait --pipe -q /bin/bash -c 'tar -C /tmp -x'
+tar -C "$BUILD/keys" -c ou-release-$SUITE.pub.asc | sudo systemd-run -M "$TESTER" --wait --pipe -q /bin/bash -c 'tar -C /tmp -x'
 tar -C "$HERE" -c pkgtest-guest.sh | sudo systemd-run -M "$TESTER" --wait --pipe -q /bin/bash -c 'tar -C /root -x'
 # the repo (public data only) is copied into the tester and served there on 127.0.0.1: real HTTP transport, nothing listens
 # on the LAN or the zone (the ICS host firewall does not accept zone -> host 8077 either; see package-pipeline-results.md)

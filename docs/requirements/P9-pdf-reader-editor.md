@@ -1,4 +1,4 @@
-# P9 — Full PDF Reader, Editor and Document Management
+# P9 — Office Unbound PDF Studio (Full PDF Reader, Editor, Forms and Document Management)
 
 **Status: DEFERRED — FINAL DEVELOPMENT PRIORITY** (owner directive, 2026-11-16).
 
@@ -319,3 +319,117 @@ The finished product must cover:
 - security and document management
 
 It must be a credible open-source alternative to Acrobat Pro for ordinary business workflows. All limits are documented honestly.
+
+
+---
+
+# Addendum 2026-11-16: "Office Unbound PDF Studio" (second owner directive, merged into P9 rather than duplicated)
+
+**Priority:** absolutely last in the Office Unbound queue. P9 starts only when every other planned core feature and integration is complete and stable. No research, prototypes, dependencies or implementation work may begin before then, and none may distract from:
+- the core platform
+- mail, identity and files
+- collaboration
+- MSP administration and migration
+- infrastructure management
+
+It is a major long-term feature and not an MVP dependency. When it starts, it must be built properly, not shipped as a limited viewer labelled "editor".
+
+## Requirements added by this directive (on top of §2–§12)
+
+### Reader and editor
+- **Reader:** multiple documents in tabs; presentation mode; password-protected documents; embedded attachment handling.
+- **Editor:** headers, footers, watermarks and page numbering; document comparison; metadata editing.
+
+### Forms and signatures
+- Detect existing form fields.
+- **RFC 3161 trusted timestamps.**
+- Document signing workflows.
+- Visual and electronic signatures stay strictly separate from cryptographically verifiable ones (as in §6).
+
+### Advanced processing
+- Compression and optimisation.
+- Permission management.
+- PDF/A archival conversion.
+- Accessibility tagging and **reading-order editing**.
+- **PDF/UA validation** where supported.
+- A visual black box is never presented as redaction (as in §7).
+
+### Integration
+- Save edits back to the original location.
+- Restore previous versions.
+- Use sharing and access policies.
+- Offline workflows where practical.
+- APIs for other Office Unbound applications.
+- **No competing document storage platform.**
+
+### Security
+- Isolated processing.
+- Secure temporary files with automatic cleanup.
+- Secure handling of signatures and certificates.
+- The PDF engine never gets unrestricted access to the host filesystem.
+
+### UI
+- Toolbar with clearly grouped tools.
+- Left thumbnail and navigation panel.
+- Main viewing and editing area.
+- Contextual properties panel.
+- Save, version and sharing controls.
+- Approachable for ordinary employees, with advanced tools available for professionals.
+
+## Technology direction (refines §13)
+
+### Engine policy
+- **Do not build a PDF rendering engine from scratch.**
+- Evaluate proven open-source engines first.
+- Reconciled with §1/§13: rendering and parsing come from proven FOSS. Office Unbound builds only the missing capabilities, such as true editing of existing content, on top of them, and only where no suitable licensed component exists.
+
+### Candidates
+- **Mozilla PDF.js** (Apache-2.0): primary candidate for browser rendering and reading.
+- **Nib** (AGPLv3): investigate its editing, OCR, signature, accessibility and processing capabilities, its maturity and architecture, and what AGPL obligations mean for our AGPL product and for MSP deployments.
+- **Stirling PDF**: reference for processing workflows and features only. **Do not adopt** its current restricted/proprietary directories or production-licensing-restricted components as the foundation. Its mixed licence conflicts with unrestricted commercial self-hosting.
+- Other permissively licensed PDF libraries and engines, plus the §13 candidates: PDFBox, qpdf, Tesseract/OCRmyPDF, Collabora/LibreOffice.
+
+### Required work
+- A complete dependency and licence audit.
+- A feature compatibility and dependency matrix.
+
+### Non-negotiable
+- No mandatory paid PDF vendor.
+- No per-user licensing.
+- No user or connection caps.
+- No mandatory commercial edition for essential features.
+- No proprietary dependency that blocks unrestricted self-hosting or commercial MSP use.
+- No mandatory external cloud processing.
+- All open-source licence obligations preserved.
+- Do not pick the easiest library at the cost of function or reliability.
+
+## Implementation stages (stages, not feature-restricted editions)
+
+1. Research engines and licences.
+2. Produce the feature compatibility and dependency matrix.
+3. Establish the PDF Studio architecture.
+4. Build the reader and navigation.
+5. Add annotations and page manipulation.
+6. Add text and image editing, and forms.
+7. Add signatures and validation.
+8. Add OCR, redaction and advanced processing.
+9. Add accessibility and professional features.
+10. Complete storage, permissions, versioning and API integration.
+11. Run security, performance and compatibility testing.
+12. Release as an integrated Office Unbound application.
+
+## Acceptance (adds to §15–§16)
+
+The finished application must be:
+- fully integrated
+- self-hostable
+- open source with compatible licences
+- commercially usable by MSPs
+- free of per-user PDF licensing
+- multi-tenant safe
+- securely isolated
+- independent of external PDF SaaS
+- usable on desktop and mobile browsers
+- documented, tested and maintainable
+
+Never claim Acrobat parity for a capability that has not actually been implemented and validated.

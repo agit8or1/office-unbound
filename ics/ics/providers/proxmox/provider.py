@@ -1031,10 +1031,11 @@ class ProxmoxMutations(ProxmoxProvider):
         for st in (spec.import_storage, spec.target_storage):
             self._need_storage(st)
         from ...guest import golden     # late: guest.* imports providers
-        if not (spec.release_dir and spec.release_pubkey_pem and spec.release_pin_sha256):
-            raise ProviderError("invalid_request", "image import needs the signed release (directory, public key and pin); an unsigned image is never imported")
+        if not spec.release_dir:
+            raise ProviderError("invalid_request", "image import needs the signed release directory; an unsigned image is never imported")
         try:
-            rel = golden.verify_release(spec.release_dir, spec.release_pubkey_pem, spec.release_pin_sha256)
+            pem, pin = golden.trust_root()                    # review 7 M-4: key + pin from the server's configuration only
+            rel = golden.verify_release(spec.release_dir, pem, pin)
         except golden.ReleaseError as e:
             raise ProviderError("integrity", f"release verification failed: {e}; nothing was uploaded") from None
         if os.path.realpath(spec.file_path) != os.path.realpath(rel.path) or not hmac_equal(spec.sha256, rel.sha256):
@@ -1049,7 +1050,12 @@ class ProxmoxMutations(ProxmoxProvider):
         digest, size = _file_sha256(spec.file_path)
         if size == 0 or size > IMAGE_MAX_BYTES or not hmac_equal(digest, spec.sha256):
             raise ProviderError("integrity", "the image file does not match the verified checksum (or is empty/too large); nothing was uploaded")
-        newest = golden.newest_imported([g.get("tags") or "" for g in self._get("/cluster/resources?type=vm", self._w)], rel.os)
+        try:
+            floor = golden.floor_store().get(rel.os)          # review 7 M-4: the floor is the ICS database's; template tags can no longer lower it
+        except golden.ReleaseError as e:
+            raise ProviderError("integrity", f"{e}; nothing was uploaded") from None
+        tagged = golden.newest_imported([g.get("tags") or "" for g in self._get("/cluster/resources?type=vm", self._w)], rel.os)
+        newest = max([x for x in (floor, tagged) if x], default=None)
         if newest and rel.date < newest and not spec.allow_downgrade:
             raise ProviderError("downgrade", f"release {rel.date} is older than the newest imported {rel.os} image ({newest}); a downgrade needs an explicit, "
                                 "separately approved plan (allow_downgrade); nothing was uploaded")
@@ -1085,6 +1091,7 @@ class ProxmoxMutations(ProxmoxProvider):
             self.wait(self._task(spec.node, up, vmid, "qmtemplate"), timeout=600.0, interval=2.0)
         except ProviderError:
             raise
+        golden.floor_store().raise_to(rel.os, rel.date)       # monotonic: a (separately approved) downgrade import never lowers it
         return ImageImportResult(spec.node, vmid, spec.name, volid)
 
 

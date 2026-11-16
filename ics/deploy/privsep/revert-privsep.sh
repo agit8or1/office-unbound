@@ -46,7 +46,7 @@ done
 if [ "$APPLY" = 1 ]; then visudo -c >/dev/null || die "restored sudoers does not validate: inspect $BACKUP by hand"; echo "ok  sudoers restored and valid"; fi
 
 run rm -f "$POLKIT_DIR/50-ou-privsep.rules" /etc/ssh/sshd_config.d/60-ou-privsep.conf
-for u in ics.service ics-callback.service ics-migrate.service ics-admin-fw.service ou-lab-fw.service ou-rb-backup@.service ou-repo-resign.service nginx.service postgresql@.service; do
+for u in ics.service ics-bootstrap.service ics-migrate.service ics-admin-fw.service ou-lab-fw.service ou-rb-backup@.service ou-repo-resign.service nginx.service postgresql@.service; do
   if [ -d "$BACKUP/dropins/$u.d" ] && [ -e "$BACKUP/dropins/$u.d/10-privsep.conf" ]; then
     run install -m 0644 "$BACKUP/dropins/$u.d/10-privsep.conf" "$SYSD_DIR/$u.d/10-privsep.conf"
   else

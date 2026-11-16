@@ -236,14 +236,28 @@ def register(app, rt) -> None:
 
 def create_callback_app():
     """Review 5 L4: a DEDICATED app that serves nothing but the bootstrap callback (and /healthz). Run it as its own listener (`python -m ics.serve_callback`,
-    unit ics-callback.service) behind its own reverse-proxy server block / bind address; guest networks then reach no login page and no console API.
+    unit ics-bootstrap.service) behind its own reverse-proxy server block / bind address; guest networks then reach no login page and no console API.
     Set ICS_GUEST_CALLBACK_DEDICATED=true so the console app stops serving the callback route as well."""
     from fastapi import FastAPI
     from ..runtime import Runtime
     from ..config import load_settings
+    from contextlib import asynccontextmanager
     rt = Runtime(load_settings())
-    app = FastAPI(title="Office Unbound guest callback", docs_url=None, redoc_url=None, openapi_url=None)
+
+    @asynccontextmanager
+    async def lifespan(_app):
+        # a witness lease is per process: this listener is its own process, so it renews its own grant (review 7 H-5 x hardening listener);
+        # until the first grant FenceGuard answers 503 (fail closed)
+        if getattr(rt, "lease", None):
+            rt.lease.start()
+        yield
+        if getattr(rt, "lease", None):
+            rt.lease.stop()
+
+    app = FastAPI(title="Office Unbound guest callback", docs_url=None, redoc_url=None, openapi_url=None, lifespan=lifespan)
     register(app, rt)
+    from .. import standby
+    app.add_middleware(standby.FenceGuard, check=rt.assert_active)    # review 7 H-5: enrollment/bootstrap refused when fenced or standby
 
     @app.get("/healthz")
     def healthz():

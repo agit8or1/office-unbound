@@ -45,6 +45,12 @@ LOCK_VALUE = "000001010000Z"  # ppolicy permanent lock (same value the lab's lda
 STATES = ("active", "disabled", "deleted")
 
 
+
+def _egress_hook(_request) -> None:
+    from . import egress
+    egress.require()      # review 7 H-5: Keycloak/LDAP/DNS calls stop when this controller is fenced or standby
+
+
 class IdentityError(Exception):
     """Message is safe to store and show (no credentials, no transport text)."""
 
@@ -480,7 +486,7 @@ class Keycloak:
         self.offline_clients = c.get("kc_offline_clients", [])
         ctx = ssl.create_default_context(cadata=c["identity_ca_pem"])
         ctx.minimum_version = ssl.TLSVersion.TLSv1_2
-        self.http = httpx.Client(verify=ctx, timeout=httpx.Timeout(10.0), follow_redirects=False, trust_env=False)
+        self.http = httpx.Client(verify=ctx, timeout=httpx.Timeout(10.0), follow_redirects=False, trust_env=False, event_hooks={"request": [_egress_hook]})
         self._tok, self._exp = None, 0.0
 
     def close(self) -> None:
@@ -588,7 +594,7 @@ class Mas:
         self.base, self.client_id, self._secret = c["mas_url"].rstrip("/"), c["mas_client_id"], stack.mas_secret
         ctx = ssl.create_default_context(cadata=c["identity_ca_pem"])
         ctx.minimum_version = ssl.TLSVersion.TLSv1_2
-        self.http = httpx.Client(verify=ctx, timeout=httpx.Timeout(10.0), follow_redirects=False, trust_env=False)
+        self.http = httpx.Client(verify=ctx, timeout=httpx.Timeout(10.0), follow_redirects=False, trust_env=False, event_hooks={"request": [_egress_hook]})
         self._tok, self._exp = None, 0.0
 
     def close(self) -> None:

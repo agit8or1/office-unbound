@@ -48,6 +48,8 @@ def main(argv=None) -> int:
     sn = sub.add_parser("standby-note", help="record a standby lifecycle event in the audit log (called by the standby scripts on the primary)")
     sn.add_argument("event", choices=["keys-exported", "standby-prepared"])
     sn.add_argument("--standby-ip", required=True)
+    ea = sub.add_parser("epoch-attest", help="CURRENT primary only: print a signed re-seed document for one agent whose epoch file was lost (ou-agent reseed-epoch)")
+    ea.add_argument("--node", required=True, help="node id (uuid) of the agent")
     sub.add_parser("controller-status", help="print role, controller epoch and replication position")
     args = ap.parse_args(argv)
     if args.cmd == "promote":
@@ -97,6 +99,17 @@ def main(argv=None) -> int:
                 print(e, file=sys.stderr)
                 return 1
             _show(args.username, token)
+            return 0
+        if args.cmd == "epoch-attest":
+            import json as _json
+            import time as _time
+            from . import agentclient, epoch as epochmod
+            ep = epochmod.assert_active(rt)         # a standby or fenced controller can not attest an epoch
+            if not db.execute(text("SELECT 1 FROM nodes WHERE id = :i"), {"i": args.node}).first():
+                print("unknown node", file=sys.stderr)
+                return 1
+            body = {"v": 1, "node_id": args.node, "epoch": ep, "issued_at": int(_time.time())}
+            print(_json.dumps({"attest": body, "sig": agentclient.sign(agentclient.load_signing_key(rt.settings.signing_key_file), b"ou-agent-epoch-reseed-v1\n", body)}))
             return 0
         if args.cmd == "controller-status":
             from . import epoch as epochmod

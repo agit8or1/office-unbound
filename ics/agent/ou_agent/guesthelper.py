@@ -19,6 +19,7 @@ RESULT_ROOT = "/run"
 PODMAN, SYSTEMCTL, APT_GET, DPKG_QUERY, GPG = "/usr/bin/podman", "/usr/bin/systemctl", "/usr/bin/apt-get", "/usr/bin/dpkg-query", "/usr/bin/gpg"
 APT_DIR = "/etc/ou-agent/apt"                 # root-owned: sources.list + keyrings/ + pinned-fingerprints
 APT_STATE = "/var/lib/ou-pkg"
+OU_KEYRING = "signed-by=/etc/ou-agent/apt/keyrings/ou-repo.asc"      # the Office Unbound repo line (guest/cloudinit.py); everything else is a distro archive
 RID_RE = re.compile(r"^r[0-9a-f]{16}$")
 MAX_OUT = 4000
 
@@ -297,7 +298,9 @@ def facts(p, cfg):
 def _apt_opts():
     return ["-o", f"Dir::Etc::sourcelist={APT_DIR}/sources.list", "-o", "Dir::Etc::sourceparts=/nonexistent",
             "-o", f"Dir::State::lists={APT_STATE}/lists", "-o", "Acquire::AllowInsecureRepositories=false",
-            "-o", "Acquire::AllowDowngradeToInsecureRepositories=false", "-o", "APT::Get::AllowUnauthenticated=false"]
+            "-o", "Acquire::AllowDowngradeToInsecureRepositories=false", "-o", "APT::Get::AllowUnauthenticated=false",
+            "-o", "Acquire::AllowReleaseInfoChange::Suite=false", "-o", "Acquire::AllowReleaseInfoChange::Codename=false"]   # review 7 H-2: a changed Suite/Codename is an ERROR, not a warning
+    # (only those two: distro archives legitimately change Version/Label at point releases and are verified by their own keyrings)
 
 
 def _keyring_fingerprints():
@@ -323,6 +326,33 @@ def _check_sources():
             raise Reject("sources_invalid", "apt sources.list contains a line that is not a plain signed-by source")
 
 
+def _check_channel_release(lists=None):
+    """Review 7 H-2: apt only WARNS about "Conflicting distribution" on first contact, so we check ourselves: every Release the update fetched for a
+    suite named in sources.list must say Suite and Codename equal to that suite (the signer sets both; a dev Release served as stable fails here and,
+    with one signing key per channel, already fails the signature)."""
+    lists = lists or APT_STATE + "/lists"
+    suites = []
+    for ln in open(os.path.join(APT_DIR, "sources.list")).read().split("\n"):
+        # only the Office Unbound repository carries our channel contract (Suite == Codename == channel). Distro suites (noble-updates has Codename=noble) are
+        # verified by their own archive keyring: applying the check to them refused EVERY distro package install (found by the artifacts-core lab run)
+        if ln.strip() and not ln.startswith("#") and OU_KEYRING in ln:
+            suites.append(ln.split()[3])
+    for s in suites:
+        files = [f for f in os.listdir(lists) if f.endswith("_dists_%s_InRelease" % s)]
+        if not files:
+            raise Reject("release_missing", "no InRelease was fetched for suite %s" % s)
+        for f in files:
+            hdr = {}
+            for ln in open(os.path.join(lists, f), errors="replace").read().split("\n"):
+                if ln.startswith("-----BEGIN PGP SIGNATURE"):
+                    break
+                m = re.match(r"^(Suite|Codename):\s*(\S+)\s*$", ln)
+                if m:
+                    hdr[m.group(1)] = m.group(2)
+            if hdr.get("Suite") != s or hdr.get("Codename") != s:
+                raise Reject("release_channel_mismatch", "the Release for %s says Suite=%s Codename=%s: channel confusion refused" % (s, hdr.get("Suite"), hdr.get("Codename")))
+
+
 def install_pinned(p, cfg):
     _check_sources()
     pinned, found = _keyring_fingerprints()
@@ -333,6 +363,7 @@ def install_pinned(p, cfg):
     u = run([APT_GET, "-q", *_apt_opts(), "update"], env=env, timeout=300)
     if u.returncode != 0:
         return {"installed": [], "error": "apt update failed: " + tail(u.stderr)[-300:]}
+    _check_channel_release()
     specs = [f"{x['name']}={x['version']}" for x in p["packages"]]
     r = run([APT_GET, "-q", "-y", "--no-install-recommends", *_apt_opts(), "install", *specs], env=env, timeout=900)
     res = []

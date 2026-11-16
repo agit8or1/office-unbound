@@ -41,8 +41,8 @@ BACKUP=/root/sudoers-backup-$TS
 LEGACY=(90-cloud-init-users 90-claude-administrator ou-release ou-image-sign)
 NEW_SUDOERS=(ou-priv-signers ou-priv-lab ou-priv-testrunner)
 SHIMS=(machinectl systemd-run systemctl tee test)
-UNITS=(ics.service ics-callback.service ics-migrate.service ics-admin-fw.service ou-lab-fw.service ou-rb-backup@.service ou-repo-resign.service nginx.service postgresql@.service)
-RESTART_UNITS=(ics.service ics-callback.service nginx.service postgresql@16-main.service)
+UNITS=(ics.service ics-bootstrap.service ics-migrate.service ics-admin-fw.service ou-lab-fw.service ou-rb-backup@.service ou-repo-resign.service nginx.service postgresql@.service)
+RESTART_UNITS=(ics.service ics-bootstrap.service nginx.service postgresql@16-main.service)
 
 say() { printf '%s\n' "$*"; }
 act() { if [ "$APPLY" = 1 ]; then printf '  + %s\n' "$*"; else printf '  would: %s\n' "$*"; fi; }
@@ -164,7 +164,7 @@ if [ "$RESTART" = 1 ]; then
   printf 'Type "restart production" to restart them now (anything else skips): '
   read -r ans || ans=
   if [ "$ans" = "restart production" ]; then
-    for u in ics-migrate.service postgresql@16-main.service ics.service ics-callback.service nginx.service; do
+    for u in ics-migrate.service postgresql@16-main.service ics.service ics-bootstrap.service nginx.service; do
       systemctl is-active --quiet "$u" 2>/dev/null || continue
       if systemctl restart "$u"; then say "   restarted $u"; else say "!! $u failed to restart: journalctl -u $u; revert with revert-privsep.sh"; fi
     done

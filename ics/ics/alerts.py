@@ -178,6 +178,8 @@ def _send_webhook(cfg: dict, secret: str | None, msg: Message, allow_loopback: b
 
 
 def send(kind: str, cfg: dict, secret: str | None, msg: Message, *, allow_loopback: bool = False) -> None:
+    from . import egress
+    egress.require()      # review 7 H-5: no notification from a fenced/standby controller
     if kind in DISABLED_KINDS:
         raise ChannelDisabled(f"{kind} is a paid third-party service and is disabled (ADR-0007)")
     {"email": _send_email, "webhook": _send_webhook}[kind](cfg, secret, msg, allow_loopback)

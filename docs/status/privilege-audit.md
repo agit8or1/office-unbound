@@ -32,7 +32,7 @@ No file under `/etc/sudoers*`, no account and no unit of this host was changed b
 | `/etc/sudoers` | `root ALL`, `%admin ALL=(ALL) ALL`, `%sudo ALL=(ALL:ALL) ALL`, `@includedir /etc/sudoers.d`; defaults `env_reset, use_pty, secure_path` | password-protected group rules: KEEP (the owner's interactive path; administrator has a password) |
 | `90-cloud-init-users` | `administrator ALL=(ALL) NOPASSWD:ALL` | REMOVE |
 | `90-claude-administrator` | `administrator ALL=(ALL:ALL) NOPASSWD: ALL` | REMOVE |
-| `ou-release` | `(ou-release) ou-release-sign` (any args), `(ou-testrunner) ou-test-attest` | replace by exact subcommands |
+| `ou-release` | `(ou-release) ou-release-sign` (any args), `(ou-testrunner) ou-test-attest run *` (fixes-r7 install-signer.sh) | replace by exact subcommands and exact attestor arguments |
 | `ou-image-sign` | `(ou-imgsign) ou-image-sign *` | replace (wildcard) |
 | polkit | `/etc/polkit-1/rules.d` empty; Ubuntu defaults (`49-ubuntu-admin.rules`: groups sudo/admin are polkit admins, password needed) | add deny rule for service accounts |
 
@@ -44,7 +44,7 @@ replace `/usr/local/sbin/ou-release-sign`, edit `trust/*.pub`, read the ICS vaul
 | Unit | User | Sandbox today |
 |---|---|---|
 | ics.service | ics | NoNewPrivileges, ProtectSystem=strict (no ReadWritePaths), ProtectHome, PrivateTmp/Devices, empty capability set, seccomp `@system-service ~@privileged @resources`, AF_INET/INET6/UNIX, ReadOnlyPaths, InaccessiblePaths for migrate/test envs, MemoryDenyWriteExecute: `systemd-analyze security` 1.2 |
-| ics-callback.service | ics | same (unit shipped, not installed on this host) |
+| ics-bootstrap.service | ics | same (unit shipped, not installed on this host) |
 | ics-migrate.service | root (reads root-only DB-owner URL) | NoNewPrivileges, ProtectSystem=strict, empty caps, 3 address families; no seccomp/kernel protections: 1.6 after drop-in |
 | ics-admin-fw.service, ou-lab-fw.service | root (nft) | none |
 | ou-rb-backup@.service | root | NoNewPrivileges, PrivateTmp, ProtectHome only (more options break `runuser`, shown below) |
@@ -94,7 +94,7 @@ ou-mig-src1 were not answering on the bus at inventory time.
 | F1 | administrator (human, agents, build user, test runner caller) | root on the host (two `NOPASSWD: ALL` files): reads every key, rewrites signer/trust, restarts/edits ICS, reaches Proxmox token and DB owner | build in containers, ask the signer, run tests, start/stop lab machines | unrestricted | `ou-priv-signers`, `ou-priv-lab` drop-ins; both ALL files removed (apply-privsep.sh) |
 | F2 | administrator -> ou-release | `ou-release-sign` with any arguments | `sign <suite>`, `admit dev`, `seed-meta`, `pubkey`, `fingerprint`, `status`, `record-test`, `promote dev staging`, `promote staging stable` | arguments unrestricted at the sudo layer | exact subcommands (no wildcard); `record-test`/`promote` stay reachable only because the signer verifies a signature the build user cannot create (runner attestation, ICS-signed manifest) |
 | F3 | administrator -> ou-imgsign | `ou-image-sign *` | `sign`, `record-test`, `pubkey` (the program refuses extra arguments) | wildcard | exact three commands |
-| F4 | administrator -> ou-testrunner | `ou-test-attest` any args | `run <kind> <ref>` | kind and ref vary per package, so no sudo argument pattern exists | bare path by necessity; the program takes only a sha256 or an image path and cannot be handed a result (review 7 H-3); `keygen` refuses when a key exists |
+| F4 | administrator -> ou-testrunner | `ou-test-attest` any args | `^run deb-install-smoke [0-9a-f]{64}$` and `^run image-first-boot /var/lib/ou-imgbuild/out/<name>$` (sudoers regular expressions, sudo >= 1.9.10) | none after integration-8 | no wildcard; `keygen` is not granted (install-time, root); the program still takes only an admitted sha256 or an image path below the output directory and cannot be handed a result (review 7 H-3) |
 | F5 | ou-testrunner | no sudo rule on the host today | root helper `/usr/local/lib/ou-testrunner/nspawn-smoke` (fixes-r7) | rule would be added by the new installer | `ou-priv-testrunner`: exactly that one path |
 | F6 | ou-agent-bkplab (root, transient, unsandboxed) | whole root filesystem; reachable from lab backup runbooks | machinectl/systemd-run -M, backup spool | runs as root with no sandbox | NOT changed (it is a lab runner owned by the backup tier). Recommended: install as `ou-agent.service` (user ou-agent + generated polkit rule) as on guests, or at least add `ProtectSystem=strict ReadWritePaths=/var/lib/ou-agent-bkplab /var/lib/ou-backup NoNewPrivileges=true` after the backup owner tests it |
 | F7 | ics | key files for vault, audit, signing in one group | all three | one identity holds three keys | accepted: one process uses all three. Not separable without splitting the service. polkit: all denied |
@@ -118,7 +118,7 @@ ou-mig-src1 were not answering on the bus at inventory time.
 | `lib/ou-lab-policy`, `lib/shim` | `/usr/local/lib/ou-priv/` | argument policy (machine names `ou-[a-z0-9-]+`, `ou-base-*` protected, no `-M .host`, no second `-M`, command placed after a literal `--`, `.nspawn` file only with the fixed template, `set-property ... MemoryMax=` only, `test -d/-e /var/lib/machines/ou-*` only). The shim enforces only when `SUDO_COMMAND` names the shim, so `sudo -i`/password sudo is unrestricted for the owner |
 | `polkit/50-ou-privsep.rules` | `/etc/polkit-1/rules.d/` | `ics`, `postgres`, `www-data`, `ou-release`, `ou-imgsign`, `ou-testrunner`, `ou-agent`: always NO |
 | `sshd/60-ou-privsep.conf` | `/etc/ssh/sshd_config.d/` (optional) | `PermitRootLogin no` |
-| `systemd/<unit>.d/10-privsep.conf` | `/etc/systemd/system/<unit>.d/` | hardening drop-ins for ics, ics-callback, ics-migrate, ics-admin-fw, ou-lab-fw, ou-rb-backup@, ou-repo-resign, nginx, postgresql@ (each only when the unit exists); `ReadWritePaths` is empty for ics (it writes nothing; ProtectSystem=strict), `/var/lib/office-unbound/pkgbuild` for repo-resign |
+| `systemd/<unit>.d/10-privsep.conf` | `/etc/systemd/system/<unit>.d/` | hardening drop-ins for ics, ics-bootstrap, ics-migrate, ics-admin-fw, ou-lab-fw, ou-rb-backup@, ou-repo-resign, nginx, postgresql@ (each only when the unit exists); `ReadWritePaths` is empty for ics (it writes nothing; ProtectSystem=strict), `/var/lib/office-unbound/pkgbuild` for repo-resign |
 | `apply-privsep.sh`, `revert-privsep.sh` | run from the checkout | section 7 |
 | `tests/` | | `in-machine-test.sh` (scratch machine end-to-end), `key-separation.sh` + `keys.manifest` (also usable on the host as a periodic check) |
 
@@ -171,13 +171,13 @@ baseline before apply: NOPASSWD ALL present, key-separation FAILS (sudo section)
 2. `apply-privsep.sh` default is a dry run and leaves every file byte-identical; refuses when the operator's password is locked.
 3. `--apply`: backup dir created, three new rules validated with `visudo -cf` before moving, the four legacy files removed after `visudo -c`, `sudo -l -U administrator` lists no `NOPASSWD: ALL`, the `%sudo` password rule still listed.
 4. Lab shims reached through plain `sudo machinectl ...`; `ou-base-noble` refused; `-M .host`, second `-M`, `--host`, host paths, other units refused.
-5. Every sandboxed unit restarts and is active with its drop-in: postgresql@16-main, ics-migrate, ics, ics-callback (shipped unit, installed for the test), nginx, ics-admin-fw, ou-lab-fw (stand-in with an nft file); the console answers through nginx; ics and callback listen on loopback. `systemd-analyze security`: ics 1.2, ics-migrate 1.6, nginx 4.6, postgresql 6.9.
+5. Every sandboxed unit restarts and is active with its drop-in: postgresql@16-main, ics-migrate, ics, ics-bootstrap (shipped unit, installed for the test), nginx, ics-admin-fw, ou-lab-fw (stand-in with an nft file); the console answers through nginx; ics and callback listen on loopback. `systemd-analyze security`: ics 1.2, ics-migrate 1.6, nginx 4.6, postgresql 6.9.
 6. `ou-rb-backup@` with a stand-in helper that calls `runuser postgres`: runs with the final drop-in; the bisect showing which options break it is in F13. **ou-repo-resign.service was neither installed nor started** in the machine (its drop-in is skipped when the unit is absent, as on this host): that drop-in is untested.
 7. Idempotent second apply; `revert-privsep.sh` dry run changes nothing; `--apply` restores the original sudoers (NOPASSWD ALL back), removes shims/drop-ins, `ics.service` restarts fine.
 8. `shellcheck -x -S style` clean on `apply-privsep.sh`, `revert-privsep.sh`, `lib/shim`, `tests/*.sh`. `python -m pytest ics/tests/test_privsep_policy.py`: 36 passed (no database; ICS_TEST_ENV_FILE not used).
 
 Not tested: the real signer programs with the new sudo lines (the scratch machine has stubs; the exact subcommands were taken from the code on `fixes-r7`: `sign`, `admit`, `seed-meta`, `pubkey`, `fingerprint`, `status`, `record-test`, `promote`, and `repo.sh` call sites); `ou-repo-resign` (see 6); the production host itself (never touched).
-`repo.sh` also calls `$ATTEST attest ...` in the old integration-7 code; fixes-r7 replaces it by `run <kind> <ref>`: both are covered by the bare `ou-test-attest` path.
+Reconciled in integration-8 with `fixes-r7`: `repo.sh` calls `$ATTEST run deb-install-smoke <sha256> | $SIGN record-test` (the only attestor call sites besides the image recipe `run image-first-boot <path>`); `sign`, `admit dev`, `promote dev staging|staging stable`, `record-test` are the only signer subcommands used by `repo.sh`; `seed-meta`, `pubkey`, `fingerprint`, `status` stay for `install-signer.sh`/operator checks. The sudoers drop-in now pins the attestor arguments exactly. Checked with `visudo -cf` only; never applied.
 
 ## 7. Owner procedure
 

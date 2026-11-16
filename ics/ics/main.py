@@ -182,6 +182,16 @@ def create_app(settings: Settings | None = None, runtime: Runtime | None = None)
             import logging
             if rt.settings.role != "standby":
                 logging.getLogger("ics").exception("credential migration failed; endpoints keep using legacy secrets until it succeeds")
+        if rt.settings.lease_standalone_override and rt.settings.role == "primary":
+            try:   # review 7 H-5: running without a witness is an operator decision and is recorded
+                with rt.session() as db:
+                    audit.append(db, "controller.lease_standalone_override", actor_name="controller", resource="controller",
+                                 details={"witness_configured": bool(rt.settings.lease_witness_url)})
+                    db.commit()
+            except Exception:  # noqa: BLE001
+                pass
+        if getattr(rt, "lease", None):
+            rt.lease.start()                    # renewal thread; until the first grant no side effect is allowed
         # several uvicorn workers (ICS_WORKERS > 1): exactly one process runs the background worker (jobs, monitor, inventory, backups). Leader election
         # = a session-level advisory lock on a connection held for the process lifetime; if the leader dies, uvicorn's supervisor restarts it
         # and the new process takes the lock.
@@ -200,6 +210,8 @@ def create_app(settings: Settings | None = None, runtime: Runtime | None = None)
             lead.execute(text("SELECT pg_advisory_unlock(:k)"), {"k": WORKER_LOCK_KEY})   # session lock: a pooled connection keeps it unless released
             lead.commit()
             lead.close()
+        if getattr(rt, "lease", None):
+            rt.lease.stop()
 
     docs = rt.settings.enable_docs  # off in production: Swagger UI is CDN-hosted (M6)
     app = FastAPI(title="Office Unbound ICS", version=ver.__version__, lifespan=lifespan,
@@ -207,6 +219,8 @@ def create_app(settings: Settings | None = None, runtime: Runtime | None = None)
     app.state.rt = rt
     if rt.settings.role == "standby":
         app.add_middleware(standby.StandbyGuard)
+    else:
+        app.add_middleware(standby.FenceGuard, check=rt.assert_active)       # review 7 H-5
     app.add_middleware(SecurityHeadersAndLimits, max_body=rt.settings.max_body_bytes, relax_paths=("/docs",) if docs else ())
 
     # ---- health ----

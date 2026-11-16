@@ -3,8 +3,8 @@
 # everything that needs it goes through the fixed program /usr/local/sbin/ou-release-sign as user `ou-release` (install-signer.sh; security review 4).
 #   repo.sh publish <component>             verify the built artifacts (regular files only, dpkg-deb parsed), add to channel `dev`, admit + sign dev
 #   repo.sh retain <component> <suite>      copy the older versions of <component> from another channel's pool into dev again (rollback targets) and admit+sign
-#   repo.sh record-test <component> <suite-name> pass|fail <logfile>   have the test runner (ou-test-attest) sign a result for every .deb of the component's dev pool
-#                                           and hand the attestation to the signer (a record can no longer be typed by the caller)
+#   repo.sh record-test <component> [ignored: name pass|fail logfile]   REQUEST a test run (ou-test-attest run deb-install-smoke <sha256>) for every .deb of the
+#                                           component's dev pool: the runner installs it in a throw-away container itself and signs ITS result (review 7 H-3)
 #   repo.sh record-installed <suite> <name> pass|fail <logfile> <pkg_version>...   same for exactly the named pool .debs (used by pkgtest.sh)
 #   repo.sh promote-manifest <manifest.json>    dev->staging->stable: ONLY with a manifest signed by the ICS after a release.promote plan was approved
 #                                           (executor of that action calls this); ENFORCED by ou-release-sign (manifest signature, exact package set, evidence)
@@ -57,7 +57,8 @@ index() {
   ( cd "dists/$s" && tar --owner=0 --group=0 --numeric-owner --mtime=@0 --sort=name -c Release main ) | $SIGN sign "$s" > "$tmp/signed.tar"
   tar -x -C "$tmp" -f "$tmp/signed.tar" --no-same-owner
   for f in Release InRelease Release.gpg; do [ -f "$tmp/$f" ] && [ ! -L "$tmp/$f" ] || { echo "signer returned no $f"; exit 1; }; mv "$tmp/$f" "dists/$s/$f.new"; mv "dists/$s/$f.new" "dists/$s/$f"; done
-  cp "$BUILD/keys/ou-release-lab.pub.asc" "$REPO/ou-release-lab.pub.asc"
+  cp "$BUILD/keys/ou-release-lab.pub.asc" "$REPO/ou-release-lab.pub.asc"        # = the stable key (first-contact guests pin this one)
+  for k in dev staging stable; do [ -f "$BUILD/keys/ou-release-$k.pub.asc" ] && cp "$BUILD/keys/ou-release-$k.pub.asc" "$REPO/ou-release-$k.pub.asc"; done   # one key per channel
   echo "indexed+signed suite $s: $(grep -c '^Package:' "dists/$s/main/binary-$ARCH/Packages") binary packages, $(grep '^Valid-Until' "dists/$s/Release")"
 }
 
@@ -78,8 +79,10 @@ publish() {
 }
 
 attest_record() {  # <deb file> <name> <res> <log>
+  # review 7 H-3: the runner RUNS the install smoke itself for the admitted .deb named by its sha256 and signs what IT observed. The name/result/log
+  # arguments of the old CLI are accepted for compatibility and IGNORED: a caller can request a run, not supply an outcome.
   h=$(sha256sum < "$1" | cut -d' ' -f1)
-  $ATTEST attest "$h" "$2" "$3" "$(sha256sum < "$4" | cut -d' ' -f1)" | $SIGN record-test
+  $ATTEST run deb-install-smoke "$h" | $SIGN record-test
 }
 
 retain() {  # <component> <from-suite>: put the older versions of a component that are in another channel's pool back into dev (publish replaces dev with the
@@ -91,10 +94,9 @@ retain() {  # <component> <from-suite>: put the older versions of a component th
 }
 
 record_test() {
-  c=$1; name=$2; res=$3; log=$4
-  [ "$res" = pass ] || [ "$res" = fail ] || { echo "result must be pass|fail"; exit 2; }
+  c=$1; name=${2:-}; res=${3:-}; log=${4:-}   # name/res/log ignored (review 7 H-3): the runner decides
   for f in "$REPO/pool/dev/$c"/*.deb; do attest_record "$f" "$name" "$res" "$log"; done
-  echo "recorded $name=$res for $c"
+  echo "requested test runs for $c (results are the runner's)"
 }
 
 record_installed() {  # <suite> <name> <res> <log> <package_version>... -> only the pool .debs whose Package_Version was really installed by the test

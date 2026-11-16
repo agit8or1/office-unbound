@@ -36,7 +36,7 @@ head -c 32 /dev/urandom > /var/lib/ou-imgsign/key.pem; head -c 32 /dev/urandom |
 head -c 32 /dev/urandom > /var/lib/ou-testrunner/key; chown ou-testrunner /var/lib/ou-testrunner/key; chmod 0400 /var/lib/ou-testrunner/key
 for p in ou-release-sign ou-test-attest ou-image-sign; do printf '#!/bin/sh\necho "stub %s $*"\n' "$p" > "/usr/local/sbin/$p"; chmod 0755 "/usr/local/sbin/$p"; done
 # units that exist on the host but not on a bootstrap-only machine
-install -m 0644 "$HERE/../ics-callback.service" /etc/systemd/system/ics-callback.service
+install -m 0644 "$HERE/../ics-bootstrap.service" /etc/systemd/system/ics-bootstrap.service
 printf '[Unit]\nDescription=lab fw stand-in\n[Service]\nType=oneshot\nRemainAfterExit=yes\nExecStart=/usr/sbin/nft -f /etc/office-unbound/lab-fw-test.nft\n' > /etc/systemd/system/ou-lab-fw.service
 printf 'table inet ou_lab_test {\n chain input {\n  type filter hook input priority 10; policy accept;\n }\n}\n' > /etc/office-unbound/lab-fw-test.nft
 printf '[Unit]\nDescription=backup helper stand-in\n[Service]\nType=oneshot\nUser=root\nExecStart=/usr/local/sbin/ou-backup %%i\nRuntimeDirectory=ou-rb-backup\nUMask=0077\nNoNewPrivileges=true\nPrivateTmp=true\nProtectHome=true\n' > /etc/systemd/system/ou-rb-backup@.service
@@ -76,7 +76,7 @@ t "owner path: the password-protected group rule is still listed (interactive su
 
 echo "== every sandboxed unit still starts with its drop-in"
 t "postgresql@.service drop-in installed" test -e /etc/systemd/system/postgresql@.service.d/10-privsep.conf
-for u in postgresql@16-main.service ics-migrate.service ics.service ics-callback.service nginx.service ics-admin-fw.service ou-lab-fw.service; do
+for u in postgresql@16-main.service ics-migrate.service ics.service ics-bootstrap.service nginx.service ics-admin-fw.service ou-lab-fw.service; do
   systemctl restart "$u" >/dev/null 2>&1; sleep 3
   if systemctl is-active --quiet "$u"; then ok "$u active after restart with the drop-in"; else ko "$u active after restart with the drop-in"; systemctl status "$u" --no-pager 2>&1 | tail -8; journalctl -u "$u" -n 8 --no-pager 2>&1 | cut -c1-200; fi
 done
