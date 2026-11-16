@@ -349,7 +349,7 @@ def cmd_record():
         die("bad attestation")
     if not re.match(r"^[0-9a-f]{64}$", str(sha)) or res not in ("pass", "fail") or not re.match(r"^[a-z0-9-]{1,40}$", str(name)) or not re.match(r"^[0-9a-f]{64}$", str(logsha)):
         die("bad attestation fields")
-    if att.get("v") != 1 or not ed_verify(trusted_pub("test-runner.pub"), ATTEST_PREFIX, att, sig):
+    if att.get("v") != 1 or att.get("kind") is not None or not ed_verify(trusted_pub("test-runner.pub"), ATTEST_PREFIX, att, sig):
         die("attestation is not signed by the registered test runner")
     if sha not in ledger("dev") | ledger("staging") | ledger("stable"):
         die("attestation names a package that was never admitted")

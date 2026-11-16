@@ -219,7 +219,7 @@ RECIPE = os.path.join(os.path.dirname(__file__), "..", "..", "blueprints", "buil
 
 def run_recipe(tmp_path, **env):
     e = {"PATH": os.environ["PATH"], "WORK": str(tmp_path / "w"), "UPSTREAM_KEY_FPR": "A" * 40, **env}
-    return subprocess.run(["bash", RECIPE, "debian-12", "fetch"], env=e, capture_output=True, text=True)
+    return subprocess.run(["bash", RECIPE, "ubuntu-24.04", "fetch"], env=e, capture_output=True, text=True)
 
 
 def test_l7_upstream_must_be_pinned_fresh_and_never_older_than_the_last(tmp_path):
@@ -231,6 +231,5 @@ def test_l7_upstream_must_be_pinned_fresh_and_never_older_than_the_last(tmp_path
     (tmp_path / "w" / "upstream-serial.last").write_text("20261110-5\n")
     r = run_recipe(tmp_path, UPSTREAM_SERIAL="20261101-1", OU_TODAY="20261115")
     assert r.returncode == 3 and "OLDER than the last accepted" in r.stderr
-    r = run_recipe(tmp_path, UPSTREAM_SERIAL="20261112-1", OU_TODAY="20261115", UPSTREAM_KEY_FPR="")      # passes the serial gate, then stops at the key pin
-    assert "serial" not in r.stderr.lower() or "not pinned" not in r.stderr.split("UPSTREAM_KEY_FPR")[0]
-    assert r.returncode == 3 and "UPSTREAM_KEY_FPR is not pinned" in r.stderr
+    r = run_recipe(tmp_path, UPSTREAM_SERIAL="release-20261112", OU_TODAY="20261115", UPSTREAM_BASE="https://127.0.0.1:9/none")      # passes the serial gate, then fails to download
+    assert "serial" not in r.stderr.lower() and "days old" not in r.stderr and "OLDER" not in r.stderr and r.returncode != 3

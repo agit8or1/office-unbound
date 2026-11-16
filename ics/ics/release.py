@@ -63,6 +63,9 @@ class ReleasePromote(BaseModel):
                     raise ValueError(f"{p.file}: a .deb needs name and version")
                 if p.sha256 not in have:
                     raise ValueError(f"{p.file}: no test evidence (attestation hash) for this sha256")
+            if p.file.startswith("oci:"):      # container image: file = oci:<repo with / as ~>:<tag>, sha256 = the manifest digest (hex), evidence = the scan attestation
+                if not self.component.startswith("oci-") or len(self.packages) != 1 or len(self.evidence) != 1 or self.evidence[0].sha256 != p.sha256:
+                    raise ValueError("an OCI promotion is one image (component oci-*) with exactly one evidence entry for its digest")
         return self
 
 
@@ -84,9 +87,10 @@ def build_manifest(plan, p: ReleasePromote, approvers: list[dict], now: int | No
 
 def exec_promote(rt, db, m: ReleasePromote, plan, known) -> dict:
     from .actions import PlanIntegrityError
-    cmd = rt.settings.release_promote_cmd
+    is_oci = m.component.startswith("oci-")
+    cmd = rt.settings.release_promote_oci_cmd if is_oci else rt.settings.release_promote_cmd
     if not cmd:
-        raise PlanIntegrityError("ICS_RELEASE_PROMOTE_CMD is not configured on this ICS")
+        raise PlanIntegrityError("ICS_RELEASE_PROMOTE_OCI_CMD is not configured on this ICS" if is_oci else "ICS_RELEASE_PROMOTE_CMD is not configured on this ICS")
     rows = db.execute(text("SELECT u.id, u.username FROM plan_approvals a JOIN users u ON u.id = a.approver_id WHERE a.plan_id = :p ORDER BY a.approver_id"),
                       {"p": str(plan.id)}).all()
     approvers = [{"id": str(r.id), "username": r.username} for r in rows]
