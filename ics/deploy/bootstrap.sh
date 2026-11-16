@@ -306,7 +306,7 @@ if [ -n "$STANDBY_OF" ]; then
     log "pg_basebackup from $STANDBY_OF over TLS (verify-full against the primary CA), slot ics_standby"
     runuser -u postgres -- pg_basebackup -d "$CONNINFO" -D "$PGDATA" -X stream -S ics_standby -R -c fast >/dev/null || die "pg_basebackup failed (is the primary prepared for THIS address? nft/pg_hba/slot)"
     [ -f "$PGDATA/standby.signal" ] || die "no standby.signal after base backup"
-    printf '# Office Unbound standby (ADR-0012)\nhot_standby = on\nmax_wal_senders = 4\nmax_replication_slots = 4\n' > "$PGC/conf.d/90-ou-replication.conf"
+    printf '# Office Unbound standby (ADR-0012)\nhot_standby = on\nmax_wal_senders = 4\nmax_replication_slots = 4\n# HA proof follow-up: notice a dead primary in ~5 s, not the 60 s default (promotion waits for the receiver to stop)\nwal_receiver_timeout = 5s\nwal_receiver_status_interval = 1s\n' > "$PGC/conf.d/90-ou-replication.conf"
     changed "PostgreSQL cloned from $STANDBY_OF (physical streaming replica, hot standby)"
     systemctl start postgresql.service
   fi

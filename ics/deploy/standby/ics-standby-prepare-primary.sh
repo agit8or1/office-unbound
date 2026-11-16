@@ -53,6 +53,9 @@ wal_level = replica
 max_wal_senders = 4
 max_replication_slots = 4
 max_slot_wal_keep_size = 2GB
+# HA proof follow-up: a dead standby connection is dropped in ~5 s; wal_receiver_timeout applies once this host is demoted to a standby
+wal_sender_timeout = 5s
+wal_receiver_timeout = 5s
 EOF
 if [ -f "$PGC/conf.d/90-ou-replication.conf" ] && cmp -s "$PGC/conf.d/.90-ou-replication.new" "$PGC/conf.d/90-ou-replication.conf"; then rm -f "$PGC/conf.d/.90-ou-replication.new"
 else mv "$PGC/conf.d/.90-ou-replication.new" "$PGC/conf.d/90-ou-replication.conf"; chmod 0644 "$PGC/conf.d/90-ou-replication.conf"; changed=1; fi

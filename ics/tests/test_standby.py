@@ -111,3 +111,27 @@ def test_set_env_updates_in_place_and_keeps_mode(tmp_path):
     promote.set_env(str(p), {"ICS_ROLE": "primary", "ICS_WORKER_ENABLED": "true", "ICS_MONITOR_ENABLED": "true"})
     assert p.read_text().splitlines() == ["A=1", "ICS_ROLE=primary", "ICS_WORKER_ENABLED=true", "ICS_MONITOR_ENABLED=true"]
     assert oct(p.stat().st_mode & 0o777) == "0o640"
+
+
+def test_r1_promotion_marks_inflight_jobs_uncertain_and_never_reruns_them(rt):
+    """HA R1: jobs queued/running in the replica at promotion may already have run on the old primary; they are failed as uncertain, secrets scrubbed,
+    audited, and the worker finds nothing to claim afterwards"""
+    from ics import actions, audit, promote
+    with rt.session() as db:
+        uid = db.execute(text("INSERT INTO users (username,password_hash,totp_secret_enc,role) VALUES ('r1u','x','\\x00','admin') RETURNING id")).scalar()
+        ids = {}
+        for st in ("queued", "running", "succeeded"):
+            pid = db.execute(text("INSERT INTO plans (action,params,risk,status,requested_by,secret_enc) VALUES "
+                                  "('inventory.refresh','{}','low','approved',:u,'\\x01') RETURNING id"), {"u": uid}).scalar()
+            ids[st] = (pid, db.execute(text("INSERT INTO jobs (plan_id,action,status) VALUES (:p,'inventory.refresh',:s) RETURNING id"), {"p": pid, "s": st}).scalar())
+        db.commit()
+        got = promote.quarantine_inflight(db)
+        db.commit()
+        assert set(got) == {str(ids["queued"][1]), str(ids["running"][1])}
+        for st in ("queued", "running"):
+            j = db.execute(text("SELECT status, error FROM jobs WHERE id = :i"), {"i": ids[st][1]}).first()
+            assert j.status == "failed" and j.error["code"] == "uncertain_after_promotion" and j.error["was"] == st
+            assert db.execute(text("SELECT secret_enc FROM plans WHERE id = :i"), {"i": ids[st][0]}).scalar() is None
+        assert db.execute(text("SELECT status FROM jobs WHERE id = :i"), {"i": ids["succeeded"][1]}).scalar() == "succeeded"
+        assert audit.verify_chain(db)["ok"]
+    assert actions.claim_job(rt) is None

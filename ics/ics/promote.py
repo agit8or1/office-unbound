@@ -84,6 +84,26 @@ def announce(rt: Runtime) -> list[dict]:
     return out
 
 
+UNCERTAIN = {"code": "uncertain_after_promotion",
+             "message": "this job was queued or running in the replica when the standby was promoted: the old primary may already have executed it. "
+                        "It is never run automatically; check the target, then submit a new plan if it is still needed."}
+
+
+def quarantine_inflight(db) -> list[str]:
+    """HA R1 (docs/status/ha-partition-results.md): jobs that were queued/running in the replica at promotion may have run on the old primary inside
+    the replication gap. Provider mutations have no idempotency key, so the new primary must not re-claim them: they are failed with an explicit
+    `uncertain_after_promotion` error (operator decides), their plan secrets are scrubbed, and each gets an audit event. Same transaction as the epoch bump."""
+    from sqlalchemy import text
+    rows = db.execute(text("SELECT id, plan_id, action, status FROM jobs WHERE status IN ('queued', 'running') FOR UPDATE")).all()
+    for r in rows:
+        db.execute(text("UPDATE jobs SET status = 'failed', finished_at = now(), error = CAST(:e AS jsonb) WHERE id = :i"),
+                   {"e": audit.canon({**UNCERTAIN, "was": r.status}), "i": r.id})
+        db.execute(text("UPDATE plans SET secret_enc = NULL WHERE id = :i"), {"i": r.plan_id})
+        audit.append(db, "job.failed", actor_name="promotion", resource="job", resource_id=str(r.id),
+                     details={"action": r.action, "error": {**UNCERTAIN, "was": r.status}})
+    return [str(r.id) for r in rows]
+
+
 def promote(args) -> int:
     t0 = time.time()
     hostname = socket.gethostname()
@@ -146,14 +166,16 @@ def promote(args) -> int:
     operator = os.environ.get("SUDO_USER") or "root"
     with rt.session() as db:
         old, new = epochmod.bump_for_promotion(db, hostname, f"promoted by {operator}")
+        uncertain = quarantine_inflight(db)
         audit.append(db, "controller.promoted", actor_name=f"cli:{operator}", resource="controller", resource_id=hostname,
                      details={"old_epoch": old, "new_epoch": new, "replay_lsn": pos.lsn, "last_replayed_commit": pos.ts,
                               "last_primary_heartbeat": pos.hb, "audit_rows_at_promotion": int(pos.audit_rows),
-                              "old_primary_fenced_in_db": fenced_old, "wal_receiver_before": wal})
+                              "old_primary_fenced_in_db": fenced_old, "wal_receiver_before": wal,
+                              "jobs_marked_uncertain": uncertain})
         db.commit()
     with rt.session() as db:
         chain = audit.verify_chain(db)
-    print(f"epoch {old} -> {new}; audit chain {chain}")
+    print(f"epoch {old} -> {new}; audit chain {chain}; {len(uncertain)} in-flight job(s) marked uncertain (never re-run automatically)")
     if not chain["ok"]:
         print("AUDIT CHAIN VERIFICATION FAILED after promotion - do not start the controller; investigate", file=sys.stderr)
         return 3
