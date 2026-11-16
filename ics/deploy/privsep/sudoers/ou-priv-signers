@@ -1,0 +1,23 @@
+# Office Unbound privilege separation: the build/operator account may ASK the signer, the image signer and the test runner for exactly these
+# operations, each as its own dedicated user (never root, never ALL). Absolute paths, exact arguments. Installed by apply-privsep.sh (@OPERATOR@ is
+# replaced by the operator account, default `administrator`).
+#
+# The signer programs are the only code that touches the keys and validate everything they are given on stdin (tar streams, signed attestations, an
+# ICS-signed promotion manifest). `record-test` and `promote` are safe to expose because they verify a signature the build user cannot produce.
+Cmnd_Alias OU_RELSIGN = \
+    /usr/local/sbin/ou-release-sign sign dev, /usr/local/sbin/ou-release-sign sign staging, /usr/local/sbin/ou-release-sign sign stable, \
+    /usr/local/sbin/ou-release-sign admit dev, \
+    /usr/local/sbin/ou-release-sign seed-meta dev, /usr/local/sbin/ou-release-sign seed-meta staging, /usr/local/sbin/ou-release-sign seed-meta stable, \
+    /usr/local/sbin/ou-release-sign pubkey dev, /usr/local/sbin/ou-release-sign pubkey staging, /usr/local/sbin/ou-release-sign pubkey stable, \
+    /usr/local/sbin/ou-release-sign fingerprint dev, /usr/local/sbin/ou-release-sign fingerprint staging, /usr/local/sbin/ou-release-sign fingerprint stable, \
+    /usr/local/sbin/ou-release-sign status, /usr/local/sbin/ou-release-sign record-test, \
+    /usr/local/sbin/ou-release-sign promote dev staging, /usr/local/sbin/ou-release-sign promote staging stable
+Cmnd_Alias OU_IMGSIGN = /usr/local/sbin/ou-image-sign sign, /usr/local/sbin/ou-image-sign record-test, /usr/local/sbin/ou-image-sign pubkey
+# The test runner takes `run <kind> <ref>` (kind and ref vary per package, so no argument pattern can be written; the program accepts a sha256 or a
+# path below the image output directory and nothing else, and has no way to take a result as input). `keygen` refuses when a key exists.
+Cmnd_Alias OU_ATTEST = /usr/local/sbin/ou-test-attest
+
+Defaults!OU_RELSIGN, OU_IMGSIGN, OU_ATTEST env_reset, !setenv, !env_editor
+@OPERATOR@ ALL=(ou-release)    NOPASSWD: OU_RELSIGN
+@OPERATOR@ ALL=(ou-imgsign)    NOPASSWD: OU_IMGSIGN
+@OPERATOR@ ALL=(ou-testrunner) NOPASSWD: OU_ATTEST

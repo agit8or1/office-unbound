@@ -1,0 +1,10 @@
+# Office Unbound privilege separation: the lab workflow. NO command here can reach a host file, the signing keys, the ICS or production units.
+# Each path below is a shim that validates ALL arguments (lib/ou-lab-policy) and refuses everything else; sudo itself matches only the path.
+# Machines: ou-<name> only, ou-base-* protected, no -M .host, no host paths. See docs/status/privilege-audit.md section 4.
+Cmnd_Alias OU_LAB = /usr/local/lib/ou-priv/bin/machinectl, /usr/local/lib/ou-priv/bin/systemd-run, /usr/local/lib/ou-priv/bin/systemctl, \
+    /usr/local/lib/ou-priv/bin/tee, /usr/local/lib/ou-priv/bin/test
+Defaults!OU_LAB env_reset, !setenv, !env_editor
+# Existing lab scripts say `sudo machinectl ...`; with this secure_path for the operator they reach the shims. The password rule (%sudo) is unchanged:
+# `sudo -i` / `sudo /usr/bin/systemctl ...` give the owner unrestricted access after typing the password.
+Defaults:@OPERATOR@ secure_path="/usr/local/lib/ou-priv/bin:/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin:/snap/bin"
+@OPERATOR@ ALL=(root) NOPASSWD: OU_LAB

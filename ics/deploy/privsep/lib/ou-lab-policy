@@ -1,0 +1,156 @@
+#!/usr/bin/python3 -I
+"""ou-lab-policy: argument policy for the lab-workflow commands that the operator account may run as root WITHOUT a password.
+
+Installed once as /usr/local/lib/ou-priv/ou-lab-policy and reached through five tiny shims in /usr/local/lib/ou-priv/bin (machinectl, systemd-run,
+systemctl, tee, test). The sudoers rule names each shim by absolute path, so sudo never matches an argument pattern (no `*`): the shim validates ALL
+arguments here, then execs the real program with an argument vector it built itself. Anything not explicitly allowed is refused (exit 77).
+
+What the account gets: start/stop/clone/remove lab machines named ou-<lowercase-dash>, run commands INSIDE such a machine (root in the container; the
+containers are uid-shifted PrivateUsers=pick and hold no release/promotion/channel/vault key), set MemoryMax on a machine unit, write the fixed
+.nspawn template for a machine. What it does NOT get: any host path as a source or target, any machine called ou-base-* as a destination or target of
+a destructive action, `-M .host`/`--host`/`--user`, another `-M`, host-side shells, systemctl on any other unit.
+"""
+import os
+import re
+import sys
+
+MACH = re.compile(r"^ou-[a-z0-9]+(?:-[a-z0-9]+)*$")
+PROTECTED = re.compile(r"^ou-base-")
+REAL = {"machinectl": "/usr/bin/machinectl", "systemd-run": "/usr/bin/systemd-run", "systemctl": "/usr/bin/systemctl", "tee": "/usr/bin/tee", "test": "/usr/bin/test"}
+NSPAWN_TEMPLATES = (
+    "[Exec]\nBoot=yes\nPrivateUsers=pick\n[Network]\nZone=oulab\n",
+    "[Exec]\nBoot=yes\nPrivateUsers=pick\n\n[Network]\nZone=oulab\n",
+)
+MEM = re.compile(r"^MemoryMax=(?:[1-9][0-9]{0,5}[KMG]?|infinity)$")
+RUN_FLAGS = {"--wait", "--pipe", "-P", "--pty", "-t", "-q", "--quiet", "--collect", "--no-ask-password", "--no-block"}
+RUN_ARG_FLAGS = {"-p", "--property", "-u", "--unit", "--description", "--working-directory", "-E", "--setenv", "--uid", "--gid", "--slice", "--service-type"}
+MC_FLAGS = {"--no-pager", "--no-legend", "-q", "--quiet", "-a", "--all", "-l", "--full"}
+
+
+def refuse(msg):
+    sys.stderr.write("ou-lab-policy: refused: %s\n" % msg)
+    sys.exit(77)
+
+
+def machine(name, destructive=False):
+    if not MACH.match(name) or len(name) > 40:
+        refuse("machine name %r must match ou-[a-z0-9-]+ (max 40 chars)" % name)
+    if destructive and PROTECTED.match(name):
+        refuse("%s is a protected base image" % name)
+    return name
+
+
+def run(tool, argv):
+    os.execv(REAL[tool], [REAL[tool]] + argv)
+
+
+def p_machinectl(a):
+    flags = []
+    while a and a[0].startswith("-"):
+        if a[0] not in MC_FLAGS:
+            refuse("option %s" % a[0])
+        flags.append(a.pop(0))
+    if not a:
+        refuse("no subcommand")
+    c, rest = a[0], a[1:]
+    if c in ("list", "list-images") and not rest:
+        return run("machinectl", flags + [c])
+    if c in ("show", "status") and len(rest) == 1:
+        return run("machinectl", flags + [c, machine(rest[0])])
+    if c in ("start", "poweroff", "terminate", "remove", "reboot") and len(rest) == 1:
+        return run("machinectl", flags + [c, machine(rest[0], destructive=(c != "start"))])
+    if c == "clone" and len(rest) == 2:
+        machine(rest[0])
+        return run("machinectl", flags + [c, rest[0], machine(rest[1], destructive=True)])
+    refuse("machinectl %s with %d argument(s)" % (c, len(rest)))
+
+
+def p_run(a):
+    mach = None
+    pre = []
+    i = 0
+    while i < len(a):
+        t = a[i]
+        if t == "--":
+            i += 1
+            break
+        if not t.startswith("-"):
+            break
+        if t in ("-M", "--machine"):
+            if mach is not None or i + 1 >= len(a):
+                refuse("exactly one -M NAME")
+            mach = machine(a[i + 1], destructive=True)
+            i += 2
+        elif t.startswith("--machine="):
+            if mach is not None:
+                refuse("exactly one -M NAME")
+            mach = machine(t.split("=", 1)[1], destructive=True)
+            i += 1
+        elif t in RUN_FLAGS:
+            pre.append(t)
+            i += 1
+        elif t in RUN_ARG_FLAGS:
+            if i + 1 >= len(a):
+                refuse("option %s needs a value" % t)
+            pre += [t, a[i + 1]]
+            i += 2
+        elif t.startswith("--") and "=" in t and t.split("=", 1)[0] in RUN_ARG_FLAGS:
+            pre.append(t)
+            i += 1
+        else:
+            refuse("systemd-run option %s" % t)
+    cmd = a[i:]
+    if mach is None:
+        refuse("systemd-run without -M is not allowed (no host commands)")
+    if not cmd:
+        refuse("no command")
+    return run("systemd-run", ["-M", mach] + pre + ["--"] + cmd)
+
+
+def p_systemctl(a):
+    if len(a) >= 3 and a[0] == "set-property":
+        rest = a[1:]
+        runtime = []
+        if rest[0] == "--runtime":
+            runtime, rest = ["--runtime"], rest[1:]
+        m = re.match(r"^systemd-nspawn@(ou-[a-z0-9-]+)\.service$", rest[0]) if rest else None
+        if m and len(rest) == 2 and MEM.match(rest[1]):
+            machine(m.group(1), destructive=True)
+            return run("systemctl", ["set-property"] + runtime + rest)
+    refuse("only `systemctl set-property [--runtime] systemd-nspawn@ou-NAME.service MemoryMax=N` is allowed")
+
+
+def p_tee(a):
+    m = re.match(r"^/etc/systemd/nspawn/(ou-[a-z0-9-]+)\.nspawn$", a[0]) if len(a) == 1 else None
+    if not m:
+        refuse("tee is allowed for /etc/systemd/nspawn/ou-NAME.nspawn only")
+    machine(m.group(1), destructive=True)
+    data = sys.stdin.buffer.read(4096).decode("utf-8", "replace")
+    if data not in NSPAWN_TEMPLATES:
+        refuse("the .nspawn content must be the fixed template (Boot=yes, PrivateUsers=pick, Zone=oulab; no Bind=, no capabilities)")
+    fd = os.open(a[0], os.O_WRONLY | os.O_CREAT | os.O_TRUNC | os.O_NOFOLLOW, 0o644)
+    os.write(fd, data.encode())
+    os.close(fd)
+    sys.stdout.write(data)
+    sys.exit(0)
+
+
+def p_test(a):
+    if len(a) == 2 and a[0] in ("-d", "-e"):
+        m = re.match(r"^/var/lib/machines/(ou-[a-z0-9-]+)$", a[1])
+        if m:
+            machine(m.group(1))
+            return run("test", a)
+    refuse("test -d|-e /var/lib/machines/ou-NAME only")
+
+
+def main():
+    tool = os.path.basename(sys.argv[1])
+    fn = {"machinectl": p_machinectl, "systemd-run": p_run, "systemctl": p_systemctl, "tee": p_tee, "test": p_test}.get(tool)
+    if fn is None:
+        refuse("unknown tool %s" % tool)
+    fn(sys.argv[2:])
+
+
+if __name__ == "__main__":
+    main()

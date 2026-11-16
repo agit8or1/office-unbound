@@ -1,0 +1,5 @@
+# The pipeline test runner (system user ou-testrunner, programs in /usr/local/lib/ou-testrunner, root-owned) may run exactly ONE root helper: the
+# smoke test that installs a copied .deb in a throw-away overlay container without network. The helper validates its own path argument.
+Cmnd_Alias OU_SMOKE = /usr/local/lib/ou-testrunner/nspawn-smoke
+Defaults!OU_SMOKE env_reset, !setenv
+ou-testrunner ALL=(root) NOPASSWD: OU_SMOKE
