@@ -163,12 +163,13 @@ def _send_email(cfg: dict, secret: str | None, msg: Message, allow_loopback: boo
 
 
 def _send_webhook(cfg: dict, secret: str | None, msg: Message, allow_loopback: bool) -> None:
+    from . import egress
     c = WebhookConfig.model_validate(cfg)
     check_destination(c.host, allow_loopback)
     body = json.dumps(msg.payload, sort_keys=True, separators=(",", ":")).encode()
     ts = str(int(time.time()))
     try:
-        with httpx.Client(verify=c.ctx(), timeout=httpx.Timeout(c.timeout_seconds), follow_redirects=False, trust_env=False) as h:
+        with httpx.Client(verify=c.ctx(), timeout=httpx.Timeout(c.timeout_seconds), follow_redirects=False, trust_env=False, event_hooks=egress.hooks()) as h:
             r = h.post(c.url, content=body, headers={"Content-Type": "application/json", "X-OU-Timestamp": ts,
                                                       "X-OU-Signature": sign_webhook(secret or "", ts, body), "X-OU-Event": msg.event})
     except Exception as e:  # noqa: BLE001

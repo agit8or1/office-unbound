@@ -9,3 +9,19 @@ guard = None
 def require() -> None:
     if guard is not None:
         guard()
+
+
+identity = None       # Runtime installs a callable returning the headers that name this controller + its epoch (evidence at the far end)
+
+
+def _request_hook(request) -> None:
+    """httpx `request` event hook for every provider/notification client: ask the guard first (nothing is sent from a fenced/standby controller) and tell
+    the far end WHICH controller at WHICH epoch is calling (X-OU-Controller / X-OU-Epoch: an external recorder can then prove who acted)."""
+    require()
+    if identity is not None:
+        for k, v in identity().items():
+            request.headers[k] = v
+
+
+def hooks() -> dict:
+    return {"request": [_request_hook]}
