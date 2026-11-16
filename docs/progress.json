@@ -184,8 +184,10 @@
           "id": "P1.11",
           "title": "Real Outlook, Thunderbird and mobile client compatibility matrix",
           "status": "implementing",
-          "evidence": [],
-          "note": "Thunderbird 24/25 and Evolution calendar/contacts tested in lab (branch integration-7, pending merge); groupware fixes from these tests in progress; Outlook/mobile need owner devices"
+          "evidence": [
+            "docs/status/client-compat-results.md"
+          ],
+          "note": "Thunderbird 24/25 and Evolution calendar/contacts tested in lab (client-compat-results.md); groupware fixes from these tests in progress; Outlook/mobile need owner devices"
         },
         {
           "id": "P1.12",
@@ -221,11 +223,13 @@
         {
           "id": "P1.15",
           "title": "ICS warm standby with fenced failover (epoch + lease/witness)",
-          "status": "implementing",
+          "status": "integrated_lab",
           "evidence": [
-            "docs/runbooks/ics-recovery.md"
+            "docs/runbooks/ics-recovery.md",
+            "docs/adr/0012-ics-warm-standby.md",
+            "docs/status/ics-standby-results.md"
           ],
-          "note": "Streaming standby, promotion in 3.1 s in lab; lease-based self-fencing and two-controller partition test in progress (branches integration-7, fixes-r7, ha-proof; pending merge)"
+          "note": "Streaming standby, operator-triggered fenced promotion with controller epoch (3.1 s in lab) and old-agent fallback; lease-based self-fencing, witness mode and a two-controller partition test are not done (branches fixes-r7, ha-proof; pending merge)"
         }
       ]
     },
@@ -360,9 +364,10 @@
           "title": "Two isolated customer stacks with cross-customer access-denial tests",
           "status": "integrated_lab",
           "evidence": [
-            "docs/status/tenant-isolation-results.md"
+            "docs/status/tenant-isolation-results.md",
+            "docs/status/backup-isolation-results.md"
           ],
-          "note": "Two independent lab customers: 153/155 isolation checks on main; with per-customer encrypted backups 209 pass / 0 fail on branch integration-7 (pending merge); network isolation pending SDN (P2.10)"
+          "note": "Two independent lab customers: 153/155 isolation checks, and with per-customer encrypted backups 209 pass / 0 fail (backup-isolation-results.md); network isolation pending SDN (P2.10)"
         },
         {
           "id": "P4.2",
@@ -389,8 +394,11 @@
           "id": "P5.1",
           "title": "Patch rings, controlled upgrades and rollback",
           "status": "implementing",
-          "evidence": [],
-          "note": "Signed pinned-package upgrade + rollback drills: groupware (A21) and document engine (ou1<->ou2, ~30 s downtime, data intact; branch docs-rollout)"
+          "evidence": [
+            "docs/status/docs-upgrade-drill-results.md",
+            "docs/status/upgrade-drill-results.md"
+          ],
+          "note": "Signed pinned-package upgrade + rollback drills: groupware (A21) and document engine (ou1<->ou2, ~30 s downtime, data intact)"
         },
         {
           "id": "P5.2",
@@ -480,7 +488,7 @@
     },
     {
       "id": "P9",
-      "name": "Full PDF Reader, Editor and Document Management (DEFERRED \u2014 final development priority)",
+      "name": "Full PDF Reader, Editor and Document Management (DEFERRED — final development priority)",
       "status": "deferred",
       "items": [
         {
@@ -712,7 +720,9 @@
       "title": "Administrator documentation describes real procedures",
       "status": "implementing",
       "evidence": [
-        "docs/runbooks/"
+        "docs/runbooks/",
+        "docs/admin/",
+        "docs/status/a24-docs-review.md"
       ]
     }
   ],
