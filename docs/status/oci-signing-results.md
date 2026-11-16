@@ -74,7 +74,7 @@ Release set (`jitsi-meet 2.0.11248-1` closure): jicofo `1.0-1205-1`, jitsi-video
 
 `blueprints/build/oci/pull-test.sh` (policy `default: reject`, `sigstoreSigned` with the dev public key + `matchRepository`, `use-sigstore-attachments: true`):
 
-* all 13 images: `skopeo copy` under the policy PASS; `podman pull` under `/etc/containers/policy.json` PASS (results in section 8 below);
+* all 13 images: `skopeo copy` under the policy PASS (13/13) and `podman pull` under `/etc/containers/policy.json` PASS (13/13); log `evidence/pull-test-ou-img2.log`, 29 PASS and 0 FAIL in total;
 * the same image checked with the **staging** key: refused (`invalid signature when validating ASN.1 encoded signature`);
 * an image pushed into the repository **without signatures** (the other repository's image, `--remove-signatures`): refused by `skopeo` and by `podman pull` (`A signature was required, but no signature exists`).
 
@@ -84,7 +84,7 @@ The runner records 110-281 OSV advisory ids per image and a maximum CVSS of 9.8 
 
 ## 8. Test gates
 
-See the end of this document (filled in after the runs).
+`cd ics && ICS_TEST_ENV_FILE=/etc/office-unbound/ics-test-j.env .venv/bin/pytest -q -p no:cacheprovider` on the final tree (after the last merge of `fixes-r7`, 2026-11-16): **974 passed, 0 failed** (23 min 25 s; log `~/.cache/ou-ics-inst-bi/pytest-full2.log`). An earlier full run on a tree that had merged an older `fixes-r7` showed 13 failures (backup isolation, maintenance windows, M6); they were the integration state of that older `fixes-r7` (the same tests pass on the current branch tip), not changes of this work. Targeted suites added/changed here: `test_oci_signer.py` 12, `test_golden_image.py` 18, `test_release_promote.py` (OCI case), `test_deploy_plan/exec/collab.py` (real catalog pinned and signed; the blocking gates still bite on a modified catalog), `test_migration_chain.py` (single head `0009c`).
 
 ## 9. Open items / honest limits
 
@@ -94,4 +94,6 @@ See the end of this document (filled in after the runs).
 4. The previous `ou-image-sign` record for the golden image (typed, v1) is gone in effect: it carries no attestation and `sign` refuses it; the new real run replaced it.
 5. The builds are not bit-reproducible (apt layers, build time in the image config).
 6. Keycloak 26.8.2: Maven Central (sha256 + sha1) and the GitHub release (sha1) agree, but upstream publishes only sha1 on GitHub; no PGP verification of the Keycloak tarball was done (Maven Central `.asc` exists: follow-up). OpenCloud: release `.sha256` and GitHub's asset digest agree.
-7. `pull-test.sh` uses vfs storage and removes it after every pull (a 1.5 GB machine is OOM-killed otherwise).
+7. `pull-test.sh` keeps its vfs storage on disk (`/var/tmp`; `/tmp` is a tmpfs inside the machine and counts against the 1.5 GB) and removes it after every pull; the first runs were OOM-killed for that reason, not because of a signature problem.
+8. Another agent powered `ou-build1` off while the first pull/Jitsi runs were in progress; both were re-run from the start and the logs in `evidence/` are the complete re-runs.
+9. `ou-test-attest` on the host is now the branch version (superset of fixes-r7 plus kind `oci-scan`); the release signer `ou-release-sign` installed on the host is fixes-r7's (rolled out by its own installer, not by me).
