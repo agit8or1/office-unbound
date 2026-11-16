@@ -466,9 +466,21 @@ def endpoint_binding(base_url: str, token_id: str, fingerprint: str | None, ca_p
     return hashlib.sha256(json.dumps([base_url, token_id, fingerprint or "", hashlib.sha256((ca_pem or "").encode()).hexdigest()]).encode()).hexdigest()
 
 
+def single_admin(rt: Runtime) -> bool:
+    """ADR-0017: ICS_APPROVAL_MODE=single_admin (an install with one administrator)."""
+    return getattr(rt.settings, "approval_mode", "two_person") == "single_admin"
+
+
+def may_self_approve(rt: Runtime, role: str | None) -> bool:
+    """Only an admin may approve their own plan, and only in single-admin mode. Every other role always needs someone else."""
+    return single_admin(rt) and role == "admin"
+
+
 def needed_approvals(rt: Runtime, plan) -> int:
     """Distinct ICS approvers required: risk tier + the customer policy's extra approvals for sensitive operations."""
     tier = getattr(plan, "tenant_required", None)  # tenant-admin plans: the customer's own authority supplies the tier approval (tenant_admin.service)
+    if tier is None and single_admin(rt):
+        return 1                                    # single-admin: one approval, whatever the tier or the customer's extra approvals
     if tier is None:
         tier = rt.settings.required_approvals_high if plan.risk == "high" else 1
     return tier + (getattr(plan, "extra_approvals", 0) or 0)
@@ -859,7 +871,8 @@ def create_plan(db: Session, rt: Runtime, user, action: ActionType, params: dict
     else:
         db.flush()
     return {"plan_id": str(pid), "status": "approved" if auto else "pending_approval", "risk": risk, "job_id": job_id,
-            "params_hash": digest, "approvals_required": (rt.settings.required_approvals_high if risk == "high" else 1) + decision.extra_approvals, **extra}
+            "params_hash": digest, "approvals_required": 1 if single_admin(rt) else (rt.settings.required_approvals_high if risk == "high" else 1) + decision.extra_approvals,
+            "self_approval": may_self_approve(rt, getattr(user, "role", None)), **extra}
 
 
 _RISK_ORDER = {"low": 0, "normal": 1, "high": 2}
@@ -962,12 +975,13 @@ def decide_plan(db: Session, rt: Runtime, user, plan_id: UUID, approve: bool, ip
     # review 5 M4: the approver must be in scope of the plan's customer (a customer-less plan is MSP-wide: scoped operators may not decide it)
     if (plan.customer_id is not None and not tscope.allowed(user, plan.customer_id)) or (plan.customer_id is None and getattr(user, "customer_ids", None) is not None):
         raise PlanError(404, "plan not found")
-    if plan.requested_by == user.id:
+    own = plan.requested_by == user.id
+    if own and not may_self_approve(rt, getattr(user, "role", None)):
         _refuse(db, user, ip, plan_id, "plan.self_decision_rejected", "requester cannot approve or reject their own plan")
-    if _provenance_conflict(db, user.id, plan.requested_by):
+    if not own and _provenance_conflict(db, user.id, plan.requested_by):
         _refuse(db, user, ip, plan_id, "plan.provenance_rejected",
                 "this approver was created or elevated by the requester and cannot decide the requester's plans")
-    if _key_holder_conflict(db, user.id, plan.requested_by):
+    if not own and _key_holder_conflict(db, user.id, plan.requested_by):
         _refuse(db, user, ip, plan_id, "plan.provenance_rejected",
                 "this plan was submitted through an API client whose key you requested, revealed or created; someone else must decide it")
     if plan.action in _SELF_TARGET and plan.params.get("username") == user.username:
@@ -1001,7 +1015,8 @@ def decide_plan(db: Session, rt: Runtime, user, plan_id: UUID, approve: bool, ip
     n = db.execute(text("SELECT count(*) FROM plan_approvals WHERE plan_id = :p"), {"p": str(plan_id)}).scalar()
     need = needed_approvals(rt, plan)
     audit.append(db, "plan.approve", actor_id=user.id, actor_name=user.username, ip=ip, resource="plan", resource_id=str(plan_id),
-                 details={"action": plan.action, "params_hash": plan.params_hash, "approvals": n, "required": need})
+                 details={"action": plan.action, "params_hash": plan.params_hash, "approvals": n, "required": need,
+                          **({"self_approval": True, "approval_mode": "single_admin"} if own else {})})
     job_id = None
     status = "pending_approval"
     waiting = None
@@ -1106,7 +1121,7 @@ def _verify_approval(rt: Runtime, db: Session, plan) -> None:
         raise PlanIntegrityError("plan parameters or endpoint trust anchors changed after approval; refusing to execute")
     if len({a.approver_id for a in appr}) < need:
         raise PlanIntegrityError("insufficient approvals recorded; refusing to execute")
-    if plan.risk == "high" and any(a.approver_id == plan.requested_by for a in appr):
+    if plan.risk == "high" and not single_admin(rt) and any(a.approver_id == plan.requested_by for a in appr):
         raise PlanIntegrityError("requester appears among approvers; refusing to execute")
 
 

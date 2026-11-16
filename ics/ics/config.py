@@ -52,6 +52,8 @@ class Settings:
     login_ip_max_failures: int = 100     # coarse per-IP spray limit (all usernames)
     heartbeat_max_age_seconds: int = 30
     required_approvals_high: int = 2
+    approval_mode: str = "two_person"            # ICS_APPROVAL_MODE: "two_person" (default) | "single_admin" (ADR-0017: an only-admin install; an admin
+                                                 # approves their own plans, every plan needs exactly one approval; still plan -> explicit approval -> job, audited)
     plan_expiry_seconds: int = 7 * 24 * 3600
     enrollment_ttl_seconds: int = 24 * 3600
     max_body_bytes: int = 256 * 1024
@@ -126,7 +128,11 @@ class Settings:
     trusted_proxy: str | None = None             # exact IP of a local reverse proxy whose X-Forwarded-For is honoured (e.g. 127.0.0.1); None = ignore XFF
 
     def __post_init__(self):
-        _check_lab_only(self)   # lab-only features are refused in production no matter how the Settings object was built
+        _check_lab_only(self)
+        if self.approval_mode not in ("two_person", "single_admin"):
+            raise RuntimeError("ICS_APPROVAL_MODE must be 'two_person' or 'single_admin'")
+        if self.approval_mode == "single_admin":
+            object.__setattr__(self, "required_approvals_high", 1)   # lab-only features are refused in production no matter how the Settings object was built
 
 
 def _check_lab_only(s: "Settings") -> None:
@@ -217,6 +223,7 @@ def load_settings() -> Settings:
             guest_callback_pin_sha256=env.get("ICS_GUEST_CALLBACK_PIN_SHA256") or None,
             guest_bootstrap_ttl_seconds=int(env.get("ICS_GUEST_BOOTSTRAP_TTL_SECONDS", 1800)),
             backup_scheduler_enabled=b("ICS_BACKUP_SCHEDULER_ENABLED", True),
+            approval_mode=env.get("ICS_APPROVAL_MODE", "two_person").strip().lower(),
         )
         return s
     except KeyError as e:  # pragma: no cover

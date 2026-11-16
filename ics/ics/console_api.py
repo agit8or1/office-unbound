@@ -147,7 +147,9 @@ def register(app: FastAPI, rt, API: str) -> None:
     @app.get(f"{API}/approvals/policy")
     def approval_policy(user: User = Depends(require("viewer"))):
         """How many distinct approvers a plan needs per risk level (the console shows this; it never computes it)."""
-        return {"normal": 1, "high": rt.settings.required_approvals_high}
+        from .actions import may_self_approve, single_admin
+        return {"normal": 1, "high": rt.settings.required_approvals_high, "mode": rt.settings.approval_mode,
+                "self_approval": may_self_approve(rt, user.role), **({"note": "single-admin mode: an admin approves their own plans"} if single_admin(rt) else {})}
 
     @app.get(f"{API}/deployments/{{slug}}/bootstrap")
     def bootstrap(slug: str, user: User = Depends(require("viewer")), db: Session = Depends(get_db)):

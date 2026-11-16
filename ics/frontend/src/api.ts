@@ -86,7 +86,7 @@ export interface Plan {
   status: 'pending_approval' | 'approved' | 'rejected'; requested_by: string
   decided_by: string | null; decided_at: string | null; created_at: string
   params_hash?: string; requested_by_username?: string; decided_by_username?: string | null
-  approval_count?: number; approvers?: string[]; approvals_required?: number
+  approval_count?: number; approvers?: string[]; approvals_required?: number; self_approval?: boolean
 }
 export interface Job {
   id: string; plan_id: string; action: string; status: 'queued' | 'running' | 'succeeded' | 'failed'
@@ -95,7 +95,7 @@ export interface Job {
 }
 export interface PlanCreated {
   plan_id: string; status: string; risk: string; job_id: string | null
-  params_hash: string; approvals_required: number; resolved_ips?: string[]
+  params_hash: string; approvals_required: number; resolved_ips?: string[]; self_approval?: boolean
 }
 export interface AuditEvent {
   seq: number; id: string; at: string; action: string; actor_name: string | null; ip: string | null
@@ -186,4 +186,4 @@ export interface BootstrapVm {
 }
 export interface BootstrapOut { deployment: string; vms: BootstrapVm[] }
 
-export interface ApprovalPolicy { normal: number; high: number }
+export interface ApprovalPolicy { normal: number; high: number; mode?: 'two_person' | 'single_admin'; self_approval?: boolean }

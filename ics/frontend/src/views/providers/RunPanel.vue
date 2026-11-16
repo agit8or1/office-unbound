@@ -20,7 +20,12 @@ const at = computed(() => ({ awaiting_approval: 0, queued: 1, running: 2, succee
       <div class="pv-bar" role="progressbar" :aria-valuenow="v.progress" aria-valuemin="0" aria-valuemax="100" :data-failed="v.phase === 'failed' || v.phase === 'rejected'"><i :ref="(el) => { if (el) (el as HTMLElement).style.width = props.run.view.value!.progress + '%' }"></i></div>
       <p class="pv-phase"><b>{{ v.text }}</b> <span class="muted">{{ props.what }}</span></p>
       <p v-if="!v.done" class="muted small">{{ v.detail }}</p>
-      <p v-if="v.phase === 'awaiting_approval'" class="small">
+      <div v-if="v.phase === 'awaiting_approval' && run.created.value?.self_approval" class="pv-self">
+        <p class="small">Review the change above, then approve it. Office Unbound runs it only after your approval (single-admin mode). Plan <span class="mono">{{ run.created.value?.plan_id.slice(0, 8) }}</span> is also listed under <a href="#/plans">Approvals</a>.</p>
+        <button type="button" class="wz-btn primary" @click="run.approve()">Approve and run</button>
+        <Banner v-if="run.error.value" kind="bad" title="Not approved">{{ run.error.value }}</Banner>
+      </div>
+      <p v-else-if="v.phase === 'awaiting_approval'" class="small">
         This change is high impact, so it needs sign-off. <a href="#/plans">Open Approvals</a> to review plan <span class="mono">{{ run.created.value?.plan_id.slice(0, 8) }}</span>. {{ submittedApprovalText(run.created.value) }} This page updates by itself.
       </p>
       <Banner v-if="run.created.value?.customer_approval_id" kind="info" title="Customer approval required">The customer who owns this cluster must also approve before anything runs.</Banner>

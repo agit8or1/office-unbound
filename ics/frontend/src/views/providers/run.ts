@@ -1,5 +1,6 @@
 // One submitted plan, from POST /plans to a finished job. Components render `view` and `job`; secrets are in the request body only.
 import { computed, onBeforeUnmount, ref } from 'vue'
+import { post } from '../../api'
 import type { PlanCreated } from '../../api'
 import { api, msg, watchRun } from './api'
 import { errorText, runView, type JobRow, type PlanRow, type RunView } from './model'
@@ -25,6 +26,12 @@ export function useRun() {
     if (j?.status === 'failed') error.value = errorText(j.error)
     return j
   }
-  return { busy, created, plan, job, error, view, start, reset }
+  /** Single-admin mode: the requester (an admin) approves their own plan; the server re-checks everything. */
+  async function approve(): Promise<void> {
+    if (!created.value) return
+    error.value = ''
+    try { await post(`plans/${created.value.plan_id}/approve`) } catch (e) { error.value = msg(e) }
+  }
+  return { busy, created, plan, job, error, view, start, reset, approve }
 }
 export type Run = ReturnType<typeof useRun>

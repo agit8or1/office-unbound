@@ -44,7 +44,7 @@ async function decide(kind: 'approve' | 'reject') {
 </script>
 <template>
   <div class="page">
-    <PageHeader title="Approvals" sub="Proposed changes waiting for review. High-risk plans need two distinct approvers." help="Every change is a plan first. Approvers review the parameters and decide; approved plans become jobs.">
+    <PageHeader title="Approvals" :sub="(plans.data.value ?? []).some((p) => p.self_approval) ? 'Proposed changes waiting for review. Single-admin mode: you approve your own plans.' : 'Proposed changes waiting for review. High-risk plans need two distinct approvers.'" help="Every change is a plan first. Approvers review the parameters and decide; approved plans become jobs.">
       <template #actions><Segmented v-model="filter" :options="[{ value: 'pending', label: 'Pending' }, { value: 'all', label: 'All plans' }]" label="Filter" /></template>
     </PageHeader>
     <Skeleton v-if="!plans.data.value && !plans.error.value" />
@@ -96,6 +96,7 @@ async function decide(kind: 'approve' | 'reject') {
             <button type="button" class="ghost sm" @click="ok = ''">Dismiss</button></div>
           <template v-if="sel.status === 'pending_approval'">
             <div v-if="!hasRole('approver')" class="alert info">Only approvers can decide plans.</div>
+            <div v-else-if="mine && sel.self_approval" class="alert info">You requested this plan. Single-admin mode: you approve or reject it yourself.</div>
             <div v-else-if="mine" class="alert warn">You requested this plan; the server will refuse your approval or rejection.</div>
             <ErrorBox :error="err" />
             <div v-if="hasRole('approver')" class="row">

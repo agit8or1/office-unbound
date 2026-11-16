@@ -82,4 +82,4 @@ def test_system_controller_block(mk_user, login):
 
 
 def test_approval_policy(mk_user, login):
-    assert login(mk_user("vw3", "viewer"))[0].get(f"{H}/approvals/policy").json() == {"normal": 1, "high": 2}
+    assert login(mk_user("vw3", "viewer"))[0].get(f"{H}/approvals/policy").json() == {"normal": 1, "high": 2, "mode": "two_person", "self_approval": False}

@@ -80,7 +80,7 @@ def precheck(db, rt, p: ReleasePromote) -> dict:
 def build_manifest(plan, p: ReleasePromote, approvers: list[dict], now: int | None = None) -> dict:
     now = int(time.time()) if now is None else now
     return {"v": 1, "plan_id": str(plan.id), "from": p.from_channel, "to": p.to_channel, "component": p.component,
-            "requested_by_id": str(plan.requested_by), "approvers": approvers, "approvals_required": 2 if p.to_channel == "stable" else 1,
+            "requested_by_id": str(plan.requested_by), "approvers": approvers, "approvals_required": 2 if p.to_channel == "stable" and len(approvers) > 1 else 1,
             "packages": [{"file": x.file, "sha256": x.sha256, "name": x.name, "version": x.version} for x in p.packages],
             "evidence": [e.model_dump() for e in p.evidence], "nonce": secrets.token_urlsafe(24), "issued_at": now, "expires_at": now + MANIFEST_TTL}
 
@@ -95,8 +95,10 @@ def exec_promote(rt, db, m: ReleasePromote, plan, known) -> dict:
     rows = db.execute(text("SELECT u.id, u.username FROM plan_approvals a JOIN users u ON u.id = a.approver_id WHERE a.plan_id = :p ORDER BY a.approver_id"),
                       {"p": str(plan.id)}).all()
     approvers = [{"id": str(r.id), "username": r.username} for r in rows]
-    need = 2 if m.to_channel == "stable" else 1
-    if len({a["id"] for a in approvers}) < need or str(plan.requested_by) in {a["id"] for a in approvers}:
+    from .actions import single_admin
+    solo = single_admin(rt)
+    need = 2 if m.to_channel == "stable" and not solo else 1
+    if len({a["id"] for a in approvers}) < need or (not solo and str(plan.requested_by) in {a["id"] for a in approvers}):
         raise PlanIntegrityError("not enough independent approvers for this channel; refusing to build a manifest")
     man = build_manifest(plan, m, approvers)
     # review 7 L-4: a dedicated promotion key (not part of the standby key bundle, never used for agent requests) when configured

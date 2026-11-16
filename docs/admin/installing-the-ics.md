@@ -58,6 +58,8 @@ certificate that guests pin, firewall restricted to the guest networks). `instal
 Roles: `viewer < operator < approver < admin`. Operators and admins create plans; approvers decide them. **High-risk plans need two different approvers and the requester can never be one of them**,
 so a working installation needs at least three people: one requester and two approvers. Registering a Proxmox endpoint is high risk, so you need these before [Connecting Proxmox](connecting-proxmox.md).
 
+**Only one administrator?** Set `ICS_APPROVAL_MODE=single_admin` in `/etc/office-unbound/ics.env` and restart `ics`. An *admin* then reviews and approves their own plans, and every plan needs one approval. Nothing else changes: every change is still a plan bound to a hash, needs an explicit approval, runs as a job and is recorded in the audit log. Approver and operator accounts still need someone else. Remove the setting (default `two_person`) when a second approver joins. See [ADR-0017](../adr/0017-single-admin-approval-mode.md).
+
 On the ICS host, for each person (prints a one-time token, valid 24 h, single use, stored hashed; hand it over out of band):
 ```
 cd /opt/office-unbound/ics && sudo -u ics .venv/bin/python -m ics.cli create-admin --username bob --role approver

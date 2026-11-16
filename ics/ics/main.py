@@ -15,7 +15,7 @@ from sqlalchemy import text
 from sqlalchemy.orm import Session
 
 from . import audit, auth, epoch as epochmod, identity, standby
-from .actions import CATALOG, ActionType, PlanError, create_plan, decide_plan
+from .actions import CATALOG, ActionType, PlanError, create_plan, decide_plan, may_self_approve
 from .auth import ROLES, User, client_ip, cookie_name, get_db, require
 from .backups import ops as backup_ops
 from .blueprint import preview
@@ -380,6 +380,7 @@ def create_app(settings: Settings | None = None, runtime: Runtime | None = None)
         for r in rows:
             d = _row(r)
             d["approvals_required"] = rt.settings.required_approvals_high if r.risk == "high" else 1
+            d["self_approval"] = may_self_approve(rt, user.role) and str(r.requested_by) == str(user.id)
             out.append(d)
         return out
 
