@@ -1,0 +1,103 @@
+# Full-stack readiness: two customers on pve06 (agent BY, 2026-11-16)
+
+Status vocabulary: ADR-0000. This is a **plan and gap list**, not a deployment. Nothing was changed on Proxmox. Read-only GET calls to pve06 (inventory token, pinned leaf SHA-256 `AD:51:9B:27:...:B1:CA`, confirmed by the owner earlier) were made for section 2 and are the only contact.
+Sources: catalog on branch `oci-signing` (a superset of `collab-images`, `docs-ou2` already on `integration-7`), `tenant-msp` (MSP API, mailbox admin), the status documents named per row.
+
+## 1. Bill of materials (profile `small`, every service of the owner directive)
+
+REAL = pinned + signed (or distro-signed package from a signed repo) + lab-tested. "Lab-signed" = signed with a builder-resident lab key, not the production key. Owner of a fix = branch/agent that holds the work; "owner" = Proxmox/infrastructure owner.
+
+| # | Directive item | Component / VM | Artifact (catalog) | State | Blocker | Who |
+|---|---|---|---|---|---|---|
+| 1 | Identity: directory | OpenLDAP (`id`) | pkg `slapd` 2.6.10, ubuntu-noble | REAL (distro-signed, lab T01 36/0) | none | - |
+| 2 | Identity: SSO/MFA | Keycloak 26.8.2 (`id`) | OCI `registry.ou.invalid/ou/keycloak` digest **`sha256:` (placeholder)** | **PLACEHOLDER**: not built/pinned/signed; plan error `artifact_unpinned` | build from source (Maven Central now authorized), push to a real registry, sign with `ou-oci-sign` | oci-signing / build agents |
+| 3 | Identity DB | PostgreSQL 16.15 (`id`, `chat`) | pkg `postgresql-16`, ubuntu-noble | REAL (distro) | none | - |
+| 4 | Edge / TLS | nginx 1.24.0 (`id`) | pkg, ubuntu-noble | REAL (distro); ACME/cert flow is lab-only | public DNS + ACME or owner CA decision | owner |
+| 5 | Mail + groupware protocols (SMTP/IMAP/MAPI/EWS/ActiveSync/Autodiscover) | Gromox 3.13 (`ou-gromox 2.40-ou1`), MariaDB 10.11.13, Postfix 3.8.6 (`groupware`) | pkgs `ob-apt-stable` + noble | REAL for packages (signed repo, SBOM, licence scan, 57 lab checks); repo is the lab repo on the ICS host | production repo host + production release key (see 17); real Outlook/mobile clients untested | build agent / owner |
+| 6 | Webmail + calendar/contacts | grommunio-web/sync/dav (`ou-groupware-web 1.0-ou1`) | pkg `ob-apt-stable` | REAL (lab: CalDAV/CardDAV 12/12, webmail SSO) | as 5; SSO key follower has no ICS action/health check | groupware / ICS agents |
+| 7 | Files + desktop sync | OpenCloud 9.1.0 (`files`) | OCI `docker.io/opencloudeu/opencloud-rolling` digest **`sha256:` (placeholder)** | **PLACEHOLDER** (vendor image, never pinned; registry docker.io is NOT an authorized endpoint) | build from source (Go, needs a source endpoint) or owner authorizes vendor image copy + our own signature | oci-signing agent + owner decision |
+| 8 | Online editing | Collabora "Office Unbound Docs" 26.04.6-ou2 (`files`) | OCI `registry.ou.invalid/ou/office` `sha256:38e885c4...ddb` | **LAB-SIGNED**: digest pinned, signed with the lab key d5227d3d...; registry host `.invalid`; not production-signed | re-sign with the production OCI key, publish to a real registry; engine strings still partly upstream-branded; no co-edit/XLSX/PPTX tests | docs-ou2 / oci-signing |
+| 9 | Chat | Synapse 1.165.0 (`chat`) | OCI digest `sha256:542de3d4...0a9d`, `signed: false` | pinned, **UNSIGNED**; plan error `artifact_unsigned`; no real Synapse start with DB in image | sign via `ou-oci-sign` (now merged on `oci-signing`) and positive pull test | oci-signing |
+| 10 | Chat client | Element Web 1.12.35 | OCI `sha256:3466abb4...ba73`, `signed: false` | pinned, **UNSIGNED**; PGP key authenticity single-sourced | sign; cross-check Element release key | oci-signing |
+| 11 | Chat sign-in | Matrix Authentication Service 1.29.0 | OCI digest **`sha256:` (placeholder)** | **PLACEHOLDER**: Rust build; crates.io authorized only on 2026-11-16 | build via `blueprints/build/oci/mas/` (exists on `oci-signing`), pin, sign | oci-signing |
+| 12 | Meetings | Jitsi web 1.0.9442, Prosody 0.12.4, Jicofo 1.0.1205, JVB 2.3.318 | 4x OCI digest **`sha256:` (placeholder)** | **PLACEHOLDER**: lab ran Jitsi debs only; download.jitsi.org + Maven now authorized, no build exists | write recipes, build, pin, sign | collab-images successor (unassigned) |
+| 13 | Meetings auth | meet-token-service 0.1.0-ou1 | OCI `sha256:69b20d09...e283`, `signed: false` | pinned, **UNSIGNED**; spike code (in-memory sessions, shared HS256 secret) | production hardening (RS256, persistence) + sign | collab-images successor |
+| 14 | PBX / softphone | Asterisk 22.12.0-ou1 (`ou-asterisk`) | pkg repo **`ob-apt-dev`** (not stable) | REAL as a package (SBOM, licence, 2-call lab test), but only in the **dev** channel; Debian 12 only (profile VM uses Ubuntu 24.04 in the plan: mismatch to resolve) | promote to stable; decide OS image for the PBX VM; no PSTN, no emergency calling (by design) | telephony / release agents |
+| 15 | PBX helper + softphone web | ou-pbx 0.1.0-ou1, ou-softphone 0.1.0-ou1 | OCI `sha256:481adefa...97f8d`, `sha256:efc5d8b4...b941`, both `signed: false` | pinned, **UNSIGNED**; pbx-helper not usable standalone (needs host asterisk) | sign softphone; fold helper into the asterisk package | oci-signing / telephony |
+| 16 | Guest OS | Golden image `ou-golden-debian-12-20261115.qcow2`; template VM 131 `ou-debian12-template` exists on pve06 | file signed by `ou-image-sign` (hardened signer, now with runner-attested boot proof on `oci-signing`) | image: built+boot-proven under TCG, **never imported** (pve06 storage has no `import` content); ubuntu-24.04 template `ou-tpl-ubuntu-2404` (catalog default) **does not exist** on pve06; catalog sha256 pins empty | owner: add `import` content or provide the Ubuntu template; build Ubuntu golden image; pin sha256 | owner + golden-prod/golden-at |
+| 17 | Package + image supply | apt repo (`ob-apt-*`), OCI registry | lab repo and loopback registry (127.0.0.1:5000 in a powered-off builder) | **LAB ONLY**: guests cannot reach either; `registry.ou.invalid` is a placeholder host; production release key not minted | stand up a signed-repo + registry host reachable from the customer VNets (needs an address for the `repo` flow), production keys | owner + oci-signing / package agents |
+| 18 | Monitoring | `ou-agent` 0.1.0-ou1 (every VM) + ICS monitor | pkg `ob-apt-stable` | REAL in lab (agent, checks, alerts, remediation); checks for Jitsi JWT / SIP exist in catalog, not exercised on real VMs | first real-VM run | ICS monitoring |
+| 19 | Backup | restic-based product (ADR-0010) | ICS action + agent runbooks | Lab-proven incl. per-customer keys and restore verification (backup-isolation-results.md); **runner topology, S3 repositories, second copy: Planned**; chat/meetings/telephony backup not drilled | choose backup target host/storage and give its address for the `backup` flow | owner + backup agent |
+| 20 | Customer admin | Portal (Organization Admin, mailboxes, storage), MSP API v1 (signed, webhooks, metering), mailbox admin | `tenant-msp` branch (not on `integration-7`) | Implemented + tested on the branch; merged chain needs migration renumbering (0011a-d) | merge `tenant-msp` after Review 6 fixes; run against two real customers | tenant-msp / lead |
+| 21 | Deployment engine | ICS planner/executor/provider | `integration-7` | Verified on pve06 for one VM + one container; full 6-VM run never done; capacity thin-pool check pending (see section 2) | first real multi-VM run (stage 5) | provider / lead |
+| 22 | Network isolation | per-customer VNet, PVE firewall | this branch (model + plan) + `docs/admin/proxmox-sdn-isolation.md` | model/plan **implemented** (8 tests); hypervisor side **not applied** (owner commands pending) | owner runs the commands, then the test plan | owner + BY |
+
+Summary: of 22 rows, **real today**: 1, 3, 4 (package), 5, 6, 18 (lab) and the golden-image file. **Placeholder (no artifact)**: Keycloak (2), OpenCloud (7), MAS (11), the four Jitsi parts (12). **Pinned but unsigned**: 9, 10, 13, 15 (and the pbx-helper). **Lab-signed**: Collabora (8). Plans for any customer with identity or files are refused today (`artifact_unpinned`), so a full-stack deployment cannot execute until rows 2, 7, 11, 12 are built and rows 8-10, 13, 15 are signed with the production key and published to a registry the guests can reach (row 17).
+
+Critical path to an executable plan (in order): production OCI + release keys (17) -> registry/repo host reachable from VNets (17) -> build+pin Keycloak, OpenCloud, MAS, Jitsi x4 (2, 7, 11, 12) -> sign all OCI digests (8-10, 13, 15) -> promote asterisk to stable (14) -> Ubuntu or Debian template on pve06 (16) -> SDN applied (22).
+
+## 2. Capacity on pve06 (measured by GET, 2026-11-16)
+
+| Measure | Value | Source |
+|---|---|---|
+| CPU | 56 threads (2 sockets x 28 cores incl. HT, Xeon Gold 5120) | `/nodes/pve06/status` |
+| CPU load average | **50.8 / 54.1 / 33.0** (1/5/15 min) on 56 threads: the node is already close to saturated by guests the token cannot see | same |
+| RAM | 251.5 GiB total, 101.8 GiB used, **149.7 GiB available**; swap 2.1 GiB of 8 GiB in use | same |
+| Storage `PVE06-Storage` (lvmthin, `images,rootdir`) | 11140.3 GiB total, **812.1 GiB used, 10328.3 GiB (about 10.1 TiB) free** physical | `/cluster/resources?type=storage` (only this storage kept), `/nodes/pve06/storage/PVE06-Storage/status` |
+| Pool `officeunbound-pve06` members | only template VM 131 `ou-debian12-template` (2 vCPU, 2 GiB, 3 GiB disk, stopped); the ICS VM 126 (48 vCPU, 16 GiB, 594 GiB virtual) is deliberately outside the pool | `/pools/officeunbound-pve06`, `/cluster/resources?type=vm` |
+| Not visible | all other guests on pve06 (token has no rights on them) and other nodes; their usage appears only as node totals | |
+| Thin pool metadata / over-provisioning | not readable through the API with this token. Earlier owner note: 15.17 TiB provisioned vs 10.91 TiB physical, autoextend off | provider-proxmox-real.md |
+
+### Demand (planner output, `generate_plan`, catalog from `oci-signing`, profile `small`, 25 users, ubuntu-24.04)
+Per customer, all services (identity+edge, groupware, files+office, chat, meet, pbx = 6 VMs): **20 vCPU, 16.85 GiB RAM (17,257 MiB), 355 GB virtual disk** (135 GB of it is the files data volume at the catalog default of 5 GB/user + 10 GB base; groupware mail store 60 GB). Core services only (3 VMs): 12 vCPU, 10.8 GiB, 267 GB.
+Which numbers are measured: memory bases come from lab peaks (id 0.87 GB idle, groupware 1.3 GB idle, files 0.57 GB peak, chat 1.27 GiB peak, meet 1.68 GiB peak, pbx 0.21 GiB idle; sum of lab peaks about 6 GiB per customer). **Estimates**: all per-user growth, all CPU figures (no load tests exist for any component), all volume sizes (5 GB/user files, 0.5 GB/user chat media, 50 MB/user voicemail are planning assumptions), the 10 GB per-VM overhead.
+
+| Layout | vCPU | RAM | Disk (virtual, thin) | Fit? |
+|---|---|---|---|---|
+| 2 customers, full profile | 40 | 33.7 GiB | 710 GB | RAM: 22 % of available. Disk: 7 % of free. **vCPU: 40 of 56 threads while load average is already ~51**: fits on paper only |
+| + golden image / template (3 GiB, VM 131 exists; an Ubuntu template adds about 3 GiB) | - | - | about 6 GB | negligible |
+| + backup (restic, 14 days daily; tier backups are small, lab data tree 17 MB, files compress) | - | - | about 15 % of data volumes = 100 GB if on the same pool | acceptable but **backups must not live on PVE06-Storage** (same failure domain) |
+| Catalog placement check (cpu_overcommit 4, memory reserve 10 %) | 40 <= 224 | 33.7 <= 135 | | passes |
+
+Verdict: **memory and disk fit with large headroom (RAM 4x, disk 14x); CPU is the constraint.** Measured idle CPU of the whole lab stack is a small fraction of one core per VM, so the allocated 40 vCPU will mostly idle, but the node's current load (about 51 runnable on 56 threads, from other guests) means CPU steal during our load tests is likely and any benchmark is unreliable. Recommendations, smallest first:
+1. Accept vCPU overcommit as is (catalog allows 4x; allocated 40 vCPU mostly idle) and let the owner decide whether OU guests get a lower CPU priority than the neighbours (`cpuunits`).
+2. If the load average is a sustained fact (check `pveperf`/`top` on the node, owner side): free CPU by moving guests off pve06 or place Office Unbound on a quieter node. To use another node the owner must extend the pool/storage/token ACLs (the ICS refuses nodes outside its allow-list by design).
+3. Smallest viable layout if CPU cannot be freed: 2 customers x core services (3 VMs, 12 vCPU each = 24 vCPU, 21.6 GiB RAM, 534 GB) first; add chat/meet/pbx later. Everything stated about chat/meet/pbx is anyway blocked by unsigned/unpinned artifacts (section 1).
+4. Thin pool: the owner must report the **provisioned total vs physical** of the `PVE06-Storage` thin pool (`lvs -a` on pve06). The planner's policy `thin_max_ratio_pct: 100` will refuse the plan if the pool is already over-provisioned (15.17 vs 10.91 TiB reported on 2026-11-15, now used data is 0.8 TiB). Either raise the policy explicitly in the catalog or free provisioned-but-unused volumes. This is the most likely cause of a surprise plan refusal.
+Also: the ICS needs a place for **backups outside this pool** and a registry/repo host (section 1 rows 17, 19), which are not capacity of pve06.
+
+## 3. Network isolation design (Proxmox VE 9.2 SDN)
+
+Facts read from pve06 (GET): SDN has **no zones, VNets or controllers** yet; the only bridge is `vmbr0` (192.168.22.17/24, port `nic3`, untagged, gateway 192.168.22.1); `nic0-nic2`, `nic4-nic6` and `idrac` exist, none configured (cabling unknown). `proxmox-firewall` 1.2.3 (nftables), `libpve-network-perl` 1.6.7, `frr-pythontools` 10.6.1, `ifupdown2` are installed. The node firewall options are empty (not enabled). The ICS VM sits on `vmbr0` at 192.168.22.167. pve06 is one of six nodes of a shared production cluster: **SDN and firewall datacenter settings are cluster-wide objects**, so every command is written to limit effect to pve06.
+
+### 3.1 Zone type decision
+| Option | Verdict |
+|---|---|
+| VLAN zone on `vmbr0` | Rejected for now: needs the switch port of `nic3` to trunk new VLAN ids (owner network change, unknown) and `vmbr0` untagged traffic shares the trunk with the management LAN. Revisit if a spare NIC with a known trunk is cabled. |
+| VXLAN zone | Rejected: gives L2 overlay but no gateway/SNAT, so every customer would need its own router VM. |
+| EVPN zone | Target when a second node joins: per-customer VRF gives L3 isolation by construction and cluster growth. Cost today: FRR controller, BGP ASN, exit-node routing, a cluster-wide controller object. Too much shared-cluster change for one node and two customers. |
+| **Simple zone `oucust`, restricted to `--nodes pve06`** | **Chosen for now.** One isolated Linux bridge per VNet with no physical port: L2 isolation without any switch change, no effect on the other five nodes, native gateway on the node. Growth path: when a second node is added, delete and re-create the zone as EVPN (or VXLAN + router) with the **same VNet names and subnets**: the ICS only knows VNet names, subnets and flows, so no ICS change. VMs need a restart to re-attach. |
+
+### 3.2 Addressing and layers
+* Customer subnets `10.64.<n>.0/24`, VNet `ouc<NN>` (SDN ids are max 8 chars), gateway `.1` on the node bridge, VMs from `.10` (planner assigns deterministically, sorted by VM name). `10.64.0.0/16` is reserved for customers; the management LAN stays 192.168.22.0/24 (untagged `vmbr0`).
+* **Layer 1 (hypervisor, mandatory)**: separate bridges (no L2 path between customers); VNet firewall `policy_forward DROP` with explicit allow rules; node firewall drops guest-to-host traffic on the VNet interfaces; routing between VNets is not configured.
+* **Layer 2 (cluster)**: datacenter firewall enabled **with permissive datacenter policies** so that other nodes keep today's behaviour; security IP sets and aliases hold the service addresses.
+* **Layer 3 (guest, defence in depth, not counted as isolation)**: golden image nftables default-deny + `plan["firewall"]` rules.
+* Required flows (the planner emits exactly this list in `plan["network"]["flows"]`): ICS -> agents `tcp/8443`; guests -> ICS bootstrap callback listener (`ICS_GUEST_CALLBACK_URL`, dedicated `serve_callback`, pinned TLS); guests -> signed apt repo / OCI registry; guests -> backup target; DNS (53 udp/tcp), NTP (123 udp); inbound service ports from the edge ipset only (`tcp 25,80,443,587,993,5061,8089`, `udp 10000-10200` per catalog `public`/`edge` exposure); VM-to-VM inside one customer (component ports enforced in the guest). Everything else is dropped, including customer-to-customer and customer-to-management-LAN.
+* Management separation: ICS and Proxmox stay on `vmbr0`; guests reach only the ipset members listed above; the node's own addresses on the VNets (gateways) accept nothing from guests (node firewall `in DROP` on `ouc*`). The ICS reaches guests through a static route `10.64.0.0/16 via 192.168.22.17` on the ICS host (host change, record in `host-changes.md`) -- no inbound NAT.
+* Egress: SNAT on the VNet subnet is **off** by default (flows are routed, source addresses preserved, auditable); guests have no internet access except the ipsets. If the owner wants ACME/updates directly, add an ipset and rule explicitly.
+
+### 3.3 How the ICS assigns VNets (implemented on this branch)
+Model: `ics/ics/deploy/netmodel.py` -- `NetworkModel{assignments[customer_id, endpoint, zone, vnet, subnet, gateway], flows{endpoint: ServiceFlows}}`, loaded from the file named by `OU_NETWORK_MODEL` (JSON/YAML; a set-but-broken file raises, never silently disables isolation). Validation: unique VNet per endpoint, one assignment per customer/endpoint, non-overlapping private subnets (/16-/28), service addresses never inside a customer subnet.
+Plan (`generate_plan(..., networks, scope_networks)`, wired in `deploy/ops.py:build_plan`, so create-time re-planning and the plan hash include it):
+* with a model, `nics[0] = {bridge: <customer vnet>, vlan: null, ip: <static /prefix>, gw}`; plan gains `network{zone, vnet, subnet, gateway, addresses, dns, isolation, flows}` (inside the hash);
+* errors (block execution): `network_unassigned` (no shared-bridge fallback), `network_not_assigned` (requested bridge is neither the customer's own VNet nor the untouched default; names the owning customer if it is another's VNet), `network_out_of_scope` (VNet not in `endpoint.allowed_networks`; deny by default when the list is empty), `subnet_too_small`, `network_vlan_with_model`; the `no_vlan_isolation` warning disappears only when a model is active;
+* executor: static `ipconfig0` and `nameserver` from the plan (previously DHCP); the provider still checks every NIC with `EndpointScope.network_ok` and the allowed-networks list is untouched (no provider change; calls stay within `EndpointScope.networks`).
+Still needed (not done, listed precisely): (a) DB-backed model + console page instead of a file (new table -> migration, deliberately avoided on this branch because the Alembic chain is being renumbered); (b) per-customer endpoints/tokens/pools so Proxmox itself refuses cross-customer VNet attach (owner commands include an optional strict variant); (c) inventory of SDN VNets (`/cluster/sdn/vnets`, needs `SDN.Audit` on `/sdn`) to turn `network_out_of_scope` into a live existence check and drift detection; (d) an action to create the per-VM firewall objects if the owner prefers VM-level rules; (e) `agentport` guest discovery assumes DHCP/link-local in the lab path -- production golden-image path uses the callback and works with static addresses, not yet exercised on a VNet.
+
+## 4. Owner prerequisites and decisions (all blocking, nothing applied)
+1. Run `docs/admin/proxmox-sdn-isolation.md` sections 1-5 on pve06 (SDN zone/VNets/subnets, firewall objects, node nftables firewall, ICS token grants). Decide the datacenter-firewall policy trade-off (section 0 of that file).
+2. Add the static route on the ICS host (or approve it) and give the addresses for: repo/registry, backup target, DNS, NTP, edge.
+3. `import` content (or an Ubuntu template) on pve06; thin pool provisioned/physical numbers; CPU contention decision (section 2).
+4. Production signing keys and a registry/repo host; endpoint decision for OpenCloud build sources.
+5. Revoke `SDN.Use` on `/sdn/zones/localnetwork/vmbr0` for the ICS token after VNets work, so a plan cannot attach to the shared bridge.

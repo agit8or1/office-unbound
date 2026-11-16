@@ -16,6 +16,7 @@ from . import executor, state
 from .lease import Lease, guard_env
 from .catalog import get_catalog
 from .envs import real_env_factory
+from .netmodel import load_network_model
 from .plan import PlanInput, VmLayout, canon, capacity_from_inventory, generate_plan, plan_hash
 from .ports import STOP_EVENTS, Cancelled, DeployError, ExecEnv, Fenced, StepFailed
 
@@ -92,7 +93,7 @@ def set_env_factory(fn: Callable[[object, dict], ExecEnv]) -> None:
 # ---- planning helpers (read-only) --------------------------------------------------------------------------------
 
 def _latest_inventory(db, endpoint_name: str):
-    ep = db.execute(text("SELECT id, allowed_nodes FROM endpoints WHERE name = :n AND detached_at IS NULL"), {"n": endpoint_name}).first()
+    ep = db.execute(text("SELECT id, allowed_nodes, allowed_networks FROM endpoints WHERE name = :n AND detached_at IS NULL"), {"n": endpoint_name}).first()
     if ep is None:
         raise KeyError("endpoint not found")
     snap = db.execute(text("SELECT data FROM inventory_snapshots WHERE endpoint_id = :e ORDER BY collected_at DESC LIMIT 1"), {"e": str(ep.id)}).first()
@@ -102,9 +103,15 @@ def _latest_inventory(db, endpoint_name: str):
     return str(ep.id), data
 
 
+def _scope_networks(db, endpoint_name: str):
+    ep = db.execute(text("SELECT allowed_networks FROM endpoints WHERE name = :n AND detached_at IS NULL"), {"n": endpoint_name}).first()
+    return tuple(ep.allowed_networks or ()) if ep else None
+
+
 def build_plan(db, spec: PlanInput, existing: dict | None = None) -> dict:
     _, data = _latest_inventory(db, spec.endpoint)
-    return generate_plan(spec, capacity_from_inventory(data, spec.deployment_id), get_catalog(), existing)
+    return generate_plan(spec, capacity_from_inventory(data, spec.deployment_id), get_catalog(), existing,
+                         networks=load_network_model(), scope_networks=_scope_networks(db, spec.endpoint))
 
 
 def _dep(db, slug: str):
