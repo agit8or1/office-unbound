@@ -8,8 +8,8 @@ printed by `pubkey`. Nothing the caller says is trusted; `sign` reads ONE tar on
 
   request.json                {"repo": "ou/synapse", "tag": "1.165.0", "digest": "sha256:<64 hex>", "channel": "dev"|"staging"|"stable"}
   sbom.cdx.json               CycloneDX SBOM of the image (syft)
-  scan.attestation.json       {"attestation": {...kind oci-scan...}, "sig": ...}  produced by `ou-artifact-attest scan <repo> <digest>` (user ou-testrunner), which pulled
-                              the image and made the SBOM and the OSV scan ITSELF from the digest; the caller only forwards it
+  scan.attestation.json       {"attestation": {...kind oci-scan...}, "sig": ...}  produced by `ou-test-attest run oci-scan <repo>@<digest>` (user ou-testrunner), which pulled
+                              the image and made the SBOM and the OSV scan ITSELF from the digest (nothing the caller could supply); the caller only forwards it
   promotion-manifest.json     staging/stable only: the release.promote manifest signed by the ICS after the approvers approved the plan
 
 and REFUSES unless ALL hold:
@@ -181,7 +181,7 @@ def check_scan(doc, hexd, cfg, repo):
         att, sig = doc["attestation"], doc["sig"]
     except (KeyError, TypeError):
         die("bad scan attestation")
-    if not isinstance(att, dict) or att.get("v") != 1 or att.get("kind") != "oci-scan" or att.get("name") != "osv-scan":
+    if not isinstance(att, dict) or att.get("v") != 2 or att.get("kind") != "oci-scan" or att.get("name") != "osv-scan":
         die("not an oci-scan attestation")
     if att.get("sha256") != hexd:
         die("the scan attestation is for another image")

@@ -1,7 +1,8 @@
 #!/bin/bash
 # Client side of the OCI signing path (runs as the build user on the ICS/release host; holds no keys, makes no trust decision):
 #   1. resolve <repo>:<tag> to its digest in the lab registry (the signer re-checks everything),
-#   2. ask the test runner (ou-artifact-attest scan, user ou-testrunner) to pull that digest and build the SBOM + OSV scan itself,
+#   2. ask the test runner (`ou-test-attest run oci-scan <repo>@<digest>`, user ou-testrunner) to pull that digest and build the SBOM + OSV scan itself; the caller names the
+#      artifact and nothing else (no result, no evidence, no SBOM can be supplied),
 #   3. hand request + SBOM + scan attestation (+ the ICS promotion manifest for staging/stable) to ou-oci-sign (user ou-ocisign),
 #   4. store the returned signature as a cosign-style attachment in the registry (oci-publish-sig.py).
 # usage: oci-sign.sh <dev|staging|stable> <repo e.g. ou/synapse> <tag> [promotion-manifest.json]       env: OU_OCI_REGISTRY_ADDR (default: /etc/office-unbound/oci-registry)
@@ -13,7 +14,8 @@ W=$(mktemp -d); trap 'rm -rf "$W"' EXIT
 DIGEST=$(curl -fsSI -H 'Accept: application/vnd.docker.distribution.manifest.v2+json, application/vnd.oci.image.manifest.v1+json' "http://$REG/v2/$REPO/manifests/$TAG" | awk 'tolower($1)=="docker-content-digest:"{print $2}' | tr -d '\r')
 [[ "$DIGEST" =~ ^sha256:[0-9a-f]{64}$ ]] || { echo "cannot resolve $REPO:$TAG in $REG" >&2; exit 1; }
 echo "$REPO:$TAG -> $DIGEST"
-printf '{"repo":"%s","digest":"%s"}' "$REPO" "$DIGEST" | sudo -n -u ou-testrunner /usr/local/sbin/ou-artifact-attest scan > "$W/bundle.json"
+ATT=${OU_TEST_ATTEST:-/usr/local/sbin/ou-test-attest}
+sudo -n -u ou-testrunner "$ATT" run oci-scan "$REPO@$DIGEST" > "$W/bundle.json"
 python3 -I - "$W" "$REPO" "$TAG" "$DIGEST" "$CH" "$MAN" <<'PY'
 import io, json, sys, tarfile
 w, repo, tag, digest, ch, man = sys.argv[1:7]

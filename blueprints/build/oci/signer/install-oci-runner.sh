@@ -1,9 +1,8 @@
 #!/bin/bash
 # One-time (idempotent) setup of the artifact test runner programs (review 6 H1 / review 7 H-3 model: the runner makes the evidence itself). Run as root:
 #   sudo bash install-oci-runner.sh        (needs blueprints/build/repo/install-signer.sh first: that creates the user ou-testrunner and its key)
-#   * /usr/local/sbin/ou-artifact-attest (root:root 0755), run as ou-testrunner; sudoers rules EXACT (no `*`, the artifact reference is read from stdin):
-#       <build user> ALL=(ou-testrunner) NOPASSWD: /usr/local/sbin/ou-artifact-attest scan
-#       <build user> ALL=(ou-testrunner) NOPASSWD: /usr/local/sbin/ou-artifact-attest image
+#   * the fixed test program /usr/local/lib/ou-testrunner/oci-scan for kind `oci-scan` of ou-test-attest (branch fixes-r7 interface: `ou-test-attest run oci-scan <repo>@sha256:<hex>`,
+#     sudoers rule of install-signer.sh; the caller names the artifact, the runner pulls it, makes the SBOM and the OSV scan itself and signs what it observed)
 #   * syft and osv-scanner at the versions and sha256 pinned in blueprints/build/tools.env, installed root-owned in /usr/local/lib/ou-testrunner
 #     (downloaded from github.com releases, authorized read-only source; checksum verified before install).
 #   * /etc/office-unbound/oci-registry is written by install-oci-signer.sh (the registry host:port the runner pulls from).
@@ -25,11 +24,14 @@ if [ ! -x /usr/local/lib/ou-testrunner/osv-scanner ]; then
   echo "$OSV_SHA256  $T/osv" | sha256sum -c - >/dev/null || { echo "REFUSED: osv-scanner checksum mismatch"; exit 4; }
   install -m 0755 -o root -g root "$T/osv" /usr/local/lib/ou-testrunner/osv-scanner
 fi
-install -m 0755 -o root -g root "$HERE/ou-artifact-attest" /usr/local/sbin/ou-artifact-attest
+# The runner program itself (fixes-r7 interface plus kind oci-scan): this branch contains the whole of it, so it simply replaces ou-test-attest
+# (set OU_TEST_ATTEST_DST to install it beside an older one on a host that has not rolled out fixes-r7 yet).
+ATTEST_DST=${OU_TEST_ATTEST_DST:-/usr/local/sbin/ou-test-attest}
+install -m 0755 -o root -g root "$HERE/../../repo/ou-test-attest" "$ATTEST_DST"
 {
-  printf '%s ALL=(ou-testrunner) NOPASSWD: /usr/local/sbin/ou-artifact-attest scan\n' "$BUILDUSER"
-  printf '%s ALL=(ou-testrunner) NOPASSWD: /usr/local/sbin/ou-artifact-attest image\n' "$BUILDUSER"
+  printf '%s ALL=(ou-testrunner) NOPASSWD: %s run oci-scan *\n' "$BUILDUSER" "$ATTEST_DST"
+  printf '%s ALL=(ou-testrunner) NOPASSWD: %s run image-first-boot *\n' "$BUILDUSER" "$ATTEST_DST"
 } > /etc/sudoers.d/ou-artifact-attest
-chmod 0440 /etc/sudoers.d/ou-artifact-attest
-visudo -cf /etc/sudoers.d/ou-artifact-attest >/dev/null
-echo "installed: ou-artifact-attest, syft $SYFT_VERSION, osv-scanner $OSV_VERSION"
+chmod 0440 /etc/sudoers.d/ou-artifact-attest; visudo -cf /etc/sudoers.d/ou-artifact-attest >/dev/null
+install -m 0755 -o root -g root "$HERE/../testrunner/oci-scan" /usr/local/lib/ou-testrunner/oci-scan      # fixed program of kind oci-scan of ou-test-attest
+echo "installed: oci-scan test program, syft $SYFT_VERSION, osv-scanner $OSV_VERSION"

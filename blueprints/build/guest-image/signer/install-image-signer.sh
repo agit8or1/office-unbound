@@ -18,6 +18,14 @@ install -d -m 0700 -o ou-imgsign -g ou-imgsign "$ST" "$ST/records"
 install -d -m 0755 -o root -g root "$ST/trust"
 install -m 0644 -o root -g root "$RUNNER_PUB_FILE" "$ST/trust/test-runner.pub"
 install -m 0755 -o root -g root "$HERE/ou-image-sign" /usr/local/sbin/ou-image-sign
+# the runner's fixed boot test (kind image-first-boot of ou-test-attest, review 7 H-3): the runner-side program and the root helper that boots the copy in the boot-proof machine
+id ou-testrunner >/dev/null 2>&1 || { echo "no user ou-testrunner: run blueprints/build/repo/install-signer.sh first"; exit 1; }
+install -d -m 0755 -o root -g root /usr/local/lib/ou-testrunner
+install -m 0755 -o root -g root "$HERE/../testrunner/image-first-boot" /usr/local/lib/ou-testrunner/image-first-boot
+install -m 0755 -o root -g root "$HERE/../testrunner/image-boot-root" /usr/local/lib/ou-testrunner/image-boot-root
+printf 'ou-testrunner ALL=(root) NOPASSWD: /usr/local/lib/ou-testrunner/image-boot-root\n' > /etc/sudoers.d/ou-testrunner-image
+chmod 0440 /etc/sudoers.d/ou-testrunner-image; visudo -cf /etc/sudoers.d/ou-testrunner-image >/dev/null
+install -d -m 0755 -o "$BUILDUSER" -g "$BUILDUSER" /var/lib/ou-imgbuild /var/lib/ou-imgbuild/out      # images to be tested/signed are put here; the runner copies and hashes them itself
 if [ ! -s "$ST/passphrase" ]; then
   ( umask 077; head -c 32 /dev/urandom | base64 > "$ST/passphrase" )
   chown ou-imgsign:ou-imgsign "$ST/passphrase"; chmod 0400 "$ST/passphrase"

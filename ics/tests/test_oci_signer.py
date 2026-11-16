@@ -18,8 +18,9 @@ from cryptography.hazmat.primitives import serialization
 from cryptography.hazmat.primitives.asymmetric.ed25519 import Ed25519PrivateKey
 
 OCI = os.path.abspath(os.path.join(os.path.dirname(__file__), "..", "..", "blueprints", "build", "oci", "signer"))
-SIGNER, ATTEST, INSTALL = (os.path.join(OCI, n) for n in ("ou-oci-sign", "ou-artifact-attest", "install-oci-signer.sh"))
-KEYGEN = os.path.join(OCI, "..", "..", "repo", "ou-test-attest")
+SIGNER, INSTALL = (os.path.join(OCI, n) for n in ("ou-oci-sign", "install-oci-signer.sh"))
+SCAN_PROG = os.path.join(OCI, "..", "testrunner", "oci-scan")
+KEYGEN = ATTEST = os.path.join(OCI, "..", "..", "repo", "ou-test-attest")
 pytestmark = pytest.mark.skipif(shutil.which("openssl") is None, reason="needs openssl")
 REPO, TAG = "ou/synapse", "1.165.0"
 PFX_ATT, PFX_PROMO = b"ou-test-attestation-v1\n", b"ou-release-promotion-v1\n"
@@ -117,7 +118,7 @@ class Box:
         return json.dumps({"bomFormat": "CycloneDX", "metadata": {"component": {"type": "container", "version": version}}, "components": [{"name": "p%d" % i} for i in range(n)]}).encode()
 
     def attestation(self, sbom=None, key=None, **over):
-        att = {"v": 1, "kind": "oci-scan", "name": "osv-scan", "sha256": self.reg.digest[7:], "repo": REPO, "config_digest": self.reg.cfg_d,
+        att = {"v": 2, "kind": "oci-scan", "name": "osv-scan", "sha256": self.reg.digest[7:], "repo": REPO, "config_digest": self.reg.cfg_d,
                "sbom_sha256": sha(sbom or self.sbom), "result": "pass", "vuln_ids": 3, "max_cvss": 7.5, "critical_unwaived": 0, "log_sha256": "0" * 64, "at": int(time.time())}
         att.update(over)
         k = key or self.runner
@@ -288,11 +289,18 @@ def test_pubkey_needs_a_channel(box):
 
 
 # ---------------------------------------------------------------------------------------------------------------- the runner
-def runner_env(box, tools):
+def runner_env(box, tools, waivers=None):
+    """the real ou-test-attest in its sandbox mode + the real fixed oci-scan program (with fake syft/osv-scanner next to it) in a private lib directory"""
     rs = box.tmp / "runner"
     subprocess.run([sys.executable, KEYGEN, "keygen"], env={**os.environ, "OU_TESTRUNNER_STATE": str(rs)}, capture_output=True, check=True)
-    return {"PATH": os.environ["PATH"], "OU_TESTRUNNER_STATE": str(rs), "OU_ATTEST_SANDBOX": "1", "OU_ATTEST_TOOLS": str(tools), "OU_ATTEST_REGISTRY_FILE": str(box.state / "trust" / "registry"),
-            "OU_ATTEST_REGISTRY_ADDR": box.reg.addr}
+    prog = open(SCAN_PROG).read().replace('SANDBOX = os.environ.get("OU_RELEASE_SANDBOX") == "1"', "SANDBOX = True")
+    prog = prog.replace('WAIVERS = os.environ.get("OU_WAIVERS_FILE", "/etc/office-unbound/oci-vuln-waivers.json") if os.environ.get("OU_RELEASE_SANDBOX") == "1" else "/etc/office-unbound/oci-vuln-waivers.json"',
+                        "WAIVERS = %r" % str(waivers or box.tmp / "no-waivers.json"))
+    (tools / "oci-scan").write_text(prog)
+    os.chmod(tools / "oci-scan", 0o755)
+    os.chmod(tools, 0o755)
+    return {"PATH": os.environ["PATH"], "OU_TESTRUNNER_STATE": str(rs), "OU_RELEASE_SANDBOX": "1", "OU_TESTRUNNER_LIB": str(tools), "OU_RELEASE_STATE": str(box.tmp / "relstate"),
+            "OU_ATTEST_REGISTRY_FILE": str(box.state / "trust" / "registry"), "OU_ATTEST_REGISTRY_ADDR": box.reg.addr}
 
 
 def fake_tools(tmp, version, ncomp=12, cvss="7.5"):
@@ -305,47 +313,62 @@ def fake_tools(tmp, version, ncomp=12, cvss="7.5"):
     return d
 
 
-def run_scan(box, env, rq):
-    return subprocess.run([sys.executable, "-I", ATTEST, "scan"], input=json.dumps(rq).encode(), env=env, capture_output=True)
+def run_scan(box, env, ref, stdin=b"", extra=()):
+    return subprocess.run([sys.executable, "-I", ATTEST, "run", "oci-scan", ref, *extra], input=stdin, env=env, capture_output=True)
 
 
 def test_runner_pulls_and_scans_by_reference_only_and_its_attestation_is_accepted_by_the_signer(box):
     env = runner_env(box, fake_tools(box.tmp, box.reg.digest))
     (box.state / "trust" / "test-runner.pub").write_text(subprocess.run([sys.executable, KEYGEN, "keygen"], env=env, capture_output=True, text=True).stdout.strip())
-    assert subprocess.run([sys.executable, "-I", ATTEST, "scan", "ou/synapse", box.reg.digest], env=env, capture_output=True).returncode == 2         # no argv, no results
-    assert run_scan(box, env, {"repo": REPO, "digest": box.reg.digest, "result": "pass"}).returncode == 3                                             # no caller-supplied fields
-    assert run_scan(box, env, {"repo": "library/x", "digest": box.reg.digest}).returncode == 3
-    r = run_scan(box, env, {"repo": REPO, "digest": box.reg.digest})
+    ref = "%s@%s" % (REPO, box.reg.digest)
+    # regression (review 7 H-3): nothing the caller supplies can change the verdict -- no extra argument, stdin evidence is ignored, a bad reference is refused
+    assert run_scan(box, env, ref, extra=("pass",)).returncode == 3
+    assert run_scan(box, env, "library/x@" + box.reg.digest).returncode == 3
+    assert run_scan(box, env, REPO + ":1.0").returncode == 3
+    fabricated = json.dumps({"result": "pass", "critical_unwaived": 0, "sbom_sha256": "0" * 64, "vuln_ids": 0}).encode()
+    r = run_scan(box, env, ref, stdin=fabricated)
     assert r.returncode == 0, r.stderr
     doc = json.loads(r.stdout)
-    assert doc["attestation"]["result"] == "pass" and doc["attestation"]["sbom_sha256"] == sha(doc["sbom"].encode())
-    files = {"request.json": box.request(), "sbom.cdx.json": doc["sbom"].encode(), "scan.attestation.json": json.dumps({"attestation": doc["attestation"], "sig": doc["sig"]}).encode()}
+    att = doc["attestation"]
+    assert att["v"] == 2 and att["kind"] == "oci-scan" and att["result"] == "pass" and att["sbom_sha256"] == sha(doc["sbom"].encode()) and att["vuln_ids"] == 1 != 0 and att["repo"] == REPO
+    files = {"request.json": box.request(), "sbom.cdx.json": doc["sbom"].encode(), "scan.attestation.json": json.dumps({"attestation": att, "sig": doc["sig"]}).encode()}
     assert box.sign(files).returncode == 0                                                                                                         # runner output -> signer
+    # a caller who edits the attestation (pass/fail, counts, hash) or the SBOM breaks the signature / the binding
+    for k, v in (("critical_unwaived", 0), ("max_cvss", 0.0), ("sbom_sha256", "0" * 64), ("vuln_ids", 0)):
+        t = json.loads(files["scan.attestation.json"])
+        t["attestation"][k] = v
+        if t["attestation"] == att:
+            continue
+        refused(box.sign(dict(files, **{"scan.attestation.json": json.dumps(t).encode()})))
     box.reg.lie = True
-    assert run_scan(box, env, {"repo": REPO, "digest": box.reg.digest}).returncode == 3                                                              # registry bytes are re-hashed
+    assert run_scan(box, env, ref).returncode == 3                                                                                                 # registry bytes are re-hashed
 
 
 def test_runner_counts_critical_findings_and_honours_only_reasoned_unexpired_waivers(box):
-    env = runner_env(box, fake_tools(box.tmp, box.reg.digest, cvss="9.8"))
-    r = json.loads(run_scan(box, env, {"repo": REPO, "digest": box.reg.digest}).stdout)["attestation"]
-    assert r["result"] == "pass" and r["critical_groups"] == 1 and r["critical_unwaived"] == 1 and r["max_cvss"] == 9.8
     w = box.tmp / "waivers.json"
+    env = runner_env(box, fake_tools(box.tmp, box.reg.digest, cvss="9.8"), waivers=w)
+    ref = "%s@%s" % (REPO, box.reg.digest)
+
+    def att():
+        return json.loads(run_scan(box, env, ref).stdout)["attestation"]
+    r = att()
+    assert r["result"] == "pass" and r["critical_groups"] == 1 and r["critical_unwaived"] == 1 and r["max_cvss"] == 9.8
     w.write_text(json.dumps({"waivers": [{"id": "CVE-1", "reason": "", "expires": "2999-01-01"}]}))                  # no reason: ignored
-    env["OU_ATTEST_WAIVERS"] = str(w)
-    assert json.loads(run_scan(box, env, {"repo": REPO, "digest": box.reg.digest}).stdout)["attestation"]["critical_unwaived"] == 1
+    assert att()["critical_unwaived"] == 1
     w.write_text(json.dumps({"waivers": [{"id": "CVE-1", "reason": "not reachable", "expires": "2001-01-01"}]}))      # expired: ignored
-    assert json.loads(run_scan(box, env, {"repo": REPO, "digest": box.reg.digest}).stdout)["attestation"]["critical_unwaived"] == 1
+    assert att()["critical_unwaived"] == 1
     w.write_text(json.dumps({"waivers": [{"id": "CVE-1", "reason": "not reachable", "expires": "2999-01-01"}]}))
-    assert json.loads(run_scan(box, env, {"repo": REPO, "digest": box.reg.digest}).stdout)["attestation"]["critical_unwaived"] == 0
+    assert att()["critical_unwaived"] == 0
 
 
 def test_runner_fails_the_attestation_for_an_sbom_of_another_image(box):
     env = runner_env(box, fake_tools(box.tmp, "sha256:" + "4" * 64))
-    r = run_scan(box, env, {"repo": REPO, "digest": box.reg.digest})
+    r = run_scan(box, env, "%s@%s" % (REPO, box.reg.digest))
     assert json.loads(r.stdout)["attestation"]["result"] == "fail"
 
 
-def test_the_runner_sudoers_rules_would_be_exact():
+def test_the_runner_sudoers_rules_name_the_kind_exactly():
     src = open(os.path.join(OCI, "install-oci-runner.sh")).read()
     rules = [ln for ln in src.splitlines() if "NOPASSWD" in ln and ln.lstrip().startswith("printf")]
-    assert len(rules) == 2 and not any("*" in r for r in rules)
+    assert len(rules) == 2 and all(r.rstrip().endswith('run %s *\\n\' "$BUILDUSER" "$ATTEST_DST"'.replace("%s", k)) or (" run %s *" % k) in r for r, k in zip(rules, ("oci-scan", "image-first-boot")))
+    assert not any("*" in r.replace(" *\\n", "") for r in rules)                                                    # the only wildcard is the artifact reference itself
