@@ -140,10 +140,9 @@ def exec_import(rt: Runtime, db: Session, m: ImageImport, plan, known: list[str]
         raise LookupError("endpoint not found")
     rel = _verify(rt, m)                                     # re-verified at execution: Settings trust + current DB floor + the approved sha256
     rdir = release_dir(rt, m.release)
-    trust = golden.trust_from_settings(rt.settings)
     prov = open_mutations(rt, ep, known)
     tpl = m.template_name or default_template(rel.os)
     res = prov.import_image(ImageImportSpec(node=m.pve_node, import_storage=m.import_storage, target_storage=m.target_storage, file_path=rel.path,
                                             sha256=rel.sha256, name=tpl, pool=m.pool, cores=m.cores, memory_mb=m.memory_mb, bridge=m.bridge,
-                                            release_dir=rdir, trust=trust, floor=golden.get_floor(rt, rel.os), allow_downgrade=m.allow_downgrade))
+                                            release_dir=rdir, allow_downgrade=m.allow_downgrade))
     return {"node": res.node, "vmid": res.vmid, "template": res.name, "volid": res.volid, "os": rel.os, "version": rel.version, "sha256": rel.sha256}

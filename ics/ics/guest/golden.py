@@ -41,6 +41,7 @@ class ReleaseError(Exception):
 class Floor:
     version: int
     image_sha256: str
+    date: str = ""          # release date (YYYYMMDD) of the accepted release; a release dated before it is refused too (review 8 M-4)
 
 
 @dataclass(frozen=True)
@@ -75,18 +76,18 @@ def canon(o) -> bytes:
 
 
 # ---- review 7 M-4: the trust root and the downgrade floor are SERVER state, never part of a plan or of the caller's spec -------------------------------
-_TRUST: dict = {"pem": None, "pin": None}
+_TRUST_SOURCE = None     # set by Runtime: lambda: trust_from_settings(settings). The import verb reads trust ONLY from here (review 8 M-4)
 
 
-def configure(pubkey_pem: str | None, pin_sha256: str | None) -> None:
-    """called by Runtime from Settings (ICS_GUEST_RELEASE_PUBKEY_FILE + ICS_GUEST_RELEASE_PIN_SHA256, the operator-confirmed pin of the offline release key)"""
-    _TRUST.update(pem=pubkey_pem, pin=pin_sha256)
+def set_trust_source(fn) -> None:
+    global _TRUST_SOURCE
+    _TRUST_SOURCE = fn
 
 
-def trust_root() -> tuple[str, str]:
-    if not _TRUST["pem"] or not _TRUST["pin"]:
-        raise ReleaseError("this ICS has no golden-image release key configured (ICS_GUEST_RELEASE_PUBKEY_FILE / ICS_GUEST_RELEASE_PIN_SHA256): nothing is imported")
-    return _TRUST["pem"], _TRUST["pin"]
+def server_trust() -> "Trust":
+    if _TRUST_SOURCE is None:
+        raise ReleaseError("this ICS has no golden-image release trust configured: nothing is imported")
+    return _TRUST_SOURCE()
 
 
 class FloorStore:
@@ -100,6 +101,10 @@ class FloorStore:
 
     def record(self, rel) -> None:
         """after a successful import: raise both floors for rel.os (release date and manifest version); never lowers either"""
+        raise NotImplementedError
+
+    def floor(self, os_id: str) -> "Floor | None":
+        """the rollback floor the import verb enforces (version, image hash, date)"""
         raise NotImplementedError
 
 
@@ -117,9 +122,13 @@ class MemoryFloor(FloorStore):
     def record(self, rel):
         self.raise_to(rel.os, rel.date)
         v = getattr(self, "v", {})
-        if rel.version > v.get(rel.os, 0):
-            v[rel.os] = rel.version
+        if rel.version > v.get(rel.os, (0, ""))[0]:
+            v[rel.os] = (rel.version, rel.sha256)
         self.v = v
+
+    def floor(self, os_id):
+        v = getattr(self, "v", {}).get(os_id)
+        return Floor(v[0], v[1], self.d.get(os_id, "")) if v else None
 
 
 class DbFloor(FloorStore):
@@ -137,6 +146,9 @@ class DbFloor(FloorStore):
             db.execute(text("INSERT INTO image_floor (os, release_date) VALUES (:o, :d) ON CONFLICT (os) DO UPDATE SET release_date = GREATEST(image_floor.release_date, EXCLUDED.release_date)"),
                        {"o": os_id, "d": date})
             db.commit()
+
+    def floor(self, os_id):
+        return get_floor(self.rt, os_id)
 
     def record(self, rel):
         advance_floor(self.rt, rel)       # one upsert: date = GREATEST(old, new); version only ever rises (trigger enforced, migration 0015g)
@@ -274,6 +286,9 @@ def verify_release(directory: str, pubkey_pem: str, pin_sha256: str, *, attestor
             raise ReleaseError(f"release version {m['version']} is below the rollback floor {floor.version} for {m['os']}; a downgrade needs a separately approved plan")
         if m["version"] == floor.version and floor.image_sha256 != m["image"]["sha256"]:
             raise ReleaseError("a different image carries the version already accepted for this OS")
+        rdate = name.rsplit("-", 1)[1].split(".")[0]
+        if floor.date and rdate < floor.date:
+            raise ReleaseError(f"release date {rdate} is before the accepted release date {floor.date} for {m['os']}; a downgrade needs a separately approved plan")
     return Release(img, name, m["os"], m["image"]["sha256"], sbom, m["version"], pk, prov, hashlib.sha256(raw).hexdigest(), att["run_id"], m["created_at"])
 
 
@@ -294,8 +309,8 @@ def trust_from_settings(settings) -> Trust:
 def get_floor(rt, os_id: str) -> Floor | None:
     from sqlalchemy import text
     with rt.session() as db:
-        r = db.execute(text("SELECT version, image_sha256 FROM image_floor WHERE os = :o"), {"o": os_id}).first()
-    return Floor(int(r[0]), r[1]) if r and r[0] is not None else None
+        r = db.execute(text("SELECT version, image_sha256, release_date FROM image_floor WHERE os = :o"), {"o": os_id}).first()
+    return Floor(int(r[0]), r[1], str(r[2] or "")) if r and r[0] is not None else None
 
 
 def advance_floor(rt, rel: Release) -> bool:

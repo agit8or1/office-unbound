@@ -141,7 +141,7 @@ def test_floor_in_the_database_is_monotonic_and_drives_verify_for_import(rt, own
     rt.settings = dataclasses.replace(rt.settings, guest_golden_release_pubkey_file=str(keyf), guest_golden_release_pin_sha256=pin, guest_golden_attestor_pubkey=ATTESTOR_PUB_B64)
     r = golden.verify_for_import(rt, d)
     assert golden.get_floor(rt, "debian-12") is None and golden.advance_floor(rt, r) is True
-    assert golden.get_floor(rt, "debian-12") == golden.Floor(5, r.sha256)
+    assert golden.get_floor(rt, "debian-12") == golden.Floor(5, r.sha256, r.date)
     assert golden.advance_floor(rt, r) is False                                           # same version: no movement
     (tmp_path / "old").mkdir()
     d2, pem2, pin2, _ = good(tmp_path / "old", version=3)

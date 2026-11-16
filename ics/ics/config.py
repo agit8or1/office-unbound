@@ -99,8 +99,6 @@ class Settings:
     guest_agent_dir: str | None = None           # directory with ou_agent/ and deploy/ (the agent bundle source); default: <repo>/ics/agent
     guest_image_registries: tuple[str, ...] = ()           # host[:port] registries the guests' agents may pull from (signed images only)
     guest_insecure_registries: tuple[str, ...] = ()        # subset of the above that is reached over plain HTTP (lab); signatures still required
-    guest_release_pubkey_file: str | None = None           # PEM of the offline release key golden images are verified with (review 7 M-4: server config only)
-    guest_release_pin_sha256: str | None = None            # operator-confirmed pin of that key (sha256 of its DER SubjectPublicKeyInfo)
     guest_image_signing_pubkey_file: str | None = None     # PEM of the ONE cosign-format ECDSA P-256 public key images must be signed with
     guest_image_signing_key_sha256: str | None = None      # operator-confirmed pin: sha256 of that key's DER SubjectPublicKeyInfo (checked at render time)
     guest_mgmt_sources: tuple[str, ...] = ()               # CIDRs allowed to reach guest agents; default: this host's source address towards the guest
@@ -204,8 +202,6 @@ def load_settings() -> Settings:
             guest_agent_dir=env.get("ICS_GUEST_AGENT_DIR") or None,
             guest_image_registries=_csv(env.get("ICS_GUEST_IMAGE_REGISTRIES")),
             guest_insecure_registries=_csv(env.get("ICS_GUEST_INSECURE_REGISTRIES")),
-            guest_release_pubkey_file=env.get("ICS_GUEST_RELEASE_PUBKEY_FILE") or None,
-            guest_release_pin_sha256=env.get("ICS_GUEST_RELEASE_PIN_SHA256") or None,
             guest_image_signing_pubkey_file=env.get("ICS_GUEST_IMAGE_SIGNING_PUBKEY_FILE") or None,
             guest_image_signing_key_sha256=env.get("ICS_GUEST_IMAGE_SIGNING_KEY_SHA256") or None,
             guest_mgmt_sources=_csv(env.get("ICS_GUEST_MGMT_SOURCES")),
@@ -213,8 +209,8 @@ def load_settings() -> Settings:
             guest_keep_bootstrap_ssh=b("ICS_GUEST_KEEP_BOOTSTRAP_SSH", False),
             environment=env.get("ICS_ENVIRONMENT", "production").strip().lower(),
             lab_ssh_bootstrap=b("ICS_LAB_SSH_BOOTSTRAP", False),
-            guest_golden_release_pubkey_file=env.get("ICS_GUEST_GOLDEN_RELEASE_PUBKEY_FILE") or None,
-            guest_golden_release_pin_sha256=env.get("ICS_GUEST_GOLDEN_RELEASE_PIN_SHA256") or None,
+            guest_golden_release_pubkey_file=env.get("ICS_GUEST_GOLDEN_RELEASE_PUBKEY_FILE") or env.get("ICS_GUEST_RELEASE_PUBKEY_FILE") or None,   # old name: alias (review 8 M-4)
+            guest_golden_release_pin_sha256=env.get("ICS_GUEST_GOLDEN_RELEASE_PIN_SHA256") or env.get("ICS_GUEST_RELEASE_PIN_SHA256") or None,
             guest_golden_attestor_pubkey=env.get("ICS_GUEST_GOLDEN_ATTESTOR_PUBKEY") or None,
             guest_golden_releases_dir=env.get("ICS_GUEST_GOLDEN_RELEASES_DIR") or None,
             guest_callback_url=env.get("ICS_GUEST_CALLBACK_URL") or None,

@@ -14,9 +14,11 @@ from .infra_fixtures import LAB, job, mutations, sim  # noqa: F401
 @pytest.fixture(autouse=True)
 def _floor_store():
     from ics.guest import golden
+    saved = (golden._FLOOR, golden._TRUST_SOURCE)  # a session-wide Runtime may have installed the real ones: put them back afterwards
     golden.set_floor_store(golden.MemoryFloor())   # production: runtime sets golden.DbFloor (image_floor table)
     yield
-    golden.set_floor_store(None)
+    golden.set_floor_store(saved[0])
+    golden.set_trust_source(saved[1])
 
 SCOPE = EndpointScope(pools=("ou-lab",), storage=("local-lvm", "local"), networks=("vmbr1",), nodes=("pve1", "pve2"))
 BLOB = b"QFI\xfb" + b"\x00" * 4096 + b"golden"
@@ -45,10 +47,19 @@ def enable_import(sim, with_priv=True):
         sim.sim.tokens[LAB[0]]["acl"].append(("/storage/local", "OUImport"))
 
 
-def spec(image, **kw):
+def spec(image, floor=None, **kw):
+    """review 8 M-4: trust and floor are server state. The test installs the release's trust as the server trust (Settings in production) and the
+    floor into the floor store (the image_floor table in production); the spec itself carries neither."""
+    from ics.guest import golden
     path, sha = image[:2]
-    d = dict(node="pve1", import_storage="local", target_storage="local-lvm", file_path=path, sha256=sha, name="ou-tpl-debian12-agent", pool="ou-lab",
-             **(image[2] if len(image) > 2 else {}))
+    extra = dict(image[2]) if len(image) > 2 else {}
+    t = extra.pop("trust", None)
+    golden.set_trust_source((lambda: t) if t is not None else None)
+    if floor is not None:
+        st = golden.MemoryFloor()
+        st.v, st.d = {"debian-12": (floor.version, floor.image_sha256)}, ({"debian-12": floor.date} if floor.date else {})
+        golden.set_floor_store(st)
+    d = dict(node="pve1", import_storage="local", target_storage="local-lvm", file_path=path, sha256=sha, name="ou-tpl-debian12-agent", pool="ou-lab", **extra)
     d.update(kw)
     return ImageImportSpec(**d)
 
@@ -136,6 +147,8 @@ def test_m7_an_unsigned_or_unpinned_import_is_refused(sim, job, image, tmp_path)
     m = mutations(sim, scope=SCOPE)
     with pytest.raises(ProviderError, match="signed release"):
         m.import_image(spec((image[0], image[1])))                                   # a bare path + caller-supplied checksum: the pre-fix import path
+    with pytest.raises(ProviderError, match="trust configured"):
+        m.import_image(spec((image[0], image[1], {"release_dir": image[2]["release_dir"]})))   # no server trust configured: refused
     from ics.guest import golden
     wrong_pin = dict(image[2], trust=golden.Trust(image[2]["trust"].release_pubkey_pem, "00" * 32, image[2]["trust"].attestor_pubkey_b64))
     with pytest.raises(ProviderError, match="release verification failed"):
@@ -170,12 +183,31 @@ def test_m7_older_releases_are_refused_unless_an_explicit_downgrade(sim, job, tm
     # deleting every template in Proxmox does not lower anything: the floor is not read from there any more
 
 
-def test_m4_trust_must_be_the_server_built_object_not_caller_data(sim, job, image):
-    """review 7 M-4: the release key and pin come only from Settings (golden.verify_for_import builds golden.Trust); image.import is not a plan
-    parameter, and a spec carrying trust as plain data (what a caller could send) is refused before anything is uploaded."""
+def test_m4_trust_and_floor_are_not_spec_fields_and_caller_data_cannot_reach_the_verb(sim, job, image):
+    """review 7 M-4 / review 8 M-4: the release key, pin, attestor key and the rollback floor are read by the verb from server state only
+    (Settings via golden.server_trust, the DB via golden.floor_store). A spec cannot even carry them."""
+    import dataclasses
+    names = {f.name for f in dataclasses.fields(ImageImportSpec)}
+    assert not names & {"trust", "floor"}
+    with pytest.raises(TypeError):
+        ImageImportSpec(node="pve1", import_storage="local", target_storage="local-lvm", file_path=image[0], sha256=image[1], name="ou-tpl-x",
+                        pool="ou-lab", release_dir=image[2]["release_dir"], trust=image[2]["trust"])
+    from ics.guest import golden
     enable_import(sim)
     m = mutations(sim, scope=SCOPE)
-    for bad in ({"release_pubkey_pem": image[2]["trust"].release_pubkey_pem, "release_pin_sha256": image[2]["trust"].release_pin_sha256}, "pin", None):
-        with pytest.raises(ProviderError, match="trust"):
-            m.import_image(spec((image[0], image[1], dict(image[2], trust=bad))))
+    other = golden.Trust(image[2]["trust"].release_pubkey_pem, "00" * 32, image[2]["trust"].attestor_pubkey_b64)
+    golden.set_trust_source(lambda: other)                                             # the SERVER trust decides: wrong pin there -> refused
+    d = dict(image[2]); d.pop("trust")
+    with pytest.raises(ProviderError, match="release verification failed"):
+        m.import_image(ImageImportSpec(node="pve1", import_storage="local", target_storage="local-lvm", file_path=image[0], sha256=image[1],
+                                       name="ou-tpl-debian12-agent", pool="ou-lab", **d))
     assert not hasattr(sim.sim, "uploaded_bytes")
+
+
+def test_a_release_dated_before_the_accepted_one_is_refused(sim, job, tmp_path):
+    """review 8 M-4: the date floor is enforced as well as the version floor"""
+    from ics.guest import golden
+    enable_import(sim)
+    old = release(tmp_path, "20261001", version=7)
+    with pytest.raises(ProviderError, match="before the accepted release date"):
+        mutations(sim, scope=SCOPE).import_image(spec(old, floor=golden.Floor(6, "ab" * 32, "20261115")))

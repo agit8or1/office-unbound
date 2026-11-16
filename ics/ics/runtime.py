@@ -20,10 +20,7 @@ class Runtime:
         agentclient.stale_epoch_hook = lambda seen: epoch.self_fence(self, seen)
         from .guest import golden
         golden.set_floor_store(golden.DbFloor(self))        # review 7 M-4: the downgrade floor is ICS database state
-        try:
-            golden.configure(open(self.settings.guest_release_pubkey_file).read() if self.settings.guest_release_pubkey_file else None, self.settings.guest_release_pin_sha256)
-        except OSError:
-            golden.configure(None, None)                    # unreadable key file: image import stays refused
+        golden.set_trust_source(lambda: golden.trust_from_settings(self.settings))   # review 8 M-4: one trust configuration, read by the import verb
         self.own_epoch: int | None = None          # the controller epoch this process runs at (fixed at the first epoch.assert_active)
         self.fenced_reason: str | None = None      # sticky: set when this controller learns it is superseded; nothing leaves the process afterwards
         egress.identity = self._identity_headers

@@ -36,10 +36,15 @@ def configure(rt, tmp_path, version=1, sub="r1"):
 
 
 @pytest.fixture()
-def floor(owner_engine):
+def floor(owner_engine, rt):
     with owner_engine.begin() as c:
         c.execute(text("TRUNCATE image_floor"))
+    saved = (golden._FLOOR, golden._TRUST_SOURCE)
+    golden.set_floor_store(golden.DbFloor(rt))                                   # what Runtime installs in production
+    golden.set_trust_source(lambda: golden.trust_from_settings(rt.settings))
     yield
+    golden.set_floor_store(saved[0])
+    golden.set_trust_source(saved[1])
 
 
 def model(**kw):
@@ -143,7 +148,7 @@ def test_execution_imports_the_template_and_raises_the_db_floor(rt, tmp_path, fl
     r = imageimport.exec_import(rt, _DB(ep_row()), model(), None, [])
     vm = sim.sim.vms[r["vmid"]]
     assert vm["cfg"]["template"] == 1 and r["template"] == "ou-tpl-debian-12" and r["version"] == 2
-    assert golden.get_floor(rt, "debian-12") == golden.Floor(2, hashlib.sha256(BLOB).hexdigest())
+    assert golden.get_floor(rt, "debian-12") == golden.Floor(2, hashlib.sha256(BLOB).hexdigest(), "20261115")
 
 
 def test_a_release_swapped_after_approval_is_refused_before_upload(rt, tmp_path, floor, sim, job, monkeypatch):

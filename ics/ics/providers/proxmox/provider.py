@@ -1031,11 +1031,14 @@ class ProxmoxMutations(ProxmoxProvider):
         for st in (spec.import_storage, spec.target_storage):
             self._need_storage(st)
         from ...guest import golden     # late: guest.* imports providers
-        if not (spec.release_dir and isinstance(spec.trust, golden.Trust)):
-            raise ProviderError("invalid_request", "image import needs the signed release directory and the Settings-derived trust (golden.verify_for_import); an unsigned image is never imported")
-        try:
-            rel = golden.verify_release(spec.release_dir, spec.trust.release_pubkey_pem, spec.trust.release_pin_sha256, attestor_pubkey_b64=spec.trust.attestor_pubkey_b64,
-                                        floor=spec.floor, allow_downgrade=spec.allow_downgrade)
+        if not spec.release_dir:
+            raise ProviderError("invalid_request", "image import needs the signed release directory; an unsigned image is never imported")
+        try:   # review 8 M-4: trust from Settings and the floor from the ICS database, read here (never from the caller)
+            tr = golden.server_trust()
+            kw = dict(attestor_pubkey_b64=tr.attestor_pubkey_b64)
+            first = golden.verify_release(spec.release_dir, tr.release_pubkey_pem, tr.release_pin_sha256, **kw)
+            rel = golden.verify_release(spec.release_dir, tr.release_pubkey_pem, tr.release_pin_sha256, floor=golden.floor_store().floor(first.os),
+                                        allow_downgrade=spec.allow_downgrade, **kw)
         except golden.ReleaseError as e:
             raise ProviderError("integrity", f"release verification failed: {e}; nothing was uploaded") from None
         if os.path.realpath(spec.file_path) != os.path.realpath(rel.path) or not hmac_equal(spec.sha256, rel.sha256):
