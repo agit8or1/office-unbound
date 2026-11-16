@@ -187,6 +187,8 @@ def create_app(settings: Settings | None = None, runtime: Runtime | None = None)
     app.state.rt = rt
     if rt.settings.role == "standby":
         app.add_middleware(standby.StandbyGuard)
+    else:
+        app.add_middleware(standby.FenceGuard, check=rt.assert_active)       # review 7 H-5
     app.add_middleware(SecurityHeadersAndLimits, max_body=rt.settings.max_body_bytes, relax_paths=("/docs",) if docs else ())
 
     # ---- health ----

@@ -16,6 +16,7 @@ from cryptography.exceptions import InvalidSignature
 from cryptography.hazmat.primitives import serialization
 from cryptography.hazmat.primitives.asymmetric.ed25519 import Ed25519PrivateKey, Ed25519PublicKey
 
+from . import egress
 from .proxmox import ProxmoxError, build_ssl_context, check_destination
 from .vault import VaultError, read_key_file
 
@@ -85,6 +86,7 @@ def build_request(priv, *, action: str, params: dict, node_id: str, job_id: str,
 
 
 def _post(address: str, port: int, tls_fp: str, path: str, body: dict | None, *, allow_loopback: bool, deadline: float) -> tuple[int, dict]:
+    egress.require()      # review 7 H-5: a standby / fenced / superseded controller sends NOTHING to an agent (requests, identity probes, enrollment)
     try:
         check_destination(address, allow_loopback)
         ctx = build_ssl_context(ca_pem=None, fingerprint_sha256=tls_fp)

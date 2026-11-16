@@ -31,6 +31,7 @@ from .proxmox import ProxmoxError, ProxmoxReadClient, check_destination, normali
 from .providers.base import ProviderError, job_execution
 from .credentials import actions as cred_actions, service as cred_service
 from .runtime import Runtime
+from .epoch import NotActive
 from .tenancy import actions as ten_actions, approvals as tapprovals, policy as tpolicy, resolve as tresolve, scope as tscope
 from .vault import VaultError
 
@@ -908,6 +909,10 @@ def claim_job(rt: Runtime, backup_lane: bool = False) -> dict | None:
     Two lanes: backup.* jobs (minutes to an hour) are claimed only by the backup lane, everything else only by the main lane."""
     s = rt.settings
     with rt.session() as db:
+        try:
+            rt.assert_active(db, lock=True)   # review 7 H-5: a fenced/standby/superseded controller claims NOTHING (FOR SHARE: a concurrent fence waits for this txn)
+        except NotActive:
+            return None
         row = db.execute(text(
             "SELECT id, plan_id, action FROM jobs WHERE status = 'queued' AND (action LIKE 'backup.%') = :b ORDER BY created_at "
             "LIMIT 1 FOR UPDATE SKIP LOCKED"), {"b": backup_lane}).first()
@@ -923,6 +928,10 @@ def claim_job(rt: Runtime, backup_lane: bool = False) -> dict | None:
 
 def reap_expired(rt: Runtime) -> int:
     """Fail jobs whose lease expired (never re-run: at-most-once), wipe their plan secrets, and wipe secrets of expired pending plans."""
+    try:
+        rt.assert_active()    # review 7 H-5
+    except NotActive:
+        return 0
     n = 0
     with rt.session() as db:
         rows = db.execute(text(
@@ -982,6 +991,10 @@ def _verify_approval(rt: Runtime, db: Session, plan) -> None:
 
 
 def run_job(rt: Runtime, job: dict) -> None:
+    try:
+        rt.assert_active()    # review 7 H-5: fenced between claim and run: do not execute (the lease expires and the job is failed, never re-run)
+    except NotActive:
+        return
     result = error = None
     known: list[str] = []
     box: dict = {}

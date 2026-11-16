@@ -84,6 +84,7 @@ def build_manifest(plan, p: ReleasePromote, approvers: list[dict], now: int | No
 
 def exec_promote(rt, db, m: ReleasePromote, plan, known) -> dict:
     from .actions import PlanIntegrityError
+    rt.assert_active()      # review 7 H-5: a fenced/standby controller must not promote packages
     cmd = rt.settings.release_promote_cmd
     if not cmd:
         raise PlanIntegrityError("ICS_RELEASE_PROMOTE_CMD is not configured on this ICS")

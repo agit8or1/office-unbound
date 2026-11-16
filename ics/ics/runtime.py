@@ -1,7 +1,7 @@
 from sqlalchemy import create_engine
 from sqlalchemy.orm import Session, sessionmaker
 
-from . import agentclient, audit, epoch
+from . import agentclient, audit, egress, epoch
 from .config import Settings, load_settings
 from .vault import Vault, read_key_file
 
@@ -16,6 +16,12 @@ class Runtime:
         self.vault = Vault.from_file(self.settings.vault_key_file)
         audit.set_key(read_key_file(self.settings.audit_key_file, "audit key"))
         agentclient.stale_epoch_hook = lambda seen: epoch.self_fence(self, seen)
+        self.own_epoch: int | None = None          # the controller epoch this process runs at (fixed at the first epoch.assert_active)
+        self.fenced_reason: str | None = None      # sticky: set when this controller learns it is superseded; nothing leaves the process afterwards
+        egress.guard = lambda: epoch.assert_active(self)   # every egress path (agent, provider, notification, promotion, ssh) asks first
+
+    def assert_active(self, db=None, *, lock: bool = False) -> int:
+        return epoch.assert_active(self, db, lock=lock)
 
     def agent_epoch(self) -> int:
         """Epoch to stamp on a signed agent request; raises (and nothing is sent) when this controller is a standby or fenced."""
