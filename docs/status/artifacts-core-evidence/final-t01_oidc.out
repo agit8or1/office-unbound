@@ -1,0 +1,38 @@
+== T01 OIDC / roles / OpenCloud token acceptance (run 4d05ce4845) ==
+PASS discovery - issuer https://auth.ou-lab.internal/realms/ou-lab
+PASS client web registered - login page served for redirect https://cloud.ou-lab.internal/oidc-callback.html
+PASS client OpenCloudDesktop registered - login page served for redirect http://127.0.0.1
+PASS client OpenCloudAndroid registered - login page served for redirect oc://android.opencloud.eu
+PASS client OpenCloudIOS registered - login page served for redirect oc://ios.opencloud.eu
+PASS unregistered redirect rejected - HTTP 400
+PASS device grant endpoint - device_code issued (completion is manual)
+PASS alice roles claim - roles claim contains opencloudAdmin
+PASS alice access token lifetime - 300s
+PASS alice userinfo roles - roles present in userinfo
+PASS offline_access refresh token - typ=Offline
+PASS alice accepted by OpenCloud (user resolved from shared LDAP via entryUUID) - GET /graph/v1.0/me 200
+PASS alice OpenCloud username - onPremisesSamAccountName=alice
+PASS alice OpenCloud role id - role opencloudAdmin assigned
+PASS bob roles claim - roles claim contains opencloudUser
+PASS bob access token lifetime - 300s
+PASS bob userinfo roles - roles present in userinfo
+PASS bob accepted by OpenCloud (user resolved from shared LDAP via entryUUID) - GET /graph/v1.0/me 200
+PASS bob OpenCloud username - onPremisesSamAccountName=bob
+PASS bob OpenCloud role id - role opencloudUser assigned
+PASS carol roles claim - roles claim contains opencloudSpaceAdmin
+PASS carol access token lifetime - 300s
+PASS carol userinfo roles - roles present in userinfo
+PASS carol accepted by OpenCloud (user resolved from shared LDAP via entryUUID) - GET /graph/v1.0/me 200
+PASS carol OpenCloud username - onPremisesSamAccountName=carol
+PASS carol OpenCloud role id - role opencloudSpaceAdmin assigned
+PASS dave roles claim - roles claim contains opencloudGuest
+PASS dave access token lifetime - 300s
+PASS dave userinfo roles - roles present in userinfo
+PASS dave accepted by OpenCloud (user resolved from shared LDAP via entryUUID) - GET /graph/v1.0/me 200
+PASS dave OpenCloud username - onPremisesSamAccountName=dave
+PASS dave OpenCloud role id - role opencloudGuest assigned
+PASS erin has no OpenCloud role - no OpenCloud role in claim
+PASS erin access token lifetime - 300s
+PASS erin userinfo roles - roles present in userinfo
+PASS erin rejected by OpenCloud - HTTP 403 (login fails cleanly without role claim)
+-- T01 OIDC / roles / OpenCloud token acceptance: 36 PASS, 0 FAIL, 0 SKIP

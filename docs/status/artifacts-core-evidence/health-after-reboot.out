@@ -1,0 +1,11 @@
+PASS pg_isready (postgresql-16) - 127.0.0.1:5432 - accepting connections 
+PASS LDAP bind as service account svc-bind over LDAPS - dn:cn=svc-bind,ou=system,dc=ou-lab,dc=internal 
+PASS LDAP service account sees the 5 lab users - 5+ users 
+PASS Keycloak /health/ready (management port 9000) - UP 
+PASS Keycloak OIDC discovery through the edge (TLS, lab CA) - https://auth.ou-lab.internal/realms/ou-lab 
+PASS OpenCloud /status.php (container port 9200) - installed 
+PASS OpenCloud /status.php through the edge (TLS, lab CA) - "productversion": "9.1.0" 
+PASS OpenCloud WebDAV (PROPFIND on the root of a user needs a token: unauthenticated request must be refused with 401) - 401 
+PASS unit ou-identity-keycloak active, container digest = pinned digest - active sha256:a7e5003b478b41652446008c91518da42c6ec8371260b1932696ce7af3fbf684 user=10130:10130 readonly=true caps=[CAP_CHOWN CAP_DAC_OVERRIDE CAP_FOWNER CAP_FS
+PASS unit ou-files-opencloud active, container digest = pinned digest - active sha256:8105eed9f97ab9a80fdaa47de4e8e414e592aa983a74f590d4effc00d5b8afce user=10140:10140 readonly=true caps=[CAP_CHOWN CAP_DAC_OVERRIDE CAP_FOWNER CAP_FS
+PASS container processes run unprivileged on the host - 30129 30139 ou-svc postgres 

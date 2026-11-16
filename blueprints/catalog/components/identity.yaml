@@ -3,9 +3,27 @@ version: 1.0.0
 title: Identity (OpenLDAP + Keycloak + PostgreSQL)
 description: Directory of record (OpenLDAP), OIDC provider (Keycloak) and its database (PostgreSQL). ADR-0004.
 artifacts:
-  - {name: openldap, kind: package, package: slapd, version: "2.6.10", repo: ubuntu-noble}
-  - {name: postgresql, kind: package, package: postgresql-16, version: "16.15", repo: ubuntu-noble}
-  - {name: keycloak, kind: oci, image: registry.ou.invalid/ou/keycloak, digest: "sha256:aaa428f432a6113e65acf6df9df124f153054b4e45a9fc4aaa5e8b9e028a50db", version: "26.8.2"}
+  # exact apt versions (pkg.install_pinned refuses ranges and bare upstream versions), proven with the agent runbook in docs/status/artifacts-core-results.md
+  - {name: openldap, kind: package, package: slapd, version: "2.6.10+dfsg-0ubuntu0.24.04.1", repo: ubuntu-noble}
+  - {name: postgresql, kind: package, package: postgresql-16, version: "16.15-0ubuntu0.24.04.1", repo: ubuntu-noble}
+  # Keycloak 26.8.2: upstream tarball (Maven Central sha256 + sha1 and GitHub release digest + sha1 agree; the release .asc is present but its key could not be
+  # checked from an authorized source) wrapped, not rebuilt, in a non-root image (blueprints/build/oci/idfiles); signed with the DEV channel key of the hardened
+  # signer (ou-oci-sign). The registry host stays the .invalid placeholder (the digest is registry-independent); the lab copy is 192.168.186.235:5000/ou/keycloak.
+  # Staging/stable need critical_unwaived == 0: the base-OS findings recorded in docs/status/artifacts-core-evidence block promotion today.
+  - name: keycloak
+    kind: oci
+    image: registry.ou.invalid/ou/keycloak
+    digest: "sha256:a7e5003b478b41652446008c91518da42c6ec8371260b1932696ce7af3fbf684"
+    version: "26.8.2"
+    signed: true
+    unit:
+      type: container-hostnet          # reaches PostgreSQL and the edge on 127.0.0.1 (same VM)
+      memory_mib: 1400
+      env: {KC_DB: postgres, KC_DB_URL: "jdbc:postgresql://127.0.0.1:5432/keycloak", KC_DB_USERNAME: keycloak, KC_HOSTNAME: "https://auth.{domain}",
+            KC_HTTP_ENABLED: "true", KC_HTTP_HOST: 127.0.0.1, KC_HTTP_PORT: "8080", KC_PROXY_HEADERS: xforwarded, KC_HEALTH_ENABLED: "true",
+            KC_TRUSTSTORE_PATHS: /opt/ou-tls/ca.crt, KC_BOOTSTRAP_ADMIN_USERNAME: kcadmin}
+      secrets: [{name: kc-db-password, env: KC_DB_PASSWORD}, {name: kc-admin-password, env: KC_BOOTSTRAP_ADMIN_PASSWORD}]
+      volumes: [{name: data, path: /opt/keycloak/data}, {name: tls, path: /opt/ou-tls, read_only: true}]
 resources:
   cores:     {base: 2,    per_user: 0.004, source: "lab ou-id1: Keycloak java 0.65-0.87 GB RSS; +1 core per 250 users is a planning assumption (docs/status/identity-files-lab-results.md)"}
   memory_mb: {base: 2048, per_user: 2,     source: "identity-files-lab-results.md: ou-id1 MemoryMax 2G, machine total 0.87 GB idle; 2 MB/user JVM cache growth is an unmeasured assumption"}
@@ -15,12 +33,16 @@ volumes:
   - {name: pgdata, path: /var/lib/postgresql, size_gb: {base: 5, per_user: 0.005, source: "lab keycloak DB tiny; headroom for sessions/events (assumption)"}, backup: true}
 ports:
   - {name: ldaps, port: 636, proto: tcp, exposure: internal}
-  - {name: keycloak-https, port: 8444, proto: tcp, exposure: edge}
+  - {name: keycloak-http, port: 8080, proto: tcp, exposure: local}
+  - {name: keycloak-management, port: 9000, proto: tcp, exposure: local}
   - {name: postgres, port: 5432, proto: tcp, exposure: local}
 depends_on: []
+notices:
+  - "Node-local state the Keycloak unit reads is not yet created by the deployment engine: the podman secrets kc-db-password and kc-admin-password, the rendered realm import in volume data and the lab CA in volume tls (docs/status/artifacts-core-results.md, gaps)."
 dns: []
 health_checks:
-  - {name: keycloak-oidc, kind: http, port: 8444, path: /realms/master/.well-known/openid-configuration, expect_status: 200}
+  - {name: keycloak-ready, kind: http, port: 9000, path: /health/ready, expect_status: 200, body_contains: '"UP"'}
+  - {name: keycloak-oidc, kind: http, port: 8080, path: /realms/master/.well-known/openid-configuration, expect_status: 200}
   - {name: ldaps-tls, kind: tcp_tls, port: 636}
 backup:
   method: online_dump

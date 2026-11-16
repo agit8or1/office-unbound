@@ -448,7 +448,7 @@ def _step(key: str, kind: str, target: str, op: str, params: dict, deps: list[st
             "disruptive": extra.get("disruptive", False), "downtime_seconds": extra.get("downtime_seconds", 0), "est_seconds": extra.get("est_seconds", EST.get(key.split(":")[0], 30))}
 
 
-def _install_params(c: Component) -> list[dict]:
+def _install_params(c: Component, domain: str = "") -> list[dict]:
     """Runbook parameters in exactly the shape the node agent's closed schemas accept (agent/ou_agent/guestspec.py): the image is one
     digest-pinned reference `<registry>/<repo>@sha256:<digest>`, ports carry an explicit bind address."""
     out = []
@@ -456,10 +456,20 @@ def _install_params(c: Component) -> list[dict]:
         if a.kind == "oci":
             ref = f"{a.image}@{a.digest}"
             out.append({"runbook": "podman.pull_verified", "params": {"image": ref}})
-            out.append({"runbook": "podman.deploy_unit", "params": {
-                "component": c.name, "name": a.name, "type": "container", "image": ref,
-                "ports": [{"bind": "127.0.0.1" if p.exposure == "local" else "0.0.0.0", "host": p.port, "container": p.port, "proto": p.proto}
-                          for p in c.ports if p.name != "agent"]}})
+            params = {"component": c.name, "name": a.name, "type": "container", "image": ref,
+                      "ports": [{"bind": "127.0.0.1" if p.exposure == "local" else "0.0.0.0", "host": p.port, "container": p.port, "proto": p.proto}
+                                for p in c.ports if p.name != "agent"]}
+            u = getattr(a, "unit", None)
+            if u is not None:   # configured unit (artifacts-core): env/volumes/named secrets exactly as the agent's closed schema takes them
+                params.update({"type": u.type, "env": {k: v.replace("{domain}", domain) for k, v in sorted(u.env.items())},
+                               "secrets": [{"name": x.name, "env": x.env} for x in u.secrets],
+                               "volumes": [{"name": x.name, "path": x.path, "read_only": x.read_only} for x in u.volumes],
+                               "memory_mib": u.memory_mib, "read_only": u.read_only})
+                if u.user:
+                    params["user"] = u.user
+                if u.type == "container-hostnet":
+                    params["ports"] = []   # host networking carries no published ports (the agent refuses both)
+            out.append({"runbook": "podman.deploy_unit", "params": params})
         else:
             out.append({"runbook": "pkg.install_pinned", "params": {"packages": [{"name": a.package, "version": a.version}]}})
     return out
@@ -529,7 +539,7 @@ def create_steps(vms: list[dict], inp: PlanInput, cat: Catalog, extra_nic: bool 
                 for (vn, vt) in inst.get(d, []):
                     if _scope_match(vt, v["tenant"]):
                         deps.append(f"health.verify:{vn}:{d}")
-            steps.append(_step(f"comp.install:{n}:{cname}", "agent_runbook", n, "install", {"component": cname, "runbooks": _install_params(c)}, deps))
+            steps.append(_step(f"comp.install:{n}:{cname}", "agent_runbook", n, "install", {"component": cname, "runbooks": _install_params(c, inp.domain if v["tenant"] is None else f"{v['tenant']}.{inp.domain}")}, deps))
             steps.append(_step(f"checks.register:{n}:{cname}", "register_checks", n, "register", {"component": cname},
                                [f"comp.install:{n}:{cname}"]))
             steps.append(_step(f"health.verify:{n}:{cname}", "verify_health", n, "verify", {"component": cname, "timeout_seconds": 300},

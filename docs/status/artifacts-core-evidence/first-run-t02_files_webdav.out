@@ -1,0 +1,13 @@
+== T02 WebDAV round-trip (run b1950d4b46) ==
+PASS webdav base path - using /remote.php/dav/files/bob
+PASS MKCOL - created ou-lab-tests-b1950d4b46
+PASS PUT small.txt - HTTP 201
+FAIL GET small.txt identical - HTTP 425, hash mismatch
+PASS PUT big.bin - HTTP 201
+PASS GET big.bin identical - sha256 23d99ae22247
+PASS PROPFIND lists files - both files listed
+PASS MOVE (rename) - HTTP 201
+PASS renamed content intact - hash ok
+SKIP restart persistence - neither OU_SSH_FILES nor OU_RESTART_CMD+OU_MACHINE_FILES set
+PASS cleanup - deleted
+-- T02 WebDAV round-trip: 9 PASS, 1 FAIL, 1 SKIP

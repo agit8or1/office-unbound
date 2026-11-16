@@ -3,7 +3,21 @@ version: 1.0.0
 title: Files (OpenCloud)
 description: File sync and share (OpenCloud + collaboration service), OIDC against identity. ADR-0005.
 artifacts:
-  - {name: opencloud, kind: oci, image: registry.ou.invalid/ou/opencloud, digest: "sha256:3d77d2643078cc2e51a3daddea543f3f822548cc8f939ffaa7ac7fdbb252edcd", version: "9.1.0"}
+  # OpenCloud 9.1.0: upstream release binary (the .sha256 file next to it and the GitHub asset digest agree with our sha256; upstream publishes no signature)
+  # wrapped, not rebuilt, in a non-root image (blueprints/build/oci/idfiles), signed with the DEV channel key of the hardened signer (ou-oci-sign).
+  # Registry host: .invalid placeholder (digest is registry-independent); lab copy 192.168.186.235:5000/ou/opencloud.
+  - name: opencloud
+    kind: oci
+    image: registry.ou.invalid/ou/opencloud
+    digest: "sha256:8105eed9f97ab9a80fdaa47de4e8e414e592aa983a74f590d4effc00d5b8afce"
+    version: "9.1.0"
+    signed: true
+    unit:
+      type: container-hostnet
+      memory_mib: 900
+      env: {OC_CONFIG_DIR: /var/lib/opencloud-config, OC_BASE_DATA_PATH: /var/lib/opencloud}
+      secrets: [{name: ldap-bind-password, env: OC_LDAP_BIND_PASSWORD}, {name: oc-admin-password, env: OU_INIT_ADMIN_PASSWORD}]
+      volumes: [{name: data, path: /var/lib/opencloud}, {name: config, path: /var/lib/opencloud-config}, {name: tls, path: /opt/ou-tls, read_only: true}]
 resources:
   cores:     {base: 1,    per_user: 0.004, source: "identity-files-lab-results.md: ou-files1 light; scale is a planning assumption"}
   memory_mb: {base: 1024, per_user: 1,     source: "identity-files-lab-results.md: ou-files1 0.23 GB idle, 0.57 GB peak, MemoryMax 2G"}
@@ -14,10 +28,12 @@ ports:
   - {name: opencloud, port: 9200, proto: tcp, exposure: edge}
   - {name: collaboration, port: 9300, proto: tcp, exposure: edge}
 depends_on: [identity]
+notices:
+  - "Node-local state the OpenCloud unit reads is not yet created by the deployment engine: the podman secrets ldap-bind-password and oc-admin-password and the rendered configuration (ou.env, csp.yaml) in volume config (docs/status/artifacts-core-results.md, gaps). The proven topology serves OpenCloud as plain HTTP on 127.0.0.1:9200 behind a same-VM TLS proxy."
 dns:
   - {host: cloud, type: A, target: edge}
 health_checks:
-  - {name: opencloud-tls, kind: tcp_tls, port: 9200}
+  - {name: opencloud-status, kind: http, port: 9200, path: /status.php, expect_status: 200, body_contains: '"installed":true'}
 backup:
   method: tar_xattr
   description: "tar with user.* xattrs + ACLs, numeric owners; brief stop of opencloud+collaboration; config dir included"

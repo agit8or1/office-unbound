@@ -1,0 +1,21 @@
+== T06 Disable user: session/token lifetime after deprovisioning (run bd4cb5eb2e) ==
+PASS A directory-lock only: baseline login - SSO + offline tokens issued
+PASS A directory-lock only: baseline OpenCloud+refresh - me/dav/refresh/offline = (200, 207, 200, 200)
+INFO A directory-lock only: directory lock applied at t0 (+0.0s)
+PASS A directory-lock only: new password login - denied after 0s
+FAIL A directory-lock only: SSO refresh token - STILL WORKING after 420s (horizon) (target <= 300s)
+FAIL A directory-lock only: offline refresh token - STILL WORKING after 420s (horizon) (target <= 300s)
+PASS A directory-lock only: old access token -> OpenCloud /me - denied after 11s
+PASS A directory-lock only: old access token -> OpenCloud WebDAV - denied after 11s
+PASS A directory-lock only: FRESH access token (from refresh) -> OpenCloud /me - denied after 11s
+PASS B lock + Keycloak revoke: baseline login - SSO + offline tokens issued
+PASS B lock + Keycloak revoke: baseline OpenCloud+refresh - me/dav/refresh/offline = (200, 207, 200, 200)
+INFO B lock + Keycloak revoke: directory lock applied at t0 (+0.0s) kc-revoke={'consents': [204], 'logout': 204, 'disable': 204} done at +0s
+PASS B lock + Keycloak revoke: new password login - denied after 0s
+PASS B lock + Keycloak revoke: SSO refresh token - denied after 0s
+PASS B lock + Keycloak revoke: offline refresh token - denied after 0s
+PASS B lock + Keycloak revoke: old access token -> OpenCloud /me - denied after 11s
+PASS B lock + Keycloak revoke: old access token -> OpenCloud WebDAV - denied after 11s
+PASS B lock + Keycloak revoke: FRESH access token (from refresh) -> OpenCloud /me - denied after 0s
+-- T06 Disable user: session/token lifetime after deprovisioning: 14 PASS, 2 FAIL, 0 SKIP
+exit=1

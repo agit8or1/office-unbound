@@ -4,7 +4,8 @@
 # the lab base image localhost/ou-base-noble (blueprints/build/collab/build.sh make_base). Signing is NOT done here: ou-oci-sign signs, on the ICS host.
 # usage (root): build-images.sh <mas|jitsi-web|prosody|jicofo|jvb|keycloak|opencloud|all>      source tree: /root/oci-oci/src = this directory (blueprints/build/oci)
 set -euo pipefail
-SRC=${SRC:-/root/oci/src}; OUT=/root/oci/out; REG=127.0.0.1:5000; BASE=localhost/ou-base-noble:latest
+SFX=${OU_TAG_SUFFIX:-}   # e.g. -ou1: a separate tag (and context dir) so a rebuild never overwrites another build's tag
+SRC=${SRC:-/root/oci/src}; OUT=${OUT:-/root/oci/out}; REG=127.0.0.1:5000; BASE=localhost/ou-base-noble:latest
 JW=/home/imgbuild/jitsi; MO=/home/imgbuild/mas/out
 mkdir -p "$OUT"
 IB() { su - imgbuild -c "$*"; }
@@ -24,7 +25,7 @@ PY
 }
 
 stage() {
-  local n=$1 c=/home/imgbuild/ctx-oci-$1
+  local n=$1 c=/home/imgbuild/ctx-oci-$1$SFX
   rm -rf "$c"; mkdir -p "$c"
   case $n in
     mas) cp -a "$SRC/mas/Containerfile" "$SRC/mas/entrypoint.sh" "$c/"; cp "$MO/mas-cli" "$c/"; cp -a "$MO/share" "$c/share" ;;
@@ -34,8 +35,8 @@ stage() {
     jicofo) cp -a "$SRC/jitsi/jicofo/." "$c/"; mkdir -p "$c/jicofo"; cp -a "$JW/x/jicofo/usr/share/jicofo/." "$c/jicofo/"; cp "$JW/x/jicofo/etc/jitsi/jicofo/logging.properties" "$c/" ;;
     jvb) cp -a "$SRC/jitsi/jvb/." "$c/"; mkdir -p "$c/jitsi-videobridge"; cp -a "$JW/x/jitsi-videobridge2/usr/share/jitsi-videobridge/." "$c/jitsi-videobridge/"
          cp "$JW/x/jitsi-videobridge2/etc/jitsi/videobridge/logging.properties" "$c/" ;;
-    keycloak) cp -a "$SRC/idfiles/keycloak/." "$c/"; cp -a /home/imgbuild/idfiles/kc "$c/kc" ;;
-    opencloud) cp -a "$SRC/idfiles/opencloud/." "$c/"; cp /home/imgbuild/idfiles/opencloud "$c/opencloud" ;;
+    keycloak) cp -a "$SRC/idfiles/keycloak/." "$c/"; cp -a "${IDW:-/home/imgbuild/idfiles}/kc" "$c/kc" ;;
+    opencloud) cp -a "$SRC/idfiles/opencloud/." "$c/"; cp "${IDW:-/home/imgbuild/idfiles}/opencloud" "$c/opencloud" ;;
   esac
   chown -R imgbuild:imgbuild "$c"
 }
@@ -43,16 +44,16 @@ stage() {
 build() { # $1 name  $2 repo  $3 tag
   local n=$1 repo=$2 tag=$3
   stage "$n"
-  IB "cd /home/imgbuild/ctx-oci-$n && $BUD --build-arg BASE=$BASE -t ou-$n:$tag ." >"$OUT/$n.build.log" 2>&1 || { tail -30 "$OUT/$n.build.log"; return 1; }
-  cat > /home/imgbuild/push-oci-$n.sh <<EOS
+  IB "cd /home/imgbuild/ctx-oci-$n$SFX && $BUD --build-arg BASE=$BASE -t ou-$n:$tag$SFX ." >"$OUT/$n.build.log" 2>&1 || { tail -30 "$OUT/$n.build.log"; return 1; }
+  cat > /home/imgbuild/push-oci-$n$SFX.sh <<EOS
 #!/bin/bash
 set -e
-skopeo copy --dest-tls-verify=false containers-storage:[vfs@/home/imgbuild/.local/share/containers/storage+/home/imgbuild/run]localhost/ou-$n:$tag docker://$REG/$repo:$tag
+skopeo copy --dest-tls-verify=false containers-storage:[vfs@/home/imgbuild/.local/share/containers/storage+/home/imgbuild/run]localhost/ou-$n:$tag$SFX docker://$REG/$repo:$tag$SFX
 EOS
-  chmod +x /home/imgbuild/push-oci-$n.sh; chown imgbuild /home/imgbuild/push-oci-$n.sh
-  IB "buildah unshare /home/imgbuild/push-oci-$n.sh" >>"$OUT/$n.build.log" 2>&1
-  local d; d=$(skopeo inspect --tls-verify=false --format '{{.Digest}}' "docker://$REG/$repo:$tag")
-  echo "$n $repo:$tag $d" | tee -a "$OUT/digests.txt"
+  chmod +x /home/imgbuild/push-oci-$n$SFX.sh; chown imgbuild /home/imgbuild/push-oci-$n$SFX.sh
+  IB "buildah unshare /home/imgbuild/push-oci-$n$SFX.sh" >>"$OUT/$n.build.log" 2>&1
+  local d; d=$(skopeo inspect --tls-verify=false --format '{{.Digest}}' "docker://$REG/$repo:$tag$SFX")
+  echo "$n $repo:$tag$SFX $d" | tee -a "$OUT/digests.txt"
 }
 
 T=${1:-all}
