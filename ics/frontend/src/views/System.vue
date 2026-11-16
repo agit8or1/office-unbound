@@ -1,6 +1,7 @@
 <script setup lang="ts">
 import { computed } from 'vue'
-import { get, type SystemInfo as BuildSystemInfo } from '../api'
+import { get, type ControllerInfo, type SystemInfo as BuildSystemInfo } from '../api'
+import { RUNBOOK_URL, fmtSeconds, lagState, roleLabel } from '../controller'
 import { fmtBytes, fmtTime, useLoad } from '../store'
 import { ago, COMPONENT_LABELS, buildLabel } from '../format'
 import PageHeader from '../ui/PageHeader.vue'
@@ -14,7 +15,7 @@ interface Thread { name: string; state: 'ok' | 'stalled' | 'off'; last_progress_
 interface SystemInfo extends BuildSystemInfo {
   migration_head: string | null; ready: boolean; checks: Record<string, boolean>; heartbeat_age_seconds: number | null
   worker_enabled: boolean; threads: Thread[]; database_bytes: number | null; disk: { total: number; free: number } | null
-  backup: { known: boolean; at: string | null }
+  backup: { known: boolean; at: string | null }; controller?: ControllerInfo
 }
 const sys = useLoad(() => get<SystemInfo>('system'), 15000)
 const comps = computed(() => Object.entries(sys.data.value?.components ?? {}).map(([k, v]) => ({ key: k, label: COMPONENT_LABELS[k] ?? k, version: v })))
@@ -50,6 +51,23 @@ const tone = (s: string) => (s === 'ok' ? 'ok' : s === 'off' ? 'idle' : 'critica
             <dt>Database size</dt><dd>{{ fmtBytes(sys.data.value.database_bytes) }}</dd>
             <dt>Disk free</dt><dd>{{ sys.data.value.disk ? fmtBytes(sys.data.value.disk.free) + ' of ' + fmtBytes(sys.data.value.disk.total) : 'unknown' }}</dd>
           </dl>
+        </Card>
+        <Card v-if="sys.data.value.controller" title="Controller role" hint="Which controller is in charge. Only one controller is allowed to act at a time." data-testid="controller-card">
+          <dl class="sys">
+            <dt>Role</dt><dd><StatusBadge :s="roleLabel(sys.data.value.controller).tone === 'ok' ? 'ok' : roleLabel(sys.data.value.controller).tone === 'warn' ? 'warning' : 'critical'" :text="roleLabel(sys.data.value.controller).text" /></dd>
+            <dt>Epoch</dt><dd>{{ sys.data.value.controller.epoch ?? 'unknown' }} <span class="muted small">(raised by every takeover; agents refuse an older one)</span></dd>
+            <dt v-if="sys.data.value.controller.node_name">Controller</dt><dd v-if="sys.data.value.controller.node_name">{{ sys.data.value.controller.node_name }}</dd>
+            <template v-if="sys.data.value.controller.role === 'standby'">
+              <dt>Replication</dt>
+              <dd v-if="sys.data.value.controller.replication"><StatusBadge :s="sys.data.value.controller.replication.ok ? 'ok' : 'critical'" :text="sys.data.value.controller.replication.ok ? 'In step with the primary' : 'Behind or disconnected'" />
+                <span class="muted small"> newest copied change {{ fmtSeconds(sys.data.value.controller.replication.heartbeat_age_seconds) }} old, limit {{ fmtSeconds(sys.data.value.controller.max_lag_seconds) }} ({{ lagState(sys.data.value.controller.replication) }})</span></dd>
+              <dd v-else class="muted">Not available.</dd>
+            </template>
+            <dt>Last takeover</dt>
+            <dd v-if="sys.data.value.controller.last_promotion">{{ fmtTime(sys.data.value.controller.last_promotion.at) }} by {{ sys.data.value.controller.last_promotion.by ?? 'unknown' }}<span v-if="sys.data.value.controller.last_promotion.new_epoch !== null"> (epoch {{ sys.data.value.controller.last_promotion.old_epoch }} to {{ sys.data.value.controller.last_promotion.new_epoch }})</span></dd>
+            <dd v-else class="muted">This controller has never been promoted.</dd>
+          </dl>
+          <p class="small"><a :href="RUNBOOK_URL" target="_blank" rel="noopener noreferrer">Recovery runbook</a></p>
         </Card>
         <Card title="Background services" hint="Each service reports progress; a stalled one turns the readiness check red.">
           <p v-if="!sys.data.value.worker_enabled" class="muted">The worker is not running inside this server process.</p>

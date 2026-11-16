@@ -135,6 +135,11 @@ def register(app: FastAPI, rt, API: str) -> None:
         return {**base, "configured": True, "records_readable": bool(s.release_records_dir and os.path.isdir(s.release_records_dir)),
                 "channels": [chans[c] for c in CHANNELS], "candidates": candidates(chans, need)}
 
+    @app.get(f"{API}/approvals/policy")
+    def approval_policy(user: User = Depends(require("viewer"))):
+        """How many distinct approvers a plan needs per risk level (the console shows this; it never computes it)."""
+        return {"normal": 1, "high": rt.settings.required_approvals_high}
+
     @app.get(f"{API}/deployments/{{slug}}/bootstrap")
     def bootstrap(slug: str, user: User = Depends(require("viewer")), db: Session = Depends(get_db)):
         d = db.execute(text(f"SELECT id FROM deployments WHERE slug = :s AND {tscope.endpoint_clause(db)}"), {"s": slug}).first()

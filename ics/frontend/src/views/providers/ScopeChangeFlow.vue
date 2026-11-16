@@ -14,6 +14,8 @@ import {
   scopeTargetOf, scopeTargetValid, storageLocality, validateCreds, wipeAdmin, type PermissionsView, type ScopeMode, type ScopePreviewOut, type WizardModel, type InfraNode, type InfraStorage,
 } from './model'
 import { useRun } from './run'
+import { get, type ApprovalPolicy } from '../../api'
+import { scopeApprovalText } from '../../approvals'
 import './providers.css'
 
 const props = defineProps<{ endpointId: string; name: string; view: PermissionsView }>()
@@ -63,6 +65,9 @@ async function doPreview() {
   const p = job?.status === 'succeeded' ? scopePreviewOf(job) : null
   if (p) { preview.value = p; stage.value = 'review'; ack.value = false }
 }
+const policy = ref<ApprovalPolicy | null>(null)
+onMounted(async () => { try { policy.value = await get<ApprovalPolicy>('approvals/policy') } catch { /* the count is shown after submit instead */ } })
+const approvalLine = computed(() => scopeApprovalText(preview.value?.risk, policy.value))
 const blocked = computed(() => preview.value?.blocked ?? [])
 const high = computed(() => preview.value?.risk === 'high')
 const dirText = computed(() => (preview.value ? DIRECTION_TEXT[preview.value.direction] : null))
@@ -135,7 +140,7 @@ const fmtNodes = (n: string[], mode_: string) => (mode_ === 'whole_cluster' ? `a
       </template>
 
       <template v-else-if="preview">
-        <Banner :kind="blocked.length ? 'bad' : high ? 'warn' : 'info'" :title="dirText?.title ?? ''">{{ dirText?.text }}</Banner>
+        <Banner :kind="blocked.length ? 'bad' : high ? 'warn' : 'info'" :title="dirText?.title ?? ''">{{ dirText?.text }}<span v-if="approvalLine" class="block" data-testid="scope-approvals"> {{ approvalLine }}</span></Banner>
         <Banner v-for="b in blocked" :key="b" kind="bad" title="Cannot be done as it stands">{{ b }}</Banner>
 
         <h3>Before and after</h3>

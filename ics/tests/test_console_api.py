@@ -79,3 +79,7 @@ def test_system_controller_block(mk_user, login):
     adm = login(mk_user("adm2", "admin"))[0]
     c = adm.get(f"{H}/system").json()["controller"]
     assert c["role"] == "primary" and c["epoch"] >= 1 and c["fenced"] is False and c["replication"] is None
+
+
+def test_approval_policy(mk_user, login):
+    assert login(mk_user("vw3", "viewer"))[0].get(f"{H}/approvals/policy").json() == {"normal": 1, "high": 2}

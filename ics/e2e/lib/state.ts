@@ -3,7 +3,7 @@ import crypto from 'node:crypto'
 
 export type Role = 'admin' | 'approver' | 'approver2' | 'operator' | 'viewer'
 export interface UserState { role: string; password: string; totp_secret?: string; last_step?: number; enrollment_token?: string }
-export interface State { base: string; users: Record<string, UserState>; tls_port: number; plain_port: number; pending_plan_ids: string[] }
+export interface State { base: string; users: Record<string, UserState>; tls_port: number; plain_port: number; pending_plan_ids: string[]; boot_slug?: string }
 
 export function state(): State {
   const p = process.env.E2E_STATE
