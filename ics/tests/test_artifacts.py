@@ -132,7 +132,7 @@ def srv(**kw):
 
 def test_nginx_is_read_only_rate_limited_and_lists_nothing():
     t = art.render_nginx(srv())
-    assert "listen 192.168.22.167:8444 ssl;" in t and "if ($request_method !~ ^(GET|HEAD)$) { return 405; }" in t
+    assert "listen 192.168.22.167:8446 ssl;" in t and "if ($request_method !~ ^(GET|HEAD)$) { return 405; }" in t
     assert "autoindex off;" in t and "autoindex on" not in t
     assert "location = /v2/_catalog { return 403; }" in t and "tags/list$ { return 403; }" in t
     assert "limit_req zone=ou_art_req" in t and "limit_conn ou_art_conn" in t and "ou-artifacts.access.log" in t
@@ -156,7 +156,7 @@ def test_registry_configs_reader_is_readonly_and_push_has_no_network_listener():
     for t in (ro, push):
         assert "delete:\n    enabled: false" in t
     nft = art.render_nft(srv())
-    assert "tcp dport 8444 ip saddr { 127.0.0.1, 192.168.22.167, 10.64.0.0/16 } accept" in nft and "tcp dport 8444 drop" in nft
+    assert "tcp dport 8446 ip saddr { 127.0.0.1, 192.168.22.167, 10.64.0.0/16 } accept" in nft and "tcp dport 8444 drop" in nft
 
 
 def test_render_server_cli_writes_all_files(tmp_path):
