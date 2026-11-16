@@ -99,6 +99,8 @@ licensecheck() {
 
 compile() {
   c=$1; eval "$(rv vars "$c")"
+  # the builder machine is a singleton: serialise concurrent compile runs (a second one would destroy the first one's machine)
+  exec 9> "$STATE/builder.lock"; flock 9
   SDE=$(sed -n 's/^source_date_epoch=//p' "$STATE/out/$c/source.info")
   DEBV="$UPSTREAM_VERSION-${OU_REVISION_C:-$OU_REVISION}"   # per-recipe ou_revision overrides tools.env
   stage=$STATE/in/$c; rm -rf "$stage/debian" "$stage/patches"

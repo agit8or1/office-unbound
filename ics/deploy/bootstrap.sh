@@ -16,6 +16,7 @@ STAMP=$STATE/ics-release.sha256
 SRC="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 export LC_ALL=C
 
+FROM_REPO=""; REPO_URL=""; REPO_KEY=""; REPO_FPR=""; PKG_VERSION=""
 LISTEN_IP=""; HOSTNAME_FQDN=""; ADMIN=""; SKIP_TLS=0; SKIP_FW=0; UNINSTALL=0; PURGE=0
 TLS_CERT=""; TLS_KEY=""; ALLOW=()
 CHANGES=()
@@ -26,6 +27,7 @@ usage() {
 cat <<'EOF'
 usage: bootstrap.sh --listen-ip IP --allow-cidr CIDR [--allow-cidr CIDR ...] [--hostname FQDN] [--admin USER]
                     [--tls-cert FILE --tls-key FILE] [--skip-firewall]
+                    [--from-repo CHANNEL --repo-url URL [--repo-key FILE] [--repo-key-fingerprint FPR] [--version V]]
        bootstrap.sh --skip-tls [--admin USER]            loopback-only (no nginx, no firewall, no certificates)
        bootstrap.sh --uninstall [--purge]                remove services/config; keys, DB and certs are KEPT unless --purge
   --listen-ip IP     address nginx listens on (:443); must be configured on this host
@@ -34,6 +36,11 @@ usage: bootstrap.sh --listen-ip IP --allow-cidr CIDR [--allow-cidr CIDR ...] [--
   --admin USER       create this admin and print its one-time enrollment token at the very end (skipped if it exists)
   --tls-cert/--tls-key  use an operator-provided certificate instead of the private ICS CA
   --skip-firewall    do not install the nftables source restriction (nginx allow-list still applies)
+  --from-repo CH     install the ICS as the signed package ou-ics from channel CH (dev|staging|stable) of the Office Unbound apt repository
+                     instead of copying this git tree (install.sh stays for development). Needs --repo-url. The repository key is PINNED:
+                     --repo-key (default: blueprints/build/keys/ou-release-lab.pub.asc next to this script) must have the fingerprint given
+                     by --repo-key-fingerprint (default: the .FINGERPRINT file beside the key); anything else is refused.
+  --version V        with --from-repo: install exactly this package version (e.g. 0.1.0-ou1); allows a deliberate downgrade
 EOF
 }
 die() { echo "bootstrap: ERROR: $*" >&2; exit 1; }
@@ -52,6 +59,11 @@ while [ $# -gt 0 ]; do
     --skip-firewall) SKIP_FW=1; shift;;
     --uninstall) UNINSTALL=1; shift;;
     --purge) PURGE=1; shift;;
+    --from-repo) FROM_REPO="${2:?}"; shift 2;;
+    --repo-url) REPO_URL="${2:?}"; shift 2;;
+    --repo-key) REPO_KEY="${2:?}"; shift 2;;
+    --repo-key-fingerprint) REPO_FPR="${2:?}"; shift 2;;
+    --version) PKG_VERSION="${2:?}"; shift 2;;
     --check-os) CHECK_OS=1; shift;;
     -h|--help) usage; exit 0;;
     *) usage >&2; die "unknown argument: $1";;
@@ -89,6 +101,10 @@ if [ "$UNINSTALL" = 1 ]; then
   nft delete table inet ics_admin 2>/dev/null || true
   rm -f "$NGX_ENAB" "$NGX_AVAIL" "$ETC/ics-admin-fw.nft"
   if systemctl is-active -q nginx 2>/dev/null; then nginx -t 2>/dev/null && systemctl reload nginx || true; fi
+  if dpkg-query -W -f='${Status}' ou-ics 2>/dev/null | grep -q '^install ok installed$'; then
+    log "removing the ou-ics package (its postrm keeps the database, keys, env files and backups)"
+    dpkg --remove ou-ics
+  fi
   rm -rf "$OPT" "$STAMP"; rmdir /opt/office-unbound 2>/dev/null || true
   if [ "$PURGE" = 1 ]; then
     runuser -u postgres -- psql -q -c "DROP DATABASE IF EXISTS ics" -c "DROP ROLE IF EXISTS ics_app" -c "DROP ROLE IF EXISTS ics_owner" 2>/dev/null || true
@@ -104,6 +120,19 @@ fi
 OSP="$(os_profile)" || die "Ubuntu 24.04 or Debian 12 required (found $(. "$OS_RELEASE_FILE" 2>/dev/null; echo "${PRETTY_NAME:-unknown}"))"
 OS_CODENAME="${OSP% *}"; PGVER="${OSP#* }"
 [ -f "$SRC/requirements.lock" ] && [ -d "$SRC/migrations" ] && [ -f "$SRC/deploy/install.sh" ] || die "not an ICS source tree: $SRC"
+if [ -n "$FROM_REPO" ]; then
+  case "$FROM_REPO" in dev|staging|stable) ;; *) die "--from-repo must be dev, staging or stable";; esac
+  [[ "$REPO_URL" =~ ^https?://[A-Za-z0-9._:/-]+$ ]] || die "--from-repo needs --repo-url http(s)://host[:port][/path]"
+  [ -n "$REPO_KEY" ] || REPO_KEY="$SRC/../blueprints/build/keys/ou-release-lab.pub.asc"
+  [ -f "$REPO_KEY" ] || die "repository key $REPO_KEY not found (--repo-key)"
+  if [ -z "$REPO_FPR" ]; then
+    FPRF="${REPO_KEY%.pub.asc}.FINGERPRINT"; [ -f "$FPRF" ] || die "no pinned fingerprint: give --repo-key-fingerprint (no $FPRF)"
+    REPO_FPR="$(tr -d ' \n' < "$FPRF")"
+  fi
+  REPO_FPR="$(printf '%s' "$REPO_FPR" | tr -d ' ' | tr a-f A-F)"
+  [[ "$REPO_FPR" =~ ^[0-9A-F]{40}$ ]] || die "--repo-key-fingerprint must be 40 hex characters"
+  [[ -z "$PKG_VERSION" || "$PKG_VERSION" =~ ^[0-9A-Za-z.+~:-]+$ ]] || die "invalid --version"
+elif [ -n "$REPO_URL$REPO_KEY$REPO_FPR$PKG_VERSION" ]; then die "--repo-url/--repo-key/--repo-key-fingerprint/--version only make sense with --from-repo"; fi
 [[ -z "$ADMIN" || "$ADMIN" =~ ^[a-z0-9._-]{1,64}$ ]] || die "--admin must match [a-z0-9._-]{1,64}"
 if [ "$SKIP_TLS" = 1 ]; then
   [ -z "$LISTEN_IP$HOSTNAME_FQDN$TLS_CERT$TLS_KEY" ] && [ ${#ALLOW[@]} = 0 ] || die "--skip-tls (loopback only) cannot be combined with --listen-ip/--allow-cidr/--hostname/--tls-*"
@@ -125,6 +154,7 @@ fi
 
 # ------------------------------------------------------------------------------------------------------------ packages
 PKGS=(python3 python3-venv "postgresql-$PGVER" rsync openssl curl sudo ca-certificates)
+[ -z "$FROM_REPO" ] || PKGS+=(gnupg)
 [ "$SKIP_TLS" = 1 ] || PKGS+=(nginx nftables)
 MISSING=()
 for p in "${PKGS[@]}"; do dpkg-query -W -f='${Status}' "$p" 2>/dev/null | grep -q '^install ok installed$' || MISSING+=("$p"); done
@@ -337,6 +367,29 @@ REL="$( cd "$SRC" && find . \( -name .venv -o -name __pycache__ -o -name .pytest
 # a VERSION/VERSIONS.json bump outside ics/ must also trigger a reinstall (BUILD_INFO.json is derived from them)
 REL="$( { echo "$REL"; cat "$SRC/../VERSION" "$SRC/../VERSIONS.json" 2>/dev/null; } | sha256sum | cut -d' ' -f1 )"
 need_install=0
+if [ -n "$FROM_REPO" ]; then
+  # ---- signed package path: pinned key -> apt source with signed-by -> apt-get install ou-ics (postinst: wheels, backup gate, migrations, start)
+  KR=/usr/share/keyrings/ou-release.gpg
+  got="$(gpg --show-keys --with-colons "$REPO_KEY" 2>/dev/null | awk -F: '/^fpr/{print $10; exit}')"
+  [ "$got" = "$REPO_FPR" ] || die "repository key fingerprint is ${got:-unreadable}, pinned ${REPO_FPR}: refusing to trust it"
+  gpg --dearmor < "$REPO_KEY" > "$TMP/ou-release.gpg"
+  put "$TMP/ou-release.gpg" 0644 root:root "$KR" || true
+  echo "deb [signed-by=$KR] $REPO_URL $FROM_REPO main" > "$TMP/ou.list"
+  put "$TMP/ou.list" 0644 root:root /etc/apt/sources.list.d/office-unbound.list || true
+  for i in 1 2 3 4 5; do apt-get -o DPkg::Lock::Timeout=600 -qq update && break; [ "$i" != 5 ] || die "apt-get update failed (is $REPO_URL reachable and its Release signed by the pinned key?)"; sleep 5; done
+  CUR="$(dpkg-query -W -f='${Version}' ou-ics 2>/dev/null || true)"
+  CAND="$(apt-cache policy ou-ics | sed -n 's/^  Candidate: //p')"
+  [ -n "$CAND" ] && [ "$CAND" != "(none)" ] || die "ou-ics is not available in channel $FROM_REPO of $REPO_URL"
+  WANT="${PKG_VERSION:-$CAND}"
+  if [ "$CUR" = "$WANT" ]; then log "ou-ics $CUR already installed: nothing to do (upgrade later with: apt-get install ou-ics, after ics upgrade-preflight)"
+  else
+    log "installing ou-ics $WANT from channel $FROM_REPO (the package postinst runs migrations; an existing database is backed up first)"
+    DEBIAN_FRONTEND=noninteractive apt-get -o DPkg::Lock::Timeout=600 -q install -y --no-install-recommends --allow-downgrades "ou-ics=$WANT" >/dev/null \
+      || { journalctl -u ics-migrate -u ics --no-pager -n 20 >&2 || true; die "apt-get install ou-ics=$WANT failed (see above; a failed backup/migration leaves the old data untouched)"; }
+    changed "package ou-ics ${CUR:-none} -> $WANT (channel $FROM_REPO)"
+  fi
+  REL="ou-ics $(dpkg-query -W -f='${Version}' ou-ics)"
+else
 [ -x "$OPT/.venv/bin/python" ] || need_install=1
 [ "$(cat "$STAMP" 2>/dev/null)" = "$REL" ] || need_install=1
 for u in ics.service ics-migrate.service; do cmp -s "$SRC/deploy/$u" "$SYSD/$u" || need_install=1; done
@@ -347,6 +400,7 @@ if [ "$need_install" = 1 ]; then
 else
   log "code already at release ${REL:0:12}: install.sh skipped"
   for u in ics-migrate ics; do systemctl is-enabled -q $u.service || systemctl enable $u.service >/dev/null 2>&1; systemctl is-active -q $u.service || { systemctl start $u.service; changed "started $u"; }; done
+fi
 fi
 
 # ------------------------------------------------------------------------------------- firewall + nginx front end
@@ -471,7 +525,8 @@ fi
 echo
 echo "================ Office Unbound ICS: bootstrap summary ================"
 echo "console URL        : $URL"
-echo "release            : ${REL:0:16}... ($OPT)"
+if [ -n "$FROM_REPO" ]; then echo "release            : $REL (signed package, channel $FROM_REPO, repo $REPO_URL, key $REPO_FPR) -> $OPT"
+else echo "release            : ${REL:0:16}... ($OPT)"; fi
 dpkg-query -W -f='package            : ${Package} ${Version}\n' "postgresql-$PGVER" python3-venv $([ "$SKIP_TLS" = 1 ] || echo nginx nftables)
 if [ "$SKIP_TLS" = 1 ]; then echo "mode               : loopback only (127.0.0.1:8088, no TLS, no nginx, no firewall)"
 else

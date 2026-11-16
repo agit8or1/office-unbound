@@ -35,6 +35,14 @@ configure)
   # 2. the old service must not run against a schema that is about to change (it was left running until now on purpose)
   if [ "$SYSTEMD" = 1 ]; then systemctl stop ics.service ics-migrate.service 2>/dev/null || true; fi
 
+  # a git-tree install (install.sh / bootstrap.sh) left unit copies in /etc/systemd/system that would shadow the packaged units: set them aside, never delete
+  for u in ics.service ics-migrate.service; do
+    if [ -f "/etc/systemd/system/$u" ] && [ ! -L "/etc/systemd/system/$u" ]; then
+      install -d -m 0700 "$STATE/replaced-by-package"; mv -f "/etc/systemd/system/$u" "$STATE/replaced-by-package/$u.$(date +%s)"
+      say "moved the git-tree unit /etc/systemd/system/$u to $STATE/replaced-by-package/ (the packaged unit in /usr/lib/systemd/system is used now)"
+    fi
+  done
+
   # 3. virtualenv from the vendored, hash-checked wheels. No index, no network.
   ABI="cp$(python3 -c 'import sys; print("%d%d" % sys.version_info[:2])')"
   [ -d "$WHEELS/$ABI" ] || fail "this package vendors wheels for $(ls "$WHEELS" | tr '\n' ' ')only; the system python3 is $ABI"
