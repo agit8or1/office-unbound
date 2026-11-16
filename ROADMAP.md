@@ -100,22 +100,22 @@ Core platform components are integrated and tested in an isolated lab: own sourc
 |---|---|---|---|
 | P8.1 | Deliverability, performance, security testing and support documentation | ⚪ Planned | — |
 
-## P9 — Full PDF Reader, Editor and Document Management (DEFERRED — final development priority)  ( Deferred)
+## P9 — Office Unbound PDF Studio: full PDF reader, editor, forms and document management (DEFERRED — absolute last priority)  ( Deferred)
 
 | | Item | Status | Evidence |
 |---|---|---|---|
-| P9.0 | Technology and licensing evaluation (first step when P9 starts) <br><sub>Deferred until alpha readiness and MSP pilot objectives are complete (owner, 2026-11-16)</sub> |  Deferred | [`docs/requirements/P9-pdf-reader-editor.md`](docs/requirements/P9-pdf-reader-editor.md) |
-| P9.1 | PDF reader |  Deferred | — |
+| P9.0 | Engine research, licence audit and feature/dependency matrix (PDF.js, Nib, Stirling PDF as reference only, others) <br><sub>Deferred: starts only after every other planned core feature and integration is complete and stable (owner, 2026-11-16)</sub> |  Deferred | [`docs/requirements/P9-pdf-reader-editor.md`](docs/requirements/P9-pdf-reader-editor.md) |
+| P9.1 | PDF reader (tabs, presentation mode, protected documents, attachments) |  Deferred | — |
 | P9.2 | Full editing of existing PDFs: text, images/objects, pages |  Deferred | — |
 | P9.3 | Annotations and multi-reviewer review |  Deferred | — |
 | P9.4 | Forms: filling and creation (AcroForm; XFA limits documented) |  Deferred | — |
 | P9.5 | Electronic signatures and signing workflows |  Deferred | — |
-| P9.6 | Cryptographic digital signatures (PKCS#12/X.509, PAdES, OCSP/CRL) |  Deferred | — |
+| P9.6 | Cryptographic digital signatures (PKCS#12/X.509, PAdES, RFC 3161 timestamps, OCSP/CRL) |  Deferred | — |
 | P9.7 | Secure redaction (verified non-recoverable) |  Deferred | — |
 | P9.8 | OCR and scanned documents |  Deferred | — |
 | P9.9 | Document conversion, merge/split, PDF/A |  Deferred | — |
 | P9.10 | Document security, untrusted-input sandboxing |  Deferred | — |
-| P9.11 | Advanced tools: compare, Bates, accessibility, batch |  Deferred | — |
+| P9.11 | Advanced tools: compare, Bates, headers/footers, PDF/UA validation, reading-order editing, batch |  Deferred | — |
 | P9.12 | Office Unbound Files integration, versioning, APIs |  Deferred | — |
 | P9.13 | UX concept designs and review |  Deferred | — |
 | P9.14 | Test suite and final acceptance |  Deferred | — |
