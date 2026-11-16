@@ -14,6 +14,7 @@ WorkingDirectory=/opt/office-unbound/ics
 EnvironmentFile=/etc/office-unbound/ics.env
 # uvicorn worker processes (shared PostgreSQL rate limits, single background-worker leader); override in ics.env
 Environment=ICS_WORKERS=2
+EnvironmentFile=-/etc/office-unbound/ics-tuning.env
 ExecStart=/opt/office-unbound/ics/.venv/bin/python -m ics.serve
 Restart=on-failure
 RestartSec=3

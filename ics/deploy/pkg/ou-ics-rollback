@@ -1,0 +1,46 @@
+#!/usr/bin/env bash
+# ou-ics-rollback [--restore-keys] <backup-dir>
+# Second half of a rollback. First reinstall the previous package (apt-get install --allow-downgrades ou-ics=<old>); if the schema moved,
+# its postinst leaves the ICS stopped and tells you to run this. This restores the pre-upgrade backup's DATABASE into place
+# (alembic downgrade is deliberately not used), checks the keys, restarts the services and verifies readiness and the audit chain.
+# A safety dump of the database as it is now is kept in the backup directory before anything is dropped.
+set -euo pipefail
+OPT=/opt/office-unbound/ics; ETC=/etc/office-unbound; STATE=/var/lib/office-unbound
+RESTORE_KEYS=0
+if [ "${1:-}" = --restore-keys ]; then RESTORE_KEYS=1; shift; fi
+B="${1:?usage: ou-ics-rollback [--restore-keys] <backup-dir (as printed by the pre-upgrade backup)>}"
+[ "$(id -u)" = 0 ] || { echo "run as root" >&2; exit 2; }
+die() { echo "ou-ics-rollback: ERROR: $*" >&2; exit 1; }
+[ -f "$B/MANIFEST" ] && [ -f "$B/ics-backup.tar" ] || die "$B is not an ICS backup directory"
+[ "$(sha256sum < "$B/ics-backup.tar" | cut -d' ' -f1)" = "$(sed -n 's/^archive_sha256=//p' "$B/MANIFEST")" ] || die "backup archive checksum mismatch"
+bhead="$(sed -n 's/^alembic_head=//p' "$B/MANIFEST")"
+grep -rlE "^revision[[:space:]]*(:[^=]*)?=[[:space:]]*['\"]$bhead['\"]" "$OPT/migrations/versions" >/dev/null 2>&1 \
+  || die "the installed ICS code does not know the backup's schema revision $bhead: install the ou-ics version that wrote the backup first"
+W="$(mktemp -d)"; chmod 700 "$W"; trap 'rm -rf "$W"' EXIT
+tar -xf "$B/ics-backup.tar" -C "$W"
+( cd "$W" && sha256sum -c --quiet SHA256SUMS ) || die "backup content does not verify"
+# keys: the data in the backup is only readable with the keys of its time
+tar -xzf "$W/etc.tgz" -C "$W" etc/office-unbound/vault.key etc/office-unbound/audit.key etc/office-unbound/ics-signing.key
+DIFF=0
+for k in vault.key audit.key ics-signing.key; do cmp -s "$W/etc/office-unbound/$k" "$ETC/$k" || DIFF=1; done
+if [ "$DIFF" = 1 ] && [ "$RESTORE_KEYS" = 0 ]; then
+  die "the keys in $ETC differ from the backup's; nothing changed. Re-run with --restore-keys to put the backup's keys in place (current ones are kept as *.pre-rollback)"
+fi
+echo "rollback: stopping ics"; systemctl stop ics.service ics-migrate.service 2>/dev/null || true
+SAFE="$B/pre-rollback-$(date -u +%Y%m%dT%H%M%SZ).dump"
+if runuser -u postgres -- pg_dump -Fc ics > "$SAFE" 2>/dev/null; then chmod 0600 "$SAFE"; echo "rollback: safety dump of the current database: $SAFE"
+else rm -f "$SAFE"; echo "rollback: (no current database to keep a safety dump of)"; fi
+runuser -u postgres -- psql -X -q -c "select pg_terminate_backend(pid) from pg_stat_activity where datname='ics' and pid<>pg_backend_pid()" >/dev/null
+runuser -u postgres -- psql -X -q -v ON_ERROR_STOP=1 -c "DROP DATABASE IF EXISTS ics" -c "CREATE DATABASE ics OWNER ics_owner"
+runuser -u postgres -- pg_restore --exit-on-error -d ics < "$W/ics.dump"
+if [ "$DIFF" = 1 ]; then
+  for k in vault.key audit.key ics-signing.key; do cp -p "$ETC/$k" "$ETC/$k.pre-rollback"; install -m 0640 -o root -g ics "$W/etc/office-unbound/$k" "$ETC/$k"; done
+  echo "rollback: keys restored from the backup (previous ones kept as *.pre-rollback)"
+fi
+rm -f "$STATE/ics-needs-restore"
+systemctl daemon-reload 2>/dev/null || true
+systemctl start ics-migrate.service ics.service
+for _ in $(seq 1 90); do [ "$(curl -s -o /dev/null -w '%{http_code}' http://127.0.0.1:8088/readyz)" = 200 ] && break; sleep 1; done
+curl -fsS http://127.0.0.1:8088/readyz >/dev/null || die "restored, but /readyz is not ready yet; see: journalctl -u ics -u ics-migrate"
+( cd "$OPT" && runuser -u ics -- "$OPT/.venv/bin/python" -m ics.cli verify-chain ) || die "restored, but the audit chain does not verify"
+echo "rollback: done. database restored from $B (schema $bhead), readyz 200, audit chain verifies"

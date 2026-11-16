@@ -1,0 +1,5 @@
+# Office Unbound ICS directories. Data (keys, env files, database, backups) is never created with loose modes and never removed by the package.
+d /etc/office-unbound 0711 root root -
+d /var/lib/office-unbound 0755 root root -
+d /var/backups/office-unbound 0700 root root -
+d /var/backups/office-unbound/ics 0700 root root -

@@ -1,0 +1,110 @@
+#!/bin/bash
+# ou-ics postinst. Order is the contract:
+#   users/dirs -> first-run provisioning (only what is absent) -> stop ics -> virtualenv from the vendored wheels (no network)
+#   -> schema check (a database newer than this code = downgrade: STOP, restore path) -> verified backup exists (else make one, else REFUSE)
+#   -> migrate -> start.
+set -e
+OPT=/opt/office-unbound/ics
+STATE=/var/lib/office-unbound
+LIB=/usr/lib/ou-ics
+WHEELS=/usr/share/ou-ics/wheels
+MARK_PRE="$STATE/ics-preupgrade.json"
+MARK_RESTORE="$STATE/ics-needs-restore"
+SYSTEMD=0; [ -d /run/systemd/system ] && SYSTEMD=1
+
+say() { echo "ou-ics: $*"; }
+fail() { echo "ou-ics: ERROR: $*" >&2; exit 1; }
+pg() { runuser -u postgres -- psql -X -q -Atd ics "$@"; }
+
+case "$1" in
+configure)
+  OLD="${2:-}"
+  command -v systemd-sysusers >/dev/null && systemd-sysusers ou-ics.conf >/dev/null 2>&1 || true
+  getent passwd ics >/dev/null || useradd --system --no-create-home --home-dir /nonexistent --shell /usr/sbin/nologin ics
+  command -v systemd-tmpfiles >/dev/null && systemd-tmpfiles --create ou-ics.conf >/dev/null 2>&1 || true
+  install -d -m 0711 /etc/office-unbound; install -d -m 0755 "$STATE"; install -d -m 0700 /var/backups/office-unbound /var/backups/office-unbound/ics
+
+  # PostgreSQL must be up (first install: dpkg may have just installed it)
+  if [ "$SYSTEMD" = 1 ]; then systemctl enable --now postgresql.service >/dev/null 2>&1 || true; fi
+  for _ in $(seq 1 60); do pg_isready -q -h 127.0.0.1 && break; sleep 1; done
+  pg_isready -q -h 127.0.0.1 || fail "PostgreSQL is not accepting connections on 127.0.0.1"
+
+  # 1. first-run provisioning: keys, roles, database, env files. Creates only what is absent; never overwrites.
+  "$LIB/ou-ics-setup"
+
+  # 2. the old service must not run against a schema that is about to change (it was left running until now on purpose)
+  if [ "$SYSTEMD" = 1 ]; then systemctl stop ics.service ics-migrate.service 2>/dev/null || true; fi
+
+  # a git-tree install (install.sh / bootstrap.sh) left unit copies in /etc/systemd/system that would shadow the packaged units: set them aside, never delete
+  for u in ics.service ics-migrate.service; do
+    if [ -f "/etc/systemd/system/$u" ] && [ ! -L "/etc/systemd/system/$u" ]; then
+      install -d -m 0700 "$STATE/replaced-by-package"; mv -f "/etc/systemd/system/$u" "$STATE/replaced-by-package/$u.$(date +%s)"
+      say "moved the git-tree unit /etc/systemd/system/$u to $STATE/replaced-by-package/ (the packaged unit in /usr/lib/systemd/system is used now)"
+    fi
+  done
+
+  # 3. virtualenv from the vendored, hash-checked wheels. No index, no network.
+  ABI="cp$(python3 -c 'import sys; print("%d%d" % sys.version_info[:2])')"
+  [ -d "$WHEELS/$ABI" ] || fail "this package vendors wheels for $(ls "$WHEELS" | tr '\n' ' ')only; the system python3 is $ABI"
+  rm -rf "$OPT/.venv"
+  python3 -m venv "$OPT/.venv"
+  "$OPT/.venv/bin/pip" install -q --no-index --find-links "$WHEELS/$ABI" --require-hashes --disable-pip-version-check -r "$OPT/requirements.lock" \
+    || fail "installing the vendored wheels failed (hash mismatch or missing wheel); the previous venv was replaced, the ICS stays stopped"
+  chown -R root:root "$OPT"; chmod -R go-w "$OPT"; chmod -R a+rX "$OPT" /opt/office-unbound/blueprints 2>/dev/null || true
+
+  # 4. is the database schema known to this code? (anything else = a downgrade across a schema change)
+  DBHEAD=""
+  if [ "$(pg -c "select to_regclass('public.alembic_version') is not null" 2>/dev/null || true)" = t ]; then DBHEAD="$(pg -c 'select version_num from alembic_version')"; fi
+  if [ -n "$DBHEAD" ] && ! grep -rlE "^revision[[:space:]]*(:[^=]*)?=[[:space:]]*['\"]$DBHEAD['\"]" "$OPT/migrations/versions" >/dev/null 2>&1; then
+    printf 'database schema %s is newer than this ou-ics\n' "$DBHEAD" > "$MARK_RESTORE"
+    # newest backup whose schema this (older) code knows = the pre-upgrade backup (the pre-downgrade one just taken has the NEWER schema)
+    CAND=""
+    for d in $(ls -1d /var/backups/office-unbound/ics/*/ 2>/dev/null | sort -r); do
+      h="$(sed -n 's/^alembic_head=//p' "$d/MANIFEST" 2>/dev/null)"
+      if [ -n "$h" ] && grep -rlE "^revision[[:space:]]*(:[^=]*)?=[[:space:]]*['\"]$h['\"]" "$OPT/migrations/versions" >/dev/null 2>&1; then CAND="${d%/}"; break; fi
+    done
+    say "================================================================================"
+    say "ROLLBACK: the database is at schema '$DBHEAD', which this version does not know."
+    say "alembic downgrade is NOT used. The ICS stays STOPPED. Restore the pre-upgrade backup:"
+    say "    ou-ics-rollback ${CAND:-<backup dir under /var/backups/office-unbound/ics whose schema this version knows>}"
+    say "================================================================================"
+    exit 0
+  fi
+
+  # 5. a verified backup must exist before migrations run. preinst made it for an upgrade; if there is none (or it is stale) make one now; if that fails, refuse.
+  if [ -n "$DBHEAD" ]; then
+    FRESH=0
+    if [ -f "$MARK_PRE" ]; then
+      ts="$(python3 -c 'import json,sys; print(int(json.load(open(sys.argv[1]))["created_epoch"]))' "$MARK_PRE" 2>/dev/null || echo 0)"
+      [ $(( $(date +%s) - ts )) -lt 21600 ] && FRESH=1
+    fi
+    if [ "$FRESH" = 0 ]; then
+      say "no fresh pre-upgrade backup recorded: taking one now"
+      "$LIB/ou-ics-preupgrade-backup" "configure" || fail "the backup FAILED: refusing to migrate. The database is untouched; the ICS stays stopped. Fix the cause (disk space?) and run: dpkg --configure ou-ics"
+    fi
+  fi
+
+  # 6. migrate (as the owner role, root-only env file) - gated: a failure leaves the package unconfigured, the ICS stopped, the backup in place
+  say "running database migrations"
+  ( cd "$OPT" && ICS_MIGRATE_ENV_FILE=/etc/office-unbound/ics-migrate.env "$OPT/.venv/bin/python" -m ics.migrate ) \
+    || fail "migrations FAILED. The ICS stays stopped. Roll back: apt-get install --allow-downgrades ou-ics=<previous>, then ou-ics-rollback $(sed -n 's/.*"path": "\([^"]*\)".*/\1/p' "$MARK_PRE" 2>/dev/null)"
+  rm -f "$MARK_RESTORE"
+  if [ -f "$MARK_PRE" ]; then mv -f "$MARK_PRE" "$STATE/ics-last-upgrade.json"; fi
+
+  # 7. start
+  if [ "$SYSTEMD" = 1 ]; then
+    systemctl daemon-reload
+    systemctl enable ics-migrate.service ics.service >/dev/null 2>&1 || true
+    systemctl restart ics-migrate.service ics.service
+    for _ in $(seq 1 60); do curl -fs -o /dev/null http://127.0.0.1:8088/healthz && break; sleep 1; done
+    curl -fs -o /dev/null http://127.0.0.1:8088/healthz || say "WARNING: the ICS did not answer /healthz within 60 s: journalctl -u ics"
+  fi
+  say "configured ${DPKG_MAINTSCRIPT_PACKAGE:-ou-ics} (previous: ${OLD:-none})"
+  ;;
+abort-upgrade|abort-remove|abort-deconfigure)
+  # a failed upgrade left the old version in place: make sure it runs again
+  if [ "$SYSTEMD" = 1 ] && [ ! -f "$MARK_RESTORE" ] && systemctl cat ics.service >/dev/null 2>&1; then systemctl start ics.service 2>/dev/null || true; fi
+  ;;
+esac
+#DEBHELPER#
+exit 0

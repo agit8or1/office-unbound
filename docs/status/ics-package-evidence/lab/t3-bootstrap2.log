@@ -1,0 +1,17 @@
+machine ou-pkgt3 ready (MemoryMax=1500M, "Ubuntu 24.04 LTS")
+### negative 1 (fresh host): wrong pinned fingerprint -> refused before anything is provisioned
+debconf: delaying package configuration, since apt-utils is not installed
+bootstrap: changed: apt packages: python3-venv postgresql-16 rsync
+bootstrap: ERROR: repository key fingerprint is 3082B558DE354DA69A01C09626D430237D6322A4, pinned 5D2750D022E0218361518491CE58A8B691F84C1B: refusing to trust it
+ls: cannot access '/etc/office-unbound': No such file or directory
+dpkg-query: package 'ou-ics' is not installed and no information is available
+no ics user
+### positive on the same host after the refusal
+bootstrap: changed: package ou-ics none -> 0.1.0-ou1 (channel dev)
+bootstrap: changed: admin account owner2 created
+release            : ou-ics 0.1.0-ou1 (signed package, channel dev, repo http://192.168.186.149:8077, key 3082B558DE354DA69A01C09626D430237D6322A4) -> /opt/office-unbound/ics
+changes this run   : user ics
+                     package ou-ics none -> 0.1.0-ou1 (channel dev)
+                     admin account owner2 created
+ou-ics	0.1.0-ou1
+{"ready":true,"version":"0","checks":{"database":{"ok":true},"worker":{"ok":true},"audit_chain":{"ok":true}}}

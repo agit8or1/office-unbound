@@ -121,6 +121,41 @@ def lock_packages(root):
     return out
 
 
+CLASSIFIER_SPDX = {
+    "MIT License": "MIT", "BSD License": "BSD-3-Clause", "Apache Software License": "Apache-2.0", "ISC License (ISCL)": "ISC",
+    "Mozilla Public License 2.0 (MPL 2.0)": "MPL-2.0", "Python Software Foundation License": "Python-2.0", "The Unlicense (Unlicense)": "Unlicense",
+    "GNU Lesser General Public License v3 or later (LGPLv3+)": "LGPL-3.0-or-later", "GNU Lesser General Public License v3 (LGPLv3)": "LGPL-3.0-only",
+    "GNU Lesser General Public License v2 or later (LGPLv2+)": "LGPL-2.1-or-later", "GNU Affero General Public License v3": "AGPL-3.0-only",
+    "GNU General Public License v3 (GPLv3)": "GPL-3.0-only", "Public Domain": "CC0-1.0",
+}
+FREEFORM_SPDX = {"mit": "MIT", "mit license": "MIT", "bsd": "BSD-3-Clause", "bsd license": "BSD-3-Clause", "bsd-3-clause": "BSD-3-Clause", "bsd-2-clause": "BSD-2-Clause",
+                 "apache 2.0": "Apache-2.0", "apache-2.0": "Apache-2.0", "apache software license": "Apache-2.0", "apache license 2.0": "Apache-2.0", "isc": "ISC",
+                 "mpl-2.0": "MPL-2.0", "psf": "Python-2.0"}
+
+
+def wheel_licences(path):
+    """[(name, version, [spdx ids], how)] from the METADATA of the vendored wheels (written by the builder prefetch step as wheel-licenses.json)."""
+    out = []
+    for w in json.load(open(path)):
+        ids = []
+        if w.get("license_expression"):
+            ids, how = sorted(split_expr(w["license_expression"])), "License-Expression"
+        else:
+            how = "classifier"
+            for c in w.get("classifiers", []):
+                if c in CLASSIFIER_SPDX:
+                    ids.append(CLASSIFIER_SPDX[c])
+            if not ids:
+                lic = (w.get("license") or "").strip()
+                key = lic.lower()
+                if key in FREEFORM_SPDX:
+                    ids, how = [FREEFORM_SPDX[key]], "License field"
+                elif 0 < len(lic) < 60 and "\n" not in lic:
+                    ids, how = sorted(split_expr(lic)), "License field"
+        out.append((w["name"], w["version"], ids, how))
+    return out
+
+
 def main():
     comp, root, report = sys.argv[1:4]
     recipe = yaml.safe_load(open(os.path.join(BASE, comp, "recipe.yaml")))
@@ -165,7 +200,22 @@ def main():
                 if i not in allowed and name not in excepted and i not in excepted:
                     problems.append(f"bundled {eco} package {name} {ver}: licence not in policy: {i}")
                 seen[i] = seen.get(i, 0) + 1
-    rep = {"component": comp, "files_scanned": nfiles, "in_inventory": in_inventory, "spdx_found": found,
+    wj = os.environ.get("OU_WHEELS_JSON")
+    wheels_n = 0
+    if wj and os.path.exists(wj):
+        for name, ver, ids, how in wheel_licences(wj):
+            wheels_n += 1
+            if not ids:
+                if name in excepted:
+                    continue
+                problems.append(f"vendored wheel without usable licence metadata: {name} {ver}")
+            for i in ids:
+                if i not in allowed and name not in excepted and i not in excepted:
+                    problems.append(f"vendored wheel {name} {ver}: licence not in policy: {i} (from {how})")
+                seen[i] = seen.get(i, 0) + 1
+    elif recipe.get("python_wheels"):
+        warnings.append("vendored wheel licences not evaluated in this stage (they are scanned after the build, OU_WHEELS_JSON)")
+    rep = {"component": comp, "vendored_wheels": wheels_n, "files_scanned": nfiles, "in_inventory": in_inventory, "spdx_found": found,
            "bundled_packages": len(bundled), "bundled_licences": seen, "warnings": warnings,
            "problems": problems, "result": "FAIL" if problems else "PASS"}
     json.dump(rep, open(report, "w"), indent=1, sort_keys=True)

@@ -1,0 +1,58 @@
+##### setup http://192.168.186.149:8077 dev 3082B558DE354DA69A01C09626D430237D6322A4
+== Ubuntu 24.04 LTS, python Python 3.12.3, 15975 MiB RAM visible
+debconf: delaying package configuration, since apt-utils is not installed
+gpg: Warning: using insecure memory!
+gpg: directory '/root/.gnupg' created
+gpg: keybox '/root/.gnupg/pubring.kbx' created
+gpg: /root/.gnupg/trustdb.gpg: trustdb created
+gpg: Warning: using insecure memory!
+ou-ics:
+  Installed: (none)
+  Candidate: 0.1.0-ou1
+  Version table:
+     0.1.0-ou1 500
+        500 http://192.168.186.149:8077 dev/main amd64 Packages
+PASS  repository key pinned (3082B558DE354DA69A01C09626D430237D6322A4), source added
+##### install 0.1.0-ou1
+ou-ics-setup: changed: generated /etc/office-unbound/ics-signing.key (32 random bytes)
+ou-ics-setup: changed: postgres role ics_owner
+ou-ics-setup: changed: database ics
+ou-ics-setup: changed: postgres role ics_app
+ou-ics-setup: changed: created /etc/office-unbound/ics.env
+ou-ics-setup: changed: created /etc/office-unbound/ics-migrate.env
+ou-ics-setup: changed: /etc/office-unbound/ics.env: ICS_DATABASE_URL
+ou-ics-setup: changed: /etc/office-unbound/ics.env: ICS_VAULT_KEY_FILE
+ou-ics-setup: changed: /etc/office-unbound/ics.env: ICS_AUDIT_KEY_FILE
+ou-ics-setup: changed: /etc/office-unbound/ics.env: ICS_SIGNING_KEY_FILE
+ou-ics-setup: changed: /etc/office-unbound/ics-migrate.env: ICS_MIGRATE_DATABASE_URL
+ou-ics: running database migrations
+ou-ics: configured ou-ics (previous: none)
+Processing triggers for systemd (255.4-1ubuntu8) ...
+Processing triggers for libc-bin (2.39-0ubuntu8.12) ...
+PASS  apt-get install ou-ics=0.1.0-ou1 (69 s)
+PASS  package version is 0.1.0-ou1
+PASS  readyz 200 within 90 s of install (database, worker, audit chain)
+{"ready":true,"version":"0","checks":{"database":{"ok":true},"worker":{"ok":true},"audit_chain":{"ok":true}}}
+PASS  service user ics exists (sysusers)
+PASS  keys are root:ics 0640
+PASS  ics.env root:ics 0640, ics-migrate.env root:root 0600
+PASS  conffile ics-tuning.env registered
+PASS  units come from /usr/lib/systemd/system
+PASS  ics.service active, enabled
+PASS  venv python matches the system python ABI
+-- /api/v1/version (anonymous: major only) and BUILD_INFO.json:
+{"product":"Office Unbound","version":"0"}
+{'version': '0.1.0', 'commit': 'aea4ce61450df2460c2e4ddb7ec21bbeca104005', 'dirty': False, 'package': 'ou-ics 0.1.0-ou1', 'schema_head': '0010', 'built_at': '2026-11-16T01:40:26Z'}
+PASS  BUILD_INFO commit recorded, dirty=false, package=ou-ics 0.1.0-ou1
+-- alembic head in DB: 0010
+PASS  audit chain verifies (ics.cli verify-chain)
+== RESULT: 12 passed, 0 failed
+##### offline-wheels
+PASS  pip install --no-index --require-hashes from the vendored cp312 wheels works in an EMPTY network namespace (41 packages)
+PASS  a tampered wheel is refused by --require-hashes
+== RESULT: 2 passed, 0 failed
+##### data
+PASS  owner bootstrap: create-admin printed a one-time enrollment token (127 chars, not shown)
+audit events: 4, head f36eab2744a46cde
+PASS  audit chain verifies after writes
+== RESULT: 2 passed, 0 failed

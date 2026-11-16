@@ -1,0 +1,144 @@
+#!/usr/bin/env bash
+# ou-ics-setup: idempotent FIRST-RUN provisioning for the ou-ics package (run by postinst as root; safe to re-run by hand).
+# Creates only what is ABSENT: the three keys, PostgreSQL roles + database, and the env files in /etc/office-unbound.
+# An existing key, env file or role password is never replaced; a key that is missing while the database already holds data aborts.
+# Same logic as ics/deploy/bootstrap.sh (which provisions before installing code); kept in step with it.
+set -euo pipefail
+ETC=/etc/office-unbound
+STATE=/var/lib/office-unbound
+SKIP_TLS=1
+export LC_ALL=C
+TMP="$(mktemp -d)"; chmod 700 "$TMP"; trap 'rm -rf "$TMP"' EXIT
+CHANGES=()
+die() { echo "ou-ics-setup: ERROR: $*" >&2; exit 1; }
+log() { echo "ou-ics-setup: $*"; }
+changed() { CHANGES+=("$*"); log "changed: $*"; }
+gen_secret() { python3 -I -c 'import secrets; print(secrets.token_urlsafe(32))'; }
+put() { # put SRC MODE OWNER:GROUP DST -> 0 when content changed (written), 1 when already identical (modes still enforced)
+  local s=$1 mode=$2 own=$3 dst=$4
+  if [ -f "$dst" ] && cmp -s "$s" "$dst"; then
+    if [ "$(stat -c '%a %U:%G' "$dst")" != "${mode#0} $own" ]; then chmod "$mode" "$dst"; chown "$own" "$dst"; changed "mode/owner of $dst"; fi
+    return 1
+  fi
+  install -m "$mode" -o "${own%:*}" -g "${own#*:}" "$s" "$dst"; changed "wrote $dst"; return 0
+}
+psqlpg() { runuser -u postgres -- psql -X -q -v ON_ERROR_STOP=1 "$@"; }
+envget() { ENVF="$1" ENVK="$2" python3 -I - <<'PY'
+import os
+for l in open(os.environ["ENVF"]) if os.path.isfile(os.environ["ENVF"]) else []:
+    k, _, v = l.strip().partition("=")
+    if k == os.environ["ENVK"]:
+        print(v); break
+PY
+}
+envset() { # envset FILE KEY VALUE [force]: append KEY when absent; replace only with force. value via environment, never argv
+  ENVF="$1" ENVK="$2" ENVV="$3" ENVFORCE="${4:-}" python3 -I - <<'PY'
+import os, sys
+f, k, v, force = os.environ["ENVF"], os.environ["ENVK"], os.environ["ENVV"], os.environ["ENVFORCE"]
+lines = open(f).read().splitlines() if os.path.exists(f) else []
+idx = [i for i, l in enumerate(lines) if l.strip().partition("=")[0].strip() == k]
+if idx:
+    if not force or lines[idx[0]].strip() == f"{k}={v}":
+        sys.exit(0)
+    lines[idx[0]] = f"{k}={v}"
+else:
+    lines.append(f"{k}={v}")
+st = os.stat(f) if os.path.exists(f) else None
+fd = os.open(f + ".new", os.O_WRONLY | os.O_CREAT | os.O_TRUNC, 0o600)
+os.write(fd, ("\n".join(lines) + "\n").encode()); os.close(fd)
+if st: os.chown(f + ".new", st.st_uid, st.st_gid); os.chmod(f + ".new", st.st_mode & 0o7777)
+os.replace(f + ".new", f)
+print("changed")
+PY
+}
+env_kv() { local out; out="$(envset "$@")"; [ -z "$out" ] || changed "$1: $2"; }
+unit_wait() { local i; for i in $(seq 1 "$2"); do eval "$1" && return 0; sleep 1; done; return 1; }
+
+# ------------------------------------------------------------------------------------------------- user, dirs, postgres
+getent passwd ics >/dev/null || { useradd --system --no-create-home --home-dir /nonexistent --shell /usr/sbin/nologin ics; changed "user ics"; }
+[ -d "$ETC" ] || changed "created $ETC"
+install -d -o root -g root -m 0711 "$ETC"
+install -d -o root -g root -m 0755 "$STATE"
+systemctl enable --now postgresql.service >/dev/null 2>&1
+unit_wait "pg_isready -q -h 127.0.0.1" 60 || die "PostgreSQL did not become ready on 127.0.0.1"
+
+DB_EXISTS="$(runuser -u postgres -- psql -X -Atc "select 1 from pg_database where datname='ics'")"
+DB_HAS_DATA=""
+if [ -n "$DB_EXISTS" ]; then
+  [ "$(runuser -u postgres -- psql -X -Atd ics -c "select to_regclass('public.alembic_version') is not null")" = t ] && DB_HAS_DATA=1
+fi
+
+# ------------------------------------------------------------------------------------------------------------- keys
+# Never overwritten: created with O_EXCL only when absent. A key that exists but cannot be used stops the install.
+ensure_key() { # path min_bytes exact(0/1)
+  local f=$1 n=$2 exact=$3 sz
+  if [ -L "$f" ]; then die "$f is a symlink; the ICS refuses symlinked keys. Not touching it."; fi
+  if [ -e "$f" ]; then
+    [ -f "$f" ] || die "$f exists but is not a regular file. Not touching it."
+    head -c1 "$f" >/dev/null 2>&1 || die "$f exists but is unreadable. Not touching it (restore it from backup; a new key would orphan existing data)."
+    sz="$(stat -c %s "$f")"
+    if [ "$exact" = 1 ] && [ "$sz" != "$n" ]; then die "$f has $sz bytes, expected exactly $n. Not touching it."; fi
+    [ "$sz" -ge "$n" ] || die "$f has only $sz bytes (need >= $n). Not touching it."
+  else
+    [ -z "$DB_HAS_DATA" ] || die "$f is missing but database 'ics' already holds data: a new key would make stored secrets/audit unverifiable. Restore the key from backup (docs/runbooks/ics-recovery.md)."
+    KEYF="$f" python3 -I - <<'PY'
+import os, grp
+f = os.environ["KEYF"]
+fd = os.open(f, os.O_WRONLY | os.O_CREAT | os.O_EXCL, 0o600)   # EXCL: can never overwrite
+os.write(fd, os.urandom(32)); os.fchown(fd, 0, grp.getgrnam("ics").gr_gid); os.fchmod(fd, 0o640); os.close(fd)
+PY
+    changed "generated $f (32 random bytes)"
+  fi
+  if [ "$(stat -c '%a %U:%G' "$f")" != "640 root:ics" ]; then chown root:ics "$f"; chmod 0640 "$f"; changed "mode/owner of $f"; fi
+  runuser -u ics -- head -c1 "$f" >/dev/null 2>&1 || die "$f is not readable by the service user 'ics'"
+}
+ensure_key "$ETC/vault.key" 32 1
+ensure_key "$ETC/audit.key" 32 0
+ensure_key "$ETC/ics-signing.key" 32 1
+
+# --------------------------------------------------------------------------------------------- database roles + db
+url_pw() { ENVU="$(envget "$1" "$2")" python3 -I -c 'import os,urllib.parse as u; print(u.urlsplit(os.environ["ENVU"]).password or "")'; }
+role_exists() { [ "$(runuser -u postgres -- psql -X -Atc "select 1 from pg_roles where rolname='$1'")" = 1 ]; }
+login_ok() { PGPASSWORD="$2" psql -X -q -h 127.0.0.1 -U "$1" -d ics -Atc 'select 1' >/dev/null 2>&1; }
+OWNER_PW="$(url_pw "$ETC/ics-migrate.env" ICS_MIGRATE_DATABASE_URL)"
+APP_PW="$(url_pw "$ETC/ics.env" ICS_DATABASE_URL)"
+ROT_OWNER=0; ROT_APP=0
+if ! role_exists ics_owner; then
+  [ -n "$OWNER_PW" ] || { OWNER_PW="$(gen_secret)"; ROT_OWNER=1; }
+  printf "CREATE ROLE ics_owner LOGIN PASSWORD '%s';\n" "$OWNER_PW" | psqlpg; changed "postgres role ics_owner"
+fi
+if [ -z "$DB_EXISTS" ]; then psqlpg -c "CREATE DATABASE ics OWNER ics_owner"; changed "database ics"; fi
+if ! role_exists ics_app; then
+  [ -n "$APP_PW" ] || { APP_PW="$(gen_secret)"; ROT_APP=1; }
+  printf "CREATE ROLE ics_app LOGIN PASSWORD '%s';\n" "$APP_PW" | psqlpg; changed "postgres role ics_app"
+fi
+psqlpg -c "REVOKE ALL ON DATABASE ics FROM PUBLIC" -c "GRANT CONNECT ON DATABASE ics TO ics_app"
+# a role exists but its password is not recorded (or no longer works): rotate it, it is ours
+if [ "$ROT_OWNER" = 0 ] && { [ -z "$OWNER_PW" ] || ! login_ok ics_owner "$OWNER_PW"; }; then
+  OWNER_PW="$(gen_secret)"; ROT_OWNER=1; printf "ALTER ROLE ics_owner PASSWORD '%s';\n" "$OWNER_PW" | psqlpg; changed "rotated password of ics_owner (env file missing/stale)"
+fi
+if [ "$ROT_APP" = 0 ] && { [ -z "$APP_PW" ] || ! login_ok ics_app "$APP_PW"; }; then
+  APP_PW="$(gen_secret)"; ROT_APP=1; printf "ALTER ROLE ics_app PASSWORD '%s';\n" "$APP_PW" | psqlpg; changed "rotated password of ics_app (env file missing/stale)"
+fi
+
+# ------------------------------------------------------------------------------------------------------- env files
+# Passwords exist only here (root-only files). Existing files are never rewritten: only absent keys are appended
+# (operator edits such as ICS_WORKER_ENABLED=false survive), a password is replaced only after a rotation above.
+for spec in "ics.env 640 root:ics" "ics-migrate.env 600 root:root"; do
+  set -- $spec
+  [ -e "$ETC/$1" ] || { ( umask 077; : > "$ETC/$1" ); chown "$3" "$ETC/$1"; chmod "$2" "$ETC/$1"; changed "created $ETC/$1"; }
+done
+F=""; [ "$ROT_APP" = 1 ] && F=force
+env_kv "$ETC/ics.env" ICS_DATABASE_URL "postgresql+psycopg://ics_app:${APP_PW}@127.0.0.1:5432/ics" "$F"
+env_kv "$ETC/ics.env" ICS_VAULT_KEY_FILE "$ETC/vault.key"
+env_kv "$ETC/ics.env" ICS_AUDIT_KEY_FILE "$ETC/audit.key"
+env_kv "$ETC/ics.env" ICS_SIGNING_KEY_FILE "$ETC/ics-signing.key"
+F=""; [ "$ROT_OWNER" = 1 ] && F=force
+env_kv "$ETC/ics-migrate.env" ICS_MIGRATE_DATABASE_URL "postgresql+psycopg://ics_owner:${OWNER_PW}@127.0.0.1:5432/ics" "$F"
+unset OWNER_PW APP_PW
+for spec in "ics.env 640 root:ics" "ics-migrate.env 600 root:root"; do
+  set -- $spec
+  if [ "$(stat -c '%a %U:%G' "$ETC/$1")" != "$2 $3" ]; then chown "$3" "$ETC/$1"; chmod "$2" "$ETC/$1"; changed "mode/owner of $ETC/$1"; fi
+done
+
+if [ "${#CHANGES[@]}" = 0 ]; then log "nothing to do"; fi

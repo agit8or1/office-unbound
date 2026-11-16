@@ -313,9 +313,13 @@
         {
           "id": "P2.9",
           "title": "ICS shipped as signed ou-ics package with automatic pre-upgrade backup and rollback",
-          "status": "implementing",
-          "evidence": [],
-          "note": "Branch ics-pkg; install/upgrade/rollback drill on Ubuntu 24.04 and Debian 12 in progress"
+          "status": "integrated_lab",
+          "evidence": [
+            "docs/status/ics-package-results.md",
+            "docs/runbooks/ics-upgrade-rollback.md",
+            "ics/deploy/pkg/ou-ics-setup"
+          ],
+          "note": "Install, upgrade with migration and rollback proven in the lab on Ubuntu 24.04 and Debian 12 (12/12 checks each); not yet installed on the production ICS"
         },
         {
           "id": "P2.10",

@@ -1,0 +1,41 @@
+#!/bin/bash
+# ou-ics preinst. Runs BEFORE anything of the new version is unpacked, from the old version's files still in place:
+# the pre-upgrade backup is taken from the code/DB that is about to be changed, and a failure aborts the upgrade with the old version intact.
+set -e
+case "$1" in
+  install|upgrade)
+    if [ -x /usr/lib/ou-ics/ou-ics-preupgrade-backup ]; then
+      BK=/usr/lib/ou-ics/ou-ics-preupgrade-backup
+    elif [ -x /opt/office-unbound/ics/deploy/backup/ics-backup.sh ] && [ "$1" = install ]; then
+      # first package install over a git-tree (install.sh/bootstrap.sh) installation: use that tree's own backup script
+      BK=
+      mkdir -p /usr/lib/ou-ics
+    else
+      BK=
+    fi
+    HAS="$(runuser -u postgres -- psql -X -q -Atd ics -c "select to_regclass('public.alembic_version') is not null" 2>/dev/null || true)"
+    if [ "$HAS" = t ]; then
+      # read-only checks first (old code may predate the command: then it is skipped). Override: OU_ICS_SKIP_PREFLIGHT=1
+      if [ -z "${OU_ICS_SKIP_PREFLIGHT:-}" ] && [ -x /opt/office-unbound/ics/.venv/bin/python ]; then
+        if ( cd /opt/office-unbound/ics && ./.venv/bin/python -m ics.cli upgrade-preflight --help >/dev/null 2>&1 ); then
+          ( cd /opt/office-unbound/ics && ./.venv/bin/python -m ics.cli upgrade-preflight ) || {
+            echo "ou-ics: upgrade-preflight reports blocking problems (above); nothing was changed. Fix them or set OU_ICS_SKIP_PREFLIGHT=1." >&2; exit 1; }
+        fi
+      fi
+      if [ -n "$BK" ]; then
+        "$BK" "$1" || { echo "ou-ics: the pre-upgrade backup FAILED: the upgrade is refused and the installed version is untouched." >&2; exit 1; }
+      elif [ "$1" = install ]; then
+        # no packaged backup tool yet: run the existing tree's script and verify its output
+        d="$(/opt/office-unbound/ics/deploy/backup/ics-backup.sh /var/backups/office-unbound/ics | tail -n1)" \
+          || { echo "ou-ics: the pre-install backup FAILED: refusing to replace the git-tree installation." >&2; exit 1; }
+        [ -f "$d/ics-backup.tar" ] || { echo "ou-ics: backup output missing" >&2; exit 1; }
+        echo "ou-ics: backup of the existing installation: $d"
+      else
+        echo "ou-ics: installed version has no backup tool and a database exists: refusing" >&2; exit 1
+      fi
+    fi
+    ;;
+  abort-upgrade) ;;
+esac
+#DEBHELPER#
+exit 0

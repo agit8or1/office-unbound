@@ -1,0 +1,22 @@
+Source: ou-ics
+Section: admin
+Priority: optional
+Maintainer: Office Unbound Build <build@officeunbound.com>
+Build-Depends: debhelper-compat (= 13), python3, python3-yaml, python3-venv
+Standards-Version: 4.6.2
+Rules-Requires-Root: no
+
+Package: ou-ics
+Architecture: amd64
+Depends: ${misc:Depends}, python3 (>= 3.11), python3-venv, postgresql (>= 15), sudo, curl, systemd
+Recommends: nginx, nftables
+Description: Office Unbound Infrastructure Control Server (ICS)
+ FastAPI backend, built management console, Alembic migrations and the deployment
+ catalog. Python dependencies ship as hash-locked wheels (cp311 and cp312) in
+ /usr/share/ou-ics/wheels and are installed into /opt/office-unbound/ics/.venv by
+ the postinst with `pip --no-index --require-hashes`: no network access at
+ install time. The postinst provisions keys, database roles and env files on
+ first install only (never overwritten), takes and verifies a backup before an
+ upgrade and refuses to migrate if that backup fails. Rollback is a reinstall of
+ the previous version plus `ou-ics-rollback <backup>` (see docs/runbooks/ics-upgrade-rollback.md).
+ The TLS front end (nginx, firewall) is configured by bootstrap.sh, not by this package.

@@ -1,0 +1,23 @@
+Format: https://www.debian.org/doc/packaging-manuals/copyright-format/1.0/
+Upstream-Name: Office Unbound ICS
+
+Files: *
+Copyright: Office Unbound contributors
+License: AGPL-3+
+
+Files: usr/share/ou-ics/wheels/*
+Copyright: authors of the hash-locked Python packages listed in ics/requirements.lock
+License: various (BSD, MIT, Apache-2.0, MPL-2.0, PSF; see each wheel's dist-info/ directory, wheel-licenses.json and the SBOM)
+
+Files: opt/office-unbound/ics/ics/static/*
+Copyright: Office Unbound contributors and the authors of the npm packages bundled by the console build (see ics/frontend/package-lock.json)
+License: AGPL-3+ and MIT/ISC/Apache-2.0 for bundled packages
+
+Files: debian/*
+Copyright: Office Unbound contributors
+License: AGPL-3+
+
+License: AGPL-3+
+ This program is free software: you can redistribute it and/or modify it under the terms of the GNU Affero General Public License as
+ published by the Free Software Foundation, either version 3 of the License, or (at your option) any later version.
+ On Debian systems the full text is in /usr/share/common-licenses/AGPL-3 (see the repository LICENSE file).

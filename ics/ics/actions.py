@@ -1083,7 +1083,8 @@ def run_job(rt: Runtime, job: dict) -> None:
     with lock:
         if t.is_alive() and "result" not in box:
             cancelled.set()
-            error = _error_dict(JobTimeout(f"job exceeded its {rt.settings.backup_job_timeout_seconds if str(job["action"]).startswith("backup.") else rt.settings.job_timeout_seconds}s wall-clock budget"), known)
+            limit_s = rt.settings.backup_job_timeout_seconds if str(job["action"]).startswith("backup.") else rt.settings.job_timeout_seconds   # (no nested same-quote f-string: Python 3.11 / Debian 12)
+            error = _error_dict(JobTimeout(f"job exceeded its {limit_s}s wall-clock budget"), known)
         elif "error" in box:
             error = _error_dict(box["error"], known)
         else:

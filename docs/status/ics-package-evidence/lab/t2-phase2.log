@@ -1,0 +1,79 @@
+##### backupfail
+PASS  a newer candidate (0.1.1~dev.1-ou1) is visible to apt, so the refusal below is really exercised
+simulated backup failure
+ou-ics: BACKUP FAILED
+ou-ics: the pre-upgrade backup FAILED: the upgrade is refused and the installed version is untouched.
+dpkg: error processing archive /var/cache/apt/archives/ou-ics_0.1.1~dev.1-ou1_amd64.deb (--unpack):
+ new ou-ics package pre-installation script subprocess returned error exit status 1
+Errors were encountered while processing:
+ /var/cache/apt/archives/ou-ics_0.1.1~dev.1-ou1_amd64.deb
+E: Sub-process /usr/bin/dpkg returned an error code (1)
+PASS  upgrade with a failing backup is REFUSED (apt exit 100)
+PASS  installed version unchanged (0.1.0-ou1)
+PASS  package still configured (ii)
+PASS  database schema untouched (0010)
+PASS  ics still serving after the refused upgrade
+== RESULT: 6 passed, 0 failed
+##### upgrade
+-- upgrade-preflight (as root):
+OK    database       reachable, 10 MiB
+OK    disk.backup    385022 MiB free (need 512 MiB)
+OK    disk.opt       385022 MiB free
+WARN  backup         no ICS backup found; the package takes one automatically before migrating and aborts if that fails
+OK    jobs.running   no job or deployment is running
+OK    jobs.queued    no queued jobs
+OK    standby        active controller (worker and monitor enabled)
+OK    schema         database schema 0010 is the head of the installed code
+RESULT: ready to upgrade
+PASS  upgrade-preflight exit 0
+-- candidate:
+ou-ics:
+  Installed: 0.1.0-ou1
+  Candidate: 0.1.1~dev.1-ou1
+  Version table:
+Recommended packages:
+  nginx nftables
+The following packages will be upgraded:
+  ou-ics
+debconf: delaying package configuration, since apt-utils is not installed
+1 upgraded, 0 newly installed, 0 to remove and 0 not upgraded.
+Need to get 0 B/40.3 MB of archives.
+After this operation, 1024 B of additional disk space will be used.
+Preparing to unpack .../ou-ics_0.1.1~dev.1-ou1_amd64.deb ...
+OK    database       reachable, 10 MiB
+OK    disk.backup    384557 MiB free (need 512 MiB)
+OK    disk.opt       384557 MiB free
+WARN  backup         no ICS backup found; the package takes one automatically before migrating and aborts if that fails
+OK    jobs.running   no job or deployment is running
+OK    jobs.queued    no queued jobs
+OK    standby        active controller (worker and monitor enabled)
+OK    schema         database schema 0010 is the head of the installed code
+RESULT: ready to upgrade
+ou-ics: pre-upgrade backup verified: /var/backups/office-unbound/ics/20261116T020208Z (schema 0010)
+Unpacking ou-ics (0.1.1~dev.1-ou1) over (0.1.0-ou1) ...
+Setting up ou-ics (0.1.1~dev.1-ou1) ...
+ou-ics-setup: nothing to do
+ou-ics: running database migrations
+ou-ics: configured ou-ics (previous: 0.1.0-ou1)
+PASS  apt-get install ou-ics (upgrade from 0.1.0-ou1) ok in 37 s
+-- 0.1.0-ou1 -> 0.1.1~dev.1-ou1
+PASS  version changed
+PASS  a pre-upgrade backup was taken automatically (backup dirs 0 -> 1)
+-- backup used: /var/backups/office-unbound/ics/20261116T020208Z
+created_utc=20261116T020208Z
+alembic_head=0010
+audit_events=4
+audit_head_hash=d56b7b4100e68eb2d0c4f06223ee42b7cf57aef54e69c253a638b77c645b06ca
+users=1
+release_sha256=ab50263d7b7273e5a10fb51b6f7a632c1d892ba51d6a4fbbd689c2bc1718a323
+archive_sha256=cd3c40813a0c7d6c5216c5881798b62d6f728694bc34b6f475b71a9a88a1e263
+PASS  backup recorded the PRE-upgrade schema (0010)
+PASS  backup archive hash matches its MANIFEST
+PASS  migration applied (schema 0010 -> 0011)
+PASS  dummy migration object exists
+PASS  readyz 200 after upgrade
+PASS  audit chain verifies after upgrade
+PASS  owner account survived
+PASS  audit events preserved (4 before)
+PASS  keys and env files unchanged by the upgrade
+== RESULT: 13 passed, 0 failed

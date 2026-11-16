@@ -29,8 +29,11 @@ def reject(msg):
     sys.exit(1)
 
 
-def recipe_expect(comp, root):
+def recipe_expect(comp, root, adir=None):
     r = yaml.safe_load(open(os.path.join(root, comp, "recipe.yaml")))
+    if r["source"].get("dynamic"):   # version of a release-tag build is recorded host-side by build.sh fetch (source.info next to artifacts/)
+        info = dict(l.strip().split("=", 1) for l in open(os.path.join(os.path.dirname(os.path.abspath(adir)), "source.info")) if "=" in l)
+        r["source"]["upstream_version"] = info["deb_upstream_version"]
     rev = r.get("ou_revision")
     if not rev:
         for ln in open(os.path.join(root, "tools.env")):
@@ -54,7 +57,7 @@ def fields(path):
 
 
 def verify(d, comp, root):
-    src, ver, pkgs = recipe_expect(comp, root)
+    src, ver, pkgs = recipe_expect(comp, root, d)
     names = []
     dd = os.lstat(d)
     if not stat.S_ISDIR(dd.st_mode):
