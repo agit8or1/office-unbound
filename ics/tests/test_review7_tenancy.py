@@ -142,3 +142,15 @@ def test_h4_every_reference_looking_model_field_is_covered_by_the_actions_resolv
             if looks and f not in refs and f not in NOT_REFS and leaf not in NOT_REFS and not (leaf == "policy" and a.value.startswith("provider.")):
                 problems.append(f"{a.value}: {f}")
     assert not problems, problems
+
+
+def test_l6_backup_runner_node_must_be_the_customers_or_the_msps_own(rt, world):  # noqa: F811
+    ids, ca, cb = world["ids"], world["ca"], world["cb"]
+    with rt.session() as db:
+        msp = str(db.execute(text("INSERT INTO nodes (name, address, port, tls_fingerprint_sha256, agent_pubkey, agent_key_fp, customer_id) VALUES ('zz-msp-runner', '10.0.0.9', 8443, :f, 'k', :f, :c) RETURNING id"),
+                             {"f": "cd" * 32, "c": DEF}).scalar())
+        with pytest.raises(resolve.CustomerConflict):
+            resolve.derive(db, "backup.policy.create", {"customer_id": ca, "runner_node_id": ids["node_b"]})        # another customer's node as the runner
+        assert resolve.derive(db, "backup.policy.create", {"customer_id": ca, "runner_node_id": ids["node_a"]}) == ca
+        assert resolve.derive(db, "backup.policy.create", {"customer_id": cb, "runner_node_id": msp}) == cb         # the MSP's shared runner serves any customer
+        db.rollback()

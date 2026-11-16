@@ -10,14 +10,16 @@ isolated lab; nothing is production supported ([ROADMAP.md](ROADMAP.md)).
 
 ## [Unreleased]
 
-Merged on integration branches `integration-5`, `integration-6` and `integration-7` (not yet released). Production schema head is `0009b`; this batch adds `0009a`, `0010`, `0011`.
+Target: 0.2.0 "Beacon" (alpha readiness: security hardening, production no-SSH deployment, full stack).
+
+Merged on integration branches `integration-6` and `integration-7` (not yet released). Production schema head is `0009b`; this batch adds `0009a` (controller epoch), `0010` (customer scoping) and `0011` (one policy per repository URL). Node agent 0.2.0 (controller epoch in signed requests; an agent without epoch support keeps working with an ICS at epoch 1, see [ICS recovery and standby](docs/admin/ics-recovery-and-standby.md)). Review-7 fixes add `0012r7` (fence guard) and `0013r7` (image floor).
+### Security (review 7, agent BU)
+- **Release signer**: strict deb822 parsing, every index stanza bound to the ledger (control fields, size, hashes), one signing key per channel, Suite/Codename checks on first contact; `ou-test-attest` runs the install smoke test itself in a throw-away container. [security-review-7](docs/status/security-review-7-2026-11-16.md)
+- **Fencing**: a fenced, standby or superseded controller stops all side effects (job claim, worker loops, provider/agent/notification egress, enrollment, API mutations); migration `0012r7`; with a witness configured a lease (`ics.witness`) fences an isolated old primary and promotion waits for it to expire.
+- **Tenancy**: plan customer derived server-side from every referenced resource; scoped admins cannot invite wider accounts; image import trust and downgrade floor are server state (migration `0013r7`).
+- Agent epoch mark fails closed and is stored twice; standby key-bundle passphrase never stored beside the bundle.
 
 ### Added
-- **Provider scope modes**: `single_node` / `whole_cluster` permission plans and the `provider.scope.change` flow (Mode A/B), console UI. [provider-scope-modes](docs/status/provider-scope-modes.md)
-- **Telephony productization**: Asterisk 22 built from signed source (`ou-asterisk` recipe) and ICS telephony downstream: `idm.user.set_extension`, `idm.user.issue_sip_credential` (one-time SIP credentials, encrypted at rest until revealed), `pbx.*` agent runbooks, migration `0009`. [telephony-productization](docs/status/telephony-productization.md)
-- **Guest bootstrap v2**: no-SSH golden-image path with HMAC callback `POST /api/v1/guest-bootstrap/report`, `guest.await_callback` step, `image.import` verb, migration `0009b`; the SSH path is lab-only behind `ICS_LAB_SSH_BOOTSTRAP` (default off). [bootstrap-v2](docs/status/bootstrap-v2.md), [SSH bootstrap review](docs/status/review-ssh-bootstrap-2026-11-15.md)
-- **Quick-start fixes**: `bootstrap.sh` supports Debian 12, `--check-os`, waits for the apt lock; documentation corrections from a dry run.
-- **Version information in System**: `/api/v1/system` (admin) now also reports build commit, schema heads, component versions and a read-only pending-updates comparison.
 - **Warm-standby ICS (ADR-0012, agent AW)**: physical streaming replication, key bundle, `ICS_ROLE=standby`, fenced promotion CLI (`python -m ics.cli promote`), controller epoch in signed agent requests (optional field; agents refuse a lower epoch than they have seen), migration `0009a`. ICS falls back to the pre-epoch request format for agents deployed before this release (tested with an old-agent fake), so lab agents keep working until upgraded. [ics-standby-results](docs/status/ics-standby-results.md)
 - **Golden guest image recipe (agent AT)**: Debian image from the signed archive via mmdebstrap + systemd-repart, pinned Ubuntu key, `ou-image-sign` signer, TCG boot proof. [golden-image-results](docs/status/golden-image-results.md)
 - **Clean-room installer re-runs (agent AO)**: 12 installer fixes in the lab blueprints, parametrised lab domain/realm. [clean-room-results](docs/status/clean-room-results.md)
@@ -26,6 +28,19 @@ Merged on integration branches `integration-5`, `integration-6` and `integration
 ### Security
 - **Security review 5 fixes** ([report and remediation table](docs/status/security-review-5-2026-11-15.md)): H1 `ou-release-sign` validates every index named in `Release`; H2 typed `release.promote` action (ICS-approved manifest, hardened signer, `ou-test-attest` for test evidence); H3 PBX helper secret directory handling; M1/M2 guest bootstrap rate limits per IP and VM and binding of the callback to the VM's MAC; M3 scope-change risk counts templates and ACL widening; M4 `decide_plan` scoped to the plan's customer; M5 `customer_id` on nodes, checks, alert channels, maintenance windows and backup policies (migration `0010`, all list/detail endpoints scoped); M6 identity stacks and SIP credentials refuse foreign-customer nodes; M7 `image.import` verifies the signed manifest itself and refuses older releases; L1-L7 (secret sweeps, callback body cap, constant-work unknown ids, dedicated callback listener, major-only version for anonymous callers, Mode B live inputs, dated upstream pins with anti-rollback).
 - **Per-customer backup isolation (agent AU)**: customer policies get their own runner profile, repository namespace, vault binding and plan binding; one policy per repository URL (migration `0011`).
+
+## [0.1.0] - 2026-11-16
+
+Release name: **Anchor**. This is the build deployed to the lab ICS (commit 416aafe).
+
+### Added
+- **Provider scope modes**: `single_node` / `whole_cluster` permission plans and the `provider.scope.change` flow (Mode A/B), console UI. [provider-scope-modes](docs/status/provider-scope-modes.md)
+- **Telephony productization**: Asterisk 22 built from signed source (`ou-asterisk` recipe) and ICS telephony downstream: `idm.user.set_extension`, `idm.user.issue_sip_credential` (one-time SIP credentials, encrypted at rest until revealed), `pbx.*` agent runbooks, migration `0009`. [telephony-productization](docs/status/telephony-productization.md)
+- **Guest bootstrap v2**: no-SSH golden-image path with HMAC callback `POST /api/v1/guest-bootstrap/report`, `guest.await_callback` step, `image.import` verb, migration `0009b`; the SSH path is lab-only behind `ICS_LAB_SSH_BOOTSTRAP` (default off). [bootstrap-v2](docs/status/bootstrap-v2.md), [SSH bootstrap review](docs/status/review-ssh-bootstrap-2026-11-15.md)
+- **Quick-start fixes**: `bootstrap.sh` supports Debian 12, `--check-os`, waits for the apt lock; documentation corrections from a dry run.
+- **Version information in System**: `/api/v1/system` (admin) now also reports build commit, schema heads, component versions and a read-only pending-updates comparison.
+
+### Security
 - **Tenant isolation (agent AS, T20 suite 153/155)**: two scoping holes fixed. Customer-scoped operators could list and read all deployments (deployment list/detail, plan, change/destroy preview and job steps are now filtered by the owning customer's endpoint); identity stacks had no customer binding (stacks carry a `customer_id`, the identity stack/user/reconcile lists and identity actions are scoped to it). [tenant-isolation-results](docs/status/tenant-isolation-results.md)
 - Security review 4 fixes (AL) and lifecycle gaps (AC) from main remain; telephony runbook user names are validated with a full-match regex.
 - The SSH guest bootstrap path no longer runs by default (fail-open finding in the SSH bootstrap review).
@@ -34,7 +49,10 @@ Merged on integration branches `integration-5`, `integration-6` and `integration
 ### Fixed
 - Production monitor loop (`_next_vault`): failure-based worker health and thread joins on stop.
 
-## [0.1.0] - 2026-11-15
+### Known issues
+- Lab pre-alpha, not production supported. The packages and images built for this release are signed with lab keys only.
+- Security reviews 5–7 have open High findings in release signing, test attestation, cross-tenant plan scoping, controller fencing and org-admin account recovery. They are being fixed for 0.2.0. Details: [security review 7](docs/status/security-review-7-2026-11-16.md), [execution queue](docs/status/ALPHA-EXECUTION-QUEUE.md).
+
 
 First tagged state of the project: a lab-integrated pre-alpha. Installable ICS, console, groupware, identity, files, document
 editing, chat/meetings, telephony prototype, migration tooling and package pipeline, all verified only in an isolated lab.

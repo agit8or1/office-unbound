@@ -17,6 +17,7 @@ _SQL = {
     "credential": "SELECT customer_id FROM credentials WHERE id = :i",
     "check": "SELECT customer_id FROM checks WHERE id = :i",
     "node": "SELECT customer_id FROM nodes WHERE id = :i",
+    "runner_node": "SELECT customer_id FROM nodes WHERE id = :i",     # a backup runner: the MSP's own runner (default customer) may serve any customer's policy
     "channel": "SELECT customer_id FROM alert_channels WHERE id = :i",
     "maintenance": "SELECT customer_id FROM maintenance_windows WHERE id = :i",
     "incident": "SELECT c.customer_id FROM incidents i JOIN checks c ON c.id = i.check_id WHERE i.id = :i",
@@ -26,14 +27,15 @@ _SQL = {
     "policy": "SELECT customer_id FROM backup_policies WHERE name = :i",
     "deployment": "SELECT customer_id FROM deployments WHERE slug = :i",
 }
-_UUID_KINDS = {"endpoint", "credential", "check", "node", "channel", "maintenance", "incident", "artifact", "plan"}
+DEFAULT_CUSTOMER = "00000000-0000-0000-0000-00000000a001"
+_UUID_KINDS = {"endpoint", "credential", "check", "node", "runner_node", "channel", "maintenance", "incident", "artifact", "plan"}
 
 # action -> [(dotted param path, kind)]; kind "customer" = an explicit customer id the caller states
 REFS: dict[str, list[tuple[str, str]]] = {
     "alert_channel.create": [("customer_id", "customer")],
     "alert_channel.delete": [("channel_id", "channel")],
     "alert_channel.test": [("channel_id", "channel")],
-    "backup.policy.create": [("customer_id", "customer"), ("runner_node_id", "node"), ("deployment", "deployment")],
+    "backup.policy.create": [("customer_id", "customer"), ("runner_node_id", "runner_node"), ("deployment", "deployment")],
     "backup.policy.update": [("policy", "policy")],
     "backup.prune": [("policy", "policy")],
     "backup.run": [("policy", "policy")],
@@ -101,6 +103,9 @@ MSP_GLOBAL: dict[str, str] = {
 }
 
 
+NOT_FOUND = {"policy": "backup policy not found"}      # the wording of the "missing" answer per kind (a scoped operator must not tell the two cases apart)
+
+
 class CustomerConflict(Exception):
     """referenced resources belong to different customers, or the caller's customer_id disagrees with them"""
 
@@ -132,7 +137,8 @@ def lookup(db, kind: str, value) -> str | None:
         except ValueError:
             return None
     r = db.execute(text(_SQL[kind]), {"i": str(value)}).first()
-    return _norm(r.customer_id) if r and r.customer_id is not None else None
+    c = _norm(r.customer_id) if r and r.customer_id is not None else None
+    return None if kind == "runner_node" and c == DEFAULT_CUSTOMER else c      # MSP-owned runner: infrastructure, not a customer binding (L-6 still refuses another customer's node)
 
 
 def references(db, action: str, params: dict) -> list[tuple[str, str, str | None]]:

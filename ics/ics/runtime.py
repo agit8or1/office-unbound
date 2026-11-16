@@ -18,9 +18,17 @@ class Runtime:
         self.vault = Vault.from_file(self.settings.vault_key_file)
         audit.set_key(read_key_file(self.settings.audit_key_file, "audit key"))
         agentclient.stale_epoch_hook = lambda seen: epoch.self_fence(self, seen)
+        from .guest import golden
+        golden.set_floor_store(golden.DbFloor(self))        # review 7 M-4: the downgrade floor is ICS database state
+        try:
+            golden.configure(open(self.settings.guest_release_pubkey_file).read() if self.settings.guest_release_pubkey_file else None, self.settings.guest_release_pin_sha256)
+        except OSError:
+            golden.configure(None, None)                    # unreadable key file: image import stays refused
         self.own_epoch: int | None = None          # the controller epoch this process runs at (fixed at the first epoch.assert_active)
         self.fenced_reason: str | None = None      # sticky: set when this controller learns it is superseded; nothing leaves the process afterwards
         egress.identity = self._identity_headers
+        from . import lease as leasemod
+        self.lease = leasemod.build(self)            # None unless ICS_LEASE_WITNESS_URL is set on a primary (lease mode, review 7 H-5)
         egress.guard = lambda: epoch.assert_active(self)   # every egress path (agent, provider, notification, promotion, ssh) asks first
 
     def _identity_headers(self) -> dict:

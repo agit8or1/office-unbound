@@ -633,7 +633,7 @@ def create_plan(db: Session, rt: Runtime, user, action: ActionType, params: dict
     if getattr(user, "customer_ids", None) is not None:
         for _path, _kind, _c in tresolve.references(db, action.value, full):
             if _c and not tscope.allowed(user, _c):
-                raise PlanError(404, "not found")   # same answer as a missing object: another customer's resources are not disclosed
+                raise PlanError(404, tresolve.NOT_FOUND.get(_kind, "not found"))   # same answer as a missing object: another customer's resources are not disclosed
     try:
         derived_cust = tresolve.derive(db, action.value, full)
     except tresolve.CustomerConflict as e:
@@ -1272,7 +1272,8 @@ def _exec_maintenance(rt, db, m: MaintenanceCreate, plan, known) -> dict:
     scope = db.execute(text("SELECT name FROM checks WHERE id = :c"), {"c": str(m.check_id)}).scalar() if m.check_id else "ALL checks"
     detail = (f"Maintenance window '{m.name}' started by {who} for {m.duration_minutes} min; scope: {scope}; reason: {m.reason or '-'}. "
               "Alerts and automatic remediation for this scope are suppressed until it ends.")
-    monitor.enqueue_notifications(db, SimpleNamespace(id=None), None, "maintenance_started", re.sub(r"[^\x20-\x7e]", "?", detail)[:400], force=True)
+    monitor.enqueue_notifications(db, SimpleNamespace(id=None), None, "maintenance_started", re.sub(r"[^\x20-\x7e]", "?", detail)[:400], force=True,
+                                  customer_id=plan.customer_id or tscope.DEFAULT_CUSTOMER)
     return {"maintenance_id": str(wid)}
 
 

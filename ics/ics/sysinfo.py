@@ -5,7 +5,7 @@ import shutil
 import time
 from datetime import datetime, timezone
 
-from fastapi import Depends, FastAPI
+from fastapi import Depends, FastAPI, HTTPException
 from sqlalchemy import text
 from sqlalchemy.orm import Session
 
@@ -34,6 +34,8 @@ def _last_backup() -> dict:
 def register(app: FastAPI, rt, API: str, worker) -> None:
     @app.get(f"{API}/system")
     def system(user: User = Depends(require("admin")), db: Session = Depends(get_db)):
+        if getattr(user, "customer_ids", None) is not None:
+            raise HTTPException(404, "not found")     # review 5 L5 / review 7: exact version, commit and schema of the ICS host are for all-customers admins only
         s = rt.settings
         checks: dict = {}
         head = size = hb_age = None

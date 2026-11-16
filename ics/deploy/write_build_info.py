@@ -53,6 +53,7 @@ def main(root: Path, out: Path) -> None:
         "components": vs.get("components", {}),
         "interfaces": vs.get("interfaces", {}),
         "releases": prog.get("releases", []),
+        "release_names": vs.get("release_names", {}),
     }
     out.write_text(json.dumps(info, indent=2, sort_keys=True) + "\n")
 

@@ -14,14 +14,32 @@ SCOPE = EndpointScope(pools=("ou-lab",), storage=("local-lvm", "local"), network
 BLOB = b"QFI\xfb" + b"\x00" * 4096 + b"golden"
 
 
+_STATE: dict = {}
+
+
+@pytest.fixture(autouse=True)
+def server_trust():
+    """review 7 M-4: the release key + pin are SERVER configuration (golden.configure) and the downgrade floor is the ICS database's (here: in memory)"""
+    from ics.guest import golden
+    _STATE.clear()
+    golden.configure(None, None)
+    golden.set_floor_store(golden.MemoryFloor())
+    yield
+    golden.configure(None, None)
+    golden.set_floor_store(None)
+
+
 def release(tmp_path, date="20261115"):
-    """a really signed release directory (ECDSA P-256 manifest) as the offline release host produces it"""
+    """a really signed release directory (ECDSA P-256 manifest) as the offline release host produces it; the ICS is configured to trust ITS key"""
+    from cryptography.hazmat.primitives.asymmetric import ec
+    from ics.guest import golden
     from .test_golden_image import make_release
     sub = tmp_path / f"r{date}"
     sub.mkdir()
-    d, pem, pin, _k = make_release(sub, name=f"ou-golden-debian-12-{date}.qcow2", image=BLOB)
-    return (os.path.join(d, f"ou-golden-debian-12-{date}.qcow2"), hashlib.sha256(BLOB).hexdigest(),
-            dict(release_dir=d, release_pubkey_pem=pem, release_pin_sha256=pin))
+    _STATE.setdefault("key", ec.generate_private_key(ec.SECP256R1()))
+    d, pem, pin, _k = make_release(sub, name=f"ou-golden-debian-12-{date}.qcow2", image=BLOB, key=_STATE["key"])
+    golden.configure(pem, pin)
+    return (os.path.join(d, f"ou-golden-debian-12-{date}.qcow2"), hashlib.sha256(BLOB).hexdigest(), dict(release_dir=d))
 
 
 @pytest.fixture()
@@ -127,10 +145,65 @@ def test_m7_an_unsigned_or_unpinned_import_is_refused(sim, job, image, tmp_path)
     m = mutations(sim, scope=SCOPE)
     with pytest.raises(ProviderError, match="signed release"):
         m.import_image(spec((image[0], image[1])))                                   # a bare path + caller-supplied checksum: the pre-fix import path
-    wrong_pin = dict(image[2], release_pin_sha256="00" * 32)
+    from ics.guest import golden
+    pem, _pin = golden.trust_root()
+    golden.configure(pem, "00" * 32)                                                  # the SERVER's pin does not match the key: refused
     with pytest.raises(ProviderError, match="release verification failed"):
-        m.import_image(spec((image[0], image[1], wrong_pin)))
+        m.import_image(spec(image))
+    golden.configure(None, None)                                                     # no trust root configured at all: refused
+    with pytest.raises(ProviderError, match="no golden-image release key"):
+        m.import_image(spec(image))
     assert not hasattr(sim.sim, "uploaded_bytes")
+
+
+def test_m4_the_caller_cannot_supply_the_key_or_the_pin(sim, job, image):
+    """review 7 M-4: ImageImportSpec has no key/pin fields any more; a key the caller signs with is not trusted unless the server config says so"""
+    import dataclasses
+    import pathlib
+    from cryptography.hazmat.primitives.asymmetric import ec
+    from .test_golden_image import make_release
+    assert not {"release_pubkey_pem", "release_pin_sha256"} & {f.name for f in dataclasses.fields(ImageImportSpec)}
+    with pytest.raises(TypeError):
+        spec(image, release_pubkey_pem="x", release_pin_sha256="y")
+    other = pathlib.Path(os.path.dirname(image[0])).parent / "attacker"
+    other.mkdir()
+    d, pem, pin, _k = make_release(other, name="ou-golden-debian-12-20261115.qcow2", image=BLOB, key=ec.generate_private_key(ec.SECP256R1()))
+    enable_import(sim)
+    with pytest.raises(ProviderError, match="release verification failed"):                 # signed by a key the server does not trust
+        mutations(sim, scope=SCOPE).import_image(spec((os.path.join(d, "ou-golden-debian-12-20261115.qcow2"), image[1], dict(release_dir=d))))
+
+
+def test_m4_the_floor_is_database_state_and_survives_deleting_the_newest_template(sim, job, tmp_path):
+    from ics.guest import golden
+    enable_import(sim)
+    m = mutations(sim, scope=SCOPE)
+    r = m.import_image(spec(release(tmp_path, "20261115")))
+    assert golden.floor_store().get("debian-12") == "20261115"
+    sim.sim.vms.pop(r.vmid)                                    # an operator deletes (or re-tags) the newest template at the provider
+    with pytest.raises(ProviderError) as e:
+        m.import_image(spec(release(tmp_path, "20261001"), name="ou-tpl-debian12-agent2"))
+    assert e.value.code == "downgrade"                         # the old code read the floor from the template tags and let this through
+    m.import_image(spec(release(tmp_path, "20261002"), name="ou-tpl-debian12-agent3", allow_downgrade=True))
+    assert golden.floor_store().get("debian-12") == "20261115"  # a separately approved downgrade never lowers it
+
+
+def test_m4_db_floor_is_monotonic(rt, owner_engine):
+    from sqlalchemy import text
+    from sqlalchemy.exc import DBAPIError
+    from ics.guest import golden
+    f = golden.DbFloor(rt)
+    assert f.get("debian-12") is None
+    f.raise_to("debian-12", "20261115")
+    f.raise_to("debian-12", "20261001")
+    assert f.get("debian-12") == "20261115"
+    with pytest.raises(DBAPIError, match="monotonic"):
+        with rt.session() as db:
+            db.execute(text("UPDATE image_floor SET release_date = '20200101' WHERE os = 'debian-12'"))
+            db.commit()
+    with owner_engine.connect() as c:
+        c.execute(text("ALTER TABLE image_floor DISABLE TRIGGER image_floor_guard"))
+        c.execute(text("DELETE FROM image_floor"))
+        c.execute(text("ALTER TABLE image_floor ENABLE TRIGGER image_floor_guard"))
 
 
 def test_m7_a_release_with_a_forged_manifest_is_refused(sim, job, image):
