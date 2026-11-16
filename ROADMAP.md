@@ -1,6 +1,6 @@
 # Office Unbound roadmap & progress
 
-> Generated from [`docs/progress.json`](docs/progress.json) by `scripts/render_roadmap.py` — edit the JSON, not this file. Last updated **2026-11-15** · stage: **pre-alpha (lab)** · current version: **0.1.0**.
+> Generated from [`docs/progress.json`](docs/progress.json) by `scripts/render_roadmap.py` — edit the JSON, not this file. Last updated **2026-11-15** · stage: **pre-alpha (lab)** · current version: **0.2.0-dev**.
 
 Core platform components are integrated and tested in an isolated lab: own source build of Exchange-compatible groupware with single sign-on webmail, Keycloak SSO, file sync and browser document editing, backup/restore drills, chat and video meetings, and an infrastructure control server with monitoring, self-healing and a real Proxmox integration (VM lifecycle verified on a live cluster). Guided deployment wizards, provisioning automation and the credential vault are being integrated.
 
@@ -126,7 +126,8 @@ Core platform components are integrated and tested in an isolated lab: own sourc
 
 | Version | Date | Status | Highlights |
 |---|---|---|---|
-| [0.1.0](https://github.com/agit8or1/office-unbound/releases/tag/v0.1.0) | 2026-11-15 | prepared | Installable ICS with console, typed actions, approvals and hash-chained audit<br>Groupware, identity, files and browser document editing integrated and tested in an isolated lab<br>Proxmox provider verified on a live cluster; deployment engine, wizards, credential vault<br>Office Unbound Docs own source build, user portal, SSO, chat/meetings and telephony lab prototypes<br>Lab pre-alpha only: not production supported; security review 4 findings open |
+| [0.2.0-dev](https://github.com/agit8or1/office-unbound/blob/main/CHANGELOG.md) | 2026-11-16 | prepared | In development: alpha readiness (security reviews 5-7 remediation, production no-SSH Proxmox deployment, full service profile, two-customer isolation) |
+| [0.1.0](https://github.com/agit8or1/office-unbound/releases/tag/v0.1.0) | 2026-11-16 | released | Installable ICS with console, typed actions, approvals and hash-chained audit<br>Groupware, identity, files and browser document editing integrated and tested in an isolated lab<br>Proxmox provider verified on a live cluster; deployment engine, wizards, credential vault<br>Office Unbound Docs own source build, user portal, SSO, chat/meetings and telephony lab prototypes<br>Lab pre-alpha only: not production supported; security reviews 5-7 High findings open (fixes target 0.2.0) |
 
 Full history: [`CHANGELOG.md`](CHANGELOG.md). Process: [`docs/RELEASING.md`](docs/RELEASING.md).
 

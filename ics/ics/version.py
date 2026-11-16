@@ -6,6 +6,7 @@ VERSIONS.json (source checkout, tests), else an explicit "unknown" marker. Resul
 from __future__ import annotations
 
 import json
+import re
 from functools import lru_cache
 from pathlib import Path
 
@@ -37,7 +38,7 @@ def _compute(pkg_parent: Path, repo_root: Path) -> dict:
     prog = _load(repo_root / "docs" / "progress.json") or {}
     return {"product": PRODUCT, "version": v, "commit": None, "built_at": None, "dirty": None, "schema_head": None,
             "components": vs.get("components", {}), "interfaces": vs.get("interfaces", {}),
-            "releases": prog.get("releases", []), "source": "source-tree"}
+            "releases": prog.get("releases", []), "release_names": vs.get("release_names", {}), "source": "source-tree"}
 
 
 @lru_cache(maxsize=1)
@@ -47,6 +48,15 @@ def build_info() -> dict:
 
 def read_version() -> str:
     return build_info()["version"]
+
+
+def codename(info: dict | None = None) -> str | None:
+    """Release name of the version's MAJOR.MINOR line (ADR-0011 §1), e.g. 0.2.0-dev -> "Beacon"; None if not named."""
+    info = info or build_info()
+    names = info.get("release_names") or {}
+    m = re.match(r"^(\d+)\.(\d+)\.", str(info.get("version", "")))
+    n = names.get(f"{m[1]}.{m[2]}") if m else None
+    return n if isinstance(n, str) and n else None
 
 
 def short_commit(info: dict | None = None) -> str | None:

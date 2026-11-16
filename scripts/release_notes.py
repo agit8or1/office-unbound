@@ -59,7 +59,9 @@ def check() -> int:
     secs = sections(text)
     if "Unreleased" not in secs:
         errs.append("CHANGELOG.md has no [Unreleased] section")
-    if ver not in secs or secs[ver][0] is None:
+    if ver.endswith("-dev"):
+        pass  # development line: changes accumulate under [Unreleased] until the release is cut (docs/RELEASING.md)
+    elif ver not in secs or secs[ver][0] is None:
         errs.append(f"CHANGELOG.md has no dated [{ver}] section for the VERSION file")
     for v in secs:
         if not re.search(rf"^\[{re.escape(v)}\]: https?://", text, re.M):
