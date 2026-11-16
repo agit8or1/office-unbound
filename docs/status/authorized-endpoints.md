@@ -8,5 +8,6 @@
 | Public package/source registries: PyPI, npm registry, deb.debian.org / archive.ubuntu.com, deb.nodesource.com, cli.github.com, github.com (public repos), Collabora/Keycloak/OpenCloud release downloads, OSV/PyPA advisory DB | dependency fetch, release checks, vuln lookups | anonymous read | 2026-11-15 | no credentials sent; lab machines egress via zone `oulab` |
 | Lab machines in nspawn zone `oulab` (192.168.202.0/24-ish, ou-* machines on this host) | integration spikes | full (lab) | 2026-11-15 | Proxmox out of scope until owner says otherwise |
 | Upstream OS image + signing-key sources: cloud.debian.org, ftp-master.debian.org, cloud-images.ubuntu.com, keyserver.ubuntu.com, wiki.ubuntu.com (read-only) | golden-image builds: verify upstream checksums/signatures and archive keys | anonymous read | 2026-11-15 | no credentials; cross-check pins against ≥2 official sources |
+| Rust/Java/Jitsi build sources: crates.io + static.crates.io + index.crates.io, Maven Central (repo1.maven.org), download.jitsi.org (read-only) | source builds of MAS and Jitsi server components (owner decision 2026-11-16: authorize source repos, not container registries) | anonymous read | 2026-11-16 | lockfile/checksum-pinned; artifacts rebuilt and signed by Office Unbound |
 
 Anything not listed here must not be contacted.
