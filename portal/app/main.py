@@ -3,6 +3,7 @@ from __future__ import annotations
 
 import hmac
 import logging
+import re
 import secrets
 import time
 from contextlib import asynccontextmanager
@@ -15,9 +16,10 @@ from fastapi.responses import HTMLResponse, RedirectResponse, Response
 from fastapi.staticfiles import StaticFiles
 from fastapi.templating import Jinja2Templates
 
-from . import devices, services
+from . import admin, devices, services
 from .config import Settings, load
 from .version import PORTAL_VERSION, build_info
+from .icsclient import parse_time as admin_time
 from .oidc import OIDC, OIDCError, new_pkce
 from .sessions import COOKIE, FLOW_COOKIE, Session, Store
 
@@ -25,6 +27,7 @@ log = logging.getLogger("ou-portal")
 HERE = Path(__file__).parent
 VERSION = PORTAL_VERSION
 KINDS = ("document", "spreadsheet", "presentation")
+HEXRE = re.compile(r"^#[0-9a-fA-F]{6}$")
 
 
 def safe_next(p: str | None) -> str:
@@ -48,6 +51,8 @@ def create_app(cfg: Settings | None = None, transport: httpx.AsyncBaseTransport 
         state["http"], state["oidc"] = client, OIDC(cfg, client)
         yield
         await client.aclose()
+        if state.get("ics"):
+            await state["ics"].close()
 
     app = FastAPI(title="Office Unbound portal", lifespan=lifespan, docs_url=None, redoc_url=None, openapi_url=None)
     app.mount("/static", StaticFiles(directory=HERE / "static"), name="static")
@@ -55,6 +60,7 @@ def create_app(cfg: Settings | None = None, transport: httpx.AsyncBaseTransport 
     templates.env.globals.update(cfg=cfg, version=VERSION)
     templates.env.filters["ago"] = lambda d: services.ago(d)
     templates.env.filters["size"] = services.human_size
+    templates.env.filters["isoago"] = lambda v: services.ago(admin_time(v)) if v else "never"
     app.state.store, app.state.state = store, state
 
     csp = ("default-src 'none'; style-src 'self'; img-src 'self' data:; font-src 'self'; base-uri 'none'; frame-ancestors 'none'; "
@@ -64,9 +70,9 @@ def create_app(cfg: Settings | None = None, transport: httpx.AsyncBaseTransport 
     async def headers(request: Request, call_next):
         resp = await call_next(request)
         h = resp.headers
-        h["Content-Security-Policy"] = csp
+        h.setdefault("Content-Security-Policy", csp)   # a route may only TIGHTEN it (the logo is served with a sandboxing policy)
         h["X-Content-Type-Options"] = "nosniff"
-        h["Referrer-Policy"] = "same-origin"
+        h.setdefault("Referrer-Policy", "same-origin")
         h["Strict-Transport-Security"] = "max-age=31536000"
         h["Cross-Origin-Opener-Policy"] = "same-origin"
         h["Cross-Origin-Resource-Policy"] = "same-origin"
@@ -75,9 +81,19 @@ def create_app(cfg: Settings | None = None, transport: httpx.AsyncBaseTransport 
             h["Cache-Control"] = "no-store"
         return resp
 
+    @app.middleware("http")
+    async def brand_mw(request: Request, call_next):
+        ics = state.get("ics")
+        request.state.brand = await ics.branding() if ics and not request.url.path.startswith(("/static/", "/healthz", "/branding")) else None
+        return await call_next(request)
+
     # ---- helpers --------------------------------------------------------------------------------------------------
     def render(request: Request, name: str, ctx: dict | None = None, status: int = 200, sess: Session | None = None) -> Response:
-        c = {"request": request, "sess": sess, "user": user_ctx(sess) if sess else None, **(ctx or {})}
+        b = getattr(request.state, "brand", None) or {}
+        brand = {"name": b.get("display_name") or cfg.org_name, "accent": b.get("accent") if HEXRE.match(b.get("accent") or "") else None,
+                 "logo": bool(b.get("has_logo")), "apps": b.get("apps")}
+        c = {"request": request, "sess": sess, "user": user_ctx(sess) if sess else None, "brand": brand,
+             "is_admin": bool(sess and cfg.ics_url and admin.is_admin(cfg, sess.claims)), **(ctx or {})}
         return templates.TemplateResponse(name, c, status_code=status)
 
     def user_ctx(s: Session) -> dict:
@@ -292,5 +308,67 @@ def create_app(cfg: Settings | None = None, transport: httpx.AsyncBaseTransport 
             return login_redirect(request)
         return Response(devices.autoconfig_xml(cfg), media_type="application/xml",
                         headers={"Content-Disposition": 'attachment; filename="config-v1.1.xml"'})
+
+    if cfg.ics_url:
+        class H:  # what the admin area needs from this module
+            pass
+        h = H()
+        h.render, h.current, h.check_csrf, h.login_redirect, h.ics_transport = render, current, check_csrf, login_redirect, transport
+        state["ics"] = admin.mount(app, cfg, h)
+
+        @app.get("/branding.css", include_in_schema=False)
+        async def branding_css() -> Response:
+            """Per-customer accent colour as CSS variables (strict CSP forbids inline styles, so this is a same-origin stylesheet)."""
+            b = await state["ics"].branding()
+            a = (b or {}).get("accent") or ""
+            css = ""
+            if HEXRE.match(a):
+                css = (f":root{{--accent:{a};--accent-ink:#fff;--accent-soft:color-mix(in srgb,{a} 14%,var(--bg))}}"
+                       f"@media (prefers-color-scheme:dark){{:root{{--accent:color-mix(in srgb,{a} 55%,#fff);--accent-ink:#10141a;"
+                       f"--accent-soft:color-mix(in srgb,{a} 28%,var(--bg))}}}}")
+            return Response(css, media_type="text/css", headers={"Cache-Control": "no-cache"})
+
+        @app.get("/branding/logo", include_in_schema=False)
+        async def branding_logo() -> Response:
+            r = await state["ics"].logo()
+            if not r:
+                return Response(status_code=404)
+            return Response(r[0], media_type=r[1], headers={"Cache-Control": "no-cache", "Content-Security-Policy": "default-src 'none'; sandbox"})
+
+        # ---- one-time sign-up link: the new person chooses their OWN password (relayed to the ICS, never stored or logged here) ----
+        def welcome_ctx(s: str, u: str, t: str, error: str | None = None) -> dict:
+            return {"s": s, "u": u, "t": t, "error": error}
+
+        @app.get("/welcome", response_class=HTMLResponse)
+        async def welcome(request: Request, s: str = "", u: str = "", t: str = "") -> Response:
+            if not (s and u and t) or len(t) > 200:
+                return render(request, "error.html", {"title": "This link is not complete", "text": "Ask your administrator for a new sign-up link."}, 400)
+            resp = render(request, "welcome.html", welcome_ctx(s, u, t))
+            resp.headers["Referrer-Policy"] = "no-referrer"
+            return resp
+
+        @app.post("/welcome")
+        async def welcome_post(request: Request, s: str = Form(""), u: str = Form(""), t: str = Form(""), password: str = Form(""), again: str = Form("")) -> Response:
+            origin = request.headers.get("origin")   # "null" is what browsers send after Referrer-Policy: no-referrer; the one-time token is the real CSRF secret here
+            if (origin and origin not in (cfg.base_url, "null")) or request.headers.get("sec-fetch-site") == "cross-site":
+                return render(request, "error.html", {"title": "Request refused", "text": "Please open the link again."}, 403)
+            if password != again:
+                return render(request, "welcome.html", welcome_ctx(s, u, t, "The two passwords are not the same."), 422)
+            try:
+                r = await state["http"].post(cfg.ics_url + "/api/v1/identity/enroll", json={"stack": s, "uid": u, "token": t, "password": password},
+                                             **({"timeout": 20}))
+            except httpx.HTTPError:
+                return render(request, "welcome.html", welcome_ctx(s, u, t, "We could not reach the service just now. Please try again."), 503)
+            if r.status_code == 200:
+                return render(request, "welcome_done.html", {"u": u})
+            if r.status_code == 403:
+                return render(request, "error.html", {"title": "This link no longer works", "text": "It may have been used already or has expired. Ask your administrator for a new one."}, 403)
+            if r.status_code == 422:
+                try:
+                    msg = r.json().get("detail")
+                except ValueError:
+                    msg = None
+                return render(request, "welcome.html", welcome_ctx(s, u, t, msg if isinstance(msg, str) else "That password is not allowed."), 422)
+            return render(request, "welcome.html", welcome_ctx(s, u, t, "We could not save the password. Please try again in a minute."), 503)
 
     return app

@@ -1,0 +1,17 @@
+{% extends "base.html" %}
+{% block title %}Choose your password · {{ brand.name }}{% endblock %}
+{% block main %}
+<section class="hero narrow">
+  <h1>Welcome, {{ u }}</h1>
+  <p class="lead">Choose a password to finish setting up your account at {{ brand.name }}.</p>
+  {% if error %}<p class="notice" role="alert">{{ error }}</p>{% endif %}
+  <form method="post" action="/welcome" class="card form" autocomplete="off">
+    <input type="hidden" name="s" value="{{ s }}"><input type="hidden" name="u" value="{{ u }}"><input type="hidden" name="t" value="{{ t }}">
+    <div class="field"><label for="password">New password</label><input id="password" name="password" type="password" required minlength="12" maxlength="256" autocomplete="new-password" aria-describedby="pw-h">
+      <p class="hint" id="pw-h">At least 12 characters. A few random words work well. Do not use your name.</p></div>
+    <div class="field"><label for="again">Type it again</label><input id="again" name="again" type="password" required minlength="12" maxlength="256" autocomplete="new-password"></div>
+    <p><button class="btn primary big" type="submit">Save password</button></p>
+  </form>
+  <p class="hint">This link works once. Nobody else, including your administrator, ever sees your password.</p>
+</section>
+{% endblock %}

@@ -1,0 +1,46 @@
+### negative 1: wrong pinned fingerprint (the lab key, not the dev channel key) -> must be refused, nothing installed
+bootstrap: changed: /etc/office-unbound/ics.env: ICS_SIGNING_KEY_FILE
+bootstrap: changed: /etc/office-unbound/ics-migrate.env: ICS_MIGRATE_DATABASE_URL
+bootstrap: ERROR: repository key fingerprint is 3082B558DE354DA69A01C09626D430237D6322A4, pinned 5D2750D022E0218361518491CE58A8B691F84C1B: refusing to trust it
+dpkg-query: package 'ou-ics' is not installed and no information is available
+### negative 2: --from-repo without --repo-url
+bootstrap: ERROR: --from-repo needs --repo-url http(s)://host[:port][/path]
+### negative 3: repo options without --from-repo
+bootstrap: ERROR: --repo-url/--repo-key/--repo-key-fingerprint/--version only make sense with --from-repo
+### positive: first install from the signed repo, key pinned to 3082B558DE354DA69A01C09626D430237D6322A4, loopback mode, version 0.1.0-ou1
+gpg: Warning: using insecure memory!
+bootstrap: changed: wrote /usr/share/keyrings/ou-release.gpg
+bootstrap: changed: wrote /etc/apt/sources.list.d/office-unbound.list
+bootstrap: installing ou-ics 0.1.0-ou1 from channel dev (the package postinst runs migrations; an existing database is backed up first)
+debconf: delaying package configuration, since apt-utils is not installed
+bootstrap: changed: package ou-ics none -> 0.1.0-ou1 (channel dev)
+bootstrap: waiting for /readyz (backend, 127.0.0.1:8088)
+bootstrap: changed: admin account owner2 created
+
+================ Office Unbound ICS: bootstrap summary ================
+console URL        : http://127.0.0.1:8088/
+release            : ou-ics 0.1.0-ou1 (signed package, channel dev, repo http://192.168.186.149:8077, key 3082B558DE354DA69A01C09626D430237D6322A4) -> /opt/office-unbound/ics
+package            : postgresql-16 16.15-0ubuntu0.24.04.1
+package            : python3-venv 3.12.3-0ubuntu2.1
+mode               : loopback only (127.0.0.1:8088, no TLS, no nginx, no firewall)
+config / keys      : /etc/office-unbound (env files and keys are root-only; DB passwords exist only there)
+changes this run   : wrote /usr/share/keyrings/ou-release.gpg
+                     wrote /etc/apt/sources.list.d/office-unbound.list
+                     package ou-ics none -> 0.1.0-ou1 (channel dev)
+                     admin account owner2 created
+=======================================================================
+Created owner2 with role admin
+One-time enrollment token for owner2 (shown once; valid 24h; hand it over out of band):
+The user then calls POST /api/v1/auth/enroll {username, token, password} and /auth/enroll/confirm {username, token, totp_code}.
+### idempotent re-run (must be a no-op)
+bootstrap: ou-ics 0.1.0-ou1 already installed: nothing to do (upgrade later with: apt-get install ou-ics, after ics upgrade-preflight)
+release            : ou-ics 0.1.0-ou1 (signed package, channel dev, repo http://192.168.186.149:8077, key 3082B558DE354DA69A01C09626D430237D6322A4) -> /opt/office-unbound/ics
+changes this run   : none
+admin              : account 'owner2' already exists: no token issued (re-issue deliberately with: cd /opt/office-unbound/ics && sudo -u ics .venv/bin/python -m ics.cli issue-enrollment --username owner2)
+### state
+ou-ics	0.1.0-ou1
+{"ready":true,"version":"0","checks":{"database":{"ok":true},"worker":{"ok":true},"audit_chain":{"ok":true}}}
+{'ok': True, 'checked': 2, 'head': '725c5a133169891e465a3a926010fb4ff482d79b30632361c9ab3d507a71e4c0', 'legacy_unauthenticated': 0, 'mac_checked': True, 'problems': []}
+office-unbound.list
+ubuntu.sources
+deb [signed-by=/usr/share/keyrings/ou-release.gpg] http://192.168.186.149:8077 dev main

@@ -99,7 +99,7 @@ def test_m5_every_listed_get_route_is_scoped_or_explicitly_global(client, world)
     for route in client.app.routes:
         methods = getattr(route, "methods", None) or set()
         path = getattr(route, "path", "")
-        if "GET" not in methods or path in GLOBAL or path.startswith(("/openapi", "/redoc", "/static", "/assets")):
+        if "GET" not in methods or path in GLOBAL or path.startswith(("/openapi", "/redoc", "/static", "/assets", "/api/msp/v1/", "/api/v1/tenant/")):  # key-gated MSP API and tenant-principal-only /tenant API: customer-bound by construction (tests/test_msp_api.py, tests/test_tenant_admin.py)
             continue
         names = [seg[1:-1] for seg in path.split("/") if seg.startswith("{")]
         missing = [n for n in names if n not in params]
@@ -150,7 +150,7 @@ def test_m6_stack_cannot_reference_another_customers_node(client, world, rt):
     base = dict(gromox_node_id=None, mail_host=None, mail_ca_pem=None, files_url="https://127.0.0.1:8443", ldap_url="ldaps://127.0.0.1:636", kc_url="https://127.0.0.1:8443")
     p = stack_params(name="x-stack", customer_id=world["ca"], files_node_id=ids["node_b"], **base)
     r = c.post(f"{H}/plans", json={"action": "idm.stack.register", "params": p}, headers=h)
-    assert r.status_code == 422 and "node not found" in r.text, r.text                      # was 201: B's node accepted for A's stack
+    assert r.status_code in (409, 422) and ("node not found" in r.text or "different customers" in r.text), r.text                      # was 201: B's node accepted for A's stack
     ok = stack_params(name="y-stack", customer_id=world["ca"], files_node_id=ids["node_a"], **base)
     assert c.post(f"{H}/plans", json={"action": "idm.stack.register", "params": ok}, headers=h).status_code == 201
     ghost = stack_params(name="z-stack", customer_id=world["ca"], files_node_id=str(uuid.uuid4()), **base)

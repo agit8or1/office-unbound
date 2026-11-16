@@ -33,6 +33,10 @@ def main(argv=None) -> int:
     du.add_argument("--reason", required=True, help="why the normal approval workflow could not be used (recorded in the audit log)")
     ns = sub.add_parser("backup-node-secret", help="BREAK-GLASS (host root): print the policy's restic repository password as JSON for `ou-backup --direct provision <tier>`; audited, never logged")
     ns.add_argument("--policy", required=True)
+    up = sub.add_parser("upgrade-preflight", help="read-only checks before upgrading the ou-ics package: disk space, backup freshness, running jobs, standby state, schema")
+    up.add_argument("--backup-dir", default="/var/backups/office-unbound/ics")
+    up.add_argument("--max-backup-age-hours", type=float, default=24)
+    up.add_argument("--json", action="store_true")
     ra = sub.add_parser("backup-recovery-ack", help="record that the offline recovery key was exported (fingerprint only, never the key); audited")
     ra.add_argument("--policy", required=True)
     ra.add_argument("--fingerprint", required=True, help="16 hex characters printed by `ou-backup --direct recovery-key`")
@@ -44,6 +48,8 @@ def main(argv=None) -> int:
     sn = sub.add_parser("standby-note", help="record a standby lifecycle event in the audit log (called by the standby scripts on the primary)")
     sn.add_argument("event", choices=["keys-exported", "standby-prepared"])
     sn.add_argument("--standby-ip", required=True)
+    ea = sub.add_parser("epoch-attest", help="CURRENT primary only: print a signed re-seed document for one agent whose epoch file was lost (ou-agent reseed-epoch)")
+    ea.add_argument("--node", required=True, help="node id (uuid) of the agent")
     sub.add_parser("controller-status", help="print role, controller epoch and replication position")
     args = ap.parse_args(argv)
     if args.cmd == "promote":
@@ -51,6 +57,15 @@ def main(argv=None) -> int:
         return promote.promote(args)
     rt = Runtime()
     with rt.session() as db:
+        if args.cmd == "upgrade-preflight":
+            from . import upgrade
+            facts = upgrade.gather(db, rt.settings, backup_dir=args.backup_dir)
+            checks = upgrade.evaluate(facts, int(args.max_backup_age_hours * 3600))
+            if args.json:
+                print(json.dumps({"ready": upgrade.verdict(checks) == 0, "checks": [c.__dict__ for c in checks]}, indent=1))
+            else:
+                print(upgrade.render(checks))
+            return upgrade.verdict(checks)
         if args.cmd == "rewrap-master":
             from .credentials import rewrap
             from .vault import Vault
@@ -84,6 +99,17 @@ def main(argv=None) -> int:
                 print(e, file=sys.stderr)
                 return 1
             _show(args.username, token)
+            return 0
+        if args.cmd == "epoch-attest":
+            import json as _json
+            import time as _time
+            from . import agentclient, epoch as epochmod
+            ep = epochmod.assert_active(rt)         # a standby or fenced controller can not attest an epoch
+            if not db.execute(text("SELECT 1 FROM nodes WHERE id = :i"), {"i": args.node}).first():
+                print("unknown node", file=sys.stderr)
+                return 1
+            body = {"v": 1, "node_id": args.node, "epoch": ep, "issued_at": int(_time.time())}
+            print(_json.dumps({"attest": body, "sig": agentclient.sign(agentclient.load_signing_key(rt.settings.signing_key_file), b"ou-agent-epoch-reseed-v1\n", body)}))
             return 0
         if args.cmd == "controller-status":
             from . import epoch as epochmod

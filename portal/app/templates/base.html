@@ -5,20 +5,23 @@
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
 <meta name="color-scheme" content="light dark">
-<title>{% block title %}{{ cfg.org_name }}{% endblock %}</title>
+<title>{% block title %}{{ brand.name }}{% endblock %}</title>
 <link rel="icon" href="/static/favicon.svg" type="image/svg+xml">
 <link rel="stylesheet" href="/static/portal.css?v={{ version }}">
+{% if brand.accent %}<link rel="stylesheet" href="/branding.css">{% endif %}
+{% block head %}{% endblock %}
 </head>
 <body>
 <a class="skip" href="#main">Skip to content</a>
 <header class="top">
   <div class="wrap bar">
-    <a class="brand" href="/" aria-label="{{ cfg.org_name }} home"><span class="mark" aria-hidden="true"></span><span>{{ cfg.org_name }}</span></a>
+    <a class="brand" href="/" aria-label="{{ brand.name }} home">{% if brand.logo %}<img class="logo" src="/branding/logo" alt="" width="28" height="28">{% else %}<span class="mark" aria-hidden="true"></span>{% endif %}<span>{{ brand.name }}</span></a>
     {% if user %}
     <nav aria-label="Main">
       <a href="/" {% if request.url.path == '/' %}aria-current="page"{% endif %}>Home</a>
       <a href="/devices" {% if request.url.path.startswith('/devices') %}aria-current="page"{% endif %}>Set up devices</a>
       <a href="/account" {% if request.url.path.startswith('/account') %}aria-current="page"{% endif %}>Account</a>
+      {% if is_admin %}<a href="/admin" {% if request.url.path.startswith("/admin") %}aria-current="page"{% endif %}>Admin</a>{% endif %}
     </nav>
     <form method="post" action="/logout" class="signout">
       <input type="hidden" name="csrf" value="{{ sess.csrf }}">
@@ -32,7 +35,7 @@
 {% block main %}{% endblock %}
 </main>
 <footer class="wrap foot">
-  <span>{{ cfg.org_name }} portal</span><span aria-hidden="true">·</span><span>Your files and messages stay on your organisation's own servers.</span><span aria-hidden="true">·</span><a href="/about">Office Unbound portal v{{ version }}</a>
+  <span>{{ brand.name }} portal</span><span aria-hidden="true">·</span><span>Your files and messages stay on your organisation's own servers.</span><span aria-hidden="true">·</span><a href="/about">Office Unbound portal v{{ version }}</a>
 </footer>
 </body>
 </html>

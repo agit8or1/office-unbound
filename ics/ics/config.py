@@ -6,7 +6,7 @@ Real environment variables (ICS_*) win over the app file. The migrate URL is onl
 `load_migrate_url()`, which is called by Alembic / `python -m ics.migrate`, never by `load_settings()`.
 """
 import os
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from pathlib import Path
 
 DEFAULT_ENV_FILE = "/etc/office-unbound/ics.env"
@@ -34,6 +34,9 @@ class Settings:
     signing_key_file: str | None = None  # Ed25519 key (32 raw bytes) that signs ICS->agent requests; root:ics 0640
     guest_callback_dedicated: bool = False      # the callback is served by `python -m ics.serve_callback` only, not by the console app (review 5 L4)
     guest_require_nic_binding: bool = True     # production bootstrap: the reporting address must resolve to the VM's net0 MAC (review 5 M2)
+    release_repo_dir: str | None = None     # read-only view of the served signed repo tree (console Releases page); unset = page says not configured
+    release_records_dir: str | None = None  # signer test records (records/<sha256>.json), read-only; needs group read for the ics user
+    release_promotion_key_file: str | None = None  # review 7 L-4: DEDICATED ed25519 key (32 raw bytes) that signs promotion manifests; unset = the agent signing key (weaker)
     release_promote_cmd: str | None = None  # release.promote executor: command taking a signed manifest file (repo.sh promote-manifest)
     cookie_secure: bool = True
     worker_enabled: bool = True
@@ -61,6 +64,8 @@ class Settings:
     pve_max_response_bytes: int = 16 * 1024 * 1024
     snapshot_retention: int = 50
     allow_loopback_endpoints: bool = False  # SSRF guard: tests/lab only
+    msp_proxy_auth: str | None = field(default=None, repr=False)  # review 6 L5: shared secret the TLS proxy sets in X-OU-Proxy-Auth next to X-Client-Cert-SHA256
+    msp_webhook_allow: tuple[str, ...] = ()  # review 6 M2: operator-approved exceptions for webhook targets (exact hostnames or CIDRs that may be private)
     monitor_enabled: bool = True
     monitor_parallelism: int = 8
     check_result_retention_days: int = 14
@@ -93,6 +98,8 @@ class Settings:
     guest_agent_dir: str | None = None           # directory with ou_agent/ and deploy/ (the agent bundle source); default: <repo>/ics/agent
     guest_image_registries: tuple[str, ...] = ()           # host[:port] registries the guests' agents may pull from (signed images only)
     guest_insecure_registries: tuple[str, ...] = ()        # subset of the above that is reached over plain HTTP (lab); signatures still required
+    guest_release_pubkey_file: str | None = None           # PEM of the offline release key golden images are verified with (review 7 M-4: server config only)
+    guest_release_pin_sha256: str | None = None            # operator-confirmed pin of that key (sha256 of its DER SubjectPublicKeyInfo)
     guest_image_signing_pubkey_file: str | None = None     # PEM of the ONE cosign-format ECDSA P-256 public key images must be signed with
     guest_image_signing_key_sha256: str | None = None      # operator-confirmed pin: sha256 of that key's DER SubjectPublicKeyInfo (checked at render time)
     guest_mgmt_sources: tuple[str, ...] = ()               # CIDRs allowed to reach guest agents; default: this host's source address towards the guest
@@ -104,6 +111,14 @@ class Settings:
     guest_bootstrap_ttl_seconds: int = 1800      # lifetime of a per-VM one-time bootstrap secret
     guest_keep_bootstrap_ssh: bool = False       # DEBUG ONLY: do not seal the bootstrap SSH access after enrollment (the guest's own timer still seals it after bootstrap_seal_seconds)
     role: str = "primary"                        # ADR-0012: 'standby' = passive warm standby (no worker, no mutations, never signs agent requests)
+    lease_witness_url: str | None = None        # review 7 H-5 lease: base URL of the witness (standby host). Unset = lease OFF (single-controller install)
+    lease_witness_pubkey: str | None = None      # base64 raw Ed25519 public key of the witness (pinned)
+    lease_witness_tls_fp: str | None = None      # optional sha256 pin of the witness's TLS certificate (https)
+    lease_seconds: float = 30.0                  # T: a controller that has not been granted within T seconds fences itself
+    lease_renew_seconds: float = 5.0             # renewal period N
+    lease_standalone_override: bool = False      # operator-approved: run without a witness (standby known dead); audited; a partition can then split-brain
+    witness_state_file: str | None = None        # on the promoting host: witness state; `ics-cli promote` revokes and waits T + margin before bumping the epoch
+    witness_margin_seconds: float = 10.0         # clock-rate drift bound for the promotion proof
     standby_max_lag_seconds: int = 60            # /readyz replication check on a standby
     trusted_proxy: str | None = None             # exact IP of a local reverse proxy whose X-Forwarded-For is honoured (e.g. 127.0.0.1); None = ignore XFF
 
@@ -155,7 +170,10 @@ def load_settings() -> Settings:
             vault_key_file=env["ICS_VAULT_KEY_FILE"],
             audit_key_file=env["ICS_AUDIT_KEY_FILE"],
             signing_key_file=env.get("ICS_SIGNING_KEY_FILE") or None,
+            release_repo_dir=env.get("ICS_RELEASE_REPO_DIR") or None,
+            release_records_dir=env.get("ICS_RELEASE_RECORDS_DIR") or None,
             release_promote_cmd=env.get("ICS_RELEASE_PROMOTE_CMD") or None,
+            release_promotion_key_file=env.get("ICS_RELEASE_PROMOTION_KEY_FILE") or None,
             guest_callback_dedicated=b("ICS_GUEST_CALLBACK_DEDICATED", False),
             guest_require_nic_binding=b("ICS_GUEST_REQUIRE_NIC_BINDING", True),
             monitor_enabled=b("ICS_MONITOR_ENABLED", True),
@@ -165,11 +183,23 @@ def load_settings() -> Settings:
             login_max_failures=int(env.get("ICS_LOGIN_MAX_FAILURES", 5)),
             allow_loopback_endpoints=b("ICS_ALLOW_LOOPBACK_ENDPOINTS", False),
             role=_role(env.get("ICS_ROLE")),
+            msp_webhook_allow=_csv(env.get("ICS_MSP_WEBHOOK_ALLOW")),
+            msp_proxy_auth=(Path(env["ICS_MSP_PROXY_AUTH_FILE"]).read_text().strip() or None) if env.get("ICS_MSP_PROXY_AUTH_FILE") else None,
+            lease_witness_url=env.get("ICS_LEASE_WITNESS_URL") or None,
+            lease_witness_pubkey=env.get("ICS_LEASE_WITNESS_PUBKEY") or None,
+            lease_witness_tls_fp=env.get("ICS_LEASE_WITNESS_TLS_FP") or None,
+            lease_seconds=float(env.get("ICS_LEASE_SECONDS", 30)),
+            lease_renew_seconds=float(env.get("ICS_LEASE_RENEW_SECONDS", 5)),
+            lease_standalone_override=b("ICS_LEASE_STANDALONE_OVERRIDE", False),
+            witness_state_file=env.get("ICS_WITNESS_STATE_FILE") or None,
+            witness_margin_seconds=float(env.get("ICS_WITNESS_MARGIN_SECONDS", 10)),
             trusted_proxy=_trusted_proxy(env.get("ICS_TRUSTED_PROXY")),
             job_timeout_seconds=int(env.get("ICS_JOB_TIMEOUT_SECONDS", 180)),
             guest_agent_dir=env.get("ICS_GUEST_AGENT_DIR") or None,
             guest_image_registries=_csv(env.get("ICS_GUEST_IMAGE_REGISTRIES")),
             guest_insecure_registries=_csv(env.get("ICS_GUEST_INSECURE_REGISTRIES")),
+            guest_release_pubkey_file=env.get("ICS_GUEST_RELEASE_PUBKEY_FILE") or None,
+            guest_release_pin_sha256=env.get("ICS_GUEST_RELEASE_PIN_SHA256") or None,
             guest_image_signing_pubkey_file=env.get("ICS_GUEST_IMAGE_SIGNING_PUBKEY_FILE") or None,
             guest_image_signing_key_sha256=env.get("ICS_GUEST_IMAGE_SIGNING_KEY_SHA256") or None,
             guest_mgmt_sources=_csv(env.get("ICS_GUEST_MGMT_SOURCES")),

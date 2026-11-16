@@ -1,0 +1,34 @@
+##### rollback
+OK    jobs.running   no job or deployment is running
+OK    jobs.queued    no queued jobs
+OK    standby        active controller (worker and monitor enabled)
+OK    schema         database schema 0011 is the head of the installed code
+RESULT: ready to upgrade
+ou-ics: pre-upgrade backup verified: /var/backups/office-unbound/ics/20261116T020254Z (schema 0011)
+Unpacking ou-ics (0.1.0-ou1) over (0.1.1~dev.1-ou1) ...
+Setting up ou-ics (0.1.0-ou1) ...
+ou-ics-setup: nothing to do
+ou-ics: ================================================================================
+ou-ics: ROLLBACK: the database is at schema '0011', which this version does not know.
+ou-ics: alembic downgrade is NOT used. The ICS stays STOPPED. Restore the pre-upgrade backup:
+ou-ics:     ou-ics-rollback /var/backups/office-unbound/ics/20261116T020208Z
+ou-ics: ================================================================================
+PASS  apt-get install --allow-downgrades ou-ics=0.1.0-ou1 (0.1.1~dev.1-ou1 -> 0.1.0-ou1) completed
+PASS  version is 0.1.0-ou1
+PASS  schema moved: the old package left the ICS stopped and set the restore marker
+PASS  ics is NOT running against the newer schema
+-- postinst named the backup: /var/backups/office-unbound/ics/20261116T020208Z
+PASS  the named backup holds the pre-upgrade schema
+rollback: stopping ics
+rollback: safety dump of the current database: /var/backups/office-unbound/ics/20261116T020208Z/pre-rollback-20261116T020317Z.dump
+{'ok': True, 'checked': 4, 'head': 'd56b7b4100e68eb2d0c4f06223ee42b7cf57aef54e69c253a638b77c645b06ca', 'legacy_unauthenticated': 0, 'mac_checked': True, 'problems': []}
+rollback: done. database restored from /var/backups/office-unbound/ics/20261116T020208Z (schema 0010), readyz 200, audit chain verifies
+PASS  ou-ics-rollback /var/backups/office-unbound/ics/20261116T020208Z
+PASS  marker removed
+PASS  schema is back at 0010
+PASS  dummy migration object is gone
+PASS  readyz 200 after rollback
+PASS  audit chain verifies after rollback
+PASS  owner account present
+PASS  safety dump of the rolled-away database kept
+== RESULT: 13 passed, 0 failed

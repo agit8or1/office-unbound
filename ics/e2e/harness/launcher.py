@@ -79,6 +79,51 @@ def listener(tls_ctx):
     return s.getsockname()[1]
 
 
+def sha(c: str) -> str:
+    return c * 64
+
+
+def release_fixture(work: Path) -> tuple[Path, Path]:
+    """A real directory tree in the layout of the signed repo (dists/<suite>/main/binary-amd64/Packages + the signer's records/<sha>.json).
+    Real files read by the real GET /releases; only the content is fixed. Components: ou-agent (staging newer than stable, tested), ou-mail (dev only, untested)."""
+    repo, recs = work / "relrepo", work / "relrecords"
+    for d in (repo, recs):
+        if d.exists():
+            import shutil
+            shutil.rmtree(d)
+    recs.mkdir(parents=True)
+
+    def stanza(suite, comp, name, ver, h):
+        return f"Package: {name}\nVersion: {ver}\nArchitecture: amd64\nFilename: pool/{suite}/{comp}/{name}_{ver}_amd64.deb\nSHA256: {h}\n"
+    suites = {
+        "dev": [("ou-agent", "ou-agent", "1.2.0", sha("c")), ("ou-mail", "ou-mail", "0.9.0", sha("d"))],
+        "staging": [("ou-agent", "ou-agent", "1.1.0", sha("b"))],
+        "stable": [("ou-agent", "ou-agent", "1.0.0", sha("a"))],
+    }
+    for suite, items in suites.items():
+        d = repo / "dists" / suite / "main" / "binary-amd64"
+        d.mkdir(parents=True)
+        (d / "Packages").write_text("\n".join(stanza(suite, c, n, v, h) for c, n, v, h in items))
+    for c in ("a", "b", "c"):   # ou-mail (d) has no record: shows as untested and blocks its promotion
+        (recs / (sha(c) + ".json")).write_text(json.dumps({"results": {"install-smoke": {"result": "pass", "attestation_sha256": sha("e"), "at": "2026-11-10T09:00:00Z"}}}))
+    return repo, recs
+
+
+def seed_bootstrap(owner_url: str) -> str:
+    """One deployment with VMs in every bootstrap state the page explains (rows only in the test database; the audit alarm goes through audit.append)."""
+    from sqlalchemy import create_engine, text
+    eng = create_engine(owner_url, isolation_level="AUTOCOMMIT")
+    did = "00000000-0000-0000-0000-00000000e2e1"
+    with eng.connect() as c:
+        c.execute(text("INSERT INTO deployments (id, slug, customer_id, profile, profile_version, status, desired_spec) VALUES (:i, 'e2e-boot', 'c', 'mail', '1', 'active', '{}')"), {"i": did})
+        for bid, vm, vmid, state, exp in (("a1" * 8, "mail-01", 201, "enrolled", "1 hour"), ("b2" * 8, "web-01", 202, "pending", "1 hour"),
+                                          ("c3" * 8, "db-01", 203, "pending", "-1 hour"), ("d4" * 8, "dav-01", 204, "enrolled", "1 hour")):
+            c.execute(text("INSERT INTO guest_bootstrap (bid, deployment_id, vm, vmid, mode, state, attempts, expires_at) VALUES (:b, :d, :v, :n, 'callback', :s, :a, now() + CAST(:e AS interval))"),
+                      {"b": bid, "d": did, "v": vm, "n": vmid, "s": state, "e": exp, "a": 2 if vm == "web-01" else 0})
+    eng.dispose()
+    return "e2e-boot"
+
+
 def main():
     ap = argparse.ArgumentParser()
     ap.add_argument("--app-dir", required=True)
@@ -114,7 +159,9 @@ def main():
     command.upgrade(cfg, "head")
     eng.dispose()
 
-    senv = {**os.environ, "PYTHONPATH": str(app_dir), "ICS_ENV_FILE": "/nonexistent", "ICS_DATABASE_URL": app_url,
+    relrepo, relrecs = release_fixture(work)
+    boot_slug = seed_bootstrap(owner_url)
+    senv = {**os.environ, "ICS_RELEASE_REPO_DIR": str(relrepo), "ICS_RELEASE_RECORDS_DIR": str(relrecs), "ICS_RELEASE_PROMOTE_CMD": "/bin/true", "PYTHONPATH": str(app_dir), "ICS_ENV_FILE": "/nonexistent", "ICS_DATABASE_URL": app_url,
             "ICS_VAULT_KEY_FILE": str(keys / "vault.key"), "ICS_AUDIT_KEY_FILE": str(keys / "audit.key"),
             "ICS_SIGNING_KEY_FILE": str(keys / "signing.key"), "ICS_WORKER_ENABLED": "true", "ICS_MONITOR_ENABLED": "true",
             "ICS_ALLOW_LOOPBACK_ENDPOINTS": "true", "ICS_LOGIN_MAX_FAILURES": "50"}
@@ -218,7 +265,7 @@ def main():
         raise SystemExit("seed: no incident appeared within 90s (monitor/worker not running? see server.log)")
 
     state.write_text(json.dumps({"base": BASE, "users": users, "tls_port": tls_port, "plain_port": plain_port,
-                                 "pending_plan_ids": [p["plan_id"] for p in pend]}, indent=1))
+                                 "pending_plan_ids": [p["plan_id"] for p in pend], "boot_slug": boot_slug}, indent=1))
     state.chmod(0o600)
     print("READY", flush=True)
     srv.wait()

@@ -13,6 +13,9 @@ vms:
   - {name: groupware, components: [groupware]}
   - {name: files, components: [files]}
   - {name: office, components: [office], replicas: 2}
-optional_components: [office]
-default_optional: [office]
+  - {name: chat, components: [chat]}
+  - {name: meet, components: [meetings]}
+  - {name: pbx, components: [telephony]}
+optional_components: [office, chat, meetings, telephony]
+default_optional: [office, chat, meetings]
 backup: {schedule: daily, retention_days: 30, snapshot_before_change: true, offsite: true}

@@ -43,6 +43,10 @@ class Settings:
     session_ttl: int = 8 * 3600       # absolute lifetime of a portal session
     http_timeout: float = 8.0
     ca_bundle: str | None = None      # None = system store (lab CA is installed there)
+    ics_url: str | None = None        # ICS base URL for the Admin area (tenant API). None = the Admin area is not offered at all.
+    ics_key: str = ""                 # per-customer service credential (file), identifies the customer to the ICS; never a user secret
+    ics_ca_bundle: str | None = None  # CA for the ICS TLS certificate
+    admin_role: str = "org-admin"     # Keycloak realm role that opens the Admin area (the ICS verifies it again from the signed token)
 
     @property
     def host(self) -> str:
@@ -88,4 +92,8 @@ def load() -> Settings:
         autodiscover_host=_env("PORTAL_AUTODISCOVER_HOST", f"autodiscover.{mail_domain}"),
         editor_app=_env("PORTAL_EDITOR_APP", "external-collaboraonline"),
         ca_bundle=os.environ.get("PORTAL_CA_BUNDLE") or None,
+        ics_url=(os.environ.get("PORTAL_ICS_URL") or "").rstrip("/") or None,
+        ics_key=_secret("PORTAL_ICS_KEY") if (os.environ.get("PORTAL_ICS_URL") or "") else "",
+        ics_ca_bundle=os.environ.get("PORTAL_ICS_CA_BUNDLE") or None,
+        admin_role=_env("PORTAL_ADMIN_ROLE", "org-admin"),
     )

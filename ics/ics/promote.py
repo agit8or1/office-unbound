@@ -110,6 +110,17 @@ def promote(args) -> int:
         except Exception as e:  # noqa: BLE001
             print(f"refusing: could not fence the reachable old primary ({type(e).__name__}); nothing was changed", file=sys.stderr)
             return 1
+    if rt.settings.witness_state_file:
+        # review 7 H-5: the old primary may be alive behind a partition. Stop the witness granting, then wait until any lease it holds has expired
+        # (T + margin since the last grant). Only then is it safe to become the single writer.
+        from .lease import Witness
+        w = Witness(None, None, lease_seconds=rt.settings.lease_seconds, state_path=rt.settings.witness_state_file)
+        print(f"witness: revoked epochs <= {w.revoke()}; waiting until no controller can hold a valid lease "
+              f"(T={rt.settings.lease_seconds:.0f}s + margin {rt.settings.witness_margin_seconds:.0f}s since the last grant)")
+        w.wait_proven(rt.settings.witness_margin_seconds, progress=lambda left: print(f"  ... {left:.0f} s", flush=True))
+        print("witness: proven - the old primary's lease has expired")
+    else:
+        print("NOTE: no ICS_WITNESS_STATE_FILE on this host: promotion is NOT lease-proven (an isolated old primary keeps acting until an agent refuses it)", file=sys.stderr)
     phrase = f"promote {hostname}"
     answer = args.confirm
     if answer is None:

@@ -22,13 +22,17 @@ from .blueprint import preview
 from . import userdir
 from .config import Settings
 from .deploy.api import register_routes as register_deploy_routes
+from . import console_api
 from .sysinfo import register as register_system_routes
+from . import ratelimit
 from .guest import callback as guest_callback
 from .inventory import api as inventory_api
 from . import version as ver
 from .provisioning import service as prov_service
 from .credentials import api as credentials_api, service as cred_service
 from .tenancy import api as tenancy_api, public as tenancy_public, scope as tscope
+from .tenant_admin import api as tenant_api
+from .msp import api as msp_api, console as msp_console
 from .runtime import Runtime
 from .worker import Worker
 
@@ -161,6 +165,9 @@ class UIStaticFiles(StaticFiles):
         return resp
 
 
+WORKER_LOCK_KEY = 0x4F55574B   # 'OUWK': pg advisory-lock key of the single background-worker leader
+
+
 def create_app(settings: Settings | None = None, runtime: Runtime | None = None) -> FastAPI:
     rt = runtime or Runtime(settings)
     worker = Worker(rt) if rt.settings.worker_enabled and rt.settings.role == "primary" else None
@@ -175,11 +182,36 @@ def create_app(settings: Settings | None = None, runtime: Runtime | None = None)
             import logging
             if rt.settings.role != "standby":
                 logging.getLogger("ics").exception("credential migration failed; endpoints keep using legacy secrets until it succeeds")
+        if rt.settings.lease_standalone_override and rt.settings.role == "primary":
+            try:   # review 7 H-5: running without a witness is an operator decision and is recorded
+                with rt.session() as db:
+                    audit.append(db, "controller.lease_standalone_override", actor_name="controller", resource="controller",
+                                 details={"witness_configured": bool(rt.settings.lease_witness_url)})
+                    db.commit()
+            except Exception:  # noqa: BLE001
+                pass
+        if getattr(rt, "lease", None):
+            rt.lease.start()                    # renewal thread; until the first grant no side effect is allowed
+        # several uvicorn workers (ICS_WORKERS > 1): exactly one process runs the background worker (jobs, monitor, inventory, backups). Leader election
+        # = a session-level advisory lock on a connection held for the process lifetime; if the leader dies, uvicorn's supervisor restarts it
+        # and the new process takes the lock.
+        lead = None
         if worker:
-            worker.start()
+            conn = rt.engine.connect()
+            if conn.execute(text("SELECT pg_try_advisory_lock(:k)"), {"k": WORKER_LOCK_KEY}).scalar():
+                conn.commit()
+                lead = conn
+                worker.start()
+            else:
+                conn.close()   # not the leader: nothing was locked
         yield
-        if worker:
+        if lead is not None:
             worker.stop()
+            lead.execute(text("SELECT pg_advisory_unlock(:k)"), {"k": WORKER_LOCK_KEY})   # session lock: a pooled connection keeps it unless released
+            lead.commit()
+            lead.close()
+        if getattr(rt, "lease", None):
+            rt.lease.stop()
 
     docs = rt.settings.enable_docs  # off in production: Swagger UI is CDN-hosted (M6)
     app = FastAPI(title="Office Unbound ICS", version=ver.__version__, lifespan=lifespan,
@@ -187,6 +219,8 @@ def create_app(settings: Settings | None = None, runtime: Runtime | None = None)
     app.state.rt = rt
     if rt.settings.role == "standby":
         app.add_middleware(standby.StandbyGuard)
+    else:
+        app.add_middleware(standby.FenceGuard, check=rt.assert_active)       # review 7 H-5
     app.add_middleware(SecurityHeadersAndLimits, max_body=rt.settings.max_body_bytes, relax_paths=("/docs",) if docs else ())
 
     # ---- health ----
@@ -416,6 +450,7 @@ def create_app(settings: Settings | None = None, runtime: Runtime | None = None)
     register_system_routes(app, rt, API, worker)  # GET system (admin): version, migration, readiness, threads, sizes, backup
     if not rt.settings.guest_callback_dedicated:
         guest_callback.register(app, rt)  # golden-image bootstrap callback (guest/callback.py): HMAC-authenticated, single use, rate limited
+    console_api.register(app, rt, API)  # GET releases, GET deployments/{slug}/bootstrap (read-only console views)
     register_deploy_routes(app, rt)  # catalog, deployments, drift, change preview, job steps (deploy/api.py)
 
     # ---- monitoring (read-only views; every mutation is a typed plan) ----
@@ -502,8 +537,6 @@ def create_app(settings: Settings | None = None, runtime: Runtime | None = None)
         return [_row(r) for r in rows]
 
     # ---- identity lifecycle (mutations are typed plans idm.*; these are the one-time enrollment flow and read-only views) ----
-    enroll_hits: dict[str, list[float]] = {}
-
     @app.post(f"{API}/identity/enrollments/{{plan_id}}/reveal")
     def idm_reveal(plan_id: UUID, request: Request, user: User = Depends(require("operator")), db: Session = Depends(get_db)):
         """Shows the one-time enrollment token of a user.create/user.enable plan to ITS REQUESTER, once. Hand it to the new user out of band."""
@@ -511,6 +544,14 @@ def create_app(settings: Settings | None = None, runtime: Runtime | None = None)
         if not r:
             raise HTTPException(404, "no unrevealed, unexpired enrollment for this plan and requester")
         return r
+
+    @app.post(f"{API}/identity/enrollments/{{plan_id}}/deliver")
+    def idm_deliver(plan_id: UUID, user: User = Depends(require("operator")), db: Session = Depends(get_db)):
+        """Operator side of an organisation administrator's credential reset: the one-time link of a privileged target, once, never to the requester."""
+        r = identity.reveal_enrollment_for_delivery(db, rt, user, plan_id)
+        if not r:
+            raise HTTPException(404, "no unrevealed, unexpired enrollment for this plan")
+        return JSONResponse(r, headers={"Cache-Control": "no-store"})
 
     @app.post(f"{API}/identity/sip-credentials/{{plan_id}}/reveal")
     def idm_sip_reveal(plan_id: UUID, user: User = Depends(require("operator")), db: Session = Depends(get_db)):
@@ -523,12 +564,9 @@ def create_app(settings: Settings | None = None, runtime: Runtime | None = None)
     @app.post(f"{API}/identity/enroll")
     def idm_enroll(body: IdmEnrollIn, request: Request, db: Session = Depends(get_db)):
         """The new user sets their OWN initial password with the one-time token (never stored, never logged). Unauthenticated by design."""
-        import time as _t
         ip = client_ip(request) or "?"
-        hits = [x for x in enroll_hits.get(ip, []) if _t.monotonic() - x < 60]
-        if len(hits) >= 20 or len(enroll_hits) > 5000:
+        if not ratelimit.allow(rt, "enroll-ip:" + ip, 20, 60.0):
             raise HTTPException(429, "too many attempts")
-        enroll_hits[ip] = hits + [_t.monotonic()]
         try:
             identity.redeem_enrollment(db, rt, body.stack, body.uid, body.token, body.password, ip)
         except identity.EnrollRefused:
@@ -542,7 +580,7 @@ def create_app(settings: Settings | None = None, runtime: Runtime | None = None)
     @app.get(f"{API}/identity/stacks")
     def idm_stacks(user: User = Depends(require("viewer")), db: Session = Depends(get_db)):
         rows = db.execute(text("SELECT id, name, config, last_reconcile_at, created_at FROM idm_stacks "
-                               f"WHERE {tscope.clause(db, 'config->>' + chr(39) + 'customer_id' + chr(39))} ORDER BY name")).all()   # a stack belongs to one customer (tenant isolation)
+                               f"WHERE {tscope.clause(db, 'customer_id')} ORDER BY name")).all()   # a stack belongs to one customer (tenant isolation)
         hide = {"identity_ca_pem", "mail_ca_pem"}
         return [{**_row(r, "config"), "config": {k: v for k, v in r.config.items() if k not in hide}} for r in rows]
 
@@ -551,7 +589,7 @@ def create_app(settings: Settings | None = None, runtime: Runtime | None = None)
         rows = db.execute(text(
             "SELECT u.id, s.name AS stack, u.uid, u.entry_uuid, u.mail, u.display_name, u.groups, u.state, u.created_at, u.disabled_at, "
             "u.last_verification FROM idm_users u JOIN idm_stacks s ON s.id = u.stack_id WHERE (CAST(:s AS text) IS NULL OR s.name = :s) "
-            f"AND {tscope.clause(db, 's.config->>' + chr(39) + 'customer_id' + chr(39))} ORDER BY u.uid LIMIT 500"), {"s": stack}).all()
+            f"AND {tscope.clause(db, 's.customer_id')} ORDER BY u.uid LIMIT 500"), {"s": stack}).all()
         return [_row(r) for r in rows]
 
     @app.get(f"{API}/identity/reconcile")
@@ -559,7 +597,7 @@ def create_app(settings: Settings | None = None, runtime: Runtime | None = None)
         rows = db.execute(text(
             "SELECT r.id, s.name AS stack, r.at, r.trigger, r.ok, r.findings FROM idm_reconcile_runs r JOIN idm_stacks s ON s.id = r.stack_id "
             "WHERE (CAST(:s AS text) IS NULL OR s.name = :s) "
-            f"AND {tscope.clause(db, 's.config->>' + chr(39) + 'customer_id' + chr(39))} ORDER BY r.at DESC LIMIT :n"), {"s": stack, "n": min(max(limit, 1), 100)}).all()
+            f"AND {tscope.clause(db, 's.customer_id')} ORDER BY r.at DESC LIMIT :n"), {"s": stack, "n": min(max(limit, 1), 100)}).all()
         return [{**_row(r), "id": r.id} for r in rows]
 
     # ---- backup product (mutations are typed plans backup.*; these are read-only views; ADR-0010) ----
@@ -595,8 +633,11 @@ def create_app(settings: Settings | None = None, runtime: Runtime | None = None)
         return audit.verify_chain(db)
 
     credentials_api.mount(app)
+    msp_console.mount(app, API)
+    msp_api.register(app)  # /api/msp/v1/* machine-to-machine API (ADR-0013)
     tenancy_api.mount(app)
     tenancy_public.mount(app)
+    tenant_api.mount(app)
 
     if STATIC_DIR.is_dir():
         @app.get("/", include_in_schema=False)

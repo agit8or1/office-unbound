@@ -12,6 +12,7 @@ export const ROUTES: R[] = [
   { id: 'deployments/history', title: 'Deployment history', min: 'viewer' },
   { id: 'jobs', title: 'Jobs', min: 'viewer' },
   { id: 'plans', title: 'Approvals', min: 'viewer', key: true },
+  { id: 'releases', title: 'Releases', min: 'viewer', key: true },
   { id: 'maintenance', title: 'Maintenance', min: 'viewer' },
   { id: 'checks', title: 'Health checks', min: 'viewer', key: true },
   { id: 'utilization', title: 'Utilization', min: 'viewer' },
@@ -35,7 +36,7 @@ export const IA_GROUPS: Record<string, string[]> = {
   Overview: [],
   Infrastructure: ['Clusters', 'Nodes', 'Virtual machines', 'Containers', 'Storage', 'Networks'],
   Deployments: ['Catalog', 'New deployment', 'Environments', 'History'],
-  Operations: ['Jobs', 'Approvals', 'Changes', 'Maintenance', 'Updates'],
+  Operations: ['Jobs', 'Approvals', 'Changes', 'Maintenance', 'Releases'],
   Monitoring: ['Health checks', 'Utilization', 'Alerts'],
   Administration: ['Users', 'Access policies', 'Integrations', 'Configuration', 'Audit', 'System'],
 }

@@ -62,6 +62,29 @@ class StandbyGuard:
         await self.app(scope, receive, send_role)
 
 
+class FenceGuard:
+    """Review 7 H-5: on a configured PRIMARY, every mutating request (console, API, guest callback) is refused with 503 + `X-OU-Role: fenced` as soon as
+    this controller is fenced or superseded (epoch.assert_active); reads keep working so an operator can still see why. Pure ASGI middleware; the check is
+    one small SELECT and runs in a thread so the event loop is not blocked."""
+
+    def __init__(self, app, check):
+        self.app, self.check = app, check
+
+    async def __call__(self, scope, receive, send):
+        if scope["type"] != "http" or scope["method"] in SAFE_METHODS:
+            return await self.app(scope, receive, send)
+        import anyio
+        try:
+            await anyio.to_thread.run_sync(self.check)
+        except Exception as e:  # noqa: BLE001  (NotActive, or the database being unreachable: fail closed)
+            import json
+            body = json.dumps({"detail": "This controller is fenced or superseded and refuses changes: %s" % str(e)[:200], "role": "fenced"}).encode()
+            await send({"type": "http.response.start", "status": 503, "headers": [(b"content-type", b"application/json"), (b"content-length", str(len(body)).encode()),
+                                                                                  (b"x-ou-role", b"fenced"), (b"retry-after", b"30")]})
+            return await send({"type": "http.response.body", "body": body})
+        await self.app(scope, receive, send)
+
+
 def replication_status(db, max_lag_seconds: int) -> dict:
     """Works on a hot standby as the unprivileged app role. `heartbeat_age_seconds` is end-to-end freshness: the primary's worker
     writes worker_heartbeat every ~5 s, so a replica that is current has a young heartbeat; a dead primary or broken stream ages it."""

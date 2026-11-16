@@ -26,6 +26,18 @@ LOG_MAX = 2000
 
 # ---- persistence ---------------------------------------------------------------------------------------------
 
+def _ipconfigs(p: dict, boot: bool) -> tuple:
+    n = (p.get("nics") or [{}])[0]
+    if n.get("ip"):   # per-customer VNet: static address from the plan (no DHCP on customer VNets)
+        return (IpConfig(0, n["ip"], n.get("gw")),)
+    return (IpConfig(0, "dhcp"),) if boot else ()
+
+
+def _nameserver(ctx) -> str | None:
+    dns = (ctx.plan.get("network") or {}).get("dns") or []
+    return dns[0] if dns else None
+
+
 def seed_steps(rt, job_id: str, deployment_id: str, revision: int, steps: list[dict], plan_hash: str = "") -> None:
     """Create the job's step rows (idempotent). Steps already succeeded in an earlier job of the same (deployment, revision, plan_hash)
     are carried over; a different approved plan never reuses another plan's steps (review 3 M3)."""
@@ -259,17 +271,22 @@ def h_provider_task(ctx: StepCtx) -> dict:
                                             if i > 0 and (new is None or d["name"] in new)),
                             cloudinit_storage=p["disks"][0]["storage"] if ci else None,
                             ciuser=bc.get("ciuser"), sshkeys=tuple(bc.get("sshkeys", ())), smbios_serial=bc.get("smbios_serial"), smbios_sku=bc.get("smbios_sku"), smbios_family=bc.get("smbios_family"),
-                            ipconfigs=(IpConfig(0, "dhcp"),) if bc else (), ciupgrade=False if bc else None,
+                            ipconfigs=_ipconfigs(p, bool(bc)), nameserver=_nameserver(ctx), ciupgrade=False if bc else None,
                             description=f"Office Unbound deployment {ctx.slug}: {ci.get('hostname', vm)}" if ci else None)
         done = _poll(ctx, prov.configure_vm(ref, spec), f"configure {vm}")
         leaked = False
-        if getattr(prov, "task_log_mentions", None) and (spec.smbios_serial or spec.sshkeys):
-            # review 5 M2: the one-time secret must not sit in PVE's task log either. The log is PVE's (not ours to edit): flag it so the operator purges
-            # the task, and keep the secret out of everything the ICS stores.
-            leaked = bool(prov.task_log_mentions(done, [x for x in (spec.smbios_serial, spec.smbios_sku) if x]))
+        if spec.smbios_serial or spec.sshkeys:
+            # review 5 M2 / hardening: PVE logs the parameter VALUES of every config update in the cluster log and the node syslog (docs/status/hardening-results.md);
+            # the log is PVE's (not ours to edit) and the value is the BASE64 form. Flag it so the operator knows; the secret is single-use and short-lived.
+            import base64
+            needles = [x for v in (spec.smbios_serial, spec.smbios_sku) if v for x in (v, base64.b64encode(v.encode()).decode())]
+            if getattr(prov, "cluster_log_mentions", None):
+                leaked = bool(prov.cluster_log_mentions(needles))
+            if not leaked and getattr(prov, "task_log_mentions", None):
+                leaked = bool(prov.task_log_mentions(done, needles))
             if leaked:
-                ctx.log(f"WARNING: the Proxmox task log of {vm}'s configuration contains bootstrap material; purge that task in Proxmox")
-        return {"configured": True, **({"pve_task_log_has_bootstrap_material": True} if leaked else {})}
+                ctx.log(f"WARNING: the Proxmox cluster log / task log of {vm}'s configuration contains bootstrap material (single use, expires); see docs/status/hardening-results.md")
+        return {"configured": True, **({"pve_log_has_bootstrap_material": True} if leaked else {})}
     if op == "power":
         want = p["op"]
         g = _owned_guest(ctx, ref, vm)
@@ -370,7 +387,7 @@ def h_register_checks(ctx: StepCtx) -> dict:
         if c["vm"] != vm or c["component"] != comp:
             continue
         trust = None
-        if c["kind"] in ("http", "tcp_tls"):
+        if c["kind"] in ("http", "tcp_tls", "sip_options_tls", "jitsi_jwt"):
             trust = ctx.env.agent.tls_trust(node, c["port"])
         ctx.env.checks.register(ctx.rt, c, host, trust, ctx.created_by, ctx.deployment_id)
         ctx.resource("check", c["name"], state="present")

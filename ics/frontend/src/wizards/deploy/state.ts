@@ -3,6 +3,14 @@ import type { DeployRequest, DeploymentPlan, PlanIssue } from '../api'
 import type { Errors, StepDef } from '../kit'
 import { DOMAIN_RE, intIn } from '../kit'
 
+/** Plain-language one-liners for the optional collaboration components (shown when the catalog gives no description). */
+export const OPTIONAL_HELP: Record<string, string> = {
+  chat: 'Team chat (Matrix). Sign-in only through your company directory; no extra passwords.',
+  meetings: 'Video meetings (Jitsi). Only signed-in people can open a room. Needs UDP port 10000 reachable by participants.',
+  telephony: 'Internal phone system with a browser softphone. Has no outside phone line and cannot place emergency calls.',
+}
+export const optionalHelp = (id: string, catalogText?: string): string => catalogText || OPTIONAL_HELP[id] || ''
+
 export const PROFILE_ORDER = ['lab', 'small', 'medium', 'large', 'ha', 'msp-multi', 'dedicated', 'custom']
 /** Backend slug rule for customer_id / deployment_id (PlanInput). */
 export const DEPLOY_SLUG_RE = /^[a-z0-9][a-z0-9-]{1,30}$/
@@ -14,6 +22,8 @@ export interface DeployModel {
   /** Optional components the chosen profile offers, and which of them are switched on. */
   optionalAvailable: string[]
   optional: string[]
+  /** Opt-in ports switched on ('chat:federation'); only sent while their component is enabled. */
+  federation: boolean
   customerId: string
   /** deployment_id: names the VMs and the ownership tag `ou-deployment-<id>`. */
   name: string
@@ -37,7 +47,7 @@ export interface DeployModel {
 
 export function newDeployModel(): DeployModel {
   return {
-    profile: '', optionalAvailable: [], optional: [], customerId: '', name: '', users: 25, tenants: 1, domain: '', endpoint: '', pool: '', storage: '',
+    profile: '', optionalAvailable: [], optional: [], federation: false, customerId: '', name: '', users: 25, tenants: 1, domain: '', endpoint: '', pool: '', storage: '',
     bridge: '', vlan: '', osImage: '', retentionDays: '', plan: null, planKey: null, confirmed: false,
   }
 }
@@ -56,6 +66,7 @@ export function buildRequest(m: DeployModel): DeployRequest {
     vlan: m.vlan.trim() ? Number(m.vlan) : null,
     optional: Object.fromEntries([...m.optionalAvailable].sort().map((c) => [c, m.optional.includes(c)])),
   }
+  if (m.federation && m.optional.includes('chat')) r.enabled_ports = ['chat:federation']
   if (m.storage) r.storage = m.storage
   if (m.osImage) r.os_image = m.osImage
   if (m.retentionDays.trim()) r.backup_retention_days = Number(m.retentionDays)

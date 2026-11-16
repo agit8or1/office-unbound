@@ -1,0 +1,9 @@
+#!/bin/bash
+# Shim for the lab-workflow commands (installed once per name in /usr/local/lib/ou-priv/bin: machinectl, systemd-run, systemctl, tee, test).
+# Enforces /usr/local/lib/ou-priv/ou-lab-policy when -- and only when -- sudo started THIS file (SUDO_COMMAND names it). Inside an interactive root
+# shell (sudo -i / sudo bash, password rule) SUDO_COMMAND names the shell, so the real program runs unrestricted there.
+name=${0##*/}
+case "${SUDO_COMMAND:-}" in
+  "/usr/local/lib/ou-priv/bin/$name"|"/usr/local/lib/ou-priv/bin/$name "*) exec /usr/bin/python3 -I /usr/local/lib/ou-priv/ou-lab-policy "$name" "$@" ;;
+esac
+exec "/usr/bin/$name" "$@"

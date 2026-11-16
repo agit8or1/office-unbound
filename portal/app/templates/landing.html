@@ -1,10 +1,10 @@
 {% extends "base.html" %}
 {% from "_icons.html" import icon %}
-{% block title %}Welcome · {{ cfg.org_name }}{% endblock %}
+{% block title %}Welcome · {{ brand.name }}{% endblock %}
 {% block main %}
 <section class="hero">
   <h1>Everything you work with, in one place.</h1>
-  <p class="lead">Mail, calendar, contacts and files for {{ cfg.org_name }}. Sign in once and open anything you need.</p>
+  <p class="lead">Mail, calendar, contacts and files for {{ brand.name }}. Sign in once and open anything you need.</p>
   <p><a class="btn primary big" href="/login">Sign in</a></p>
   <ul class="chips" aria-label="What you can do here">
     <li>{{ icon('mail') }}Mail</li><li>{{ icon('calendar') }}Calendar</li><li>{{ icon('files') }}Files</li><li>{{ icon('devices') }}Set up your phone and computer</li>

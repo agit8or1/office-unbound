@@ -209,16 +209,19 @@
             "docs/status/ALPHA-EXECUTION-QUEUE.md",
             "scripts/security_remediation_check.py"
           ],
-          "note": "132 findings tracked with verified evidence; open Highs fixed on branches fixes-r7, tenant-msp, oci-signing (pending merge); independent review 8 follows"
+          "note": "132 findings tracked with verified evidence; after integration-8 every finding with a code fix is on main (96 Fixed, 0 pending merge; tenant-msp, hardening, privsep, fixes-r5/r7 landed); the 5 Highs still Partial (R4-H2, R5-H2, R7-H3, R7-H5 need the owner to remove administrator NOPASSWD:ALL / lab drills; R6-H1 needs oci-signing); stays implementing until the independent review 8"
         },
         {
           "id": "P1.14",
           "title": "Least-privilege host accounts, sudoers, unit hardening",
           "status": "implementing",
           "evidence": [
-            "docs/status/security-review-7-2026-11-16.md"
+            "docs/status/security-review-7-2026-11-16.md",
+            "docs/status/privilege-audit.md",
+            "ics/deploy/privsep/apply-privsep.sh",
+            "ics/deploy/privsep/revert-privsep.sh"
           ],
-          "note": "Prepared and lab-tested on branch privsep (pending merge); removal of administrator NOPASSWD:ALL is an owner action"
+          "note": "Scripts, sudoers/polkit/unit drop-ins and docs are on main (lab-tested); NOT applied to any host: removal of administrator NOPASSWD:ALL is an owner action (apply pending)"
         },
         {
           "id": "P1.15",
@@ -227,7 +230,10 @@
           "evidence": [
             "docs/runbooks/ics-recovery.md",
             "docs/adr/0012-ics-warm-standby.md",
-            "docs/status/ics-standby-results.md"
+            "docs/status/ics-standby-results.md",
+            "ics/ics/lease.py",
+            "ics/ics/witness.py",
+            "docs/admin/security.md"
           ],
           "note": "Two-controller partition proof (lab): with lease-based fencing all scenarios S1-S8b pass. After promotion the old primary made zero provider/agent/backup/webhook/enrollment calls and no job ran twice. Without the lease, S2/S2b/S7/S8 failed. Branch ha-proof, pending merge. Residual risk R1: jobs claimed in the replication gap need an 'uncertain' state at promotion."
         }
@@ -283,7 +289,7 @@
             "docs/RELEASING.md",
             "docs/adr/0008-build-release-pipeline.md"
           ],
-          "note": "Signed apt pipeline with dev/staging/stable on main; hardened signer, per-channel keys, ICS-approved promotion and independent test attestation on branch fixes-r7 (pending merge); production keys need an owner key ceremony"
+          "note": "Signed apt pipeline with dev/staging/stable on main; hardened signer, per-channel keys, ICS-approved promotion and independent test attestation (the test runner runs the tests) on main; production keys need an owner key ceremony"
         },
         {
           "id": "P2.6",
@@ -310,16 +316,24 @@
         {
           "id": "P2.9",
           "title": "ICS shipped as signed ou-ics package with automatic pre-upgrade backup and rollback",
-          "status": "implementing",
-          "evidence": [],
-          "note": "Branch ics-pkg; install/upgrade/rollback drill on Ubuntu 24.04 and Debian 12 in progress"
+          "status": "integrated_lab",
+          "evidence": [
+            "docs/status/ics-package-results.md",
+            "docs/runbooks/ics-upgrade-rollback.md",
+            "ics/deploy/pkg/ou-ics-setup"
+          ],
+          "note": "Install, upgrade with migration and rollback proven in the lab on Ubuntu 24.04 and Debian 12 (12/12 checks each); not yet installed on the production ICS"
         },
         {
           "id": "P2.10",
           "title": "Per-customer network isolation (Proxmox SDN VNet per customer, default deny)",
-          "status": "planned",
-          "evidence": [],
-          "note": "Design and owner commands prepared (branch fullstack-plan); owner decision: option A (VNet + PVE firewall) if no node rules on pve01-05, else option B"
+          "status": "implementing",
+          "evidence": [
+            "ics/ics/deploy/netmodel.py",
+            "docs/admin/proxmox-sdn-isolation.md",
+            "docs/status/network-isolation-test-plan.md"
+          ],
+          "note": "Per-customer VNet network model and plan errors are in the ICS; SDN is not applied on the cluster yet and isolation is untested; owner decision: option A (VNet + PVE firewall) if no node rules on pve01-05, else option B"
         }
       ]
     },
@@ -333,9 +347,10 @@
           "title": "Redesigned infrastructure console (dashboard, infrastructure views, operations, monitoring)",
           "status": "integrated_lab",
           "evidence": [
-            "docs/screenshots/"
+            "docs/screenshots/",
+            "docs/status/console-v3-results.md"
           ],
-          "note": "Redesigned console deployed; console v3 (releases/promotion, controller role banner, scope approvers, guest start-up panel) on branch console-new (pending merge)"
+          "note": "Redesigned console; console v3 (releases/promotion, controller role banner, scope approvers, guest start-up panel) is on main, deployment of the new build pending"
         },
         {
           "id": "P3.2",
@@ -372,16 +387,23 @@
         {
           "id": "P4.2",
           "title": "Organization admin and MSP Control Center",
-          "status": "implementing",
-          "evidence": [],
-          "note": "Organization Admin in the portal (separate tenant API, customer-bound) + aliases/shared mailboxes/quotas tested in lab on branch tenant-msp (pending merge); send-as pending groupware fix"
+          "status": "integrated_lab",
+          "evidence": [
+            "docs/status/org-admin-results.md",
+            "ics/ics/mailadmin.py"
+          ],
+          "note": "Organization Admin in the portal (separate tenant API, customer-bound) + aliases/shared mailboxes/quotas tested in lab; MSP Control Center not started; send-as pending groupware fix"
         },
         {
           "id": "P4.3",
           "title": "Versioned MSP provisioning API",
-          "status": "implementing",
-          "evidence": [],
-          "note": "/api/msp/v1 with HMAC signing, idempotency, permission sets, signed webhooks, OpenAPI 3.1, reference client on branch tenant-msp (pending merge)"
+          "status": "integrated_lab",
+          "evidence": [
+            "docs/adr/0013-msp-provisioning-api.md",
+            "docs/status/msp-api-results.md",
+            "ics/ics/msp"
+          ],
+          "note": "/api/msp/v1 with HMAC signing, idempotency, permission sets, signed webhooks, OpenAPI 3.1, reference client"
         }
       ]
     },

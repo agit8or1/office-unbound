@@ -6,22 +6,17 @@
 """
 import base64
 import hashlib
-import threading
-import time
-from collections import defaultdict, deque
 
 from fastapi import FastAPI, HTTPException, Request
 from fastapi.responses import HTMLResponse, PlainTextResponse
 from pydantic import BaseModel, ConfigDict, Field
 from sqlalchemy import text
 
-from .. import auth
+from .. import auth, ratelimit
 from . import approvals
 
 API = "/api/v1/public/approvals"
 RATE_PER_MINUTE = 30
-_hits: dict = defaultdict(deque)
-_lock = threading.Lock()
 
 
 class TokenIn(BaseModel):
@@ -44,23 +39,12 @@ class CompleteIn(TokenIn):
     note: str = Field(default="", max_length=1000)
 
 
-def _rate(ip: str | None) -> bool:
-    now = time.monotonic()
-    with _lock:
-        q = _hits[ip or "?"]
-        while q and q[0] < now - 60:
-            q.popleft()
-        if len(q) >= RATE_PER_MINUTE:
-            return False
-        q.append(now)
-        if len(_hits) > 10000:
-            _hits.clear()
-    return True
+def _rate(rt, ip: str | None) -> bool:
+    return ratelimit.allow(rt, "approval-ip:" + (ip or "?"), RATE_PER_MINUTE, 60.0)
 
 
 def reset_rate_limits() -> None:  # tests
-    with _lock:
-        _hits.clear()
+    ratelimit.reset()
 
 
 def _run(request: Request, fn):
@@ -68,7 +52,7 @@ def _run(request: Request, fn):
     ip = auth.client_ip(request)
     if "application/json" not in request.headers.get("content-type", ""):
         raise HTTPException(415, "application/json required")
-    if not _rate(ip):
+    if not _rate(rt, ip):
         raise HTTPException(429, "too many requests", headers={"Retry-After": "60"})
     with rt.session() as db:
         if auth.throttle_remaining(db, rt, "approval-link", ip) > 0:

@@ -1,0 +1,16 @@
+{
+  "_comment": "Office Unbound default. Mount a site-specific config.json over this file (default_server_config, branding). Telemetry/phone-home are OFF: no posthog, no sentry, no rageshake, no third-party integration manager, no map tiles.",
+  "default_server_config": {},
+  "disable_custom_urls": true,
+  "disable_guests": true,
+  "show_labs_settings": false,
+  "integrations_ui_url": "",
+  "integrations_rest_url": "",
+  "integrations_widgets_urls": [],
+  "bug_report_endpoint_url": "",
+  "posthog": null,
+  "sentry": null,
+  "piwik": false,
+  "map_style_url": "",
+  "features": {}
+}

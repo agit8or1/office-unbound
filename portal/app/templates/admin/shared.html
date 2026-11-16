@@ -1,0 +1,30 @@
+{% extends "admin/base.html" %}
+{% block atitle %}Shared mailboxes{% endblock %}
+{% block admin %}
+<h1>Shared mailboxes</h1>
+<p class="sub">A shared mailbox such as <b>support@</b> has no password of its own. You decide who can read it, who can send as it, and who can send on its behalf.</p>
+{% if error %}<p class="notice bad" role="alert">{{ error }}</p>{% endif %}
+{% if not v %}
+<section class="card"><h2>Not available</h2><p>Your organisation has no mail server connected.</p></section>
+{% else %}
+{% if v.mailboxes %}
+<div class="tablewrap"><table class="people">
+  <caption class="sr">Shared mailboxes</caption>
+  <thead><tr><th scope="col">Name</th><th scope="col">Address</th><th scope="col">Full access</th><th scope="col">Send as</th><th scope="col">Send on behalf</th></tr></thead>
+  <tbody>{% for m in v.mailboxes %}
+    <tr><th scope="row"><a href="/admin/shared/{{ m.name }}">{{ m.display_name }}</a></th><td>{{ m.mail }}</td>
+      <td>{{ m.grants.full_access | length }}</td><td>{{ m.grants.send_as | length }}</td><td>{{ m.grants.send_on_behalf | length }}</td></tr>
+  {% endfor %}</tbody>
+</table></div>
+{% else %}<p class="empty">No shared mailboxes yet.</p>{% endif %}
+<section class="card" aria-labelledby="h-new">
+  <h2 id="h-new">Create a shared mailbox</h2>
+  <form method="post" action="/admin/shared">
+    <input type="hidden" name="csrf" value="{{ sess.csrf }}">
+    <div class="field"><label for="dn">Name people see</label><input id="dn" name="display_name" maxlength="100" value="{{ form.display_name or '' }}" placeholder="Customer support" required></div>
+    <div class="field"><label for="nm">Address</label><span class="row2"><input id="nm" name="name" maxlength="32" value="{{ form.name or '' }}" placeholder="support" required autocomplete="off"> <span class="muted">@{{ v.domain }}</span></span></div>
+    <button class="btn primary" type="submit">Create</button>
+  </form>
+</section>
+{% endif %}
+{% endblock %}

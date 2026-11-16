@@ -24,6 +24,8 @@ sb = os.path.join(out, "sbom")
 os.makedirs(sb, exist_ok=True)
 recipe = yaml.safe_load(open(os.path.join(bdir, comp, "recipe.yaml")))
 info = dict(l.strip().split("=", 1) for l in open(os.path.join(out, "source.info")) if "=" in l)
+if recipe["source"].get("dynamic"):   # release-tag build: the facts come from fetch, not the recipe
+    recipe["source"].update({"tag": info["tag"], "commit": info["commit"], "repo": info["repo"]})
 env = {}
 for l in open(os.path.join(bdir, "tools.env")):
     if "=" in l and not l.startswith("#"):
@@ -91,6 +93,8 @@ def lock_pkgs(srcdir):
 srcdir = os.path.join(state, "src", recipe["src_name"])
 bundled = lock_pkgs(srcdir)
 pyl = os.path.join(bdir, comp, "debian", "requirements.lock")
+if not os.path.exists(pyl):
+    pyl = os.path.join(srcdir, "ics", "requirements.lock")   # ou-ics: the lock that the vendored wheels were downloaded from
 if os.path.exists(pyl):   # hash-locked PyPI packages shipped in the package (admin-api)
     for l in open(pyl):
         m = re.match(r"^([A-Za-z0-9_.-]+)==([^\s\\]+)", l)

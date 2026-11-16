@@ -6,6 +6,7 @@
 set -euo pipefail
 
 ETC=/etc/office-unbound
+PATH_CB=/api/v1/guest-bootstrap/report
 OPT=/opt/office-unbound/ics
 STATE=/var/lib/office-unbound
 TLS=$ETC/tls
@@ -16,9 +17,11 @@ STAMP=$STATE/ics-release.sha256
 SRC="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 export LC_ALL=C
 
+FROM_REPO=""; REPO_URL=""; REPO_KEY=""; REPO_FPR=""; PKG_VERSION=""
 LISTEN_IP=""; HOSTNAME_FQDN=""; ADMIN=""; SKIP_TLS=0; SKIP_FW=0; UNINSTALL=0; PURGE=0
 TLS_CERT=""; TLS_KEY=""; ALLOW=()
 STANDBY_OF=""; KEY_BUNDLE=""; BUNDLE_PASS=""; REBUILD=0
+CB_LISTEN=""; CB_ALLOW=(); CB_IP=""; CB_PORT=8444; CBTLS=$ETC/callback-tls
 CHANGES=()
 OS_RELEASE_FILE="${OU_OS_RELEASE:-/etc/os-release}"   # overridable only so the OS check can be unit-tested
 CHECK_OS=0
@@ -27,6 +30,8 @@ usage() {
 cat <<'EOF'
 usage: bootstrap.sh --listen-ip IP --allow-cidr CIDR [--allow-cidr CIDR ...] [--hostname FQDN] [--admin USER]
                     [--tls-cert FILE --tls-key FILE] [--skip-firewall]
+                    [--callback-listen IP[:PORT] --callback-allow-cidr CIDR [...]]
+                    [--from-repo CHANNEL --repo-url URL [--repo-key FILE] [--repo-key-fingerprint FPR] [--version V]]
        bootstrap.sh --skip-tls [--admin USER]            loopback-only (no nginx, no firewall, no certificates)
        bootstrap.sh --standby-of PRIMARY_IP --key-bundle FILE --bundle-passphrase-file FILE --listen-ip IP --allow-cidr CIDR [--rebuild]
                     warm STANDBY controller (ADR-0012): clones the primary over TLS streaming replication and runs passive.
@@ -38,7 +43,15 @@ usage: bootstrap.sh --listen-ip IP --allow-cidr CIDR [--allow-cidr CIDR ...] [--
   --hostname FQDN    DNS name for the certificate / nginx server_name (optional; the name-constrained CA permits it)
   --admin USER       create this admin and print its one-time enrollment token at the very end (skipped if it exists)
   --tls-cert/--tls-key  use an operator-provided certificate instead of the private ICS CA
+  --callback-listen  enable the dedicated guest-bootstrap listener (unit ics-bootstrap, own port [default 8444], own self-signed certificate that the
+                     guests pin); IP is the address the provisioned VMs reach (configured on this host). The console no longer serves the callback route.
+  --callback-allow-cidr C  guest provisioning network allowed to reach the listener (nftables table inet ics_callback); repeatable, at least one
   --skip-firewall    do not install the nftables source restriction (nginx allow-list still applies)
+  --from-repo CH     install the ICS as the signed package ou-ics from channel CH (dev|staging|stable) of the Office Unbound apt repository
+                     instead of copying this git tree (install.sh stays for development). Needs --repo-url. The repository key is PINNED:
+                     --repo-key (default: blueprints/build/keys/ou-release-lab.pub.asc next to this script) must have the fingerprint given
+                     by --repo-key-fingerprint (default: the .FINGERPRINT file beside the key); anything else is refused.
+  --version V        with --from-repo: install exactly this package version (e.g. 0.1.0-ou1); allows a deliberate downgrade
 EOF
 }
 die() { echo "bootstrap: ERROR: $*" >&2; exit 1; }
@@ -53,6 +66,8 @@ while [ $# -gt 0 ]; do
     --admin) ADMIN="${2:?}"; shift 2;;
     --tls-cert) TLS_CERT="${2:?}"; shift 2;;
     --tls-key) TLS_KEY="${2:?}"; shift 2;;
+    --callback-listen) CB_LISTEN="${2:?}"; shift 2;;
+    --callback-allow-cidr) CB_ALLOW+=("${2:?}"); shift 2;;
     --skip-tls) SKIP_TLS=1; shift;;
     --skip-firewall) SKIP_FW=1; shift;;
     --standby-of) STANDBY_OF="${2:?}"; shift 2;;
@@ -61,6 +76,11 @@ while [ $# -gt 0 ]; do
     --rebuild) REBUILD=1; shift;;
     --uninstall) UNINSTALL=1; shift;;
     --purge) PURGE=1; shift;;
+    --from-repo) FROM_REPO="${2:?}"; shift 2;;
+    --repo-url) REPO_URL="${2:?}"; shift 2;;
+    --repo-key) REPO_KEY="${2:?}"; shift 2;;
+    --repo-key-fingerprint) REPO_FPR="${2:?}"; shift 2;;
+    --version) PKG_VERSION="${2:?}"; shift 2;;
     --check-os) CHECK_OS=1; shift;;
     -h|--help) usage; exit 0;;
     *) usage >&2; die "unknown argument: $1";;
@@ -92,12 +112,18 @@ if [ "$UNINSTALL" = 1 ]; then
     [ "$ans" = "purge $(hostname)" ] || die "confirmation did not match; nothing was changed"
   }
   log "stopping and removing services and configuration (keys, database, certificates are kept unless --purge)"
-  for u in ics ics-migrate ics-admin-fw; do systemctl disable --now "$u.service" 2>/dev/null || true; done
-  rm -f "$SYSD/ics.service" "$SYSD/ics-migrate.service" "$SYSD/ics-admin-fw.service"
+  for u in ics ics-bootstrap ics-migrate ics-admin-fw ics-callback-fw; do systemctl disable --now "$u.service" 2>/dev/null || true; done
+  rm -f "$SYSD/ics.service" "$SYSD/ics-migrate.service" "$SYSD/ics-admin-fw.service" "$SYSD/ics-bootstrap.service" "$SYSD/ics-callback-fw.service" "$SYSD/ics-callback.service"
   systemctl daemon-reload
   nft delete table inet ics_admin 2>/dev/null || true
+  nft delete table inet ics_callback 2>/dev/null || true
+  rm -f "$ETC/ics-callback-fw.nft" "$ETC/callback.env"
   rm -f "$NGX_ENAB" "$NGX_AVAIL" "$ETC/ics-admin-fw.nft"
   if systemctl is-active -q nginx 2>/dev/null; then nginx -t 2>/dev/null && systemctl reload nginx || true; fi
+  if dpkg-query -W -f='${Status}' ou-ics 2>/dev/null | grep -q '^install ok installed$'; then
+    log "removing the ou-ics package (its postrm keeps the database, keys, env files and backups)"
+    dpkg --remove ou-ics
+  fi
   rm -rf "$OPT" "$STAMP"; rmdir /opt/office-unbound 2>/dev/null || true
   if [ "$PURGE" = 1 ]; then
     runuser -u postgres -- psql -q -c "DROP DATABASE IF EXISTS ics" -c "DROP ROLE IF EXISTS ics_app" -c "DROP ROLE IF EXISTS ics_owner" 2>/dev/null || true
@@ -114,11 +140,28 @@ OSP="$(os_profile)" || die "Ubuntu 24.04 or Debian 12 required (found $(. "$OS_R
 OS_CODENAME="${OSP% *}"; PGVER="${OSP#* }"
 if [ -n "$STANDBY_OF" ]; then
   [ "$SKIP_TLS" = 0 ] || die "--standby-of needs the TLS console (--listen-ip/--allow-cidr), not --skip-tls"
-  [ -f "$KEY_BUNDLE" ] && [ -f "$BUNDLE_PASS" ] || die "--standby-of needs --key-bundle FILE and --bundle-passphrase-file FILE (created by ics-standby-prepare-primary.sh on the primary)"
+  [ -f "$KEY_BUNDLE" ] || die "--standby-of needs --key-bundle FILE (created by ics-standby-prepare-primary.sh on the primary)"
+  [ -z "$BUNDLE_PASS" ] || [ -f "$BUNDLE_PASS" ] || die "--bundle-passphrase-file: no such file (omit it to be asked for the passphrase)"
   python3 -I -c 'import ipaddress,sys; a=ipaddress.ip_address(sys.argv[1]); assert a.version==4' "$STANDBY_OF" 2>/dev/null || die "invalid --standby-of address"
   [ -z "$ADMIN" ] || die "--admin is not used on a standby (accounts are replicated from the primary)"
 fi
 [ -f "$SRC/requirements.lock" ] && [ -d "$SRC/migrations" ] && [ -f "$SRC/deploy/install.sh" ] || die "not an ICS source tree: $SRC"
+if [ -n "$FROM_REPO" ]; then
+  case "$FROM_REPO" in dev|staging|stable) ;; *) die "--from-repo must be dev, staging or stable";; esac
+  [[ "$REPO_URL" =~ ^https?://[A-Za-z0-9._:/-]+$ ]] || die "--from-repo needs --repo-url http(s)://host[:port][/path]"
+  if [ -z "$REPO_KEY" ]; then   # per-channel key (ou-release-<channel>.pub.asc) when the tree carries one, else the lab key
+    REPO_KEY="$SRC/../blueprints/build/keys/ou-release-$FROM_REPO.pub.asc"
+    [ -f "$REPO_KEY" ] || REPO_KEY="$SRC/../blueprints/build/keys/ou-release-lab.pub.asc"
+  fi
+  [ -f "$REPO_KEY" ] || die "repository key $REPO_KEY not found (--repo-key)"
+  if [ -z "$REPO_FPR" ]; then
+    FPRF="${REPO_KEY%.pub.asc}.FINGERPRINT"; [ -f "$FPRF" ] || die "no pinned fingerprint: give --repo-key-fingerprint (no $FPRF)"
+    REPO_FPR="$(tr -d ' \n' < "$FPRF")"
+  fi
+  REPO_FPR="$(printf '%s' "$REPO_FPR" | tr -d ' ' | tr a-f A-F)"
+  [[ "$REPO_FPR" =~ ^[0-9A-F]{40}$ ]] || die "--repo-key-fingerprint must be 40 hex characters"
+  [[ -z "$PKG_VERSION" || "$PKG_VERSION" =~ ^[0-9A-Za-z.+~:-]+$ ]] || die "invalid --version"
+elif [ -n "$REPO_URL$REPO_KEY$REPO_FPR$PKG_VERSION" ]; then die "--repo-url/--repo-key/--repo-key-fingerprint/--version only make sense with --from-repo"; fi
 [[ -z "$ADMIN" || "$ADMIN" =~ ^[a-z0-9._-]{1,64}$ ]] || die "--admin must match [a-z0-9._-]{1,64}"
 if [ "$SKIP_TLS" = 1 ]; then
   [ -z "$LISTEN_IP$HOSTNAME_FQDN$TLS_CERT$TLS_KEY" ] && [ ${#ALLOW[@]} = 0 ] || die "--skip-tls (loopback only) cannot be combined with --listen-ip/--allow-cidr/--hostname/--tls-*"
@@ -138,9 +181,28 @@ else
   ALLOW=("${NORM[@]}")
 fi
 
+if [ -n "$CB_LISTEN" ]; then
+  [ "$SKIP_TLS" = 0 ] || die "--callback-listen cannot be combined with --skip-tls"
+  [ ${#CB_ALLOW[@]} -gt 0 ] || die "--callback-listen needs at least one --callback-allow-cidr (the guest provisioning networks; fail closed)"
+  CB_IP="${CB_LISTEN%%:*}"; [ "$CB_LISTEN" = "$CB_IP" ] || CB_PORT="${CB_LISTEN##*:}"
+  [[ "$CB_PORT" =~ ^[0-9]{4,5}$ ]] && [ "$CB_PORT" -ge 1024 ] && [ "$CB_PORT" -le 65535 ] && [ "$CB_PORT" != 8088 ] || die "invalid callback port (1024-65535, not 8088)"
+  CB_IP="$(python3 -I -c 'import ipaddress,sys; a=ipaddress.ip_address(sys.argv[1]); assert a.version==4 and not a.is_unspecified and not a.is_loopback; print(a)' "$CB_IP" 2>/dev/null)" || die "--callback-listen must be a specific, non-loopback IPv4 address"
+  ip -4 -o addr show | awk '{print $4}' | cut -d/ -f1 | grep -qx "$CB_IP" || die "--callback-listen $CB_IP is not configured on this host"
+  NORM=()
+  for c in "${CB_ALLOW[@]}"; do
+    n="$(python3 -I -c 'import ipaddress,sys; n=ipaddress.ip_network(sys.argv[1],strict=False); assert n.version==4; print(n)' "$c" 2>/dev/null)" || die "invalid --callback-allow-cidr: $c"
+    [ "$n" != 0.0.0.0/0 ] || die "--callback-allow-cidr 0.0.0.0/0 would expose the listener to everyone; refusing"
+    NORM+=("$n")
+  done
+  CB_ALLOW=("${NORM[@]}")
+else
+  [ ${#CB_ALLOW[@]} = 0 ] || die "--callback-allow-cidr needs --callback-listen"
+fi
+
 # ------------------------------------------------------------------------------------------------------------ packages
 PKGS=(python3 python3-venv "postgresql-$PGVER" rsync openssl curl sudo ca-certificates)
 [ -z "$STANDBY_OF" ] || PKGS+=(python3-cryptography)
+[ -z "$FROM_REPO" ] || PKGS+=(gnupg)
 [ "$SKIP_TLS" = 1 ] || PKGS+=(nginx nftables)
 MISSING=()
 for p in "${PKGS[@]}"; do dpkg-query -W -f='${Status}' "$p" 2>/dev/null | grep -q '^install ok installed$' || MISSING+=("$p"); done
@@ -155,6 +217,12 @@ if [ ${#MISSING[@]} -gt 0 ]; then
   DEBIAN_FRONTEND=noninteractive apt-get -o DPkg::Lock::Timeout=600 -qq install -y --no-install-recommends "${MISSING[@]}" >/dev/null
   rm -f /usr/sbin/policy-rc.d "$TMP.rc"
   changed "apt packages: ${MISSING[*]}"
+fi
+
+# the pinned repository key is verified BEFORE anything is provisioned (a refused key must leave the host unchanged apart from packages)
+if [ -n "$FROM_REPO" ]; then
+  got="$(gpg --show-keys --with-colons "$REPO_KEY" 2>/dev/null | awk -F: '/^fpr/{print $10; exit}')"
+  [ "$got" = "$REPO_FPR" ] || die "repository key fingerprint is ${got:-unreadable}, pinned ${REPO_FPR}: refusing to trust it"
 fi
 
 # ------------------------------------------------------------------------------------------------------------ helpers
@@ -211,7 +279,8 @@ if [ -n "$STANDBY_OF" ]; then
       die "this host already has an 'ics' database. A standby is a COPY of the primary: re-run with --rebuild to DESTROY the local database and re-clone"
     fi
     log "importing the encrypted key bundle (explicit key transfer; keys are never synced continuously)"
-    python3 -I "$SRC/ics/keybundle.py" import --bundle "$KEY_BUNDLE" --passphrase-file "$BUNDLE_PASS" --etc "$ETC" >/dev/null || die "key bundle import failed"
+    # review 7 L8: no passphrase file by default (asked on the terminal); the bundle (and a passphrase file, if one was given) is wiped after the import
+    python3 -I "$SRC/ics/keybundle.py" import --bundle "$KEY_BUNDLE" ${BUNDLE_PASS:+--passphrase-file "$BUNDLE_PASS"} --remove-after --etc "$ETC" >/dev/null || die "key bundle import failed"
     changed "imported key bundle (vault/audit/signing keys, env files, replicator password, primary CA)"
     systemctl stop ics.service ics-migrate.service 2>/dev/null || true
     systemctl stop postgresql.service 2>/dev/null || true
@@ -380,22 +449,75 @@ setup_tls() {
 }
 [ "$SKIP_TLS" = 1 ] || setup_tls
 
+# ------------------------------------------------------------------------------------ guest-bootstrap listener config
+# Its OWN certificate (self-signed leaf; the guests pin its SHA-256 through SMBIOS), key root 0600 (the unit receives it by LoadCredential),
+# listen/TLS paths in callback.env (no secrets). The console is told to stop serving the callback route and which URL/pin to hand to guests.
+CB_FPR=""; CB_CHANGED=0
+setup_callback() {
+  install -d -o root -g root -m 0700 "$CBTLS"
+  local need=0
+  if [ ! -f "$CBTLS/callback.crt" ] || [ ! -f "$CBTLS/callback.key" ]; then need=1
+  elif ! openssl x509 -in "$CBTLS/callback.crt" -noout -checkend 2592000 >/dev/null; then need=1; log "callback certificate expires within 30 days: renewing"
+  elif ! openssl x509 -in "$CBTLS/callback.crt" -noout -checkip "$CB_IP" | grep -q 'does match'; then need=1; log "callback certificate does not cover $CB_IP: re-issuing"
+  elif [ "$(openssl x509 -in "$CBTLS/callback.crt" -noout -pubkey | sha256sum)" != "$(openssl pkey -in "$CBTLS/callback.key" -pubout | sha256sum)" ]; then need=1
+  fi
+  if [ "$need" = 1 ]; then
+    ( umask 077; openssl ecparam -name prime256v1 -genkey -noout -out "$TMP/cb.key" )
+    openssl req -new -x509 -key "$TMP/cb.key" -sha256 -days 397 -set_serial "0x$(openssl rand -hex 15)" -subj "/O=Office Unbound/CN=ics-bootstrap" -out "$TMP/cb.crt" \
+      -addext "basicConstraints=critical,CA:FALSE" -addext "keyUsage=critical,digitalSignature" -addext "extendedKeyUsage=serverAuth" -addext "subjectAltName=IP:$CB_IP" 2>/dev/null
+    install -m 0600 -o root -g root "$TMP/cb.key" "$CBTLS/callback.key"; install -m 0644 -o root -g root "$TMP/cb.crt" "$CBTLS/callback.crt"
+    changed "guest-bootstrap certificate (P-256, 397 days; guests pin its SHA-256: provisioned-but-unenrolled VMs need a new SMBIOS pin after a re-issue)"; CB_CHANGED=1
+  fi
+  chmod 0600 "$CBTLS/callback.key"; chmod 0644 "$CBTLS/callback.crt"
+  CB_FPR="$(openssl x509 -in "$CBTLS/callback.crt" -outform DER | sha256sum | cut -d' ' -f1)"
+  printf '# written by bootstrap.sh --callback-listen; no secrets\nICS_GUEST_CALLBACK_LISTEN=%s:%s\n' "$CB_IP" "$CB_PORT" > "$TMP/callback.env"
+  put "$TMP/callback.env" 0644 root:root "$ETC/callback.env" && CB_CHANGED=1
+  env_kv "$ETC/ics.env" ICS_GUEST_CALLBACK_DEDICATED true force
+  env_kv "$ETC/ics.env" ICS_GUEST_CALLBACK_URL "https://$CB_IP:$CB_PORT" force
+  env_kv "$ETC/ics.env" ICS_GUEST_CALLBACK_PIN_SHA256 "$CB_FPR" force
+}
+[ -z "$CB_LISTEN" ] || setup_callback
+
 # ------------------------------------------------------------------------------------- code + venv + migrations
 REL="$( cd "$SRC" && find . \( -name .venv -o -name __pycache__ -o -name .pytest_cache -o -name tests -o -name node_modules \) -prune -o -type f -print0 \
         | sort -z | xargs -0 sha256sum | sha256sum | cut -d' ' -f1 )"
 # a VERSION/VERSIONS.json bump outside ics/ must also trigger a reinstall (BUILD_INFO.json is derived from them)
 REL="$( { echo "$REL"; cat "$SRC/../VERSION" "$SRC/../VERSIONS.json" 2>/dev/null; } | sha256sum | cut -d' ' -f1 )"
 need_install=0
+if [ -n "$FROM_REPO" ]; then
+  # ---- signed package path: pinned key -> apt source with signed-by -> apt-get install ou-ics (postinst: wheels, backup gate, migrations, start)
+  KR=/usr/share/keyrings/ou-release.gpg
+  gpg --dearmor < "$REPO_KEY" > "$TMP/ou-release.gpg"
+  put "$TMP/ou-release.gpg" 0644 root:root "$KR" || true
+  echo "deb [signed-by=$KR] $REPO_URL $FROM_REPO main" > "$TMP/ou.list"
+  put "$TMP/ou.list" 0644 root:root /etc/apt/sources.list.d/office-unbound.list || true
+  for i in 1 2 3 4 5; do apt-get -o DPkg::Lock::Timeout=600 -qq update && break; [ "$i" != 5 ] || die "apt-get update failed (is $REPO_URL reachable and its Release signed by the pinned key?)"; sleep 5; done
+  CUR="$(dpkg-query -W -f='${Version}' ou-ics 2>/dev/null || true)"
+  CAND="$(apt-cache policy ou-ics | sed -n 's/^  Candidate: //p')"
+  [ -n "$CAND" ] && [ "$CAND" != "(none)" ] || die "ou-ics is not available in channel $FROM_REPO of $REPO_URL"
+  WANT="${PKG_VERSION:-$CAND}"
+  if [ "$CUR" = "$WANT" ]; then log "ou-ics $CUR already installed: nothing to do (upgrade later with: apt-get install ou-ics, after ics upgrade-preflight)"
+  else
+    log "installing ou-ics $WANT from channel $FROM_REPO (the package postinst runs migrations; an existing database is backed up first)"
+    DEBIAN_FRONTEND=noninteractive apt-get -o DPkg::Lock::Timeout=600 -q install -y --no-install-recommends --allow-downgrades "ou-ics=$WANT" >/dev/null \
+      || { journalctl -u ics-migrate -u ics --no-pager -n 20 >&2 || true; die "apt-get install ou-ics=$WANT failed (see above; a failed backup/migration leaves the old data untouched)"; }
+    changed "package ou-ics ${CUR:-none} -> $WANT (channel $FROM_REPO)"
+  fi
+  REL="ou-ics $(dpkg-query -W -f='${Version}' ou-ics)"
+else
 [ -x "$OPT/.venv/bin/python" ] || need_install=1
 [ "$(cat "$STAMP" 2>/dev/null)" = "$REL" ] || need_install=1
-for u in ics.service ics-migrate.service; do cmp -s "$SRC/deploy/$u" "$SYSD/$u" || need_install=1; done
+for u in ics.service ics-migrate.service ics-bootstrap.service; do cmp -s "$SRC/deploy/$u" "$SYSD/$u" || need_install=1; done
 if [ "$need_install" = 1 ]; then
   log "installing code, hash-pinned venv and units via deploy/install.sh (restarts ics-migrate + ics; migrations run)"
   sh "$SRC/deploy/install.sh"
   echo "$REL" > "$STAMP"; changed "ICS release $REL installed to $OPT"
 else
   log "code already at release ${REL:0:12}: install.sh skipped"
+  [ -z "$CB_LISTEN" ] || systemctl is-enabled -q ics-bootstrap.service || systemctl enable ics-bootstrap.service >/dev/null 2>&1
+  if [ -n "$CB_LISTEN" ] && { [ "$CB_CHANGED" = 1 ] || ! systemctl is-active -q ics-bootstrap.service; }; then systemctl restart ics-bootstrap.service; changed "restarted ics-bootstrap"; fi
   for u in ics-migrate ics; do systemctl is-enabled -q $u.service || systemctl enable $u.service >/dev/null 2>&1; systemctl is-active -q $u.service || { systemctl start $u.service; changed "started $u"; }; done
+fi
 fi
 
 # ------------------------------------------------------------------------------------- firewall + nginx front end
@@ -477,6 +599,37 @@ EOF
       changed "nftables table inet ics_admin loaded"
     fi
   fi
+  if [ -n "$CB_LISTEN" ]; then
+    CBSET="$(printf '%s, ' "${CB_ALLOW[@]}")"; CBSET="${CBSET%, }"
+    cat > "$TMP/cbfw.nft" <<EOF
+# Office Unbound guest-bootstrap listener exposure: only the guest provisioning networks reach $CB_IP:$CB_PORT, at most 8 concurrent connections
+# per source and 30 new connections per minute per source. Generated by bootstrap.sh.
+table inet ics_callback {
+  set busy { type ipv4_addr; flags dynamic,timeout; timeout 1m; size 4096; }
+  set conns { type ipv4_addr; flags dynamic; size 4096; }
+  chain input {
+    type filter hook input priority -10; policy accept;
+    ip daddr $CB_IP tcp dport $CB_PORT ip saddr != { $CBSET } drop
+    ip daddr $CB_IP tcp dport $CB_PORT ct state new add @busy { ip saddr limit rate over 30/minute } drop
+    ip daddr $CB_IP tcp dport $CB_PORT ct state new add @conns { ip saddr ct count over 8 } reject with tcp reset
+    ip daddr $CB_IP tcp dport $CB_PORT accept
+  }
+}
+EOF
+    sed 's/ics_admin/ics_callback/g;s/console source restriction/guest-bootstrap listener source restriction/;s/Before=nginx.service/Before=ics-bootstrap.service/;s#ics-admin-fw.nft#ics-callback-fw.nft#' "$TMP/ics-admin-fw.service" > "$TMP/ics-callback-fw.service"
+    CBFW_CH=0
+    put "$TMP/ics-callback-fw.service" 0644 root:root "$SYSD/ics-callback-fw.service" && { systemctl daemon-reload; CBFW_CH=1; }
+    put "$TMP/cbfw.nft" 0644 root:root "$ETC/ics-callback-fw.nft" && CBFW_CH=1
+    if [ "$SKIP_FW" = 1 ]; then log "callback firewall unit skipped (--skip-firewall)"
+    else
+      systemctl is-enabled -q ics-callback-fw.service || systemctl enable ics-callback-fw.service >/dev/null 2>&1
+      if [ "$CBFW_CH" = 1 ] || ! systemctl is-active -q ics-callback-fw.service; then
+        nft -c -f "$ETC/ics-callback-fw.nft" || die "generated callback nftables ruleset is invalid"
+        systemctl restart ics-callback-fw.service || die "ics-callback-fw.service failed (use --skip-firewall to rely on the network firewall only)"
+        changed "nftables table inet ics_callback loaded"
+      fi
+    fi
+  fi
   put "$TMP/ics.conf" 0644 root:root "$NGX_AVAIL" && NG_CH=1
   [ -L "$NGX_ENAB" ] && [ "$(readlink "$NGX_ENAB")" = "$NGX_AVAIL" ] || { ln -sfn "$NGX_AVAIL" "$NGX_ENAB"; NG_CH=1; changed "enabled nginx site ics.conf"; }
   [ ! -e /etc/nginx/sites-enabled/default ] || { rm -f /etc/nginx/sites-enabled/default; NG_CH=1; changed "removed nginx default site (no port 80)"; }
@@ -497,6 +650,9 @@ ready() { # ready URL [curl args...]: 200, or (PASSIVE restored controller, work
 }
 unit_wait "ready http://127.0.0.1:8088/readyz" 120 || { journalctl -u ics-migrate -u ics --no-pager -n 30 >&2 || true; die "/readyz did not become ready within 120 s"; }
 [ "$PASSIVE" = 0 ] || log "ICS_WORKER_ENABLED=false (passive/restored controller): /readyz 503 on the worker check is expected; database and audit chain are ok"
+if [ -n "$CB_LISTEN" ]; then
+  unit_wait "ready https://$CB_IP:$CB_PORT/healthz --cacert $CBTLS/callback.crt" 60 || { journalctl -u ics-bootstrap --no-pager -n 30 >&2 || true; die "https://$CB_IP:$CB_PORT/healthz (guest-bootstrap listener) did not become ready"; }
+fi
 URL="http://127.0.0.1:8088/"
 if [ "$SKIP_TLS" = 0 ]; then
   CAF="$TLS/ca.crt"; [ -z "$TLS_CERT" ] || CAF=/etc/ssl/certs/ca-certificates.crt
@@ -520,7 +676,8 @@ fi
 echo
 echo "================ Office Unbound ICS: bootstrap summary ================"
 echo "console URL        : $URL"
-echo "release            : ${REL:0:16}... ($OPT)"
+if [ -n "$FROM_REPO" ]; then echo "release            : $REL (signed package, channel $FROM_REPO, repo $REPO_URL, key $REPO_FPR) -> $OPT"
+else echo "release            : ${REL:0:16}... ($OPT)"; fi
 [ -z "$STANDBY_OF" ] || echo "role               : WARM STANDBY of $STANDBY_OF (passive, read-only; promote with: sudo ics/deploy/standby/ics-promote.sh - see docs/runbooks/ics-recovery.md)"
 dpkg-query -W -f='package            : ${Package} ${Version}\n' "postgresql-$PGVER" python3-venv $([ "$SKIP_TLS" = 1 ] || echo nginx nftables)
 if [ "$SKIP_TLS" = 1 ]; then echo "mode               : loopback only (127.0.0.1:8088, no TLS, no nginx, no firewall)"
@@ -533,6 +690,10 @@ else
     echo "server cert SHA-256: $CERT_FPR"
   fi
 fi
+if [ -n "$CB_LISTEN" ]; then
+  echo "guest bootstrap    : https://$CB_IP:$CB_PORT (only POST $PATH_CB + /healthz) <- ${CB_ALLOW[*]}"
+  echo "  pin (sha256 DER) : $CB_FPR  (set as ICS_GUEST_CALLBACK_PIN_SHA256 in $ETC/ics.env)"
+else echo "guest bootstrap    : not enabled (console still serves the callback route; re-run with --callback-listen)"; fi
 echo "config / keys      : $ETC (env files and keys are root-only; DB passwords exist only there)"
 if [ ${#CHANGES[@]} = 0 ]; then echo "changes this run   : none"; else printf 'changes this run   : %s\n' "${CHANGES[0]}"; for c in "${CHANGES[@]:1}"; do printf '                     %s\n' "$c"; done; fi
 [ -z "$ADMIN_NOTE" ] || echo "admin              : $ADMIN_NOTE"

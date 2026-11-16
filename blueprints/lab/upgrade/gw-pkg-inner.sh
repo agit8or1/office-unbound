@@ -40,15 +40,19 @@ pre() {
   echo "state recorded in $BK: $(wc -l < "$BK/files.list") files, source-built.tar $(du -h "$BK/source-built.tar" | cut -f1)"; cat "$BK/state.txt"
 }
 
+# review 7 H-2: apt only warns about "Conflicting distribution" on first contact: check the fetched Release ourselves
+chk_channel() { for f in /var/lib/apt/lists/*_dists_${CHANNEL}_InRelease; do [ -f "$f" ] || { echo "no InRelease for $CHANNEL"; exit 1; }; grep -q "^Suite: $CHANNEL$" "$f" && grep -q "^Codename: $CHANNEL$" "$f" || { echo "Release of $CHANNEL says another Suite/Codename: channel confusion refused"; exit 1; }; done; }
 apt_setup() {
   install -d -m 0755 /usr/share/keyrings
-  curl -fsS "$REPO_URL/ou-release-lab.pub.asc" -o /tmp/ou-release.asc
+  curl -fsS "$REPO_URL/ou-release-$CHANNEL.pub.asc" -o /tmp/ou-release.asc
   got=$(gpg --show-keys --with-colons /tmp/ou-release.asc | awk -F: '/^fpr/{print $10; exit}')
   [ "$got" = "$KEY_FPR" ] || { echo "release key fingerprint mismatch: $got"; exit 1; }
-  gpg --dearmor < /tmp/ou-release.asc > /usr/share/keyrings/ou-release-lab.gpg
-  echo "deb [signed-by=/usr/share/keyrings/ou-release-lab.gpg] $REPO_URL $CHANNEL main" > /etc/apt/sources.list.d/office-unbound.list
+  gpg --dearmor < /tmp/ou-release.asc > /usr/share/keyrings/ou-release-$CHANNEL.gpg
+  echo "deb [signed-by=/usr/share/keyrings/ou-release-$CHANNEL.gpg] $REPO_URL $CHANNEL main" > /etc/apt/sources.list.d/office-unbound.list
   { for pv in $PINS; do echo "Package: ${pv%%=*}"; echo "Pin: version ${pv#*=}"; echo "Pin-Priority: 1001"; echo; done; } > /etc/apt/preferences.d/office-unbound-pins
+  echo 'Acquire::AllowReleaseInfoChange "false";' > /etc/apt/apt.conf.d/50ou-release-strict
   apt-get update -q >/dev/null
+  chk_channel
 }
 
 svc_stop() { for s in $SVCS_STOP php8.2-fpm; do systemctl stop $s 2>/dev/null || true; done; }

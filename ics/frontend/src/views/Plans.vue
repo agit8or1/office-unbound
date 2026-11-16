@@ -9,10 +9,16 @@ import EmptyState from '../ui/EmptyState.vue'
 import Skeleton from '../ui/Skeleton.vue'
 import Segmented from '../ui/Segmented.vue'
 import Button from '../ui/Button.vue'
+import { asPromoteParams, isReleasePlan, releaseDiff, shortHash } from '../releases'
+import type { Releases } from '../api'
 
 const plans = useLoad(() => get<Plan[]>('plans'), 10000)
 // params_hash and the requester name are only in the audit log (approver+), so look them up best-effort
 const audit = useLoad(async () => (hasRole('approver') ? get<AuditEvent[]>('audit?limit=500') : []))
+const rel = useLoad(async () => { try { return await get<Releases>('releases') } catch { return null } })
+const promo = computed(() => (sel.value && isReleasePlan(sel.value.action) ? asPromoteParams(sel.value.params) : null))
+const diff = computed(() => (promo.value ? releaseDiff(promo.value, rel.data.value?.channels ?? []) : []))
+const KIND = { new: 'New in the channel', replaces: 'Replaces an older version', unchanged: 'Already there, identical' } as const
 const filter = ref<'pending' | 'all'>('pending')
 const rows = computed(() => (plans.data.value ?? []).filter((p) => filter.value === 'all' || p.status === 'pending_approval'))
 const selId = computed(() => route.value.arg)
@@ -65,7 +71,7 @@ async function decide(kind: 'approve' | 'reject') {
         <template v-if="sel">
           <dl class="kv">
             <dt>Action</dt><dd class="mono">{{ sel.action }}</dd>
-            <dt>Risk</dt><dd><Status :s="sel.risk" /> <span class="muted small">{{ sel.risk === 'high' ? 'needs 2 distinct approvers' : 'auto-approved' }}</span></dd>
+            <dt>Risk</dt><dd><Status :s="sel.risk" /> <span class="muted small">{{ sel.approvals_required && sel.approvals_required > 1 ? 'needs ' + sel.approvals_required + ' distinct approvers' : sel.risk === 'high' ? 'needs distinct approvers' : 'one approver' }}</span></dd>
             <dt>Status</dt><dd><Status :s="sel.status" /></dd>
             <dt>Requested by</dt><dd>{{ requester ?? 'id ' + short(sel.requested_by) }}<span v-if="mine"> (you)</span></dd>
             <dt>Created</dt><dd>{{ fmtTime(sel.created_at) }}</dd>
@@ -73,7 +79,17 @@ async function decide(kind: 'approve' | 'reject') {
             <dt>Params hash</dt><dd class="mono wrap">{{ hash ?? 'not available to your role (audit access needed)' }}</dd>
             <dt v-if="resolved">Resolved IPs</dt><dd v-if="resolved" class="mono">{{ resolved.join(', ') }}</dd>
           </dl>
-          <h3>Parameters</h3>
+          <template v-if="promo">
+            <h3>What will change</h3>
+            <p class="small">Moves <b>{{ promo.component }}</b> from <b>{{ promo.from_channel }}</b> to <b>{{ promo.to_channel }}</b>. Check each file and its hash; the signer refuses anything that differs from this list.<template v-if="promo.reason"> Reason given: {{ promo.reason }}</template></p>
+            <div class="tablewrap"><table class="dense" data-testid="release-diff" aria-label="Release diff">
+              <thead><tr><th>Package</th><th>Change</th><th>SHA-256</th><th>Test record</th></tr></thead>
+              <tbody><tr v-for="r in diff" :key="r.file" :data-kind="r.kind">
+                <td class="mono">{{ r.name }}</td><td>{{ KIND[r.kind] }}<span v-if="r.was"> (was {{ r.was }})</span></td>
+                <td class="mono small" :title="r.sha256">{{ shortHash(r.sha256, 16) }}...</td><td class="mono small">{{ r.evidence ? shortHash(r.evidence, 12) + '...' : 'none (source file)' }}</td></tr></tbody>
+            </table></div>
+          </template>
+          <h3>{{ promo ? 'Raw parameters' : 'Parameters' }}</h3>
           <pre class="code" tabindex="0">{{ pretty(sel.params) }}</pre>
           <p class="muted small">Secrets are never returned by the API.</p>
           <div v-if="ok && okFor === sel.id" class="alert ok" role="status"><span class="grow">{{ ok }}</span>

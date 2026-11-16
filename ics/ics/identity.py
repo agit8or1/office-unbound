@@ -28,6 +28,8 @@ from . import agentclient, audit, idprobe
 from .agentclient import AgentError
 from .proxmox import ProxmoxError, check_destination
 from .runtime import Runtime
+from .tenancy import scope as tscope
+from .tenancy.scope import DEFAULT_CUSTOMER
 from .vault import VaultError
 
 log = logging.getLogger("ics.identity")
@@ -43,12 +45,18 @@ LOCK_VALUE = "000001010000Z"  # ppolicy permanent lock (same value the lab's lda
 STATES = ("active", "disabled", "deleted")
 
 
+
+def _egress_hook(_request) -> None:
+    from . import egress
+    egress.require()      # review 7 H-5: Keycloak/LDAP/DNS calls stop when this controller is fenced or standby
+
+
 class IdentityError(Exception):
     """Message is safe to store and show (no credentials, no transport text)."""
 
 
 ACTIONS = ("idm.stack.register", "idm.user.create", "idm.user.update_groups", "idm.user.disable", "idm.user.enable", "idm.user.delete",
-           "idm.reconcile", "idm.user.devices", "idm.user.set_extension", "idm.user.issue_sip_credential")
+           "idm.user.reset_credentials", "idm.reconcile", "idm.user.devices", "idm.user.set_extension", "idm.user.issue_sip_credential")
 EXT_RE = r"^[1-9][0-9]{3}$"            # 4-digit internal extension = LDAP telephoneNumber (same rule as the PBX provisioner)
 SIP_DEVICES = ("web", "native", "desk")
 SIP_CRED_TTL = 900                     # seconds an unrevealed SIP credential stays decryptable at the ICS
@@ -105,10 +113,22 @@ class StackRegister(BaseModel):
     pbx_domain: str | None = Field(default=None, pattern=HOST_RE, description="SIP domain shown to users with their one-time credential")
     reconcile_interval_seconds: int = Field(default=900, ge=0, le=86400, description="0 disables the periodic reconcile")
     customer_id: UUID | None = Field(default=None, description="owning customer (customers.id): scoped operators only see/act on their customers' stacks; part of the secret's AAD (config hash)")
+    alias_domains: list[str] = Field(default_factory=list, max_length=20, description="additional verified mail domains customers may use for ALIASES (mail_domain is always allowed)")
+    oc_quota_user: str | None = Field(default=None, pattern=UID_RE, description="directory user holding the OpenCloud Admin role, used ONLY to set/read personal-drive quotas")
+    oc_quota_password: SecretStr | None = None
 
     _s1 = field_validator("ldap_bind_password", "kc_client_secret", mode="before")(lambda cls, v: _secret(v))
     _s2 = field_validator("mas_client_secret", mode="before")(lambda cls, v: None if v is None else _secret(v))
     _p1 = field_validator("identity_ca_pem", "mail_ca_pem")(lambda cls, v: _pem(v))
+    _s3 = field_validator("oc_quota_password", mode="before")(lambda cls, v: None if v is None else _secret(v))
+
+    @field_validator("alias_domains")
+    @classmethod
+    def _ad(cls, v: list[str]) -> list[str]:
+        for d in v:
+            if not re.fullmatch(HOST_RE, d) or "." not in d or d != d.lower():
+                raise ValueError("alias_domains must be lowercase domain names")
+        return sorted(set(v))
 
     @field_validator("ldap_url")
     @classmethod
@@ -147,6 +167,10 @@ class StackRegister(BaseModel):
             raise ValueError("mas_url, mas_client_id and mas_client_secret must be given together")
         if bool(self.pbx_node_id) != bool(self.pbx_domain):
             raise ValueError("pbx_node_id and pbx_domain must be given together")
+        if bool(self.oc_quota_user) != bool(self.oc_quota_password):
+            raise ValueError("oc_quota_user and oc_quota_password must be given together")
+        if self.oc_quota_user and not (self.files_url and self.probe_client_id):
+            raise ValueError("oc_quota_user needs files_url and probe_client_id (the direct-grant client used to obtain its token)")
         if self.probe_client_id and not (self.mail_host or self.files_url):
             raise ValueError("probe_client_id needs mail_host and/or files_url")
         return self
@@ -218,6 +242,7 @@ class UserDisable(_UserRef):
     wipe_devices: bool = Field(default=False, description="request an ActiveSync remote wipe for ALL of the user's devices BEFORE the account is suspended "
                                "(destructive: plan risk is high, two approvers). A device can only receive it while it can still authenticate")
     wipe_wait_seconds: int = Field(default=0, ge=0, le=300, description="how long to wait (before the lock) for devices to pick the wipe up; 0 = request only")
+    privileged_target: bool = Field(default=False, description="set by the tenant API when the target holds the organisation-admin role or a privileged group (checked live): the plan is high risk and its enrollment link is never shown to the requester")
 
     @model_validator(mode="after")
     def _wipe(self) -> Self:
@@ -232,10 +257,17 @@ class UserDevices(_UserRef):
 
 class UserEnable(_UserRef):
     reason: str = Field(default="", max_length=200)
+    privileged_target: bool = Field(default=False, description="set by the tenant API when the target holds the organisation-admin role or a privileged group (checked live): the plan is high risk and its enrollment link is never shown to the requester")
 
 
 class UserDelete(_UserRef):
     reason: str = Field(min_length=3, max_length=200, description="mandatory: why; mailbox data is RETAINED (no purge action exists)")
+
+
+class UserResetCredentials(_UserRef):
+    what: Literal["password", "mfa"] = Field(description="password: issue a fresh one-time enrollment link; mfa: remove the user's authenticator and require a new one at next sign-in")
+    reason: str = Field(default="", max_length=200)
+    privileged_target: bool = Field(default=False, description="set by the tenant API when the target holds the organisation-admin role or a privileged group (checked live): the plan is high risk and its enrollment link is never shown to the requester")
 
 
 class Reconcile(BaseModel):
@@ -257,6 +289,7 @@ class Stack:
         self.id, self.name, self.cfg = str(row.id), row.name, dict(row.config)
         self.ldap_pw, self.kc_secret = secrets_["ldap_bind_password"], secrets_["kc_client_secret"]
         self.mas_secret = secrets_.get("mas_client_secret")
+        self.oc_pw = secrets_.get("oc_quota_password")
 
     @property
     def mail_domain(self) -> str:
@@ -453,7 +486,7 @@ class Keycloak:
         self.offline_clients = c.get("kc_offline_clients", [])
         ctx = ssl.create_default_context(cadata=c["identity_ca_pem"])
         ctx.minimum_version = ssl.TLSVersion.TLSv1_2
-        self.http = httpx.Client(verify=ctx, timeout=httpx.Timeout(10.0), follow_redirects=False, trust_env=False)
+        self.http = httpx.Client(verify=ctx, timeout=httpx.Timeout(10.0), follow_redirects=False, trust_env=False, event_hooks={"request": [_egress_hook]})
         self._tok, self._exp = None, 0.0
 
     def close(self) -> None:
@@ -536,6 +569,19 @@ class Keycloak:
     def delete(self, kid: str) -> None:
         self.req("DELETE", f"/users/{kid}")
 
+    def reset_mfa(self, kid: str) -> int:
+        """Removes every OTP credential and makes the next sign-in enrol a new authenticator (required action CONFIGURE_TOTP). Never sees a secret."""
+        n = 0
+        for c in self.req("GET", f"/users/{kid}/credentials").json():
+            if c.get("type") == "otp":
+                self.req("DELETE", f"/users/{kid}/credentials/{c['id']}")
+                n += 1
+        full = self.req("GET", f"/users/{kid}").json()
+        full["requiredActions"] = sorted(set(full.get("requiredActions") or []) | {"CONFIGURE_TOTP"})
+        self.req("PUT", f"/users/{kid}", json=full)
+        self.logout(kid)
+        return n
+
 class Mas:
     """Matrix Authentication Service admin API (downstream of Keycloak). Client-credentials client dedicated to the ICS.
     MAS has a single admin scope (`urn:mas:admin`), so the scope itself cannot be narrowed; the narrowing is: its own client id + vault-held secret, the
@@ -548,7 +594,7 @@ class Mas:
         self.base, self.client_id, self._secret = c["mas_url"].rstrip("/"), c["mas_client_id"], stack.mas_secret
         ctx = ssl.create_default_context(cadata=c["identity_ca_pem"])
         ctx.minimum_version = ssl.TLSVersion.TLSv1_2
-        self.http = httpx.Client(verify=ctx, timeout=httpx.Timeout(10.0), follow_redirects=False, trust_env=False)
+        self.http = httpx.Client(verify=ctx, timeout=httpx.Timeout(10.0), follow_redirects=False, trust_env=False, event_hooks={"request": [_egress_hook]})
         self._tok, self._exp = None, 0.0
 
     def close(self) -> None:
@@ -643,6 +689,11 @@ def agent_user(rt: Runtime, node_id, action: str, uid: str, known: list[str], de
                customer: str | None = None) -> dict:
     """One signed agent request (fixed runbook, params exactly {user}; {user, device} for pbx.issue_credential). Returns the helper's JSON result
     (sanitised; raw=True only for the SIP credential issue, whose result carries the one-time secret and is never audited); raises IdentityError otherwise."""
+    return agent_call(rt, node_id, action, {"user": uid, **({"device": device} if device else {})}, known, raw=raw, customer=customer)
+
+
+def agent_call(rt: Runtime, node_id, action: str, params: dict, known: list[str], raw: bool = False, customer: str | None = None) -> dict:
+    """One signed request for a fixed, typed runbook (params are validated again by the agent). Returns the helper's JSON result."""
     with rt.session() as d:
         node = d.execute(text("SELECT * FROM nodes WHERE id = :i"), {"i": str(node_id)}).first()
     if node is None:
@@ -651,7 +702,6 @@ def agent_user(rt: Runtime, node_id, action: str, uid: str, known: list[str], de
         raise IdentityError("the node does not belong to this stack's customer")
     priv = agentclient.load_signing_key(rt.settings.signing_key_file)
     jid = str(uuid.uuid4())
-    params = {"user": uid, **({"device": device} if device else {})}
     body = agentclient.build_request(priv, action=action, params=params, node_id=str(node.id), job_id=jid, ttl=rt.settings.agent_request_ttl_seconds, epoch=rt.agent_epoch())
     req = body["req"]
     with rt.session() as d:
@@ -678,6 +728,8 @@ def agent_user(rt: Runtime, node_id, action: str, uid: str, known: list[str], de
     if resp.get("status") != "ok":
         raise IdentityError(f"{action}: agent {resp.get('status')}: {code}")
     r = resp.get("result") or {}
+    if isinstance(r.get("rejected"), dict):   # the node-side helper refused on policy grounds (e.g. address already used): safe, short message
+        raise IdentityError(f"{action}: refused by the node: {str(r['rejected'].get('message', r['rejected'].get('code')))[:120]}")
     if r.get("returncode") not in (0,) or not isinstance(r.get("result"), dict):
         raise IdentityError(f"{action}: helper failed (rc={r.get('returncode')})")
     return r["result"] if raw else audit.sanitize(r["result"])
@@ -745,6 +797,26 @@ def reveal_enrollment(db, rt: Runtime, user, plan_id) -> dict:
     db.commit()
     return {"token": token, "uid": row.uid, "stack": row.stack, "expires_at": row.expires_at.isoformat(),
             "redeem": "POST /api/v1/identity/enroll {stack, uid, token, password}"}
+
+
+def reveal_enrollment_for_delivery(db, rt: Runtime, user, plan_id) -> dict:
+    """Review 6 H2: the sign-in link of a PRIVILEGED target (organisation administrator / privileged-group member) is never shown to the requesting tenant
+    administrator. An ICS operator in scope of that customer (never the plan's own requester) takes it once and hands it to the account owner
+    out of band (it is redeemed through the one-time /welcome flow)."""
+    row = db.execute(text(
+        "SELECT e.*, u.uid, s.name AS stack, p.customer_id, p.requested_by AS plan_requester, p.params FROM idm_enrollments e JOIN plans p ON p.id = e.plan_id "
+        "JOIN idm_users u ON u.id = e.user_id JOIN idm_stacks s ON s.id = u.stack_id "
+        "WHERE e.plan_id = :p AND e.token_enc IS NOT NULL AND e.used_at IS NULL AND e.expires_at > now() AND EXISTS (SELECT 1 FROM tenant_requests t WHERE t.plan_id = p.id) "
+        "ORDER BY e.created_at DESC LIMIT 1 FOR UPDATE OF e"), {"p": str(plan_id)}).first()
+    if row is None or str(row.plan_requester) == str(user.id) or not (row.customer_id is None or tscope.allowed(user, row.customer_id)):
+        return {}
+    token = rt.vault.decrypt(row.token_enc, f"idm-enroll:{row.id}").decode()
+    db.execute(text("UPDATE idm_enrollments SET token_enc = NULL, revealed_at = now() WHERE id = :i"), {"i": str(row.id)})
+    audit.append(db, "identity.enrollment_delivered_by_operator", actor_id=user.id, actor_name=user.username, resource="idm_user",
+                 resource_id=str(row.user_id), details={"uid": row.uid, "stack": row.stack, "plan_id": str(plan_id)})
+    db.commit()
+    return {"token": token, "uid": row.uid, "stack": row.stack, "expires_at": row.expires_at.isoformat(),
+            "note": "give this to the account owner only, through a channel you verified; it is redeemed on the portal's /welcome page"}
 
 
 def _password_ok(uid: str, pw: str) -> str | None:
@@ -821,14 +893,30 @@ def _ext_free(db, stack_row, ext: str, own_user_id) -> None:
         raise LookupError("extension already assigned to another user")
 
 
+CREDENTIAL_TAKEOVER_ACTIONS = ("idm.user.reset_credentials", "idm.user.enable", "idm.user.disable")
+
+
+def target_is_privileged(db, stack_name: str, uid: str) -> bool:
+    """True if the (known) target user is a member of one of the stack's privileged groups. The organisation-admin ROLE lives in Keycloak and is added
+    by the tenant API (`privileged_target`, checked live and fail-closed)."""
+    row = _stack_row(db, stack_name)
+    u = db.execute(text("SELECT groups FROM idm_users WHERE stack_id = :s AND uid = :u AND state <> 'deleted'"), {"s": str(row.id), "u": uid}).first()
+    return bool(u and set(u.groups or []) & set(row.config.get("privileged_groups", [])))
+
+
 def risk_for(db, action: str, p) -> str:
     """normal = one approver other than the requester; high = two. Privileged groups raise create/update to high."""
+    from . import mailadmin
+    if action in mailadmin.ACTIONS:
+        return mailadmin.risk_for(db, action, p)
     if action in ("idm.stack.register", "idm.user.delete"):
         return "high"
     if action in ("idm.reconcile", "idm.user.devices"):
         return "low"
     if action == "idm.user.disable" and getattr(p, "wipe_devices", False):
         return "high"
+    if action in CREDENTIAL_TAKEOVER_ACTIONS and (getattr(p, "privileged_target", False) or target_is_privileged(db, p.stack, p.uid)):
+        return "high"   # review 6 H2: resetting/re-enabling/disabling an administrator or privileged-group member is never a one-person decision
     if action in ("idm.user.create", "idm.user.update_groups"):
         priv = set(_stack_row(db, p.stack).config.get("privileged_groups", []))
         touched = set(p.groups) if action == "idm.user.create" else set(p.add) | set(p.remove)
@@ -851,6 +939,9 @@ def _nodes_belong_to(db, p) -> None:
 
 def precheck(db, rt: Runtime, action: str, p) -> dict:
     """Raises ValueError (-> HTTP 422/409 via PlanError in actions.py). Returns extra info shown to the approver."""
+    from . import mailadmin
+    if action in mailadmin.ACTIONS:
+        return mailadmin.precheck(db, rt, action, p)
     if action == "idm.stack.register":
         if db.execute(text("SELECT 1 FROM idm_stacks WHERE name = :n"), {"n": p.name}).first():
             raise LookupError("stack name already exists")
@@ -911,6 +1002,8 @@ def precheck(db, rt: Runtime, action: str, p) -> dict:
             raise ValueError("wipe_devices needs a Gromox node in the stack")
     elif action == "idm.user.enable":
         _user_row(db, row.id, p.uid, ("disabled",))
+    elif action == "idm.user.reset_credentials":
+        _user_row(db, row.id, p.uid, ("active",))
     elif action == "idm.user.delete":
         _user_row(db, row.id, p.uid, ("disabled",))  # delete only after a verified disable
     return {}
@@ -962,10 +1055,12 @@ def exec_register(rt: Runtime, db, m: StackRegister, plan, known: list[str]) -> 
     except ValueError as e:
         raise IdentityError(str(e)) from None
     sid = uuid.uuid4()
-    cfg = m.model_dump(mode="json", exclude={"ldap_bind_password", "kc_client_secret", "mas_client_secret"})
+    cfg = m.model_dump(mode="json", exclude={"ldap_bind_password", "kc_client_secret", "mas_client_secret", "oc_quota_password"})
     sec = {"ldap_bind_password": m.ldap_bind_password.get_secret_value(), "kc_client_secret": m.kc_client_secret.get_secret_value()}
     if m.mas_client_secret:
         sec["mas_client_secret"] = m.mas_client_secret.get_secret_value()
+    if m.oc_quota_password:
+        sec["oc_quota_password"] = m.oc_quota_password.get_secret_value()
     known.extend(sec.values())
     stack = Stack(type("R", (), {"id": sid, "name": m.name, "config": cfg}), sec)
     d = Directory(rt, stack)  # proves TLS trust + service-account bind before anything is stored
@@ -986,8 +1081,10 @@ def exec_register(rt: Runtime, db, m: StackRegister, plan, known: list[str]) -> 
         finally:
             mas.close()
     enc = rt.vault.encrypt(json.dumps(sec).encode(), stack_aad(sid, cfg))
-    db.execute(text("INSERT INTO idm_stacks (id, name, config, secret_enc, created_by) VALUES (:i, :n, CAST(:c AS jsonb), :s, :u)"),
-               {"i": str(sid), "n": m.name, "c": audit.canon(cfg), "s": enc, "u": str(plan.requested_by)})
+    db.execute(text("INSERT INTO idm_stacks (id, name, config, secret_enc, created_by, customer_id) "
+                    "VALUES (:i, :n, CAST(:c AS jsonb), :s, :u, :k)"),
+               {"i": str(sid), "n": m.name, "c": audit.canon(cfg), "s": enc, "u": str(plan.requested_by),
+                "k": str(m.customer_id) if m.customer_id else DEFAULT_CUSTOMER})
     audit.append(db, "identity.stack_registered", actor_name="worker", resource="idm_stack", resource_id=str(sid),
                  details={"name": m.name, "ldap_bind_dn": m.ldap_bind_dn, "kc_client_id": m.kc_client_id, "nodes": {"gromox": str(m.gromox_node_id), "files": str(m.files_node_id)}})
     return {"stack_id": str(sid)}
@@ -1442,6 +1539,32 @@ def exec_enable(rt: Runtime, db, m: UserEnable, plan, known: list[str]) -> dict:
             "note": "app tokens issued before the disable become valid again in OpenCloud (no revoke API): see docs"}
 
 
+def exec_reset_credentials(rt: Runtime, db, m: UserResetCredentials, plan, known: list[str]) -> dict:
+    stack = load_stack(rt, m.stack)
+    known.extend([stack.ldap_pw, stack.kc_secret, *([stack.mas_secret] if stack.mas_secret else [])])
+    u = _users_row(rt, stack.id, m.uid)
+    if u is None or u.state != "active":
+        raise IdentityError("user is not active")
+    steps: list = []
+    out: dict = {"uid": m.uid, "what": m.what}
+    if m.what == "mfa":
+        kc = Keycloak(rt, stack)
+        try:
+            t = time.monotonic()
+            ku = kc.find(m.uid)
+            if ku is None:
+                raise IdentityError("user not found in Keycloak (has never signed in); nothing to reset")
+            out["removed_authenticators"] = kc.reset_mfa(ku["id"])
+            _step(steps, "keycloak.reset_mfa", t)
+        finally:
+            kc.close()
+    else:
+        out["enrollment"] = _issue_enrollment(rt, str(u.id), plan.id, plan.requested_by)
+        _step(steps, "enrollment.issued", time.monotonic())
+    _audit(rt, "identity.credentials_reset", resource_id=str(u.id), uid=m.uid, stack=stack.name, what=m.what, reason=m.reason)
+    return {**out, "steps": steps}
+
+
 def exec_delete(rt: Runtime, db, m: UserDelete, plan, known: list[str]) -> dict:
     stack = load_stack(rt, m.stack)
     known.extend([stack.ldap_pw, stack.kc_secret, *([stack.mas_secret] if stack.mas_secret else [])])
@@ -1646,11 +1769,13 @@ def reconcile_due(rt: Runtime) -> int:
 
 MODELS = {"idm.user.devices": UserDevices, "idm.stack.register": StackRegister, "idm.user.create": UserCreate, "idm.user.update_groups": UserUpdateGroups,
           "idm.user.disable": UserDisable, "idm.user.enable": UserEnable, "idm.user.delete": UserDelete, "idm.reconcile": Reconcile,
+          "idm.user.reset_credentials": UserResetCredentials,
           "idm.user.set_extension": UserSetExtension, "idm.user.issue_sip_credential": IssueSipCredential}
 EXECUTORS = {"idm.user.devices": exec_devices, "idm.stack.register": exec_register, "idm.user.create": exec_create, "idm.user.update_groups": exec_update_groups,
              "idm.user.disable": exec_disable, "idm.user.enable": exec_enable, "idm.user.delete": exec_delete, "idm.reconcile": exec_reconcile,
+             "idm.user.reset_credentials": exec_reset_credentials,
              "idm.user.set_extension": exec_set_extension, "idm.user.issue_sip_credential": exec_issue_sip}
-SECRETS = {"idm.stack.register": ("ldap_bind_password", "kc_client_secret", "mas_client_secret")}
+SECRETS = {"idm.stack.register": ("ldap_bind_password", "kc_client_secret", "mas_client_secret", "oc_quota_password")}
 
 
 def sweep_sip_credentials(rt: Runtime) -> int:

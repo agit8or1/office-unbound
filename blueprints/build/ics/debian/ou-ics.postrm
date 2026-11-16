@@ -1,0 +1,16 @@
+#!/bin/bash
+# ou-ics postrm. Removes only what the package made (the generated virtualenv, bytecode). It NEVER touches the database, the keys, the env
+# files, the TLS material or the backups, not even on purge: those are the customer's data (see docs/runbooks/ics-upgrade-rollback.md for a full wipe).
+case "$1" in
+  remove|purge)
+    rm -rf /opt/office-unbound/ics/.venv /opt/office-unbound/ics/ics/__pycache__
+    find /opt/office-unbound/ics -name __pycache__ -type d -prune -exec rm -rf {} + 2>/dev/null || true
+    rmdir /opt/office-unbound/ics /opt/office-unbound/blueprints /opt/office-unbound 2>/dev/null || true
+    [ -d /run/systemd/system ] && systemctl daemon-reload || true
+    if [ "$1" = purge ]; then
+      echo "ou-ics: purge removed the package files and conffile only. KEPT: database 'ics', /etc/office-unbound/*.key and *.env, TLS, /var/backups/office-unbound."
+    fi
+    ;;
+esac
+#DEBHELPER#
+exit 0

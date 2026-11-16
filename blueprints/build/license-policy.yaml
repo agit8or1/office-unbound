@@ -29,6 +29,7 @@ allowed:
   - Unlicense
   - BlueOak-1.0.0
   - Python-2.0
+  - PSF-2.0          # greenlet, typing_extensions (permissive PSF licence 2.0); added with the ou-ics recipe, reviewed against the wheel METADATA
   - WTFPL
   - ICU
   - Artistic-2.0

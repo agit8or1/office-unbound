@@ -10,7 +10,7 @@ know. Properties:
     reported agent address (a stolen secret cannot point the ICS at another host);
   * single use + short TTL: the first valid report moves the record pending -> reported atomically; a second valid report with the same secret is a
     REPLAY (clone or impostor) and raises an alarm audit event; expired/used/unknown records are indistinguishable from a bad proof (one generic 401);
-  * rate limited per source IP, per bootstrap id (reserved budget of every known VM) and, separately, for unknown ids (in memory, per process); counted per bootstrap id;
+  * rate limited per source IP, per bootstrap id (reserved budget of every known VM) and, separately, for unknown ids (shared across workers: PostgreSQL token buckets, ics/ratelimit.py); counted per bootstrap id;
   * CA-pinned on the guest side: the guest only talks to the SMBIOS-delivered URL after matching the delivered certificate pin; the response carries
     an HMAC acknowledgement so the guest also authenticates the ICS with the secret (a pinned-cert holder without the secret is rejected too);
   * the enrollment token the guest generated travels inside this authenticated call and is stored vault-encrypted until enrollment finishes."""
@@ -20,9 +20,7 @@ import ipaddress
 import json
 import re
 import socket
-import threading
 import time
-from collections import defaultdict, deque
 from datetime import datetime, timezone
 
 from fastapi import HTTPException, Request
@@ -30,6 +28,7 @@ from pydantic import BaseModel, ConfigDict, Field
 from sqlalchemy import text
 
 from .. import audit
+from .. import ratelimit
 from . import bootsecrets
 
 PATH = "/api/v1/guest-bootstrap/report"
@@ -78,31 +77,21 @@ def ack(secret_hex: str, nonce: str) -> str:
     return hmac.new(bytes.fromhex(secret_hex), f"ou-bootstrap-ack-v1\n{nonce}".encode(), hashlib.sha256).hexdigest()
 
 
-class RateLimiter:
-    def __init__(self):
-        self._lock = threading.Lock()
-        self._hits: dict[str, deque] = defaultdict(deque)
+class _Limiter:
+    """Thin adapter over the shared PostgreSQL limiter (ics/ratelimit.py): the budgets hold across every worker process."""
 
-    def allow(self, key: str, limit: int, window: float, now: float | None = None) -> bool:
-        now = time.monotonic() if now is None else now
-        with self._lock:
-            q = self._hits[key]
-            while q and q[0] <= now - window:
-                q.popleft()
-            if len(q) >= limit:
-                return False
-            q.append(now)
-            if len(self._hits) > 10000:   # bounded memory under a spray from many addresses
-                for k in [k for k, v in self._hits.items() if not v or v[-1] <= now - window][:5000]:
-                    self._hits.pop(k, None)
-            return True
+    def allow(self, rt, key: str, limit: int, window: float) -> bool:
+        return ratelimit.allow(rt, "cb:" + key, limit, window)
 
-    def reset(self) -> None:
-        with self._lock:
-            self._hits.clear()
+    def is_limited(self, rt, key: str, limit: int, window: float) -> bool:
+        """Read-only peek for the console: would the next request be refused? (consumes nothing)"""
+        return ratelimit.limited(rt, "cb:" + key, limit, window)
+
+    def reset(self, rt=None) -> None:
+        ratelimit.reset(rt)
 
 
-LIMITER = RateLimiter()
+LIMITER = _Limiter()
 _DENY = HTTPException(401, "rejected")   # one generic answer for every failure: no oracle for bids, expiry or use
 
 
@@ -130,7 +119,7 @@ def source_ip(request: Request, rt) -> str:
 
 def handle_report(rt, body: ReportIn, src: str) -> dict:
     """Pure core (no HTTP objects): returns the response body or raises HTTPException."""
-    if not LIMITER.allow("ip:" + src, PER_IP_LIMIT, PER_IP_WINDOW):
+    if not LIMITER.allow(rt, "ip:" + src, PER_IP_LIMIT, PER_IP_WINDOW):
         raise HTTPException(429, "too many requests", headers={"Retry-After": "30"})
     a = body.agent
     if (body.v != 1 or not BID.match(body.bid) or not NONCE.match(body.nonce) or not HEX64.match(a.tls_fingerprint_sha256)
@@ -143,8 +132,8 @@ def handle_report(rt, body: ReportIn, src: str) -> dict:
     if ip.is_loopback or ip.is_multicast or ip.is_unspecified or ip.is_link_local or ip.is_reserved:
         raise _DENY
     row = bootsecrets.by_bid(rt, body.bid)
-    bucket_ok = (LIMITER.allow("bid:" + body.bid, PER_BID_LIMIT, PER_BID_WINDOW) if row is not None
-                 else LIMITER.allow("unknown", UNKNOWN_LIMIT, UNKNOWN_WINDOW))
+    bucket_ok = (LIMITER.allow(rt, "bid:" + body.bid, PER_BID_LIMIT, PER_BID_WINDOW) if row is not None
+                 else LIMITER.allow(rt, "unknown", UNKNOWN_LIMIT, UNKNOWN_WINDOW))
     if not bucket_ok:
         raise HTTPException(429, "too many requests", headers={"Retry-After": "30"})
     dummy = "00" * 32
@@ -247,14 +236,28 @@ def register(app, rt) -> None:
 
 def create_callback_app():
     """Review 5 L4: a DEDICATED app that serves nothing but the bootstrap callback (and /healthz). Run it as its own listener (`python -m ics.serve_callback`,
-    unit ics-callback.service) behind its own reverse-proxy server block / bind address; guest networks then reach no login page and no console API.
+    unit ics-bootstrap.service) behind its own reverse-proxy server block / bind address; guest networks then reach no login page and no console API.
     Set ICS_GUEST_CALLBACK_DEDICATED=true so the console app stops serving the callback route as well."""
     from fastapi import FastAPI
     from ..runtime import Runtime
     from ..config import load_settings
+    from contextlib import asynccontextmanager
     rt = Runtime(load_settings())
-    app = FastAPI(title="Office Unbound guest callback", docs_url=None, redoc_url=None, openapi_url=None)
+
+    @asynccontextmanager
+    async def lifespan(_app):
+        # a witness lease is per process: this listener is its own process, so it renews its own grant (review 7 H-5 x hardening listener);
+        # until the first grant FenceGuard answers 503 (fail closed)
+        if getattr(rt, "lease", None):
+            rt.lease.start()
+        yield
+        if getattr(rt, "lease", None):
+            rt.lease.stop()
+
+    app = FastAPI(title="Office Unbound guest callback", docs_url=None, redoc_url=None, openapi_url=None, lifespan=lifespan)
     register(app, rt)
+    from .. import standby
+    app.add_middleware(standby.FenceGuard, check=rt.assert_active)    # review 7 H-5: enrollment/bootstrap refused when fenced or standby
 
     @app.get("/healthz")
     def healthz():
