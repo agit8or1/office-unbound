@@ -29,12 +29,11 @@ def test_catalog_declares_collab_components_with_evidence():
     ast = next(a for a in c.components["telephony"].artifacts if a.name == "asterisk")
     assert ast.kind == "package" and ast.version == "22.12.0-ou1" and ast.repo == "ob-apt-dev"
     for n in COLLAB:
-        assert c.components[n].unpinned or any(getattr(a, "signed", True) is False for a in c.components[n].artifacts), n
+        assert not c.components[n].unpinned, n
         for a in c.components[n].artifacts:
             if a.kind == "oci":
-                # either an explicit placeholder (not built: MAS, Jitsi) or a real digest of an UNSIGNED own build (signed: false); never an invented digest
-                assert a.digest == "sha256:" or (a.signed is False and len(a.digest) == 71)
-    assert {a.name for n in COLLAB for a in c.components[n].artifacts if a.kind == "oci" and not a.pinned} >= {"mas", "jitsi-web", "prosody", "jicofo", "jvb"}
+                assert len(a.digest) == 71 and a.signed is True, (n, a.name)       # real digest of an own build, signed through ou-oci-sign (dev channel)
+    assert {a.name for n in COLLAB for a in c.components[n].artifacts if a.kind == "oci"} >= {"mas", "jitsi-web", "prosody", "jicofo", "jvb", "synapse", "element-web"}
     kinds = {h.kind for n in COLLAB for h in c.components[n].health_checks}
     assert {"http", "jitsi_jwt", "sip_options_tls"} <= kinds
     assert any(h.body_contains == "m.login.sso" for h in c.components["chat"].health_checks)
@@ -68,18 +67,18 @@ def test_profile_defaults():
     assert all(v.replicas == 2 and v.anti_affinity for v in c.profiles["ha"].vms)
 
 
-def test_unpinned_collab_artifacts_block_execution():
-    p = generate_plan(inp(profile="medium", users=100), cap(3), load_catalog())
-    unpinned = {e["component"] for e in p["errors"] if e["code"] == "artifact_unpinned"}
-    assert {"chat", "meetings"} <= unpinned and not p["executable"]
-    assert p["vms"] and p["steps"]                         # still previewable
-    # own builds (synapse, element-web, token service, PBX helper, softphone) are pinned but UNSIGNED: blocking artifact_unsigned, not unpinned
-    unsigned = {(e["component"], e["artifact"]) for e in p["errors"] if e["code"] == "artifact_unsigned"}
-    assert {("chat", "synapse"), ("chat", "element-web"), ("meetings", "meet-token-service")} <= unsigned
-    assert ("chat", "mas") not in unsigned
-    p2 = generate_plan(inp(profile="medium", users=100, optional={"telephony": True}), cap(3), load_catalog())
-    assert {("telephony", "pbx-helper"), ("telephony", "softphone-web")} <= {(e["component"], e["artifact"]) for e in p2["errors"] if e["code"] == "artifact_unsigned"}
-    # a fully pinned catalog is executable
+def test_collab_artifacts_are_pinned_and_signed_and_the_gates_still_bite():
+    c = load_catalog()
+    p = generate_plan(inp(profile="medium", users=100, optional={"chat": True, "meetings": True, "telephony": True}), cap(3), c)
+    assert not [e for e in p["errors"] if e["code"].startswith("artifact_")] and p["executable"]
+    assert {"chat", "meet", "pbx"} <= {v["logical"] for v in p["vms"]}
+    # the gates are unchanged: a cleared digest -> artifact_unpinned, signed: false -> artifact_unsigned
+    c.components["chat"].artifacts[1].digest = "sha256:"
+    c.components["meetings"].artifacts[0].signed = False
+    p2 = generate_plan(inp(profile="medium", users=100), cap(3), c)
+    assert ("chat", "mas") in {(e["component"], e["artifact"]) for e in p2["errors"] if e["code"] == "artifact_unpinned"}
+    assert ("meetings", "jitsi-web") in {(e["component"], e["artifact"]) for e in p2["errors"] if e["code"] == "artifact_unsigned"}
+    assert not p2["executable"] and p2["vms"] and p2["steps"]                         # still previewable
     assert generate_plan(inp(profile="medium", users=100), cap(3), pinned())["executable"]
 
 

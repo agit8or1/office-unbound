@@ -28,7 +28,7 @@ install -m 0755 target/release/mas-cli "$O/mas-cli"
 mkdir -p "$W/bin"; corepack enable --install-directory "$W/bin"
 export PATH=$W/bin:$PATH
 pnpm --version
-pnpm install --frozen-lockfile
+pnpm install --frozen-lockfile --filter "mas-frontend..."      # only the frontend and what it needs (the workspace root also lists a CI-only dependency fetched from a code host)
 pnpm --filter mas-frontend run build
 mkdir -p "$O/share/assets"
 cp frontend/dist/manifest.json "$O/share/manifest.json"

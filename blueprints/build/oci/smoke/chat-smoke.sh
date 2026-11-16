@@ -40,22 +40,21 @@ import re, sys
 p, pw, sh = sys.argv[1:4]
 s = open(p).read()
 s = s.replace("address: '[::]:8080'", "address: '127.0.0.1:8180'").replace("port: 8081", "port: 8181")
-s = re.sub(r"public_base: .*", "public_base: http://127.0.0.1:8180/", s)
-s = re.sub(r"issuer: .*", "issuer: http://127.0.0.1:8180/", s)
-s = re.sub(r"uri: postgresql://.*", "uri: postgresql://mas_smoke:%s@127.0.0.1/mas_smoke" % pw, s)
-s = re.sub(r"(matrix:\n  kind: synapse\n  homeserver: ).*", r"\1test.local", s)
-s = re.sub(r"(\n  secret: ).*(\n  endpoint: ).*", r"\1%s\2http://127.0.0.1:8008/" % sh, s)
+s = re.sub(r"public_base: .*", lambda m: "public_base: http://127.0.0.1:8180/", s)
+s = re.sub(r"issuer: .*", lambda m: "issuer: http://127.0.0.1:8180/", s)
+s = re.sub(r"uri: postgresql://.*", lambda m: "uri: postgresql://mas_smoke:%s@127.0.0.1/mas_smoke" % pw, s)
+s = re.sub(r"(matrix:\n  kind: synapse\n  homeserver: ).*", lambda m: m.group(1) + "test.local", s)
+s = re.sub(r"(\n  secret: ).*(\n  endpoint: ).*", lambda m: m.group(1) + sh + m.group(2) + "http://127.0.0.1:8008/", s)
 open(p, "w").write(s)
 PY
 install -o 10120 -g 10120 -m 0600 "$W/mas.yaml" "$MA/config/config.yaml"
 MC() { chroot --userspec=10120:10120 "$MA" /usr/local/bin/mas-cli -c /config/config.yaml "$@"; }
 MC database migrate > "$W/mas-migrate.log" 2>&1 && ok "MAS database migrate" || { bad "MAS migrate"; tail -3 "$W/mas-migrate.log"; }
 MC config sync --prune > "$W/mas-sync.log" 2>&1 || tail -3 "$W/mas-sync.log"
-MC manage register-user --yes --password "Sm0ke-Pass-9" --ignore-password-complexity alice > "$W/mas-user.log" 2>&1 && ok "MAS register-user alice" || { bad "register-user"; tail -3 "$W/mas-user.log"; }
-MC server > "$W/mas.log" 2>&1 &
+chroot --userspec=10120:10120 "$MA" /usr/local/bin/mas-cli -c /config/config.yaml server > "$W/mas.log" 2>&1 &
 PID_MAS=$!
-for _ in $(seq 30); do curl -sf http://127.0.0.1:8181/health >/dev/null && break; sleep 1; done
-curl -sf http://127.0.0.1:8181/health >/dev/null && ok "MAS /health" || { bad "MAS health"; tail -5 "$W/mas.log"; }
+for _ in $(seq 30); do curl -g -sf http://[::1]:8181/health >/dev/null && break; sleep 1; done
+curl -g -sf http://[::1]:8181/health >/dev/null && ok "MAS /health" || { bad "MAS health"; tail -5 "$W/mas.log"; }
 curl -sf http://127.0.0.1:8180/.well-known/openid-configuration | python3 -c "import json,sys; d=json.load(sys.stdin); print('  issuer', d['issuer'])" && ok "MAS OIDC discovery"
 # ---- Synapse
 mkdir -p "$SY/data/media"; chown -R 10020:10020 "$SY/data"
@@ -94,7 +93,8 @@ PID_SY=$!
 for _ in $(seq 90); do curl -sf http://127.0.0.1:8008/_matrix/client/versions >/dev/null && break; sleep 1; done
 curl -sf http://127.0.0.1:8008/_matrix/client/versions | head -c 120 | sed 's/^/  /'; echo
 curl -sf http://127.0.0.1:8008/_matrix/client/versions >/dev/null && ok "Synapse up with MAS delegation" || { bad "Synapse"; tail -8 "$W/synapse.log"; }
-# ---- login through MAS
+# ---- the user is provisioned through MAS (which talks to the running Synapse), then logs in through MAS
+MC manage register-user --yes --password "Sm0ke-Pass-9" --ignore-password-complexity alice > "$W/mas-user.log" 2>&1 && ok "MAS register-user alice" || { bad "register-user"; tail -3 "$W/mas-user.log"; }
 LOGIN='{"type":"m.login.password","identifier":{"type":"m.id.user","user":"alice"},"password":"Sm0ke-Pass-9"}'
 R=$(curl -s -X POST http://127.0.0.1:8180/_matrix/client/v3/login -H 'Content-Type: application/json' -d "$LOGIN")
 TOKEN=$(echo "$R" | python3 -c "import json,sys; print(json.load(sys.stdin).get('access_token',''))" 2>/dev/null)

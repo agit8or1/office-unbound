@@ -1,0 +1,16 @@
+mounted: prosody=/var/lib/containers/storage/vfs/dir/f0046e84b1ba4910724aa87590a67da548fce7981cbd9a6715f663a92dedd876
+prosody bosh endpoint HTTP 200
+token (from image ou/meet-token-service) claims: {'iss': 'ou-meet', 'aud': 'ou-meet', 'sub': 'meet.test', 'room': 'smokeroom', 'exp': 1794796000}
+SUCCESS: SASL ANONYMOUS accepted for room smokeroom
+PASS valid JWT accepted
+PASS JWT signed with another secret refused
+PASS no token refused
+PASS jitsi-web /healthz 200
+  config.js:     disableThirdPartyRequests: true,
+  config.js:         disabled: true,
+  config.js:     //     disabled: true,
+jitsi-web index HTTP 200
+PASS jvb starts: INFO: Starting jitsi-videobridge version 2.3.318-gbf271b11f
+  jvb: INFO: Initialized mapping harvesters (delay=61ms).  stunDiscoveryFailed=false
+PASS jicofo launcher runs the JVM and the jar (usage printed)
+SMOKE-DONE fail=0

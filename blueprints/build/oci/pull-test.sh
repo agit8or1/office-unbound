@@ -4,7 +4,8 @@
 # usage: pull-test.sh <registry host:port> <pubkey.pem of the channel> <other-channel-pubkey.pem> <repo@digest>...
 set -uo pipefail
 REG=$1; KEY=$2; OTHER=$3; shift 3
-S=/tmp/ou-pull-test; rm -rf "$S"; mkdir -p "$S/reg.d" "$S/storage"
+# disk, not /tmp: /tmp is a tmpfs in the machine and counts against its 1.5 GB memory limit
+S=/var/tmp/ou-pull-test; rm -rf "$S"; mkdir -p "$S/reg.d" "$S/storage"
 cat > "$S/reg.d/lab.yaml" <<E
 docker:
   $REG:
@@ -40,6 +41,7 @@ PP() { podman --storage-driver vfs --root "$S/storage" --runroot "$S/run" --regi
 if PP pull --tls-verify=false "$REG/$repo:swapped" >"$S/o.txt" 2>&1; then echo "FAIL: podman pull accepted the unsigned image"; fail=1; else echo "PASS podman pull refused the unsigned image: $(tail -1 "$S/o.txt" | cut -c1-160)"; fi
 for ref in "$@"; do
   if PP pull --tls-verify=false "$REG/$ref" >"$S/o.txt" 2>&1; then echo "PASS podman pull of the signed digest succeeded: $ref"; else echo "FAIL podman pull signed $ref: $(tail -2 "$S/o.txt")"; fail=1; fi
+  rm -rf "$S/storage" "$S/run"        # vfs keeps a full copy per layer: one image at a time inside the 1.5 GB machine
 done
 [ -f "$S/policy.orig" ] && cp "$S/policy.orig" /etc/containers/policy.json; rm -f /etc/containers/registries.d/ou-lab.yaml
 rm -rf "$S/storage"

@@ -4,7 +4,7 @@
 ARG BASE=localhost/ou-base-noble:latest
 FROM ${BASE}
 ARG DEBIAN_FRONTEND=noninteractive
-RUN apt-get -o APT::Sandbox::User=root update && apt-get -o APT::Sandbox::User=root install -y --no-install-recommends ca-certificates libssl3t64 \
+RUN apt-get -o APT::Sandbox::User=root update && apt-get -o APT::Sandbox::User=root install -y --no-install-recommends ca-certificates \
  && rm -rf /var/lib/apt/lists/* /var/cache/apt/archives* \
  && groupadd -g 10120 mas && useradd -u 10120 -g 10120 -d /nonexistent -M -s /usr/sbin/nologin mas
 COPY mas-cli /usr/local/bin/mas-cli

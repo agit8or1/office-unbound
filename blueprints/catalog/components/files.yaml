@@ -3,8 +3,7 @@ version: 1.0.0
 title: Files (OpenCloud)
 description: File sync and share (OpenCloud + collaboration service), OIDC against identity. ADR-0005.
 artifacts:
-  # placeholder: upstream digest pinned at release
-  - {name: opencloud, kind: oci, image: docker.io/opencloudeu/opencloud-rolling, digest: "sha256:", version: "9.1.0"}
+  - {name: opencloud, kind: oci, image: registry.ou.invalid/ou/opencloud, digest: "sha256:3d77d2643078cc2e51a3daddea543f3f822548cc8f939ffaa7ac7fdbb252edcd", version: "9.1.0"}
 resources:
   cores:     {base: 1,    per_user: 0.004, source: "identity-files-lab-results.md: ou-files1 light; scale is a planning assumption"}
   memory_mb: {base: 1024, per_user: 1,     source: "identity-files-lab-results.md: ou-files1 0.23 GB idle, 0.57 GB peak, MemoryMax 2G"}

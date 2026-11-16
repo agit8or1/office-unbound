@@ -1,0 +1,8 @@
+jitsi-web ou/jitsi-web:1.0.9442 sha256:5dc54c4abd4b823af183f87dc899632cdd1f6c7cab76760cbbae9923af181dea
+prosody ou/jitsi-prosody:0.12.4 sha256:1f577003b37db14c84aa4d9006a8c16dad36b85ef453d70268c71d8471775df7
+jicofo ou/jicofo:1.0.1205 sha256:0263ee9f4fb2f3ab0428d5cd0a55abae0a1f38f48a22caf0c9860ca4051cc36c
+jvb ou/jitsi-videobridge:2.3.318 sha256:029617386370067dc87613282a7a3012201d1e0ddab58f2ec494df723166c0a1
+keycloak ou/keycloak:26.8.2 sha256:aaa428f432a6113e65acf6df9df124f153054b4e45a9fc4aaa5e8b9e028a50db
+prosody ou/jitsi-prosody:0.12.4 sha256:6e778478488cb12a1b8a782f1d2a41064296a8ee3b0e8237b04d8133c02d63aa
+opencloud ou/opencloud:9.1.0 sha256:3d77d2643078cc2e51a3daddea543f3f822548cc8f939ffaa7ac7fdbb252edcd
+mas ou/matrix-authentication-service:1.29.0 sha256:0cc079599c9ccd68b28a058726a4fb555cafb2c92d6731ebca721c43d1c9a019

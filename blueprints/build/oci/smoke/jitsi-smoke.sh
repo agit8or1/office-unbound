@@ -78,11 +78,15 @@ sleep 3
 curl -s http://127.0.0.1:8080/config.js | grep -E "disableThirdPartyRequests|disabled: true" | head -3 | sed 's/^/  config.js: /'
 curl -s -o /dev/null -w "jitsi-web index HTTP %{http_code}\n" http://127.0.0.1:8080/
 kill $PPID_WEB 2>/dev/null
-# --- jicofo / jvb: JVM + jar start (no XMPP deployment here)
-for pair in "$JF:10100:/usr/share/jicofo/jicofo.sh" "$VB:10110:/usr/share/jitsi-videobridge/jvb.sh"; do
-  r=${pair%%:*}; rest=${pair#*:}; u=${rest%%:*}; sh=${rest#*:}
-  out=$(chroot --userspec=$u:$u "$r" timeout 25 bash -c "JAVA_SYS_PROPS='-Dconfig.file=/nonexistent' $sh --help 2>&1 | head -5; echo rc=\$?")
-  echo "$sh: $(echo "$out" | head -3 | tr '\n' ' ' | cut -c1-240)"
-done
+# --- jicofo / jvb: the JVM starts the jar with the image's defaults merged under a minimal operator config (no XMPP server is deployed here)
+cat > "$VB/tmp/jvb.conf" <<E
+include file("/etc/jitsi/videobridge/defaults.conf")
+videobridge { apis { xmpp-client { configs { shard { HOSTNAME = "127.0.0.1", PORT = 5222, DOMAIN = "auth.meet.test", USERNAME = "jvb", PASSWORD = "x", MUC_JIDS = "jvbbrewery@internal.auth.meet.test", MUC_NICKNAME = "jvb1", DISABLE_CERTIFICATE_VERIFICATION = true } } } } }
+E
+out=$(chroot --userspec=10110:10110 "$VB" bash -c 'JAVA_SYS_PROPS="-Dconfig.file=/tmp/jvb.conf" VIDEOBRIDGE_MAX_MEMORY=256m timeout 20 /usr/share/jitsi-videobridge/jvb.sh 2>&1 | head -40')
+echo "$out" | grep -q "Starting jitsi-videobridge version" && echo "PASS jvb starts: $(echo "$out" | grep -m1 'Starting jitsi-videobridge')" || { echo "FAIL jvb"; FAIL=1; }
+echo "$out" | grep -q "mapping harvesters" && echo "  jvb: $(echo "$out" | grep -m1 'mapping harvesters' | cut -c1-140)"
+out=$(chroot --userspec=10100:10100 "$JF" bash -c 'JAVA_SYS_PROPS="-Dconfig.file=/nonexistent" timeout 20 /usr/share/jicofo/jicofo.sh --help 2>&1 | head -5')
+echo "$out" | grep -q "Usage" && echo "PASS jicofo launcher runs the JVM and the jar (usage printed)" || { echo "FAIL jicofo: $out"; FAIL=1; }
 echo "SMOKE-DONE fail=$FAIL"
 exit $FAIL
