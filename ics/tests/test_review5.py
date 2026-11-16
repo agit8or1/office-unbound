@@ -91,7 +91,8 @@ def test_m5_every_listed_get_route_is_scoped_or_explicitly_global(client, world)
         "/api/v1/audit/verify": "hash-chain verdict only", "/api/v1/users": "ICS operator directory (MSP staff)", "/api/v1/users/{user_id}": "ICS operator directory (MSP staff)",
         "/api/v1/invitations": "ICS operator directory (MSP staff)", "/api/v1/access-policy": "ICS access policy", "/api/v1/operators/scopes": "operator scope admin view",
         "/healthz": "liveness", "/readyz": "liveness", "/approve": "public approval page (token-gated)", "/": "console shell", "/docs": "disabled",
-        "/api/v1/credentials/access-review": "scoped in its handler (customer filter)", }
+        "/api/v1/credentials/access-review": "scoped in its handler (customer filter)",
+        "/api/v1/images/releases": "admin-only list of signed golden-image releases (ICS-global, no customer data)", }
     params = {"endpoint_id": world["eb"], "check_id": ids["check_b"], "incident_id": ids["inc_b"], "customer_id": world["cb"], "provider_id": world["eb"],
               "slug": "dep-b", "job_id": str(uuid.uuid4()), "package_id": str(uuid.uuid4()), "approval_id": str(uuid.uuid4()), "credential_id": str(uuid.uuid4()),
               "sid": str(uuid.uuid4())}   # SSH sessions are visible only to the operator who created them (stricter than customer scope)

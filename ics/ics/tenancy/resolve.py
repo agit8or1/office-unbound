@@ -48,6 +48,7 @@ REFS: dict[str, list[tuple[str, str]]] = {
     "check.create": [("customer_id", "customer"), ("remediation.node_id", "node")],
     "check.delete": [("check_id", "check")],
     "check.set_enabled": [("check_id", "check")],
+    "image.import": [("endpoint_id", "endpoint")],
     "credential.create": [("customer_id", "customer"), ("endpoint_id", "endpoint")],
     "credential.replace": [("credential_id", "credential")],
     "credential.revoke": [("credential_id", "credential")],
