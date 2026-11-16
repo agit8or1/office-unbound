@@ -2,8 +2,8 @@
 # One-time (idempotent) setup of the dedicated golden-image signer. Run as root:  sudo bash install-image-signer.sh
 #   system user `ou-imgsign` (nologin), state /var/lib/ou-imgsign (0700): ECDSA P-256 key protected by a random passphrase file (0400),
 #   /usr/local/sbin/ou-image-sign (root:root 0755), root-owned trust/test-runner.pub (the pipeline test runner's public key, copied from the release
-#   signer's trust directory: install blueprints/build/repo/install-signer.sh first), and a sudoers drop-in naming EXACTLY three commands (no `*`, security review 6 H1):
-#       sign, record-test, pubkey   (record-test takes an attestation on stdin that only the ou-testrunner identity can produce)
+#   signer's trust directory: install blueprints/build/repo/install-signer.sh first), and a sudoers drop-in naming EXACTLY five commands (no `*`, security review 6 H1):
+#       sign, record-test, pubkey, sign-manifest, pubkey-release   (record-test takes an attestation on stdin that only the ou-testrunner identity can produce)
 # Lab arrangement (same limits as repo/install-signer.sh: while the build user keeps NOPASSWD ALL this is separation of duties on paper;
 # production = offline host / HSM, and the public key pin below is then re-confirmed by the owner).
 set -euo pipefail
@@ -33,12 +33,24 @@ fi
 if [ ! -s "$ST/key.pem" ]; then
   runuser -u ou-imgsign -- sh -c "umask 077; openssl genpkey -algorithm EC -pkeyopt ec_paramgen_curve:P-256 -aes-256-cbc -pass file:$ST/passphrase -out $ST/key.pem"
 fi
+# golden-image manifest v2 RELEASE key (owner-authorized 2026-11-16): separate from key.pem (which signs the older SHA256SUMS form)
+if [ ! -s "$ST/release-passphrase" ]; then
+  ( umask 077; head -c 32 /dev/urandom | base64 > "$ST/release-passphrase" )
+  chown ou-imgsign:ou-imgsign "$ST/release-passphrase"; chmod 0400 "$ST/release-passphrase"
+fi
+if [ ! -s "$ST/release-key.pem" ]; then
+  runuser -u ou-imgsign -- sh -c "umask 077; openssl genpkey -algorithm EC -pkeyopt ec_paramgen_curve:P-256 -aes-256-cbc -pass file:$ST/release-passphrase -out $ST/release-key.pem"
+fi
 {
   printf '%s ALL=(ou-imgsign) NOPASSWD: /usr/local/sbin/ou-image-sign sign\n' "$BUILDUSER"
   printf '%s ALL=(ou-imgsign) NOPASSWD: /usr/local/sbin/ou-image-sign record-test\n' "$BUILDUSER"
   printf '%s ALL=(ou-imgsign) NOPASSWD: /usr/local/sbin/ou-image-sign pubkey\n' "$BUILDUSER"
+  printf '%s ALL=(ou-imgsign) NOPASSWD: /usr/local/sbin/ou-image-sign sign-manifest\n' "$BUILDUSER"
+  printf '%s ALL=(ou-imgsign) NOPASSWD: /usr/local/sbin/ou-image-sign pubkey-release\n' "$BUILDUSER"
 } > /etc/sudoers.d/ou-image-sign
 chmod 0440 /etc/sudoers.d/ou-image-sign
 visudo -cf /etc/sudoers.d/ou-image-sign >/dev/null
 echo "installed; public key + pin:"
 runuser -u ou-imgsign -- /usr/local/sbin/ou-image-sign pubkey
+echo "golden-image release key (manifest v2) + pin:"
+runuser -u ou-imgsign -- /usr/local/sbin/ou-image-sign pubkey-release

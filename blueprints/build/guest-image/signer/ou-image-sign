@@ -14,7 +14,16 @@ untrusted build output) supplies everything on stdin as a tar stream; nothing th
                                field through which a result or evidence can be supplied. Here: signature against the root-owned trust/test-runner.pub, v == 2, kind
                                image-first-boot, and `at` newer than any earlier record of this image. Takes no argument.
   pubkey                       prints the public key PEM and its SPKI SHA-256 pin (what the ICS operator confirms)
-State directory (default /var/lib/ou-imgsign, env OU_IMGSIGN_STATE for tests): key.pem, passphrase, records/, trust/ (root-owned).
+  sign-manifest                golden-image manifest v2 (docs/status/golden-image-prod-results.md "Signer contract"). stdin: tar with the image
+                               ou-golden-<os>-<YYYYMMDD>.qcow2 and its .sbom.cdx.json, .packages.lock, .provenance.json and .attestation.json (a
+                               manifest.json in the tar is IGNORED: the builder's manifest is never trusted). The signer re-hashes every file, verifies the
+                               attestation (test-runner key, v2, image-first-boot, pass, THIS image sha256) and that the recorded first-boot result of the
+                               image is that same passing attestation, applies the checks the ICS verifier applies (SBOM, package list, provenance), takes
+                               the version from its own per-OS counter (last + 1), builds the canonical manifest itself and signs it with the RELEASE key
+                               (release-key.pem, separate from the SHA256SUMS key). Prints a tar with manifest.json and manifest.json.sig.
+  pubkey-release               the release key's public PEM and SPKI SHA-256 pin (ICS_GUEST_GOLDEN_RELEASE_PUBKEY_FILE / ..._PIN_SHA256)
+State directory (default /var/lib/ou-imgsign, env OU_IMGSIGN_STATE for tests): key.pem, passphrase, release-key.pem, release-passphrase,
+release-versions.json, records/, trust/ (root-owned).
 Every command refuses extra arguments (the sudoers rule names each command exactly, no `*`).
 """
 import base64
@@ -132,6 +141,139 @@ def cmd_sign():
     sys.stdout.buffer.write(bio.getvalue())
 
 
+MANIFEST_SCHEMA = "ou-golden-manifest-v2"
+SMALL = {".sbom.cdx.json": MAXSBOM, ".packages.lock": 4 * 1024 * 1024, ".provenance.json": 1024 * 1024, ".attestation.json": 65536}
+PKG_LINE = re.compile(r"[a-z0-9][a-z0-9+.\-]*=[A-Za-z0-9.+:~\-]+")
+HEX64 = re.compile(r"[0-9a-f]{64}")
+
+
+def read_release_tar(fp):
+    """the image is hashed on the fly (size counted); the four small files are kept; anything else (except an ignored manifest.json) is refused"""
+    img = None
+    small, total = {}, 0
+    with tarfile.open(fileobj=fp, mode="r|*") as tf:
+        for m in tf:
+            if m.isdir() and m.name in (".", "./"):
+                continue
+            name = m.name[2:] if m.name.startswith("./") else m.name
+            if not m.isreg() or "/" in name or name in small or (img and name == img[0]):
+                die("tar member %r is not an acceptable regular file" % m.name)
+            total += m.size
+            if total > MAXTOTAL:
+                die("tar too large")
+            f = tf.extractfile(m)
+            if name in ("manifest.json", "manifest.json.sig"):
+                f.read()                       # the builder's manifest is never trusted: ignored
+                continue
+            if IMAGE_RE.match(name):
+                if img:
+                    die("more than one image in the tar")
+                h, n = hashlib.sha256(), 0
+                for chunk in iter(lambda: f.read(1 << 20), b""):
+                    h.update(chunk)
+                    n += len(chunk)
+                img = (name, h.hexdigest(), n)
+                continue
+            suf = next((x for x in SMALL if name.endswith(x)), None)
+            if suf is None or m.size > SMALL[suf]:
+                die("unexpected or oversized file %r" % name)
+            small[name] = f.read()
+    if not img:
+        die("no ou-golden-<os>-<date>.qcow2 image in the tar")
+    want = {img[0] + x for x in SMALL}
+    if set(small) != want:
+        die("the tar must hold exactly the image and its %s" % ", ".join(sorted(SMALL)))
+    return img, {x: small[img[0] + x] for x in SMALL}
+
+
+def next_version(os_id, commit=None):
+    p = os.path.join(STATE, "release-versions.json")
+    try:
+        d = json.load(open(p))
+    except FileNotFoundError:
+        d = {}
+    except ValueError:
+        die("release-versions.json is corrupt: refusing to guess a version")
+    if commit is None:
+        last = d.get(os_id, 0)
+        if type(last) is not int or last < 0:
+            die("release-versions.json is corrupt: refusing to guess a version")
+        return last + 1
+    d[os_id] = commit
+    tmp = p + ".new"
+    with open(tmp, "w") as f:
+        f.write(json.dumps(d, sort_keys=True))
+        f.flush()
+        os.fsync(f.fileno())
+    os.replace(tmp, p)
+
+
+def cmd_sign_manifest():
+    (name, isha, isize), f = read_release_tar(sys.stdin.buffer)
+    os_id = IMAGE_RE.match(name).group(1)
+    try:
+        doc = json.loads(f[".attestation.json"])
+        att, asig = doc["attestation"], doc["sig"]
+    except (ValueError, KeyError, TypeError):
+        die("the attestation file is not an ou-test-attest document")
+    if (not isinstance(att, dict) or att.get("v") != 2 or att.get("kind") != "image-first-boot" or att.get("name") != "first-boot" or att.get("sha256") != isha
+            or att.get("result") != "pass" or not isinstance(att.get("at"), int) or not isinstance(asig, str) or not verify_attestation(att, asig)):
+        die("the attestation is not a passing image-first-boot attestation of THIS image signed by the registered test runner")
+    try:
+        rec = json.load(open(os.path.join(STATE, "records", isha + ".json")))["results"]["first-boot"]
+    except (OSError, ValueError, KeyError, TypeError):
+        die("no recorded first-boot test for image sha256 %s: run record-test with the runner's attestation first" % isha)
+    if rec.get("result") != "pass" or rec.get("attestation_sha256") != hashlib.sha256(canon(att)).hexdigest():
+        die("the latest recorded first-boot test of this image is not this passing attestation (a later failure blocks signing)")
+    try:
+        bom = json.loads(f[".sbom.cdx.json"])
+        ok = bom["bomFormat"] == "CycloneDX" and isinstance(bom.get("components"), list) and len(bom["components"]) >= 50
+    except (ValueError, KeyError, TypeError):
+        ok = False
+    if not ok:
+        die("the SBOM is not a CycloneDX document with a component inventory")
+    try:
+        lines = [l for l in f[".packages.lock"].decode("ascii").splitlines() if l.strip()]
+    except UnicodeDecodeError:
+        die("the package list is not ASCII")
+    if not lines or any(not PKG_LINE.fullmatch(l) for l in lines) or lines != sorted(set(lines)):
+        die("the package list is malformed or unsorted")
+    psha = hashlib.sha256(f[".packages.lock"]).hexdigest()
+    try:
+        pv = json.loads(f[".provenance.json"])
+        epoch = pv["source_date_epoch"]
+        ok = (pv["os"] == os_id and type(epoch) is int and epoch >= 1_000_000_000 and pv["package_lock_sha256"] == psha
+              and HEX64.fullmatch(str(pv["recipe_sha256"])) and pv.get("archive_inrelease_sha256"))
+    except (ValueError, KeyError, TypeError):
+        ok = False
+    if not ok:
+        die("the provenance is missing fields or disagrees with the image (os, epoch, package-list hash, recipe hash)")
+    if att["at"] < epoch:
+        die("the boot test is older than the build")
+    version = next_version(os_id)
+    man = {"schema": MANIFEST_SCHEMA, "name": name, "os": os_id, "version": version, "created_at": epoch,
+           "image": {"file": name, "sha256": isha, "size": isize},
+           "packages": {"file": name + ".packages.lock", "sha256": psha, "count": len(lines)},
+           "sbom": {"file": name + ".sbom.cdx.json", "sha256": hashlib.sha256(f[".sbom.cdx.json"]).hexdigest()},
+           "provenance": {"file": name + ".provenance.json", "sha256": hashlib.sha256(f[".provenance.json"]).hexdigest(), "source_date_epoch": epoch,
+                          "recipe_sha256": pv["recipe_sha256"], "package_lock_sha256": psha},
+           "boot_test": {"attestation": att, "sig": asig, "attestation_sha256": hashlib.sha256(canon(att)).hexdigest()}}
+    body = canon(man) + b"\n"                  # exactly what manifest.py writes and ics/guest/golden.py verifies (canonical JSON + newline)
+    p = subprocess.run(["openssl", "dgst", "-sha256", "-sign", os.path.join(STATE, "release-key.pem"), "-passin", "file:" + os.path.join(STATE, "release-passphrase")],
+                       input=body, capture_output=True)
+    if p.returncode != 0:
+        die("openssl failed (is the release key installed? install-image-signer.sh): " + p.stderr.decode()[-200:], 4)
+    next_version(os_id, version)                # the counter only advances once the signature exists
+    bio = io.BytesIO()
+    with tarfile.open(fileobj=bio, mode="w") as tf:
+        for n, b in (("manifest.json", body), ("manifest.json.sig", base64.b64encode(p.stdout))):
+            ti = tarfile.TarInfo(n)
+            ti.size, ti.mode, ti.mtime = len(b), 0o644, 0
+            tf.addfile(ti, io.BytesIO(b))
+    sys.stdout.buffer.write(bio.getvalue())
+    print("signed %s version %d (manifest sha256 %s)" % (name, version, hashlib.sha256(body).hexdigest()[:16]), file=sys.stderr)
+
+
 def cmd_record():
     """stdin = {"attestation": {...}, "sig": base64}; produced by `ou-test-attest run image-first-boot` under the runner identity"""
     try:
@@ -158,9 +300,9 @@ def cmd_record():
     print("recorded %s=%s for %s (attestation %s)" % (name, res, sha, rec["results"][name]["attestation_sha256"][:16]), file=sys.stderr)
 
 
-def cmd_pubkey():
-    k = ["-passin", "file:" + os.path.join(STATE, "passphrase")]
-    pem = subprocess.run(["openssl", "ec", "-in", os.path.join(STATE, "key.pem"), *k, "-pubout"], capture_output=True, check=True).stdout
+def cmd_pubkey(key="key.pem", pp="passphrase"):
+    k = ["-passin", "file:" + os.path.join(STATE, pp)]
+    pem = subprocess.run(["openssl", "ec", "-in", os.path.join(STATE, key), *k, "-pubout"], capture_output=True, check=True).stdout
     der = subprocess.run(["openssl", "pkey", "-pubin", "-outform", "DER"], input=pem, capture_output=True, check=True).stdout
     sys.stdout.write(pem.decode() + "# spki-sha256 pin: " + hashlib.sha256(der).hexdigest() + "\n")
 
@@ -174,6 +316,10 @@ def main():
         cmd_record()
     elif a == ["pubkey"]:
         cmd_pubkey()
+    elif a == ["sign-manifest"]:
+        cmd_sign_manifest()
+    elif a == ["pubkey-release"]:
+        cmd_pubkey("release-key.pem", "release-passphrase")
     else:
         print(__doc__)
         sys.exit(2)

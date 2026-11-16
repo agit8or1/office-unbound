@@ -229,8 +229,8 @@ class Runner:
 def test_the_image_signer_sudoers_names_exact_commands():
     inst = open(os.path.join(RECIPE_DIR, "signer", "install-image-signer.sh")).read()
     rules = [ln for ln in inst.splitlines() if "NOPASSWD" in ln and "printf" in ln and "ou-image-sign" in ln]
-    assert len(rules) == 3 and not any("*" in r for r in rules)
-    assert [r.split("ou-image-sign ")[1].split("\\n")[0] for r in rules] == ["sign", "record-test", "pubkey"]
+    assert len(rules) == 5 and not any("*" in r for r in rules)
+    assert [r.split("ou-image-sign ")[1].split("\\n")[0] for r in rules] == ["sign", "record-test", "pubkey", "sign-manifest", "pubkey-release"]
     root = [ln for ln in inst.splitlines() if "image-boot-root" in ln and "NOPASSWD" in ln]
     assert len(root) == 1 and "*" not in root[0]                              # the runner's root helper takes no argument at all
 
@@ -323,3 +323,69 @@ def test_the_image_signer_needs_a_runner_attested_boot_record_recomputes_hashes_
     # legacy v1 signer output (SHA256SUMS): manifest v2 signing is the signer agent's integration (docs/status/golden-image-prod-results.md "Signer contract")
     sums = (tmp_path / "rel" / "SHA256SUMS").read_text()
     assert sums == f"{h}  {name}\n{hashlib.sha256(sbom).hexdigest()}  {name}.sbom.cdx.json\n"
+
+
+@pytest.mark.skipif(shutil.which("openssl") is None, reason="openssl not installed")
+def test_sign_manifest_builds_the_v2_manifest_itself_and_the_ics_verifier_accepts_exactly_that(tmp_path):
+    """Production signer for golden-image manifest v2: the builder's manifest is ignored, hashes are recomputed, the runner's attestation and the record must
+    agree, the version comes from the signer's own counter; the ICS verify_release (with the release key pin and the runner key) accepts the result."""
+    from ics.guest import golden
+    st = tmp_path / "state"
+    (st / "records").mkdir(parents=True)
+    (st / "release-passphrase").write_text("rp-" + "y" * 20)
+    subprocess.run(["openssl", "genpkey", "-algorithm", "EC", "-pkeyopt", "ec_paramgen_curve:P-256", "-aes-256-cbc", "-pass", f"file:{st}/release-passphrase",
+                    "-out", str(st / "release-key.pem")], check=True, capture_output=True)
+    prog = os.path.join(RECIPE_DIR, "signer", "ou-image-sign")
+    env = {"PATH": os.environ["PATH"], "OU_IMGSIGN_STATE": str(st), "OU_IMGSIGN_SANDBOX": "1"}
+    runner = Runner(tmp_path, st)
+    name = "ou-golden-debian-12-20261116.qcow2"
+    image = b"QFI\xfb" + b"img" * 100 + b"BOOTS-AND-ENROLLS"
+    epoch = int(time.time()) - 3600
+    sbom = json.dumps({"bomFormat": "CycloneDX", "components": [{"name": f"p{i}"} for i in range(60)]}).encode()
+    pkgs = b"".join(f"pkg{i:03d}=1.{i}\n".encode() for i in range(60))
+    prov = json.dumps({"os": "debian-12", "source_date_epoch": epoch, "recipe_sha256": "a" * 64, "package_lock_sha256": hashlib.sha256(pkgs).hexdigest(),
+                       "archive_inrelease_sha256": {"bookworm": "b" * 64}, "tools": {}}).encode()
+    att_doc = runner.run(runner.image(name, image))
+    assert att_doc.returncode == 0, att_doc.stderr
+
+    def tar(**over):
+        files = {name: image, name + ".sbom.cdx.json": sbom, name + ".packages.lock": pkgs, name + ".provenance.json": prov,
+                 name + ".attestation.json": att_doc.stdout, "manifest.json": b'{"version": 999, "forged": true}'}
+        files.update(over)
+        bio = io.BytesIO()
+        with tarfile.open(fileobj=bio, mode="w") as tf:
+            for n, b in files.items():
+                if b is None:
+                    continue
+                ti = tarfile.TarInfo(n)
+                ti.size = len(b)
+                tf.addfile(ti, io.BytesIO(b))
+        return bio.getvalue()
+
+    def sign(data):
+        return subprocess.run([prog, "sign-manifest"], input=data, capture_output=True, env=env)
+    r = sign(tar())
+    assert r.returncode == 3 and b"no recorded first-boot test" in r.stderr                       # attested, but never recorded with record-test
+    assert subprocess.run([prog, "record-test"], input=att_doc.stdout, env=env, capture_output=True).returncode == 0
+    assert b"malformed or unsorted" in sign(tar(**{name + ".packages.lock": b"zz=1\naa=1\n"})).stderr
+    assert b"provenance" in sign(tar(**{name + ".provenance.json": prov.replace(b"debian-12", b"ubuntu-24.04")})).stderr
+    assert b"exactly the image" in sign(tar(**{name + ".sbom.cdx.json": None})).stderr
+    assert b"THIS image" in sign(tar(**{name: image + b"tampered"})).stderr                       # the attestation is for other bytes
+    assert not (st / "release-versions.json").exists()                                              # refusals never advance the counter
+    out = []
+    for _ in range(2):
+        r = sign(tar())
+        assert r.returncode == 0, r.stderr
+        d = tmp_path / f"rel{len(out)}"
+        tarfile.open(fileobj=io.BytesIO(r.stdout)).extractall(d, filter="data")
+        for n, b in ((name, image), (name + ".sbom.cdx.json", sbom), (name + ".packages.lock", pkgs), (name + ".provenance.json", prov)):
+            (d / n).write_bytes(b)
+        out.append(d)
+    pem = subprocess.run([prog, "pubkey-release"], env=env, capture_output=True, text=True, check=True).stdout
+    pub, pin = pem.split("# spki-sha256 pin: ")[0], pem.split("# spki-sha256 pin: ")[1].strip()
+    apub = (st / "trust" / "test-runner.pub").read_text().strip()
+    rel1 = golden.verify_release(str(out[0]), pub, pin, attestor_pubkey_b64=apub)
+    rel2 = golden.verify_release(str(out[1]), pub, pin, attestor_pubkey_b64=apub)
+    assert (rel1.version, rel2.version) == (1, 2) and rel1.sha256 == hashlib.sha256(image).hexdigest()   # signer-owned monotonic version, not the forged 999
+    with pytest.raises(golden.ReleaseError):                                                         # a different key / the SHA256SUMS key is not the release key
+        golden.verify_release(str(out[0]), pub, "0" * 64, attestor_pubkey_b64=apub)

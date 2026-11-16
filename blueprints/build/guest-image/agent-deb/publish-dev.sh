@@ -1,15 +1,15 @@
 #!/usr/bin/env bash
 # Admit the agent deb into the `dev` ledger of the dedicated release signer and have the repository metadata signed (security review 4: the build user
 # never touches the key; everything goes through /usr/local/sbin/ou-release-sign as user ou-release). Usage: publish-dev.sh <deb> <repo-dir>
-# The resulting tree (<repo>/pool/dev/*.deb, <repo>/dists/dev/{Release,InRelease,Release.gpg}) is what recipe.sh installs from (file: or http:).
+# The resulting tree (<repo>/pool/dev/ou-node-agent/*.deb (the signer requires pool/<suite>/<component>/), <repo>/dists/dev/{Release,InRelease,Release.gpg}) is what recipe.sh installs from (file: or http:).
 set -euo pipefail
 DEB=${1:?usage: publish-dev.sh <deb> <repo-dir>}; REPO=${2:?}
 SIGN=${OU_RELEASE_CMD:-sudo -n -u ou-release /usr/local/sbin/ou-release-sign}
-S=dev; N=$(basename "$DEB")
+S=dev; C=ou-node-agent; N=$(basename "$DEB")
 [ -f "$DEB" ] && [ ! -L "$DEB" ] || { echo "REFUSED: $DEB is not a regular file"; exit 3; }
-mkdir -p "$REPO/pool/$S" "$REPO/dists/$S/main/binary-amd64" "$REPO/dists/$S/main/source"
-cp "$DEB" "$REPO/pool/$S/$N"
-( cd "$REPO/pool/$S" && tar --owner=0 --group=0 --numeric-owner --mtime=@0 --sort=name -c "$N" ) | $SIGN admit dev
+mkdir -p "$REPO/pool/$S/$C" "$REPO/dists/$S/main/binary-amd64" "$REPO/dists/$S/main/source"
+cp "$DEB" "$REPO/pool/$S/$C/$N"
+( cd "$REPO/pool/$S/$C" && tar --owner=0 --group=0 --numeric-owner --mtime=@0 --sort=name -c "$N" ) | $SIGN admit dev
 cd "$REPO"
 apt-ftparchive packages "pool/$S" > "dists/$S/main/binary-amd64/Packages" 2>/dev/null
 gzip -9nc "dists/$S/main/binary-amd64/Packages" > "dists/$S/main/binary-amd64/Packages.gz"
