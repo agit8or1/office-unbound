@@ -187,14 +187,15 @@ data in Microsoft's cloud, which defeats the self-hosting aim.
 
 | Client | Expectation | Reason |
 |---|---|---|
-| Classic Outlook for Windows (M365 Apps / 2021 / 2024) | Expected (lab-verify) | MAPI/HTTP + Autodiscover served by gromox (vendor-documented); not a Microsoft-documented scenario |
-| New Outlook for Windows | Partial (IMAP/SMTP only) | MS: on-prem Exchange unsupported / IMAP only; no MAPI/EWS |
-| Outlook for Mac (current) | Partial/unverified | EWS on gromox improving (2026.06.2) but MS support scope is Exchange; test |
-| Outlook iOS/Android | Partial (IMAP mail only); EAS unsupported | MS design requires hybrid/cloud sync; EAS manual path undocumented |
-| Native iOS/Android mail (ActiveSync) | Expected | grommunio-sync EAS (version UNVERIFIED) |
-| Apple Mail/Calendar/Contacts | Expected | EWS/IMAP/CalDAV/CardDAV per features page |
-| Thunderbird | Expected | IMAP/SMTP, CalDAV/CardDAV |
-| Webmail | Expected | grommunio-web |
+| Classic Outlook for Windows (M365 Apps / 2021 / 2024) | Expected (lab-verify) - **not tested**: requires a licensed Outlook on Windows (owner provides VM/licence) | MAPI/HTTP + Autodiscover served by gromox (vendor-documented); not a Microsoft-documented scenario |
+| New Outlook for Windows | Partial (IMAP/SMTP only) - **not tested**: requires the vendor client + Microsoft account | MS: on-prem Exchange unsupported / IMAP only; no MAPI/EWS |
+| Outlook for Mac (current) | Partial/unverified - **not tested**: requires a Mac + licence | EWS on gromox improving (2026.06.2) but MS support scope is Exchange; test |
+| Outlook iOS/Android | Partial (IMAP mail only); EAS unsupported - **not tested**: requires devices | MS design requires hybrid/cloud sync; EAS manual path undocumented |
+| Native iOS/Android mail (ActiveSync) | Expected - **not tested** on a device (server-side EAS only: gw_03/t14) | grommunio-sync EAS (version UNVERIFIED) |
+| Apple Mail/Calendar/Contacts | Expected - **not tested**: requires Apple hardware | EWS/IMAP/CalDAV/CardDAV per features page |
+| Thunderbird | **Lab-verified 2026-11-15** (ESR 153.7.0): IMAP, folders, flags, search, CalDAV, CardDAV PASS; autoconfig PASS but advertises SMTP :587 which the lab MTA lacks (send needed :25 set by hand). See client-compat-results.md | IMAP/SMTP, CalDAV/CardDAV |
+| GNOME Evolution + evolution-ews (EWS) | **Lab-verified 2026-11-15/16** (3.52): account/folder discovery, calendar, contacts, free/busy PASS; EWS send + meeting invitation PASS only after Gromox `outgoing_smtp_url` was set (E-3117 before); star flag not mapped to IMAP `\Flagged`; server->client calendar change sync unreliable; Camel mail ops partly inconclusive. See client-compat-results.md | EWS (Gromox) |
+| Webmail | Expected (SSO proven: webmail-sso-results.md) | grommunio-web |
 
 For SOGo/mailcow: classic Outlook partial (IMAP + plugin), new Outlook partial (IMAP), mobile native EAS expected,
 Outlook mobile same limits as above.
