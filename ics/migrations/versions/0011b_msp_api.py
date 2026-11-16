@@ -50,6 +50,7 @@ CREATE TABLE msp_client_reveals (
   plan_id uuid PRIMARY KEY REFERENCES plans(id),
   client_id uuid NOT NULL REFERENCES msp_clients(id) ON DELETE CASCADE,
   requested_by uuid NOT NULL REFERENCES users(id),
+  revealed_by uuid REFERENCES users(id),
   secret_enc bytea,
   expires_at timestamptz NOT NULL,
   revealed_at timestamptz,

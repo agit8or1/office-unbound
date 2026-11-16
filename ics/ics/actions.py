@@ -838,6 +838,30 @@ def _provenance_conflict(db: Session, approver_id, requester_id) -> bool:
     return False
 
 
+def _key_holder_conflict(db: Session, approver_id, requester_id) -> bool:
+    """Review 6 M1, the other direction: when the plan was submitted through an MSP API client, no human who holds (or ever held) its key may approve it.
+    Key holders: whoever requested the client, whoever requested/revealed any of its secrets, and everyone in the client principal's creation chain."""
+    c = db.execute(text("SELECT id, created_by FROM msp_clients WHERE user_id = :u"), {"u": str(requester_id)}).first()
+    if c is None:
+        return False
+    holders = {str(c.created_by)} if c.created_by else set()
+    for r in db.execute(text("SELECT requested_by, revealed_by FROM msp_client_reveals WHERE client_id = :c"), {"c": str(c.id)}).all():
+        holders |= {str(x) for x in (r.requested_by, r.revealed_by) if x}
+    frontier, seen = [requester_id], set()
+    for _ in range(10):   # the principal's own creation/elevation chain (created_by / role_set_by)
+        nxt = []
+        for uid in frontier:
+            row = db.execute(text("SELECT created_by, role_set_by FROM users WHERE id = :i"), {"i": str(uid)}).first()
+            for parent in ((row.created_by, row.role_set_by) if row else ()):
+                if parent is not None and parent not in seen:
+                    seen.add(parent)
+                    nxt.append(parent)
+        frontier = nxt
+        if not frontier:
+            break
+    return str(approver_id) in holders | {str(x) for x in seen}
+
+
 def _refuse(db, user, ip, plan_id, event: str, msg: str):
     audit.append(db, event, actor_id=user.id, actor_name=user.username, ip=ip, resource="plan", resource_id=str(plan_id))
     db.commit()
@@ -854,6 +878,9 @@ def decide_plan(db: Session, rt: Runtime, user, plan_id: UUID, approve: bool, ip
     if _provenance_conflict(db, user.id, plan.requested_by):
         _refuse(db, user, ip, plan_id, "plan.provenance_rejected",
                 "this approver was created or elevated by the requester and cannot decide the requester's plans")
+    if _key_holder_conflict(db, user.id, plan.requested_by):
+        _refuse(db, user, ip, plan_id, "plan.provenance_rejected",
+                "this plan was submitted through an API client whose key you requested, revealed or created; someone else must decide it")
     if plan.action in _SELF_TARGET and plan.params.get("username") == user.username:
         _refuse(db, user, ip, plan_id, "plan.self_decision_rejected", "cannot decide a plan that changes your own role")
     if plan.status != "pending_approval":

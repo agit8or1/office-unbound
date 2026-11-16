@@ -62,7 +62,7 @@ Event types: `plan.approved`, `plan.rejected`, `job.completed`, `job.failed`, `i
 (8 attempts, then marked dead; see `GET /webhooks/{id}/deliveries`). De-duplicate on the event `id`. Each POST has the JSON
 envelope `Event` and headers `X-MSP-Event-Id`, `X-MSP-Event-Type`, `X-MSP-Delivery-Id`, `X-MSP-Delivery-Attempt` and
 `X-MSP-Signature: t=<unix>,v1=<hex HMAC-SHA256(webhook secret, "<t>.<raw body>")>` - reject if `t` is older than 5 minutes.
-Webhook urls must be https and may not resolve to loopback, link-local or reserved addresses.
+Webhook urls must be https and every address the name resolves to must be a public one (no loopback, link-local, private, CGNAT, unique-local or metadata addresses, unless the operator allow-listed the destination); the ICS connects to the address it checked and never follows redirects. Creating, deleting and rotating webhooks needs the `plan` permission. Deliveries report only `delivered`, `pending` or `dead`, never the remote status or error.
 
 ## Operations
 
@@ -96,10 +96,10 @@ Webhook urls must be https and may not resolve to loopback, link-local or reserv
 | POST | `/api/msp/v1/plans/{plan_id}/enrollment` | plan | revealEnrollment | One-time enrollment token of an executed idm.user.create/enable plan this client requested (shown once) |
 | GET | `/api/msp/v1/jobs/{job_id}` | view | getJob |  |
 | GET | `/api/msp/v1/webhooks` | view | listWebhooks |  |
-| POST | `/api/msp/v1/webhooks` | view | createWebhook | Subscribe an https endpoint; the signing secret is returned once |
+| POST | `/api/msp/v1/webhooks` | plan | createWebhook | Subscribe an https endpoint; the signing secret is returned once |
 | GET | `/api/msp/v1/webhooks/{webhook_id}` | view | getWebhook |  |
-| DELETE | `/api/msp/v1/webhooks/{webhook_id}` | view | deleteWebhook |  |
-| POST | `/api/msp/v1/webhooks/{webhook_id}/rotate-secret` | view | rotateWebhookSecret |  |
+| DELETE | `/api/msp/v1/webhooks/{webhook_id}` | plan | deleteWebhook |  |
+| POST | `/api/msp/v1/webhooks/{webhook_id}/rotate-secret` | plan | rotateWebhookSecret |  |
 | GET | `/api/msp/v1/webhooks/{webhook_id}/deliveries` | view | listWebhookDeliveries |  |
 | GET | `/api/msp/v1/events` | view | listEvents | Polling alternative / catch-up feed of the same events, oldest first |
 
@@ -552,7 +552,7 @@ One-time enrollment token of an executed idm.user.create/enable plan this client
 
 ### POST `/api/msp/v1/webhooks`
 
-**createWebhook** — permission `view` — requires `Idempotency-Key`
+**createWebhook** — permission `plan` — requires `Idempotency-Key`
 
 Subscribe an https endpoint; the signing secret is returned once
 
@@ -582,7 +582,7 @@ Request body: object
 
 ### DELETE `/api/msp/v1/webhooks/{webhook_id}`
 
-**deleteWebhook** — permission `view` — requires `Idempotency-Key`
+**deleteWebhook** — permission `plan` — requires `Idempotency-Key`
 
 | Parameter | In | Type | Required |
 |---|---|---|---|
@@ -596,7 +596,7 @@ Request body: object
 
 ### POST `/api/msp/v1/webhooks/{webhook_id}/rotate-secret`
 
-**rotateWebhookSecret** — permission `view` — requires `Idempotency-Key`
+**rotateWebhookSecret** — permission `plan` — requires `Idempotency-Key`
 
 | Parameter | In | Type | Required |
 |---|---|---|---|

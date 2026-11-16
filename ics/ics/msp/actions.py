@@ -220,6 +220,7 @@ def reveal(db, rt, user, plan_id) -> dict:
         return {}
     data = json.loads(rt.vault.decrypt(row.secret_enc, f"msp-reveal:{plan_id}"))
     db.execute(text("UPDATE msp_client_reveals SET secret_enc = NULL, revealed_at = now() WHERE plan_id = :p"), {"p": str(plan_id)})
+    db.execute(text("UPDATE msp_client_reveals SET revealed_by = :u WHERE plan_id = :p"), {"u": str(user.id), "p": str(plan_id)})
     audit.append(db, "msp.client.secret_revealed", actor_id=user.id, actor_name=user.username, resource="msp_client", resource_id=str(row.client_id),
                  details={"client_id": data["client_id"], "plan_id": str(plan_id), "secret_version": data["secret_version"]})
     db.commit()

@@ -58,6 +58,7 @@ class Settings:
     pve_max_response_bytes: int = 16 * 1024 * 1024
     snapshot_retention: int = 50
     allow_loopback_endpoints: bool = False  # SSRF guard: tests/lab only
+    msp_webhook_allow: tuple[str, ...] = ()  # review 6 M2: operator-approved exceptions for webhook targets (exact hostnames or CIDRs that may be private)
     monitor_enabled: bool = True
     monitor_parallelism: int = 8
     check_result_retention_days: int = 14
@@ -149,6 +150,7 @@ def load_settings() -> Settings:
             enable_docs=b("ICS_ENABLE_DOCS", False),
             login_max_failures=int(env.get("ICS_LOGIN_MAX_FAILURES", 5)),
             allow_loopback_endpoints=b("ICS_ALLOW_LOOPBACK_ENDPOINTS", False),
+            msp_webhook_allow=_csv(env.get("ICS_MSP_WEBHOOK_ALLOW")),
             trusted_proxy=_trusted_proxy(env.get("ICS_TRUSTED_PROXY")),
             job_timeout_seconds=int(env.get("ICS_JOB_TIMEOUT_SECONDS", 180)),
             guest_agent_dir=env.get("ICS_GUEST_AGENT_DIR") or None,

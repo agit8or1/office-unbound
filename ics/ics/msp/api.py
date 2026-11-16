@@ -535,11 +535,11 @@ def register(app) -> None:
         rows = ctx.db.execute(text("SELECT * FROM msp_webhooks WHERE client_id = :c AND deleted_at IS NULL ORDER BY created_at"), {"c": str(ctx.client.row.id)}).all()
         return 200, {"items": [_whv(w) for w in rows]}
 
-    @r.route("POST", "/webhooks", "view", "webhooks.create")
+    @r.route("POST", "/webhooks", "plan", "webhooks.create")
     def webhooks_create(ctx: Ctx):
         b = ctx.json(WebhookIn)
         try:
-            mevents.check_url(b.url, ctx.rt.settings.allow_loopback_endpoints)
+            mevents.check_url(b.url, ctx.rt.settings.allow_loopback_endpoints, ctx.rt.settings.msp_webhook_allow)
         except ValueError as e:
             raise MspError(422, "validation_error", str(e)) from None
         if ctx.db.execute(text("SELECT count(*) FROM msp_webhooks WHERE client_id = :c AND deleted_at IS NULL"), {"c": str(ctx.client.row.id)}).scalar() >= MAX_WEBHOOKS:
@@ -556,14 +556,14 @@ def register(app) -> None:
     def webhooks_get(ctx: Ctx, webhook_id: str):
         return 200, _whv(_wh(ctx, webhook_id))
 
-    @r.route("DELETE", "/webhooks/{webhook_id}", "view", "webhooks.delete")
+    @r.route("DELETE", "/webhooks/{webhook_id}", "plan", "webhooks.delete")
     def webhooks_delete(ctx: Ctx, webhook_id: str):
         w = _wh(ctx, webhook_id)
         ctx.db.execute(text("UPDATE msp_webhooks SET enabled = false, deleted_at = now() WHERE id = :i"), {"i": str(w.id)})
         ctx.db.execute(text("UPDATE msp_deliveries SET status = 'dead', last_error = 'webhook deleted' WHERE webhook_id = :i AND status = 'pending'"), {"i": str(w.id)})
         return 200, {"id": str(w.id), "deleted": True}
 
-    @r.route("POST", "/webhooks/{webhook_id}/rotate-secret", "view", "webhooks.rotate")
+    @r.route("POST", "/webhooks/{webhook_id}/rotate-secret", "plan", "webhooks.rotate")
     def webhooks_rotate(ctx: Ctx, webhook_id: str):
         w = _wh(ctx, webhook_id)
         secret = mevents.new_webhook_secret()
@@ -577,7 +577,7 @@ def register(app) -> None:
                                    "FROM msp_deliveries d JOIN msp_events e ON e.id = d.event_id WHERE d.webhook_id = :w ORDER BY d.created_at DESC LIMIT 100"),
                               {"w": str(w.id)}).all()
         return 200, {"items": [{"id": str(x.id), "event_id": str(x.event_id), "type": x.type, "status": x.status, "attempts": x.attempts,
-                                "last_status": x.last_status, "last_error": x.last_error, "next_attempt_at": _iso(x.next_attempt_at),
+                                "last_status": None, "last_error": "delivery failed" if x.last_error else None, "next_attempt_at": _iso(x.next_attempt_at),
                                 "delivered_at": _iso(x.delivered_at)} for x in rows]}
 
     @r.route("GET", "/events", "view", "events.list")

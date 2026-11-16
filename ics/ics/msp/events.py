@@ -9,7 +9,9 @@ import hashlib
 import hmac
 import json
 import logging
+import ipaddress
 import secrets
+import socket
 import time
 from datetime import datetime, timedelta, timezone
 from urllib.parse import urlparse
@@ -18,7 +20,6 @@ import httpx
 from sqlalchemy import text
 
 from .. import audit
-from ..proxmox import ProxmoxError, check_destination
 
 log = logging.getLogger("ics.msp.events")
 
@@ -38,17 +39,75 @@ def sign(secret: str, body: bytes, t: int) -> str:
     return f"t={t},v1={mac}"
 
 
-def check_url(url: str, allow_loopback: bool) -> None:
-    """Raises ValueError. https only (plain http only for loopback in tests/lab); the host must resolve to an allowed destination (SSRF guard)."""
+DENIED = "webhook destination is not allowed"   # ONE message for every resolution/range refusal: no oracle about the network behind the ICS
+_CGNAT = ipaddress.ip_network("100.64.0.0/10")
+_EXTRA_DENY = (_CGNAT, ipaddress.ip_network("192.0.0.0/24"), ipaddress.ip_network("198.18.0.0/15"), ipaddress.ip_network("64:ff9b::/96"),
+               ipaddress.ip_network("2002::/16"))
+
+
+def _resolve(host: str, port: int) -> list[str]:
+    """Seam for tests. Every address the name resolves to."""
+    infos = socket.getaddrinfo(host, port, type=socket.SOCK_STREAM)
+    return sorted({i[4][0].split("%")[0] for i in infos})
+
+
+def _allowed(host: str, ip: str, allow_loopback: bool, allow: tuple[str, ...]) -> bool:
+    a = ipaddress.ip_address(ip)
+    if isinstance(a, ipaddress.IPv6Address) and a.ipv4_mapped:
+        a = a.ipv4_mapped
+    for entry in allow:   # explicit, operator-approved exceptions (hostname or CIDR)
+        try:
+            if a in ipaddress.ip_network(entry, strict=False):
+                return True
+        except ValueError:
+            if entry.lower() == host.lower():
+                return True
+    if a.is_loopback:
+        return allow_loopback
+    if a.is_unspecified or a.is_multicast or a.is_link_local or a.is_reserved or a.is_private or not a.is_global or any(a in n for n in _EXTRA_DENY):
+        return False
+    return True
+
+
+class Pin:
+    """The validated destination: connect to `ips` (never resolve again), TLS name and Host header stay the original hostname."""
+
+    def __init__(self, scheme: str, host: str, port: int, target: str, ips: list[str]):
+        self.scheme, self.host, self.port, self.target, self.ips = scheme, host, port, target, ips
+
+    def url_for(self, ip: str) -> str:
+        h = f"[{ip}]" if ":" in ip else ip
+        return f"{self.scheme}://{h}:{self.port}{self.target}"
+
+    @property
+    def host_header(self) -> str:
+        default = 443 if self.scheme == "https" else 80
+        return self.host if self.port == default else f"{self.host}:{self.port}"
+
+
+def resolve_checked(url: str, allow_loopback: bool, allow: tuple[str, ...] = ()) -> Pin:
+    """Raises ValueError. https only (plain http only when the lab/test loopback flag is set); the name must resolve, and EVERY address must be a
+    global unicast one (no private/loopback/link-local/CGNAT/ULA/metadata) unless explicitly allow-listed. Returns the addresses to connect to."""
     u = urlparse(url)
     if u.scheme not in ("https", "http") or not u.hostname or u.username or u.password or u.fragment:
         raise ValueError("url must be https://host[:port]/path without credentials")
     if u.scheme == "http" and not allow_loopback:
         raise ValueError("webhook urls must be https")
     try:
-        check_destination(u.hostname, allow_loopback)
-    except ProxmoxError as e:
-        raise ValueError(str(e).replace("endpoint ", "webhook ")) from None
+        port = u.port or (443 if u.scheme == "https" else 80)
+    except ValueError:
+        raise ValueError("url must be https://host[:port]/path without credentials") from None
+    try:
+        ips = _resolve(u.hostname, port)
+    except (OSError, UnicodeError):
+        raise ValueError(DENIED) from None
+    if not ips or not all(_allowed(u.hostname, ip, allow_loopback, allow) for ip in ips):
+        raise ValueError(DENIED)
+    return Pin(u.scheme, u.hostname, port, (u.path or "/") + (f"?{u.query}" if u.query else ""), ips)
+
+
+def check_url(url: str, allow_loopback: bool, allow: tuple[str, ...] = ()) -> None:
+    resolve_checked(url, allow_loopback, allow)
 
 
 # ---- capture -------------------------------------------------------------------------------------------------------------------
@@ -152,20 +211,29 @@ def deliver(rt, delivery_id: str, transport: httpx.BaseTransport | None = None) 
             db.commit()
             return
         try:
-            check_url(r.url, rt.settings.allow_loopback_endpoints)
+            pin = resolve_checked(r.url, rt.settings.allow_loopback_endpoints, rt.settings.msp_webhook_allow)   # re-resolved NOW: a rebound name is refused
             secret = rt.vault.decrypt(r.secret_enc, f"msp-webhook:{r.webhook_id}").decode()
             body = audit.canon(envelope(r)).encode()
             t = int(time.time())
             headers = {"content-type": "application/json", "user-agent": "OfficeUnbound-ICS-MSP/1", "x-msp-event-id": str(r.id),
                        "x-msp-event-type": r.type, "x-msp-delivery-id": delivery_id, "x-msp-delivery-attempt": str(attempt),
                        "x-msp-signature": sign(secret, body, t)}
-            with httpx.Client(timeout=TIMEOUT, follow_redirects=False, transport=transport) as c:
-                resp = c.post(r.url, content=body, headers=headers)
+            headers["host"] = pin.host_header
+            resp = None
+            with httpx.Client(timeout=TIMEOUT, follow_redirects=False, trust_env=False, transport=transport) as c:
+                for ip in pin.ips:   # connect to the address that was just checked, TLS verified against the ORIGINAL name (SNI), no second lookup
+                    try:
+                        resp = c.post(pin.url_for(ip), content=body, headers=headers, extensions={"sni_hostname": pin.host} if pin.scheme == "https" else {})
+                        break
+                    except httpx.ConnectError:
+                        continue
+            if resp is None:
+                raise OSError("connect")
             status = resp.status_code
             if not 200 <= status < 300:
-                err = f"http {status}"
+                err = "failed"
         except Exception as e:  # noqa: BLE001  (never store transport text that might echo secrets: class name only)
-            err = type(e).__name__ if not isinstance(e, ValueError) else str(e)[:200]
+            err = "failed"   # one generic outcome for the API client; the network detail never leaves the ICS (no reachability oracle)
         if err is None:
             db.execute(text("UPDATE msp_deliveries SET status = 'delivered', attempts = :a, last_status = :s, last_error = NULL, delivered_at = now() WHERE id = :i"),
                        {"a": attempt, "s": status, "i": delivery_id})

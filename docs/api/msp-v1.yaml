@@ -64,7 +64,7 @@ info:
     (8 attempts, then marked dead; see `GET /webhooks/{id}/deliveries`). De-duplicate on the event `id`. Each POST has the JSON
     envelope `Event` and headers `X-MSP-Event-Id`, `X-MSP-Event-Type`, `X-MSP-Delivery-Id`, `X-MSP-Delivery-Attempt` and
     `X-MSP-Signature: t=<unix>,v1=<hex HMAC-SHA256(webhook secret, "<t>.<raw body>")>` - reject if `t` is older than 5 minutes.
-    Webhook urls must be https and may not resolve to loopback, link-local or reserved addresses.
+    Webhook urls must be https and every address the name resolves to must be a public one (no loopback, link-local, private, CGNAT, unique-local or metadata addresses, unless the operator allow-listed the destination); the ICS connects to the address it checked and never follows redirects. Creating, deleting and rotating webhooks needs the `plan` permission. Deliveries report only `delivered`, `pending` or `dead`, never the remote status or error.
   license:
     name: AGPL-3.0-or-later
     identifier: AGPL-3.0-or-later
@@ -431,7 +431,7 @@ paths:
       tags: [Webhooks]
       operationId: createWebhook
       summary: Subscribe an https endpoint; the signing secret is returned once
-      x-permission: view
+      x-permission: plan
       parameters: [{$ref: "#/components/parameters/IdempotencyKey"}]
       requestBody:
         required: true
@@ -460,7 +460,7 @@ paths:
     delete:
       tags: [Webhooks]
       operationId: deleteWebhook
-      x-permission: view
+      x-permission: plan
       parameters: [{$ref: "#/components/parameters/IdempotencyKey"}]
       responses:
         "200": {description: ok, content: {application/json: {schema: {type: object, required: [id, deleted], properties: {id: {type: string}, deleted: {type: boolean}}}}}}
@@ -470,7 +470,7 @@ paths:
     post:
       tags: [Webhooks]
       operationId: rotateWebhookSecret
-      x-permission: view
+      x-permission: plan
       parameters: [{$ref: "#/components/parameters/IdempotencyKey"}]
       responses:
         "200": {description: ok, content: {application/json: {schema: {$ref: "#/components/schemas/WebhookCreated"}}}}

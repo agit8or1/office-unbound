@@ -769,3 +769,127 @@ def test_generated_reference_is_current():
 def test_operation_ids_unique():
     ids = [op["operationId"] for item in msp_spec.SPEC["paths"].values() for m, op in item.items() if m in ("get", "post", "patch", "put", "delete")]
     assert len(ids) == len(set(ids)) >= 30
+
+
+# ---- review 6 M1: the human who requested/revealed a client's key cannot approve plans submitted through that client --------------------------------
+def test_m1_key_holder_cannot_approve_plans_submitted_through_the_client(w, rt):
+    own = w.customer("Own Infra", msp_owned=True, mode="auto")
+    with rt.session() as db:
+        db.execute(text("INSERT INTO idm_stacks (name, config, secret_enc, customer_id) VALUES ('s-own', CAST(:c AS jsonb), :s, :cu)"),
+                   {"c": json.dumps({"mail_domain": "x.example", "allowed_groups": ["mail-users", "staff"], "entitlement_group": "mail-users", "privileged_groups": []}),
+                    "s": b"x", "cu": own})
+        sid = db.execute(text("SELECT id FROM idm_stacks WHERE name = 's-own'")).scalar()
+        db.execute(text("INSERT INTO idm_users (stack_id, uid, entry_uuid, mail, display_name, groups) VALUES (:s, 'amy', :e, 'amy@x.example', 'Amy', '[\"staff\"]')"),
+                   {"s": sid, "e": str(uuid.uuid4())})
+        db.commit()
+    bot = w.api_client("integ", perms=("view", "plan"), customers=[own])        # w.adm requested AND revealed the key
+    s, mine, _ = bot("PATCH", f"/customers/{own}/users/amy", {"add": ["mail-users"]}, expect=202)
+    pid = mine["plan_id"]
+    c, h = w.adm
+    r = c.post(f"{H}/plans/{pid}/approve", headers=h)                           # the key holder approving the bot's plan: separation of duties
+    assert r.status_code == 403, r.text
+    assert w.audit_rows("plan.provenance_rejected")
+    with rt.session() as db:
+        assert db.execute(text("SELECT status FROM plans WHERE id = :p"), {"p": pid}).scalar() == "pending_approval"
+        assert db.execute(text("SELECT revealed_by FROM msp_client_reveals")).scalar() is not None   # recorded at reveal
+    # someone who never held the key may approve it
+    assert w.ap[0][0].post(f"{H}/plans/{pid}/approve", headers=w.ap[0][1]).status_code == 200
+
+
+# ---- review 6 M2: webhook SSRF -----------------------------------------------------------------------------------------------------------------
+PUBLIC = "93.184.216.34"
+
+
+def _dns(monkeypatch, mapping, default=PUBLIC):
+    monkeypatch.setattr(mevents, "_resolve", lambda host, port: list(mapping.get(host, [default])))
+
+
+@pytest.mark.parametrize("ip", ["10.1.2.3", "172.16.0.9", "192.168.22.167", "100.64.0.1", "169.254.169.254", "127.0.0.1", "0.0.0.0", "::1", "fd00::1", "fe80::1",
+                                "::ffff:10.0.0.1", "::ffff:169.254.169.254", "224.0.0.1", "198.18.0.5"])
+def test_m2_private_loopback_linklocal_cgnat_metadata_are_refused(monkeypatch, ip):
+    _dns(monkeypatch, {"hook.example": [ip]})
+    with pytest.raises(ValueError) as e:
+        mevents.check_url("https://hook.example/x", allow_loopback=False)
+    assert str(e.value) == mevents.DENIED                         # one message for every refusal
+    # a name with ONE bad address among good ones is refused too (round robin cannot sneak a private target in)
+    _dns(monkeypatch, {"hook.example": [PUBLIC, ip]})
+    with pytest.raises(ValueError):
+        mevents.check_url("https://hook.example/x", allow_loopback=False)
+
+
+def test_m2_unresolvable_and_refused_look_the_same_and_public_is_fine(monkeypatch):
+    def boom(host, port):
+        raise OSError("nxdomain")
+    monkeypatch.setattr(mevents, "_resolve", boom)
+    with pytest.raises(ValueError) as e1:
+        mevents.check_url("https://nowhere.example/x", allow_loopback=False)
+    _dns(monkeypatch, {"hook.example": ["10.0.0.1"]})
+    with pytest.raises(ValueError) as e2:
+        mevents.check_url("https://hook.example/x", allow_loopback=False)
+    assert str(e1.value) == str(e2.value) == mevents.DENIED
+    _dns(monkeypatch, {})
+    mevents.check_url("https://hook.example/x", allow_loopback=False)
+    with pytest.raises(ValueError):
+        mevents.check_url("http://hook.example/x", allow_loopback=False)       # https only
+
+
+def test_m2_explicit_allowlist_is_the_only_way_to_a_private_target(monkeypatch):
+    _dns(monkeypatch, {"hook.corp": ["10.9.1.1"], "other.corp": ["10.8.1.1"]})
+    with pytest.raises(ValueError):
+        mevents.check_url("https://hook.corp/x", False)
+    mevents.check_url("https://hook.corp/x", False, ("10.9.0.0/16",))
+    mevents.check_url("https://hook.corp/x", False, ("hook.corp",))
+    with pytest.raises(ValueError):
+        mevents.check_url("https://other.corp/x", False, ("hook.corp", "10.9.0.0/16"))
+
+
+def test_m2_view_only_key_cannot_create_webhooks_and_private_urls_are_422(w, monkeypatch):
+    _dns(monkeypatch, {"hook.example": [PUBLIC], "inner.example": ["10.1.1.1"]})
+    cid = w.customer("Acme")
+    ro = w.api_client("ro", perms=("view",), customers=[cid])
+    s, d, _ = ro("POST", "/webhooks", {"url": "https://hook.example/h", "events": ["plan.approved"]})
+    assert s == 403 and d["error"]["code"] in ("forbidden", "permission_denied", "insufficient_permission") or s == 403
+    assert ro("GET", "/webhooks", expect=200)[1]["items"] == []
+    rw = w.api_client("rw", perms=("view", "plan"), customers=[cid])
+    assert rw("POST", "/webhooks", {"url": "https://inner.example/h", "events": ["plan.approved"]})[0] == 422
+    assert rw("POST", "/webhooks", {"url": "https://hook.example/h", "events": ["plan.approved"]})[0] == 201
+
+
+def test_m2_dns_rebinding_between_create_and_send_is_refused_and_not_sent(w, rt, monkeypatch):
+    cid = w.customer("Acme")
+    api = w.api_client("rw", perms=("view", "plan"), customers=[cid])
+    mapping = {"hook.example": [PUBLIC]}
+    _dns(monkeypatch, mapping)
+    wh = api("POST", "/webhooks", {"url": "https://hook.example/h", "events": ["job.failed"]}, expect=201)[1]
+    with rt.session() as db:
+        mevents.emit(db, "job.failed", cid, {"job_id": "j", "plan_id": "p", "action": "a", "error": {}})
+        db.commit()
+    mapping["hook.example"] = ["169.254.169.254"]                         # the attacker flips the record after validation
+    sink = Sink([200, 200])
+    mevents.tick(rt, transport=httpx.MockTransport(sink))
+    assert sink.requests == []                                             # nothing was sent anywhere
+    s, dl, _ = api("GET", f"/webhooks/{wh['id']}/deliveries", expect=200)
+    x = dl["items"][0]
+    assert x["status"] == "pending" and x["attempts"] == 1 and x["last_status"] is None and x["last_error"] == "delivery failed"   # no network detail
+
+
+def test_m2_delivery_connects_to_the_checked_address_with_original_name_and_never_follows_redirects(w, rt, monkeypatch):
+    cid = w.customer("Acme")
+    api = w.api_client("rw", perms=("view", "plan"), customers=[cid])
+    _dns(monkeypatch, {"hook.example": [PUBLIC]})
+    wh = api("POST", "/webhooks", {"url": "https://hook.example:8443/h?x=1", "events": ["job.failed"]}, expect=201)[1]
+    with rt.session() as db:
+        mevents.emit(db, "job.failed", cid, {"job_id": "j", "plan_id": "p", "action": "a", "error": {}})
+        db.commit()
+    seen = []
+
+    def handler(req: httpx.Request) -> httpx.Response:
+        seen.append(req)
+        return httpx.Response(302, headers={"location": "http://10.0.0.5/admin"})
+    mevents.tick(rt, transport=httpx.MockTransport(handler))
+    assert len(seen) == 1                                                  # the redirect was NOT followed
+    r = seen[0]
+    assert r.url.host == PUBLIC and r.url.port == 8443 and r.url.path == "/h" and r.url.query == b"x=1"   # pinned to the validated address
+    assert r.headers["host"] == "hook.example:8443" and r.extensions.get("sni_hostname") == "hook.example"   # TLS name + Host stay the original
+    s, dl, _ = api("GET", f"/webhooks/{wh['id']}/deliveries", expect=200)
+    assert dl["items"][0]["last_status"] is None and dl["items"][0]["last_error"] == "delivery failed"      # a 302 from an internal host is not reported
