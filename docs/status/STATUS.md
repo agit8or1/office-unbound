@@ -42,3 +42,7 @@
 - Restore drill for groupware tier to separate machine; clean-room reinstall (22).
 - Fix monitoring security review findings (security-review-ics-monitoring-2026-11-15.md: H1 agent idle-connection DoS, H2 approval mode ineffective, M1–M5) once user-lifecycle work lands.
 - Rebranding patch queues + package recipes for gromox stack (ADR-0008).
+
+## Future roadmap (not available)
+- **P9 Office Unbound PDF Studio**: deferred, the final item of the current development queue. `docs/requirements/P9-pdf-reader-editor.md`.
+- **P10 Post-Core Expansion**: ten planned modules after P9 (workflow/apps, intranet, optional AI, security operations, compliance, endpoint management, advanced meetings, advanced office, BI, advanced identity). Planning only. `docs/roadmap/post-core-expansion.md`.

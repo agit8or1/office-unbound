@@ -120,6 +120,22 @@ Core platform components are integrated and tested in an isolated lab: own sourc
 | P9.13 | UX concept designs and review |  Deferred | — |
 | P9.14 | Test suite and final acceptance |  Deferred | — |
 
+## P10 — Post-Core Expansion: planned future capabilities (not available; starts after the core product and P9)  ( Deferred)
+
+| | Item | Status | Evidence |
+|---|---|---|---|
+| P10.0 | Foundations design (F2 authorisation API, F4 search, F5 legal-hold hooks) and full licence audit of candidates [complexity XL] <br><sub>Planned future capability, not available. Planning only (owner, 2026-11-16).</sub> |  Deferred | [`docs/roadmap/post-core-expansion.md`](docs/roadmap/post-core-expansion.md) |
+| P10.1 | Business applications and workflow automation (Power Apps/Automate/Forms/Lists/Planner equivalent) [complexity XL] <br><sub>Planned future capability, not available. Planning only (owner, 2026-11-16).</sub> |  Deferred | [`docs/roadmap/post-core-expansion.md`](docs/roadmap/post-core-expansion.md) |
+| P10.2 | Company intranet and knowledge center (SharePoint equivalent) [complexity L] <br><sub>Planned future capability, not available. Planning only (owner, 2026-11-16).</sub> |  Deferred | [`docs/roadmap/post-core-expansion.md`](docs/roadmap/post-core-expansion.md) |
+| P10.3 | Optional AI workspace: local or bring-your-own models, permission-checked, can be disabled [complexity L] <br><sub>Planned future capability, not available. Planning only (owner, 2026-11-16).</sub> |  Deferred | [`docs/roadmap/post-core-expansion.md`](docs/roadmap/post-core-expansion.md) |
+| P10.4 | Advanced security operations (Defender equivalent): Wazuh, ExploitHound, MailThreatZero, rem0te [complexity XL] <br><sub>Planned future capability, not available. Planning only (owner, 2026-11-16).</sub> |  Deferred | [`docs/roadmap/post-core-expansion.md`](docs/roadmap/post-core-expansion.md) |
+| P10.5 | Compliance and data governance (Purview equivalent): DLP, retention, legal hold, eDiscovery [complexity XL] <br><sub>Planned future capability, not available. Planning only (owner, 2026-11-16).</sub> |  Deferred | [`docs/roadmap/post-core-expansion.md`](docs/roadmap/post-core-expansion.md) |
+| P10.6 | Endpoint and device management (Intune equivalent), rem0te-based; separate from ICS [complexity XL] <br><sub>Planned future capability, not available. Planning only (owner, 2026-11-16).</sub> |  Deferred | [`docs/roadmap/post-core-expansion.md`](docs/roadmap/post-core-expansion.md) |
+| P10.7 | Advanced meetings: recording, transcripts, webinars, whiteboards, PSTN [complexity L] <br><sub>Planned future capability, not available. Planning only (owner, 2026-11-16).</sub> |  Deferred | [`docs/roadmap/post-core-expansion.md`](docs/roadmap/post-core-expansion.md) |
+| P10.8 | Advanced office documents: fidelity, templates, automation, replaceable engine [complexity XL] <br><sub>Planned future capability, not available. Planning only (owner, 2026-11-16).</sub> |  Deferred | [`docs/roadmap/post-core-expansion.md`](docs/roadmap/post-core-expansion.md) |
+| P10.9 | Business intelligence and analytics (Power BI equivalent) [complexity L] <br><sub>Planned future capability, not available. Planning only (owner, 2026-11-16).</sub> |  Deferred | [`docs/roadmap/post-core-expansion.md`](docs/roadmap/post-core-expansion.md) |
+| P10.10 | Advanced identity and enterprise integrations (Entra ID/Graph equivalent) [complexity XL] <br><sub>Planned future capability, not available. Planning only (owner, 2026-11-16).</sub> |  Deferred | [`docs/roadmap/post-core-expansion.md`](docs/roadmap/post-core-expansion.md) |
+
 ## First functional demo — acceptance tests (22/24 demonstrated in lab)
 
 | | Test | Status | Note |

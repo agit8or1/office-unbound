@@ -73,3 +73,4 @@ Consolidated evidence: `docs/status/SECURITY-REMEDIATION.md`. It is produced onc
 - 2026-11-16, CPU: the owner says pve06 CPU is sufficient. Plan the full two-customer layout.
 - 2026-11-16, thin-pool totals: gathered by SSH onboarding discovery once the owner connects pve06.
 - 2026-11-16, **P9 (PDF reader/editor) is DEFERRED** and is the final development priority. No agents or worktrees until stages 1–8 are complete and verified. Requirements: `docs/requirements/P9-pdf-reader-editor.md`.
+- 2026-11-16, **P10 Post-Core Expansion** (10 modules) added to the roadmap as planned future capabilities after P9. Planning only; no change to current priorities. Plan: `docs/roadmap/post-core-expansion.md`. Foundations to keep in mind during core work: customer_id on every new model (already enforced), and signed events from new features where cheap.
