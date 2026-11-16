@@ -53,7 +53,9 @@ def base_settings(tmp_path_factory):
 @pytest.fixture(scope="session")
 def owner_engine(base_settings):
     url = _test_env()["ICS_TEST_OWNER_DATABASE_URL"]
-    eng = create_engine(url, isolation_level="AUTOCOMMIT")
+    # lock_timeout: the TRUNCATE/DROP SCHEMA below need ACCESS EXCLUSIVE locks. Without a timeout a second pytest run on the same test DB (or an
+    # orphaned idle-in-transaction connection of a killed run) made them wait forever: the "hang" of tests/test_tenant_admin.py seen in security review 6.
+    eng = create_engine(url, isolation_level="AUTOCOMMIT", connect_args={"options": "-c lock_timeout=60000"})
     with eng.connect() as c:
         c.execute(text("DROP SCHEMA public CASCADE"))
         c.execute(text("CREATE SCHEMA public"))

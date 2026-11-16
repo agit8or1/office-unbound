@@ -68,7 +68,7 @@ def test_upgrade_from_production_head_0008i(rt, base_settings, owner_engine):
     try:
         command.upgrade(cfg, "head")
         with owner_engine.connect() as c:
-            assert c.execute(text("SELECT version_num FROM alembic_version")).scalar() == "0009b"
+            assert c.execute(text("SELECT version_num FROM alembic_version")).scalar() == "0011d"
             have = {r[0] for r in c.execute(text("SELECT table_name FROM information_schema.tables WHERE table_schema = 'public'"))}
             assert {"backup_policies", "idm_sip_credentials", "guest_bootstrap"} <= have
             assert c.execute(text("SELECT count(*) FROM information_schema.columns WHERE table_name = 'idm_users' AND column_name = 'extension'")).scalar() == 1

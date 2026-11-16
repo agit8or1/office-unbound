@@ -28,6 +28,7 @@ from . import agentclient, audit, idprobe
 from .agentclient import AgentError
 from .proxmox import ProxmoxError, check_destination
 from .runtime import Runtime
+from .tenancy import scope as tscope
 from .tenancy.scope import DEFAULT_CUSTOMER
 from .vault import VaultError
 
@@ -235,6 +236,7 @@ class UserDisable(_UserRef):
     wipe_devices: bool = Field(default=False, description="request an ActiveSync remote wipe for ALL of the user's devices BEFORE the account is suspended "
                                "(destructive: plan risk is high, two approvers). A device can only receive it while it can still authenticate")
     wipe_wait_seconds: int = Field(default=0, ge=0, le=300, description="how long to wait (before the lock) for devices to pick the wipe up; 0 = request only")
+    privileged_target: bool = Field(default=False, description="set by the tenant API when the target holds the organisation-admin role or a privileged group (checked live): the plan is high risk and its enrollment link is never shown to the requester")
 
     @model_validator(mode="after")
     def _wipe(self) -> Self:
@@ -249,6 +251,7 @@ class UserDevices(_UserRef):
 
 class UserEnable(_UserRef):
     reason: str = Field(default="", max_length=200)
+    privileged_target: bool = Field(default=False, description="set by the tenant API when the target holds the organisation-admin role or a privileged group (checked live): the plan is high risk and its enrollment link is never shown to the requester")
 
 
 class UserDelete(_UserRef):
@@ -258,6 +261,7 @@ class UserDelete(_UserRef):
 class UserResetCredentials(_UserRef):
     what: Literal["password", "mfa"] = Field(description="password: issue a fresh one-time enrollment link; mfa: remove the user's authenticator and require a new one at next sign-in")
     reason: str = Field(default="", max_length=200)
+    privileged_target: bool = Field(default=False, description="set by the tenant API when the target holds the organisation-admin role or a privileged group (checked live): the plan is high risk and its enrollment link is never shown to the requester")
 
 
 class Reconcile(BaseModel):
@@ -786,6 +790,26 @@ def reveal_enrollment(db, rt: Runtime, user, plan_id) -> dict:
             "redeem": "POST /api/v1/identity/enroll {stack, uid, token, password}"}
 
 
+def reveal_enrollment_for_delivery(db, rt: Runtime, user, plan_id) -> dict:
+    """Review 6 H2: the sign-in link of a PRIVILEGED target (organisation administrator / privileged-group member) is never shown to the requesting tenant
+    administrator. An ICS operator in scope of that customer (never the plan's own requester) takes it once and hands it to the account owner
+    out of band (it is redeemed through the one-time /welcome flow)."""
+    row = db.execute(text(
+        "SELECT e.*, u.uid, s.name AS stack, p.customer_id, p.requested_by AS plan_requester, p.params FROM idm_enrollments e JOIN plans p ON p.id = e.plan_id "
+        "JOIN idm_users u ON u.id = e.user_id JOIN idm_stacks s ON s.id = u.stack_id "
+        "WHERE e.plan_id = :p AND e.token_enc IS NOT NULL AND e.used_at IS NULL AND e.expires_at > now() AND EXISTS (SELECT 1 FROM tenant_requests t WHERE t.plan_id = p.id) "
+        "ORDER BY e.created_at DESC LIMIT 1 FOR UPDATE OF e"), {"p": str(plan_id)}).first()
+    if row is None or str(row.plan_requester) == str(user.id) or not (row.customer_id is None or tscope.allowed(user, row.customer_id)):
+        return {}
+    token = rt.vault.decrypt(row.token_enc, f"idm-enroll:{row.id}").decode()
+    db.execute(text("UPDATE idm_enrollments SET token_enc = NULL, revealed_at = now() WHERE id = :i"), {"i": str(row.id)})
+    audit.append(db, "identity.enrollment_delivered_by_operator", actor_id=user.id, actor_name=user.username, resource="idm_user",
+                 resource_id=str(row.user_id), details={"uid": row.uid, "stack": row.stack, "plan_id": str(plan_id)})
+    db.commit()
+    return {"token": token, "uid": row.uid, "stack": row.stack, "expires_at": row.expires_at.isoformat(),
+            "note": "give this to the account owner only, through a channel you verified; it is redeemed on the portal's /welcome page"}
+
+
 def _password_ok(uid: str, pw: str) -> str | None:
     if not 12 <= len(pw) <= 256:
         return "password must be 12-256 characters"
@@ -860,6 +884,17 @@ def _ext_free(db, stack_row, ext: str, own_user_id) -> None:
         raise LookupError("extension already assigned to another user")
 
 
+CREDENTIAL_TAKEOVER_ACTIONS = ("idm.user.reset_credentials", "idm.user.enable", "idm.user.disable")
+
+
+def target_is_privileged(db, stack_name: str, uid: str) -> bool:
+    """True if the (known) target user is a member of one of the stack's privileged groups. The organisation-admin ROLE lives in Keycloak and is added
+    by the tenant API (`privileged_target`, checked live and fail-closed)."""
+    row = _stack_row(db, stack_name)
+    u = db.execute(text("SELECT groups FROM idm_users WHERE stack_id = :s AND uid = :u AND state <> 'deleted'"), {"s": str(row.id), "u": uid}).first()
+    return bool(u and set(u.groups or []) & set(row.config.get("privileged_groups", [])))
+
+
 def risk_for(db, action: str, p) -> str:
     """normal = one approver other than the requester; high = two. Privileged groups raise create/update to high."""
     from . import mailadmin
@@ -871,6 +906,8 @@ def risk_for(db, action: str, p) -> str:
         return "low"
     if action == "idm.user.disable" and getattr(p, "wipe_devices", False):
         return "high"
+    if action in CREDENTIAL_TAKEOVER_ACTIONS and (getattr(p, "privileged_target", False) or target_is_privileged(db, p.stack, p.uid)):
+        return "high"   # review 6 H2: resetting/re-enabling/disabling an administrator or privileged-group member is never a one-person decision
     if action in ("idm.user.create", "idm.user.update_groups"):
         priv = set(_stack_row(db, p.stack).config.get("privileged_groups", []))
         touched = set(p.groups) if action == "idm.user.create" else set(p.add) | set(p.remove)

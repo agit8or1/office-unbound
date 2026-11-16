@@ -35,6 +35,7 @@ class Realm:
                                "n": b64(n.n.to_bytes(256, "big")), "e": b64(n.e.to_bytes(3, "big"))}]}
         self.issuer = f"https://auth.example.test/realms/{name}"
         self.enabled: dict[str, bool] = {}
+        self.admins: set[str] = set()      # usernames that hold the org-admin realm role (what target_privileged asks Keycloak)
 
     def token(self, sub, username, roles=("org-admin",), azp="ou-portal", iss=None, exp=300, iat=None, alg="RS256", key=None, extra=None):
         now = int(time.time()) if iat is None else iat
@@ -67,6 +68,7 @@ def tn(client, mk_user, login, rt, world, monkeypatch):  # noqa: F811
     realms = {"acme": Realm("acme"), "globex": Realm("globex")}
     monkeypatch.setitem(service.HOOKS, "fetch_jwks", lambda cfg: realms[cfg["kc_realm"]].jwks)
     monkeypatch.setitem(service.HOOKS, "live", lambda rt_, stack, sub, role: realms[stack.cfg["kc_realm"]].enabled.get(sub, False))
+    monkeypatch.setitem(service.HOOKS, "target_privileged", lambda rt_, stack, uid, role: uid in realms[stack.cfg["kc_realm"]].admins)
     monkeypatch.setattr(identity.Keycloak, "reset_mfa", lambda self, kid: 1, raising=False)
     out = {}
     for name in ("acme", "globex"):
@@ -366,3 +368,84 @@ def test_jwt_and_dns_wire_helpers():
     assert dnscheck._parse(msg, 16)[1] == ["v=spf1 x"]
     with pytest.raises(dnscheck.DnsError):
         dnscheck.query("bad name!", "TXT")
+
+
+# ---- review 6 H2: the single-admin takeover chain is refused ----------------------------------------------------------------------------
+def _seed_admin(tn, rt, world, uid="boss", t="acme"):  # noqa: F811
+    a = tn[t]
+    assert new_user(tn, a, uid).status_code == 202
+    run_jobs(rt)
+    world.kc[uid] = {"id": "kc-" + uid, "username": uid, "enabled": True, "sessions": 0, "offline": 0}
+    a.realm.admins.add(uid)
+    return a
+
+
+def _enrollments(rt, uid):
+    with rt.session() as d:
+        return d.execute(text("SELECT e.* FROM idm_enrollments e JOIN idm_users u ON u.id = e.user_id WHERE u.uid = :u ORDER BY e.created_at"), {"u": uid}).all()
+
+
+def test_h2_admin_takeover_chain_is_refused(tn, rt, world):  # noqa: F811
+    c = tn["client"]
+    a = _seed_admin(tn, rt, world)
+    before = len(_enrollments(rt, "boss"))
+    h1 = a.hdr("adm1")
+    # step 1 of the chain: reset the other admin's password -> high risk, waits for a decision, nothing is issued
+    r = c.post(f"{T}/users/boss/reset", headers=h1, json={"what": "password"})
+    assert r.status_code == 202 and r.json()["risk"] == "high" and r.json()["approval_mode"] != "auto" and r.json()["state"] == "waiting_admin"
+    pw = r.json()["id"]
+    # step 2: reset MFA of the other admin -> same
+    r2 = c.post(f"{T}/users/boss/reset", headers=h1, json={"what": "mfa"})
+    assert r2.status_code == 202 and r2.json()["risk"] == "high" and r2.json()["state"] == "waiting_admin"
+    mf = r2.json()["id"]
+    run_jobs(rt)
+    assert len(_enrollments(rt, "boss")) == before                      # no link was minted
+    assert c.post(f"{T}/requests/{pw}/enrollment", headers=h1).status_code in (403, 409)
+    # never self-approvable, not even under another sub of the same person's session
+    assert c.post(f"{T}/requests/{pw}/approve", headers=h1).status_code == 403
+    assert c.post(f"{T}/requests/{mf}/approve", headers=h1).status_code == 403
+    # re-enable / disable of an administrator is equally a two-person decision
+    d = c.post(f"{T}/users/boss/disable", headers=h1, json={"reason": "x"})
+    assert d.status_code == 202 and d.json()["risk"] == "high" and d.json()["state"] == "waiting_admin"
+    run_jobs(rt)
+    assert world.ldap["boss"].get("locked") in (None, False)
+    # a genuine second admin approves: it executes, but the requester STILL cannot obtain the link
+    assert c.post(f"{T}/requests/{pw}/approve", headers=a.hdr("adm2")).status_code == 200
+    run_jobs(rt)
+    assert c.get(f"{T}/requests/{pw}", headers=h1).json()["state"] == "done"
+    assert len(_enrollments(rt, "boss")) == before + 1
+    e = c.post(f"{T}/requests/{pw}/enrollment", headers=h1)
+    assert e.status_code == 403 and "token" not in e.text
+    with rt.session() as dbs:
+        assert dbs.execute(text("SELECT count(*) FROM audit_events WHERE action = 'tenant.enrollment_link_refused'")).scalar() >= 1
+    # the account owner gets it through the operator (out of band), once
+    op, oh = tn["op"], tn["oh"]
+    got = op.post(f"{H}/identity/enrollments/{pw}/deliver", headers=oh)
+    assert got.status_code == 200 and got.json()["uid"] == "boss" and got.json()["token"]
+    assert op.post(f"{H}/identity/enrollments/{pw}/deliver", headers=oh).status_code == 404
+
+
+def test_h2_privileged_group_member_is_protected_without_the_role_flag(tn, rt, world):  # noqa: F811
+    c = tn["client"]
+    a = _seed_admin(tn, rt, world, "carol")
+    a.realm.admins.discard("carol")                                    # Keycloak says: no admin role ...
+    with rt.session() as d:                                           # ... but the directory says: privileged group member
+        d.execute(text("UPDATE idm_users SET groups = CAST(:g AS jsonb) WHERE uid = 'carol'"), {"g": '["files-admin"]'})
+        d.commit()
+    r = c.post(f"{T}/users/carol/reset", headers=a.hdr("adm1"), json={"what": "mfa"})
+    assert r.status_code == 202 and r.json()["risk"] == "high" and r.json()["state"] == "waiting_admin"
+
+
+def test_h2_target_check_fails_closed_and_ordinary_users_stay_self_service(tn, rt, world, monkeypatch):  # noqa: F811
+    c, a = tn["client"], tn["acme"]
+    new_user(tn, a, "alice")
+    run_jobs(rt)
+    world.kc["alice"] = {"id": "kc-alice", "username": "alice", "enabled": True, "sessions": 0, "offline": 0}
+    r = c.post(f"{T}/users/alice/reset", headers=a.hdr(), json={"what": "mfa"})
+    assert r.status_code == 202 and r.json()["approval_mode"] == "auto" and r.json()["risk"] == "normal"
+    # the real hook: any Keycloak error means "privileged"
+    class Boom:
+        def __init__(self, *a, **k):
+            raise identity.IdentityError("down")
+    monkeypatch.setattr(identity, "Keycloak", Boom)
+    assert service.target_privileged_check(rt, None, "alice", "org-admin") is True

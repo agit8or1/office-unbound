@@ -496,6 +496,14 @@ def create_app(settings: Settings | None = None, runtime: Runtime | None = None)
             raise HTTPException(404, "no unrevealed, unexpired enrollment for this plan and requester")
         return r
 
+    @app.post(f"{API}/identity/enrollments/{{plan_id}}/deliver")
+    def idm_deliver(plan_id: UUID, user: User = Depends(require("operator")), db: Session = Depends(get_db)):
+        """Operator side of an organisation administrator's credential reset: the one-time link of a privileged target, once, never to the requester."""
+        r = identity.reveal_enrollment_for_delivery(db, rt, user, plan_id)
+        if not r:
+            raise HTTPException(404, "no unrevealed, unexpired enrollment for this plan")
+        return JSONResponse(r, headers={"Cache-Control": "no-store"})
+
     @app.post(f"{API}/identity/sip-credentials/{{plan_id}}/reveal")
     def idm_sip_reveal(plan_id: UUID, user: User = Depends(require("operator")), db: Session = Depends(get_db)):
         """Shows the one-time SIP device credential of an idm.user.issue_sip_credential plan to ITS REQUESTER, once (the PBX keeps only a digest)."""

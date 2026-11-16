@@ -65,7 +65,24 @@ def live_user_check(rt, stack: "identity.Stack", sub: str, role: str) -> bool:
         kc.close()
 
 
-HOOKS = {"fetch_jwks": fetch_jwks, "live": live_user_check}
+def target_privileged_check(rt, stack: "identity.Stack", uid: str, role: str) -> bool:
+    """True if the target user holds the organisation-admin role in Keycloak. FAIL-CLOSED: any error means 'treat as privileged'
+    (the request then needs a second decision and its link is never shown to the requester)."""
+    try:
+        kc = identity.Keycloak(rt, stack)
+        try:
+            ku = kc.find(uid)
+            if ku is None:
+                return False
+            roles = kc.req("GET", f"/users/{ku['id']}/role-mappings/realm/composite").json()
+            return any(r.get("name") == role for r in roles)
+        finally:
+            kc.close()
+    except Exception:  # noqa: BLE001
+        return True
+
+
+HOOKS = {"fetch_jwks": fetch_jwks, "live": live_user_check, "target_privileged": target_privileged_check}
 
 
 # ---- binding -------------------------------------------------------------------------------------------------------------------
@@ -294,8 +311,21 @@ def _insert_approval(db, rt, plan_id, approver, ip) -> str | None:
     return job
 
 
+def target_is_privileged(ctx: Ctx, uid: str) -> bool:
+    """Administrators of the organisation and members of the stack's privileged groups (review 6 H2)."""
+    try:
+        if identity.target_is_privileged(ctx.db, ctx.stack_row.name, uid):
+            return True
+    except KeyError:
+        return True
+    return bool(HOOKS["target_privileged"](ctx.rt, ctx.stack, uid, ctx.binding.admin_role))
+
+
 def submit(ctx: Ctx, kind: str, action: str, params: dict, summary: str, target_uid: str | None) -> dict:
     db, rt = ctx.db, ctx.rt
+    if action in identity.CREDENTIAL_TAKEOVER_ACTIONS and target_uid:
+        # the plan itself carries the verdict: risk_for makes it HIGH (never auto-approved, never decided by its requester)
+        params = {**params, "privileged_target": target_is_privileged(ctx, target_uid)}
     try:
         res = actions.create_plan(db, rt, ctx.principal("req"), actions.ActionType(action), {"stack": ctx.stack_row.name, **params}, ctx.ip)
     except ValidationError as e:
@@ -354,6 +384,12 @@ def reveal_enrollment(ctx: Ctx, plan_id) -> dict:
     t = ctx.db.execute(text("SELECT 1 FROM tenant_requests WHERE plan_id = :p AND customer_id = :c"), {"p": str(plan_id), "c": ctx.customer_id}).first()
     if t is None:
         raise TenantError(404, "request not found")
+    pl = ctx.db.execute(text("SELECT params FROM plans WHERE id = :p"), {"p": str(plan_id)}).first()
+    if pl is not None and (pl.params.get("privileged_target") or identity.target_is_privileged(ctx.db, ctx.stack_row.name, str(pl.params.get("uid", "")))):
+        audit.append(ctx.db, "tenant.enrollment_link_refused", actor_name=f"tenant:{ctx.username}", ip=ctx.ip, resource="plan", resource_id=str(plan_id),
+                     details={"reason": "privileged_target", **ctx.identity_details()})
+        ctx.db.commit()
+        raise TenantError(403, "This account belongs to an administrator. The sign-in link is delivered to the account owner directly, not through you.")
     r = identity.reveal_enrollment(ctx.db, ctx.rt, ctx.principal("req"), plan_id)
     if not r:
         raise TenantError(409, "the sign-up link is not ready yet, was already shown once, or has expired")
