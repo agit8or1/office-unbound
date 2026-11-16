@@ -76,6 +76,8 @@ def channel_aad(ch_id, cfg: dict) -> str:
 
 
 def in_maintenance(db: Session, check_id) -> bool:
+    if check_id is None:
+        return False
     return bool(db.execute(text(
         # review 7 H-4: a window without check_id is limited to ITS OWN customer's checks (it used to mute every customer)
         "SELECT 1 FROM maintenance_windows w WHERE w.starts_at <= now() AND w.ends_at > now() AND (w.check_id = :c OR "
@@ -85,10 +87,11 @@ def in_maintenance(db: Session, check_id) -> bool:
 
 # ---- notifications ----------------------------------------------------------------------------
 
-def enqueue_notifications(db: Session, check, incident_id, event: str, detail: str | None = None, *, force: bool = False) -> int:
+def enqueue_notifications(db: Session, check, incident_id, event: str, detail: str | None = None, *, force: bool = False, customer_id=None) -> int:
     """`force` = never suppressed by a maintenance window (window start/end notices, check disabled while an incident is open)."""
     # review 7 H-4: a check's alerts go to ITS customer's channels (they went to every customer's channels)
-    chans = db.execute(text("SELECT id FROM alert_channels WHERE enabled AND customer_id = (SELECT customer_id FROM checks WHERE id = :c)"), {"c": str(check.id)}).all()
+    chans = db.execute(text("SELECT id FROM alert_channels WHERE enabled AND customer_id = COALESCE(CAST(:cu AS uuid), (SELECT customer_id FROM checks WHERE id = CAST(:c AS uuid)))"),
+                       {"c": str(check.id) if check.id else None, "cu": str(customer_id) if customer_id else None}).all()
     supp = False if force else in_maintenance(db, check.id)
     for c in chans:
         db.execute(text("INSERT INTO notifications (incident_id, channel_id, event, status, detail) VALUES (:i, :c, :e, :s, :d)"),
@@ -493,7 +496,7 @@ def finish_maintenance(db: Session, rt: Runtime) -> int:
         detail = (f"Maintenance window '{w.name}' ended. {len(supp)} alert(s) were suppressed during it for "
                   f"{len({r.incident_id for r in supp})} incident(s)"
                   + (f"; still open: {', '.join(nm for _, nm in still_open)[:150]}" if still_open else "; none are still open") + ".")
-        enqueue_notifications(db, SimpleNamespace(id=None), None, "maintenance_ended", re.sub(r"[^\x20-\x7e]", "?", detail)[:300], force=True)
+        enqueue_notifications(db, SimpleNamespace(id=None), None, "maintenance_ended", re.sub(r"[^\x20-\x7e]", "?", detail)[:300], force=True, customer_id=w.customer_id)
         for iid, _nm in still_open:
             cid = db.execute(text("SELECT check_id FROM incidents WHERE id = :i"), {"i": str(iid)}).scalar()
             enqueue_notifications(db, SimpleNamespace(id=cid), iid, "reminder")

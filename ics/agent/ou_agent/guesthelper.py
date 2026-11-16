@@ -19,6 +19,7 @@ RESULT_ROOT = "/run"
 PODMAN, SYSTEMCTL, APT_GET, DPKG_QUERY, GPG = "/usr/bin/podman", "/usr/bin/systemctl", "/usr/bin/apt-get", "/usr/bin/dpkg-query", "/usr/bin/gpg"
 APT_DIR = "/etc/ou-agent/apt"                 # root-owned: sources.list + keyrings/ + pinned-fingerprints
 APT_STATE = "/var/lib/ou-pkg"
+OU_KEYRING = "signed-by=/etc/ou-agent/apt/keyrings/ou-repo.asc"      # the Office Unbound repo line (guest/cloudinit.py); everything else is a distro archive
 RID_RE = re.compile(r"^r[0-9a-f]{16}$")
 MAX_OUT = 4000
 
@@ -298,7 +299,8 @@ def _apt_opts():
     return ["-o", f"Dir::Etc::sourcelist={APT_DIR}/sources.list", "-o", "Dir::Etc::sourceparts=/nonexistent",
             "-o", f"Dir::State::lists={APT_STATE}/lists", "-o", "Acquire::AllowInsecureRepositories=false",
             "-o", "Acquire::AllowDowngradeToInsecureRepositories=false", "-o", "APT::Get::AllowUnauthenticated=false",
-            "-o", "Acquire::AllowReleaseInfoChange=false"]    # review 7 H-2: a changed Suite/Codename/Origin/Label is an ERROR, not a warning
+            "-o", "Acquire::AllowReleaseInfoChange::Suite=false", "-o", "Acquire::AllowReleaseInfoChange::Codename=false"]   # review 7 H-2: a changed Suite/Codename is an ERROR, not a warning
+    # (only those two: distro archives legitimately change Version/Label at point releases and are verified by their own keyrings)
 
 
 def _keyring_fingerprints():
@@ -331,7 +333,9 @@ def _check_channel_release(lists=None):
     lists = lists or APT_STATE + "/lists"
     suites = []
     for ln in open(os.path.join(APT_DIR, "sources.list")).read().split("\n"):
-        if ln.strip() and not ln.startswith("#"):
+        # only the Office Unbound repository carries our channel contract (Suite == Codename == channel). Distro suites (noble-updates has Codename=noble) are
+        # verified by their own archive keyring: applying the check to them refused EVERY distro package install (found by the artifacts-core lab run)
+        if ln.strip() and not ln.startswith("#") and OU_KEYRING in ln:
             suites.append(ln.split()[3])
     for s in suites:
         files = [f for f in os.listdir(lists) if f.endswith("_dists_%s_InRelease" % s)]

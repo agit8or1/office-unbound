@@ -1,6 +1,6 @@
 # Office Unbound roadmap & progress
 
-> Generated from [`docs/progress.json`](docs/progress.json) by `scripts/render_roadmap.py` — edit the JSON, not this file. Last updated **2026-11-15** · stage: **pre-alpha (lab)** · current version: **0.1.0**.
+> Generated from [`docs/progress.json`](docs/progress.json) by `scripts/render_roadmap.py` — edit the JSON, not this file. Last updated **2026-11-15** · stage: **pre-alpha (lab)** · current version: **0.2.0-dev**.
 
 Core platform components are integrated and tested in an isolated lab: own source build of Exchange-compatible groupware with single sign-on webmail, Keycloak SSO, file sync and browser document editing, backup/restore drills, chat and video meetings, and an infrastructure control server with monitoring, self-healing and a real Proxmox integration (VM lifecycle verified on a live cluster). Guided deployment wizards, provisioning automation and the credential vault are being integrated.
 
@@ -10,7 +10,7 @@ Core platform components are integrated and tested in an isolated lab: own sourc
 - Own source builds where vendor packages are restricted (ADR-0008)
 - A feature is working only when demonstrated by executed tests
 
-**Status legend:** ⚪ Planned · 🔎 Researching · 🛠️ Implementing · 🧪 Integrated in lab · ✅ Tested · 🅰️ Alpha · 🅱️ Beta · 🚀 Production supported · ⛔ Blocked
+**Status legend:** ⚪ Planned · 🔎 Researching · 🛠️ Implementing · 🧪 Integrated in lab · ✅ Tested · 🅰️ Alpha · 🅱️ Beta · 🚀 Production supported · ⛔ Blocked ·  Deferred
 
 ## P0 — Discovery and architecture  (✅ Tested)
 
@@ -34,25 +34,32 @@ Core platform components are integrated and tested in an isolated lab: own sourc
 | P1.8 | User lifecycle: provision and deprovision across all services with measured revocation <br><sub>Open gaps: OpenCloud app-token revocation, ActiveSync remote wipe, per-user IMAP session termination</sub> | 🧪 Integrated in lab | [`docs/status/user-lifecycle-results.md`](docs/status/user-lifecycle-results.md) |
 | P1.9 | Backup and restore drills to separate machines (files, identity, ICS controller) | 🧪 Integrated in lab | [`docs/status/restore-drill-results.md`](docs/status/restore-drill-results.md), [`docs/runbooks/ics-recovery.md`](docs/runbooks/ics-recovery.md) |
 | P1.10 | Groupware restore to a separate machine and clean-room rebuild <br><sub>Online logical backup; point-in-time consistency across mailboxes needs snapshots</sub> | 🧪 Integrated in lab | [`docs/status/restore-drill-results.md`](docs/status/restore-drill-results.md) |
-| P1.11 | Real Outlook, Thunderbird and mobile client compatibility matrix | ⚪ Planned | [`blueprints/lab/tests/MANUAL-CHECKLIST.md`](blueprints/lab/tests/MANUAL-CHECKLIST.md) |
-| P1.12 | Versioning, changelog, release notes and release tracking (VERSION, build info, /api/v1/version, console System page) <br><sub>Release 0.1.0 prepared; signed tag and GitHub Release are published by the owner. Production signing key not yet created.</sub> | ✅ Tested | [`docs/adr/0011-versioning-and-releases.md`](docs/adr/0011-versioning-and-releases.md), [`CHANGELOG.md`](CHANGELOG.md), [`docs/RELEASING.md`](docs/RELEASING.md), [`ics/tests/test_version.py`](ics/tests/test_version.py) |
+| P1.11 | Real Outlook, Thunderbird and mobile client compatibility matrix <br><sub>Thunderbird 24/25 and Evolution calendar/contacts tested in lab (client-compat-results.md); groupware fixes from these tests in progress; Outlook/mobile need owner devices</sub> | 🛠️ Implementing | [`docs/status/client-compat-results.md`](docs/status/client-compat-results.md) |
+| P1.12 | Versioning, changelog, release notes and release tracking (VERSION, build info, /api/v1/version, console System page) <br><sub>0.1.0 "Anchor" released (tag v0.1.0, GitHub pre-release); main is 0.2.0-dev "Beacon"; release names per minor line (ADR-0011 amendment)</sub> | ✅ Tested | [`docs/adr/0011-versioning-and-releases.md`](docs/adr/0011-versioning-and-releases.md), [`CHANGELOG.md`](CHANGELOG.md), [`VERSIONS.json`](VERSIONS.json) |
+| P1.13 | Alpha security remediation (reviews 1-7): signing, attestation, cross-tenant scoping, fencing, admin takeover <br><sub>132 findings tracked with verified evidence; open Highs fixed on branches fixes-r7, tenant-msp, oci-signing (pending merge); independent review 8 follows</sub> | 🛠️ Implementing | [`docs/status/SECURITY-REMEDIATION.md`](docs/status/SECURITY-REMEDIATION.md), [`docs/status/ALPHA-EXECUTION-QUEUE.md`](docs/status/ALPHA-EXECUTION-QUEUE.md), [`scripts/security_remediation_check.py`](scripts/security_remediation_check.py) |
+| P1.14 | Least-privilege host accounts, sudoers, unit hardening <br><sub>Prepared and lab-tested on branch privsep (pending merge); removal of administrator NOPASSWD:ALL is an owner action</sub> | 🛠️ Implementing | [`docs/status/security-review-7-2026-11-16.md`](docs/status/security-review-7-2026-11-16.md) |
+| P1.15 | ICS warm standby with fenced failover (epoch + lease/witness) <br><sub>Streaming standby, operator-triggered fenced promotion with controller epoch (3.1 s in lab) and old-agent fallback; lease-based self-fencing, witness mode and a two-controller partition test are not done (branches fixes-r7, ha-proof; pending merge)</sub> | 🧪 Integrated in lab | [`docs/runbooks/ics-recovery.md`](docs/runbooks/ics-recovery.md), [`docs/adr/0012-ics-warm-standby.md`](docs/adr/0012-ics-warm-standby.md), [`docs/status/ics-standby-results.md`](docs/status/ics-standby-results.md) |
 
 ## P2 — Infrastructure orchestration and repeatable deployment  (🛠️ Implementing)
 
 | | Item | Status | Evidence |
 |---|---|---|---|
 | P2.1 | Provider adapter with Proxmox VE as first provider (discovery, metrics, scoped VM lifecycle) <br><sub>Real PVE 9.2 cluster: scope refusals, clone, tag, configure, resize, start, snapshot, stop, destroy verified</sub> | 🧪 Integrated in lab | [`docs/status/provider-proxmox-real.md`](docs/status/provider-proxmox-real.md), [`docs/status/provider-proxmox.md`](docs/status/provider-proxmox.md) |
-| P2.2 | Deployment engine: profiles, sizing, dependency graph, plans, desired vs actual state, drift | 🛠️ Implementing | [`docs/status/deployment-engine.md`](docs/status/deployment-engine.md) |
-| P2.3 | Guest bootstrap: cloud-init, rootless Podman, signed digest-pinned images, agent enrollment <br><sub>Tested in lab containers; real VM boot pending</sub> | 🧪 Integrated in lab | [`docs/status/guest-bootstrap-results.md`](docs/status/guest-bootstrap-results.md) |
+| P2.2 | Deployment engine: profiles, sizing, dependency graph, plans, desired vs actual state, drift <br><sub>Engine and plans work; full-stack bill of materials shows missing/unsigned artifacts (Keycloak, OpenCloud, MAS, Jitsi) being produced on branches artifacts-core / oci-signing</sub> | 🛠️ Implementing | [`docs/status/deployment-engine.md`](docs/status/deployment-engine.md) |
+| P2.3 | Guest bootstrap: cloud-init, rootless Podman, signed digest-pinned images, agent enrollment <br><sub>Bootstrap v2 (no-SSH HMAC callback) on main; golden images Debian 12 + Ubuntu 24.04 with independent boot attestation on branch golden-prod (pending merge); real VM run on pve06 after owner onboarding</sub> | 🧪 Integrated in lab | [`docs/status/bootstrap-v2.md`](docs/status/bootstrap-v2.md), [`docs/status/guest-bootstrap-results.md`](docs/status/guest-bootstrap-results.md) |
 | P2.4 | Setup, deployment and change wizards backed by approval-gated plans <br><sub>Setup/deployment/change wizards deployed as the default first-run path; end-to-end deployment run in progress</sub> | 🧪 Integrated in lab | — |
-| P2.5 | Build and release pipeline for own distributions (signed packages/images, SBOM, staged channels) | ⚪ Planned | [`docs/adr/0008-build-release-pipeline.md`](docs/adr/0008-build-release-pipeline.md) |
+| P2.5 | Build and release pipeline for own distributions (signed packages/images, SBOM, staged channels) <br><sub>Signed apt pipeline with dev/staging/stable on main; hardened signer, per-channel keys, ICS-approved promotion and independent test attestation on branch fixes-r7 (pending merge); production keys need an owner key ceremony</sub> | 🛠️ Implementing | [`docs/status/package-pipeline-results.md`](docs/status/package-pipeline-results.md), [`docs/RELEASING.md`](docs/RELEASING.md), [`docs/adr/0008-build-release-pipeline.md`](docs/adr/0008-build-release-pipeline.md) |
 | P2.6 | Continuous integration (tests, secret scanning, license checks) | 🛠️ Implementing | [`.github/workflows/`](.github/workflows/) |
+| P2.7 | Connect with SSH: discover cluster, choose scope and rights, ICS creates its own Proxmox user/token and restricted SSH account <br><sub>Owner request 2026-11-16; owner will test against pve06 via pve.agit8or.net (branch ssh-onboard)</sub> | 🛠️ Implementing | — |
+| P2.8 | Signed artifact distribution to guests (apt repo + OCI registry, per-channel key pins) <br><sub>Branch artifact-dist</sub> | 🛠️ Implementing | — |
+| P2.9 | ICS shipped as signed ou-ics package with automatic pre-upgrade backup and rollback <br><sub>Branch ics-pkg; install/upgrade/rollback drill on Ubuntu 24.04 and Debian 12 in progress</sub> | 🛠️ Implementing | — |
+| P2.10 | Per-customer network isolation (Proxmox SDN VNet per customer, default deny) <br><sub>Design and owner commands prepared (branch fullstack-plan); owner decision: option A (VNet + PVE firewall) if no node rules on pve01-05, else option B</sub> | ⚪ Planned | — |
 
 ## P3 — First working user experience  (🛠️ Implementing)
 
 | | Item | Status | Evidence |
 |---|---|---|---|
-| P3.1 | Redesigned infrastructure console (dashboard, infrastructure views, operations, monitoring) <br><sub>Redesigned console deployed; infrastructure views await Proxmox provider integration</sub> | 🧪 Integrated in lab | [`docs/screenshots/`](docs/screenshots/) |
+| P3.1 | Redesigned infrastructure console (dashboard, infrastructure views, operations, monitoring) <br><sub>Redesigned console deployed; console v3 (releases/promotion, controller role banner, scope approvers, guest start-up panel) on branch console-new (pending merge)</sub> | 🧪 Integrated in lab | [`docs/screenshots/`](docs/screenshots/) |
 | P3.2 | Unified user portal (mail, calendar, contacts, files, documents) with SSO <br><sub>SSO launcher, recent files, new documents; webmail single sign-on proven on a lab node</sub> | 🧪 Integrated in lab | [`docs/status/portal-results.md`](docs/status/portal-results.md) |
 | P3.3 | Guided desktop and mobile onboarding | ⚪ Planned | — |
 
@@ -60,16 +67,16 @@ Core platform components are integrated and tested in an isolated lab: own sourc
 
 | | Item | Status | Evidence |
 |---|---|---|---|
-| P4.1 | Two isolated customer stacks with cross-customer access-denial tests | ⚪ Planned | — |
-| P4.2 | Organization admin and MSP Control Center | ⚪ Planned | — |
-| P4.3 | Versioned MSP provisioning API | ⚪ Planned | — |
+| P4.1 | Two isolated customer stacks with cross-customer access-denial tests <br><sub>Two independent lab customers: 153/155 isolation checks, and with per-customer encrypted backups 209 pass / 0 fail (backup-isolation-results.md); network isolation pending SDN (P2.10)</sub> | 🧪 Integrated in lab | [`docs/status/tenant-isolation-results.md`](docs/status/tenant-isolation-results.md), [`docs/status/backup-isolation-results.md`](docs/status/backup-isolation-results.md) |
+| P4.2 | Organization admin and MSP Control Center <br><sub>Organization Admin in the portal (separate tenant API, customer-bound) + aliases/shared mailboxes/quotas tested in lab on branch tenant-msp (pending merge); send-as pending groupware fix</sub> | 🛠️ Implementing | — |
+| P4.3 | Versioned MSP provisioning API <br><sub>/api/msp/v1 with HMAC signing, idempotency, permission sets, signed webhooks, OpenAPI 3.1, reference client on branch tenant-msp (pending merge)</sub> | 🛠️ Implementing | — |
 
 ## P5 — Operational maturity  (⚪ Planned)
 
 | | Item | Status | Evidence |
 |---|---|---|---|
-| P5.1 | Patch rings, controlled upgrades and rollback <br><sub>Signed pinned-package upgrade + rollback demonstrated on the lab mail server; merge pending</sub> | 🛠️ Implementing | — |
-| P5.2 | Capacity analytics and scaling plans | ⚪ Planned | — |
+| P5.1 | Patch rings, controlled upgrades and rollback <br><sub>Signed pinned-package upgrade + rollback drills: groupware (A21) and document engine (ou1<->ou2, ~30 s downtime, data intact)</sub> | 🛠️ Implementing | [`docs/status/docs-upgrade-drill-results.md`](docs/status/docs-upgrade-drill-results.md), [`docs/status/upgrade-drill-results.md`](docs/status/upgrade-drill-results.md) |
+| P5.2 | Capacity analytics and scaling plans <br><sub>Capacity planning per full stack computed against pve06 (branch fullstack-plan); analytics/forecasting not built</sub> | ⚪ Planned | — |
 | P5.3 | Encrypted off-host backups with measured RPO/RTO <br><sub>Encrypted append-only backups as ICS jobs with verified restores (RTO 29-127 s in lab)</sub> | 🧪 Integrated in lab | [`docs/status/backup-product-results.md`](docs/status/backup-product-results.md) |
 
 ## P6 — Chat, meetings and telephony  (🛠️ Implementing)
@@ -85,13 +92,33 @@ Core platform components are integrated and tested in an isolated lab: own sourc
 | | Item | Status | Evidence |
 |---|---|---|---|
 | P7.1 | Read-only migration readiness assessment <br><sub>Implemented and tested against API-shaped fixtures; awaiting a real tenant</sub> | 🛠️ Implementing | [`docs/status/migration-assessment.md`](docs/status/migration-assessment.md) |
-| P7.2 | Mail, calendar, contacts and file migration engine <br><sub>IMAP to groupware mail migration verified in lab (incremental, resumable); merge pending</sub> | 🧪 Integrated in lab | — |
+| P7.2 | Mail, calendar, contacts and file migration engine <br><sub>IMAP to groupware mail migration verified in lab; calendar/contacts/tasks migration frozen as WIP (verification did not pass) until after the alpha</sub> | 🧪 Integrated in lab | — |
 
 ## P8 — MSP pilot and production hardening  (⚪ Planned)
 
 | | Item | Status | Evidence |
 |---|---|---|---|
 | P8.1 | Deliverability, performance, security testing and support documentation | ⚪ Planned | — |
+
+## P9 — Full PDF Reader, Editor and Document Management (DEFERRED — final development priority)  ( Deferred)
+
+| | Item | Status | Evidence |
+|---|---|---|---|
+| P9.0 | Technology and licensing evaluation (first step when P9 starts) <br><sub>Deferred until alpha readiness and MSP pilot objectives are complete (owner, 2026-11-16)</sub> |  Deferred | [`docs/requirements/P9-pdf-reader-editor.md`](docs/requirements/P9-pdf-reader-editor.md) |
+| P9.1 | PDF reader |  Deferred | — |
+| P9.2 | Full editing of existing PDFs: text, images/objects, pages |  Deferred | — |
+| P9.3 | Annotations and multi-reviewer review |  Deferred | — |
+| P9.4 | Forms: filling and creation (AcroForm; XFA limits documented) |  Deferred | — |
+| P9.5 | Electronic signatures and signing workflows |  Deferred | — |
+| P9.6 | Cryptographic digital signatures (PKCS#12/X.509, PAdES, OCSP/CRL) |  Deferred | — |
+| P9.7 | Secure redaction (verified non-recoverable) |  Deferred | — |
+| P9.8 | OCR and scanned documents |  Deferred | — |
+| P9.9 | Document conversion, merge/split, PDF/A |  Deferred | — |
+| P9.10 | Document security, untrusted-input sandboxing |  Deferred | — |
+| P9.11 | Advanced tools: compare, Bates, accessibility, batch |  Deferred | — |
+| P9.12 | Office Unbound Files integration, versioning, APIs |  Deferred | — |
+| P9.13 | UX concept designs and review |  Deferred | — |
+| P9.14 | Test suite and final acceptance |  Deferred | — |
 
 ## First functional demo — acceptance tests (22/24 demonstrated in lab)
 
@@ -126,7 +153,8 @@ Core platform components are integrated and tested in an isolated lab: own sourc
 
 | Version | Date | Status | Highlights |
 |---|---|---|---|
-| [0.1.0](https://github.com/agit8or1/office-unbound/releases/tag/v0.1.0) | 2026-11-15 | prepared | Installable ICS with console, typed actions, approvals and hash-chained audit<br>Groupware, identity, files and browser document editing integrated and tested in an isolated lab<br>Proxmox provider verified on a live cluster; deployment engine, wizards, credential vault<br>Office Unbound Docs own source build, user portal, SSO, chat/meetings and telephony lab prototypes<br>Lab pre-alpha only: not production supported; security review 4 findings open |
+| [0.2.0-dev](https://github.com/agit8or1/office-unbound/blob/main/CHANGELOG.md) | 2026-11-16 | prepared | In development: alpha readiness (security reviews 5-7 remediation, production no-SSH Proxmox deployment, full service profile, two-customer isolation) |
+| [0.1.0](https://github.com/agit8or1/office-unbound/releases/tag/v0.1.0) | 2026-11-16 | released | Installable ICS with console, typed actions, approvals and hash-chained audit<br>Groupware, identity, files and browser document editing integrated and tested in an isolated lab<br>Proxmox provider verified on a live cluster; deployment engine, wizards, credential vault<br>Office Unbound Docs own source build, user portal, SSO, chat/meetings and telephony lab prototypes<br>Lab pre-alpha only: not production supported; security reviews 5-7 High findings open (fixes target 0.2.0) |
 
 Full history: [`CHANGELOG.md`](CHANGELOG.md). Process: [`docs/RELEASING.md`](docs/RELEASING.md).
 

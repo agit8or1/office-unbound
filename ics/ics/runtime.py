@@ -24,6 +24,8 @@ class Runtime:
             golden.configure(None, None)                    # unreadable key file: image import stays refused
         self.own_epoch: int | None = None          # the controller epoch this process runs at (fixed at the first epoch.assert_active)
         self.fenced_reason: str | None = None      # sticky: set when this controller learns it is superseded; nothing leaves the process afterwards
+        from . import lease as leasemod
+        self.lease = leasemod.build(self)            # None unless ICS_LEASE_WITNESS_URL is set on a primary (lease mode, review 7 H-5)
         egress.guard = lambda: epoch.assert_active(self)   # every egress path (agent, provider, notification, promotion, ssh) asks first
 
     def assert_active(self, db=None, *, lock: bool = False) -> int:

@@ -175,11 +175,23 @@ def create_app(settings: Settings | None = None, runtime: Runtime | None = None)
             import logging
             if rt.settings.role != "standby":
                 logging.getLogger("ics").exception("credential migration failed; endpoints keep using legacy secrets until it succeeds")
+        if rt.settings.lease_standalone_override and rt.settings.role == "primary":
+            try:   # review 7 H-5: running without a witness is an operator decision and is recorded
+                with rt.session() as db:
+                    audit.append(db, "controller.lease_standalone_override", actor_name="controller", resource="controller",
+                                 details={"witness_configured": bool(rt.settings.lease_witness_url)})
+                    db.commit()
+            except Exception:  # noqa: BLE001
+                pass
+        if getattr(rt, "lease", None):
+            rt.lease.start()                    # renewal thread; until the first grant no side effect is allowed
         if worker:
             worker.start()
         yield
         if worker:
             worker.stop()
+        if getattr(rt, "lease", None):
+            rt.lease.stop()
 
     docs = rt.settings.enable_docs  # off in production: Swagger UI is CDN-hosted (M6)
     app = FastAPI(title="Office Unbound ICS", version=ver.__version__, lifespan=lifespan,
@@ -229,7 +241,7 @@ def create_app(settings: Settings | None = None, runtime: Runtime | None = None)
         except Exception:  # noqa: BLE001
             db.rollback()
             db_rev = None
-        return {"product": i["product"], "version": i["version"], "commit": i.get("commit"), "dirty": i.get("dirty"),
+        return {"product": i["product"], "version": i["version"], "codename": ver.codename(i), "commit": i.get("commit"), "dirty": i.get("dirty"),
                 "built_at": i.get("built_at"), "build_source": i.get("source"), "api": ver.API_VERSION,
                 "schema": {"build_head": i.get("schema_head"), "database": db_rev},
                 "components": {"ics": i["version"], **i.get("components", {})}, "interfaces": i.get("interfaces", {})}

@@ -40,6 +40,9 @@ def assert_active(rt, db=None, *, lock: bool = False) -> int:
         raise NotActive(rt.fenced_reason)
     if rt.settings.role != "primary":
         raise NotActive("this controller is a STANDBY: it must not cause side effects")
+    lease = getattr(rt, "lease", None)
+    if lease is not None:
+        lease.require()       # a partitioned primary still believes its own database: only a live grant from the WITNESS makes it active (ics/lease.py)
 
     def _read(d):
         r = d.execute(text("SELECT epoch, role, node_name, changed_at, note FROM controller_state WHERE id = 1" + (" FOR SHARE" if lock else ""))).first()
@@ -61,6 +64,11 @@ def assert_active(rt, db=None, *, lock: bool = False) -> int:
         rt.fenced_reason = str(e)         # sticky: only a restart (which re-reads the state) can make this controller active again
         raise
     return ep
+
+
+def current_db_epoch(rt) -> int:
+    with rt.session() as db:
+        return get_state(db)["epoch"]
 
 
 def current_epoch(rt) -> int:

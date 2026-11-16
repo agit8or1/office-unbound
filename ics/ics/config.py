@@ -108,6 +108,14 @@ class Settings:
     guest_bootstrap_ttl_seconds: int = 1800      # lifetime of a per-VM one-time bootstrap secret
     guest_keep_bootstrap_ssh: bool = False       # DEBUG ONLY: do not seal the bootstrap SSH access after enrollment (the guest's own timer still seals it after bootstrap_seal_seconds)
     role: str = "primary"                        # ADR-0012: 'standby' = passive warm standby (no worker, no mutations, never signs agent requests)
+    lease_witness_url: str | None = None        # review 7 H-5 lease: base URL of the witness (standby host). Unset = lease OFF (single-controller install)
+    lease_witness_pubkey: str | None = None      # base64 raw Ed25519 public key of the witness (pinned)
+    lease_witness_tls_fp: str | None = None      # optional sha256 pin of the witness's TLS certificate (https)
+    lease_seconds: float = 30.0                  # T: a controller that has not been granted within T seconds fences itself
+    lease_renew_seconds: float = 5.0             # renewal period N
+    lease_standalone_override: bool = False      # operator-approved: run without a witness (standby known dead); audited; a partition can then split-brain
+    witness_state_file: str | None = None        # on the promoting host: witness state; `ics-cli promote` revokes and waits T + margin before bumping the epoch
+    witness_margin_seconds: float = 10.0         # clock-rate drift bound for the promotion proof
     standby_max_lag_seconds: int = 60            # /readyz replication check on a standby
     trusted_proxy: str | None = None             # exact IP of a local reverse proxy whose X-Forwarded-For is honoured (e.g. 127.0.0.1); None = ignore XFF
 
@@ -171,6 +179,14 @@ def load_settings() -> Settings:
             login_max_failures=int(env.get("ICS_LOGIN_MAX_FAILURES", 5)),
             allow_loopback_endpoints=b("ICS_ALLOW_LOOPBACK_ENDPOINTS", False),
             role=_role(env.get("ICS_ROLE")),
+            lease_witness_url=env.get("ICS_LEASE_WITNESS_URL") or None,
+            lease_witness_pubkey=env.get("ICS_LEASE_WITNESS_PUBKEY") or None,
+            lease_witness_tls_fp=env.get("ICS_LEASE_WITNESS_TLS_FP") or None,
+            lease_seconds=float(env.get("ICS_LEASE_SECONDS", 30)),
+            lease_renew_seconds=float(env.get("ICS_LEASE_RENEW_SECONDS", 5)),
+            lease_standalone_override=b("ICS_LEASE_STANDALONE_OVERRIDE", False),
+            witness_state_file=env.get("ICS_WITNESS_STATE_FILE") or None,
+            witness_margin_seconds=float(env.get("ICS_WITNESS_MARGIN_SECONDS", 10)),
             trusted_proxy=_trusted_proxy(env.get("ICS_TRUSTED_PROXY")),
             job_timeout_seconds=int(env.get("ICS_JOB_TIMEOUT_SECONDS", 180)),
             guest_agent_dir=env.get("ICS_GUEST_AGENT_DIR") or None,
