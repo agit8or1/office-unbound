@@ -229,7 +229,7 @@
             "docs/adr/0012-ics-warm-standby.md",
             "docs/status/ics-standby-results.md"
           ],
-          "note": "Streaming standby, operator-triggered fenced promotion with controller epoch (3.1 s in lab) and old-agent fallback; lease-based self-fencing, witness mode and a two-controller partition test are not done (branches fixes-r7, ha-proof; pending merge)"
+          "note": "Two-controller partition proof (lab): with lease-based fencing all scenarios S1-S8b pass. After promotion the old primary made zero provider/agent/backup/webhook/enrollment calls and no job ran twice. Without the lease, S2/S2b/S7/S8 failed. Branch ha-proof, pending merge. Residual risk R1: jobs claimed in the replication gap need an 'uncertain' state at promotion."
         }
       ]
     },
