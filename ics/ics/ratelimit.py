@@ -35,6 +35,14 @@ def allow(rt, key: str, limit: int, window: float) -> bool:
     return bool(allowed)
 
 
+def limited(rt, key: str, limit: int, window: float) -> bool:
+    """Read-only peek: would the next `allow()` of this key be refused? Consumes nothing (an unknown key is not limited)."""
+    with rt.engine.connect() as c:
+        r = c.execute(text(f"SELECT {_REFILLED.replace('r.', '')} < 1 FROM rate_limits WHERE key = :k"),
+                      {"k": key[:200], "cap": float(limit), "rate": limit / window}).scalar()
+    return bool(r)
+
+
 def reset(rt=None) -> None:
     rt = rt or _LAST["rt"]
     if rt is None:

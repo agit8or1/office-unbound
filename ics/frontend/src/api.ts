@@ -105,7 +105,28 @@ export interface ChainResult {
   ok: boolean; checked: number; head: string; legacy_unauthenticated: number; mac_checked: boolean
   problems: { seq: number; kind: string; detail: string }[]
 }
-export interface Ready { ready: boolean; version?: string; checks: Record<string, { ok: boolean }> }
+export interface Replication {
+  ok: boolean; in_recovery?: boolean; heartbeat_age_seconds: number | null; replay_delay_seconds: number | null
+  replay_backlog_bytes: number | null; max_lag_seconds: number
+}
+/** GET /readyz (public). On a standby `role` is 'standby' and checks.replication carries the lag; a fenced primary has fenced=true. */
+export interface Ready {
+  ready: boolean; version?: string; role?: 'primary' | 'standby'; epoch?: number; fenced?: boolean
+  checks: Record<string, { ok: boolean } & Partial<Replication>>
+}
+/** /readyz answers 503 when not ready but still returns the JSON body, which the banner needs; so this does not go through request(). */
+export async function fetchReady(): Promise<Ready | null> {
+  try {
+    const res = await fetch('/readyz', { headers: { Accept: 'application/json' }, credentials: 'same-origin' })
+    const j = (await res.json()) as Ready
+    return j && typeof j === 'object' && 'checks' in j ? j : null
+  } catch { return null }
+}
+export interface ControllerInfo {
+  role: 'primary' | 'standby'; epoch: number | null; fenced: boolean | null; node_name: string | null; changed_at: string | null
+  replication: Replication | null; max_lag_seconds: number
+  last_promotion: { at: string; by: string | null; host: string | null; old_epoch: number | null; new_epoch: number | null; last_replayed_commit: string | null } | null
+}
 /** GET /api/v1/version: public callers get only product+version; signed-in users get the rest. */
 export interface BuildInfo {
   product: string; version: string; codename?: string | null; commit?: string | null; dirty?: boolean | null; built_at?: string | null; build_source?: string; api?: string
@@ -137,3 +158,32 @@ export interface Notification { id: number; event: string; status: string; attem
 export interface IncidentDetail extends Incident { notifications: Notification[]; remediation: Attempt[] }
 export interface NodeInfo { id: string; name: string; address: string; port: number; agent_key_fp: string; agent_version: string | null; last_seen_at: string | null
   capabilities: Record<string, { units?: string[]; paths?: string[] }> }
+
+// ---- releases (GET /releases, read-only; promotion is the release.promote plan) ----
+export interface PkgEvidence { test: string; result: 'pass' | 'fail' | null; attestation_sha256: string | null; at: string | null; other: string[] }
+export interface ReleasePackage { name: string; version: string; file: string; component: string; sha256: string; arch: string | null; evidence: PkgEvidence | null }
+export interface ReleaseChannel { name: 'dev' | 'staging' | 'stable'; available: boolean; indexed_at: string | null; components: { component: string; packages: ReleasePackage[] }[] }
+export interface PromoteParams {
+  component: string; from_channel: 'dev' | 'staging'; to_channel: 'staging' | 'stable'
+  packages: { file: string; sha256: string; name?: string; version?: string }[]
+  evidence: { sha256: string; attestation_sha256: string }[]; reason?: string
+}
+export interface PromotionCandidate {
+  component: string; from_channel: 'dev' | 'staging'; to_channel: 'staging' | 'stable'; ready: boolean; blocked: string[]
+  approvals_required: number; risk: 'normal' | 'high'; current_in_target: number; params: PromoteParams
+}
+export interface Releases {
+  configured: boolean; promote_enabled: boolean; records_readable?: boolean; evidence_test: string
+  approvals_required: { staging: number; stable: number }; channels: ReleaseChannel[]; candidates: PromotionCandidate[]
+}
+
+// ---- guest bootstrap (GET /deployments/{slug}/bootstrap) ----
+export interface BootstrapVm {
+  vm: string; vmid: number; mode: 'callback' | 'ssh-lab'
+  state: 'pending' | 'reported' | 'enrolled' | 'sealed' | 'expired' | 'revoked' | 'failed'
+  attempts: number; created_at: string; expires_at: string; reported_at: string | null; sealed_at: string | null
+  replay_alarm: { count: number; last_at: string; stopped_deployment: boolean } | null; rate_limited: boolean | null
+}
+export interface BootstrapOut { deployment: string; vms: BootstrapVm[] }
+
+export interface ApprovalPolicy { normal: number; high: number }

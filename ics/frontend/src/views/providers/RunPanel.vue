@@ -3,6 +3,7 @@
 import { computed } from 'vue'
 import { Banner, HelpNote } from '../../wizards/kit'
 import { troubleshoot } from './model'
+import { submittedApprovalText } from '../../approvals'
 import type { Run } from './run'
 const props = defineProps<{ run: Run; what: string }>()
 const v = computed(() => props.run.view.value)
@@ -20,7 +21,7 @@ const at = computed(() => ({ awaiting_approval: 0, queued: 1, running: 2, succee
       <p class="pv-phase"><b>{{ v.text }}</b> <span class="muted">{{ props.what }}</span></p>
       <p v-if="!v.done" class="muted small">{{ v.detail }}</p>
       <p v-if="v.phase === 'awaiting_approval'" class="small">
-        This change is high impact, so it needs sign-off. <a href="#/plans">Open Approvals</a> to review plan <span class="mono">{{ run.created.value?.plan_id.slice(0, 8) }}</span>. This page updates by itself.
+        This change is high impact, so it needs sign-off. <a href="#/plans">Open Approvals</a> to review plan <span class="mono">{{ run.created.value?.plan_id.slice(0, 8) }}</span>. {{ submittedApprovalText(run.created.value) }} This page updates by itself.
       </p>
       <Banner v-if="run.created.value?.customer_approval_id" kind="info" title="Customer approval required">The customer who owns this cluster must also approve before anything runs.</Banner>
       <Banner v-if="v.phase === 'failed'" kind="bad" title="This did not work">{{ run.error.value }}

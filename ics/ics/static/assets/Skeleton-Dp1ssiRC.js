@@ -1,1 +1,0 @@
-import{$ as e,S as t,b as n,f as r,s as i,t as a}from"./runtime-core.esm-bundler-C10VKRPb.js";var o={class:`page`,role:`status`,"aria-label":`Loading`},s=r({__name:`Skeleton`,props:{rows:{default:4}},setup(r){return(s,c)=>(n(),i(`div`,o,[(n(!0),i(a,null,t(r.rows,t=>(n(),i(`span`,{key:t,class:e([`skel`,t%2?``:`w70`])},null,2))),128))]))}});export{s as t};

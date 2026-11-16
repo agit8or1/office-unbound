@@ -83,6 +83,10 @@ class _Limiter:
     def allow(self, rt, key: str, limit: int, window: float) -> bool:
         return ratelimit.allow(rt, "cb:" + key, limit, window)
 
+    def is_limited(self, rt, key: str, limit: int, window: float) -> bool:
+        """Read-only peek for the console: would the next request be refused? (consumes nothing)"""
+        return ratelimit.limited(rt, "cb:" + key, limit, window)
+
     def reset(self, rt=None) -> None:
         ratelimit.reset(rt)
 

@@ -8,6 +8,7 @@ import { hasPath } from './router'
 import { NAV, isActive, type NavItem } from './nav'
 import Icon from './ui/Icon.vue'
 import ToastHost from './ui/ToastHost.vue'
+import ControllerBanner from './components/ControllerBanner.vue'
 
 const route = useRoute()
 function focusMain() { const m = document.getElementById('main'); m?.focus(); m?.scrollIntoView?.() }
@@ -102,6 +103,7 @@ watch(() => route.meta.title, (t) => { document.title = (t ? t + ' - ' : '') + '
     </aside>
     <div class="scrim" :class="{ open: navOpen }" @click="navOpen = false"></div>
     <div class="main-col">
+      <ControllerBanner />
       <header class="top">
         <button class="iconbtn menu-btn" aria-label="Open navigation" :aria-expanded="navOpen" @click="navOpen = !navOpen"><Icon name="menu" /></button>
         <nav class="crumbs grow" aria-label="Breadcrumb">

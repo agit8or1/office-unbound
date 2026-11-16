@@ -22,6 +22,7 @@ from .blueprint import preview
 from . import userdir
 from .config import Settings
 from .deploy.api import register_routes as register_deploy_routes
+from . import console_api
 from .sysinfo import register as register_system_routes
 from . import ratelimit
 from .guest import callback as guest_callback
@@ -435,6 +436,7 @@ def create_app(settings: Settings | None = None, runtime: Runtime | None = None)
     register_system_routes(app, rt, API, worker)  # GET system (admin): version, migration, readiness, threads, sizes, backup
     if not rt.settings.guest_callback_dedicated:
         guest_callback.register(app, rt)  # golden-image bootstrap callback (guest/callback.py): HMAC-authenticated, single use, rate limited
+    console_api.register(app, rt, API)  # GET releases, GET deployments/{slug}/bootstrap (read-only console views)
     register_deploy_routes(app, rt)  # catalog, deployments, drift, change preview, job steps (deploy/api.py)
 
     # ---- monitoring (read-only views; every mutation is a typed plan) ----

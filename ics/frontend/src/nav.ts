@@ -27,7 +27,7 @@ export const NAV: NavGroup[] = [
     { label: 'Approvals', to: '/plans', icon: 'shield', badge: 'approvals' },
     { label: 'Maintenance', to: '/maintenance', icon: 'calendar' },
     { label: 'Changes', icon: 'activity', planned: true },
-    { label: 'Updates', icon: 'refresh', planned: true },
+    { label: 'Releases', to: '/releases', icon: 'refresh', min: 'viewer' },
   ] },
   { title: 'Monitoring', items: [
     { label: 'Health checks', to: '/checks', icon: 'check' },

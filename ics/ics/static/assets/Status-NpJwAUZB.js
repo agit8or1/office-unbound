@@ -1,1 +1,0 @@
-import{a as e,b as t,f as n}from"./runtime-core.esm-bundler-C10VKRPb.js";import{t as r}from"./StatusBadge-Dsmh3rDi.js";var i=n({__name:`Status`,props:{s:{}},setup(n){return(i,a)=>(t(),e(r,{s:n.s},null,8,[`s`]))}});export{i as t};
