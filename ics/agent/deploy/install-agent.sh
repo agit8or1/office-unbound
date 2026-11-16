@@ -44,6 +44,12 @@ if grep -q '"gromox\.\|"opencloud\.' /etc/ou-agent/agent.json; then
   grep -q '"opencloud\.' /etc/ou-agent/agent.json && install -m 0755 -o root -g root "$D/runbooks/ou-oc-check" /usr/local/sbin/ou-oc-check
   [ -n "${OU_MAIL_DOMAIN:-}" ] && python3 -c 'import json,os,sys;print(json.dumps({"mail_domain": sys.argv[1], "alias_domains": [d for d in os.environ.get("OU_ALIAS_DOMAINS","").split(",") if d]}))' "$OU_MAIL_DOMAIN" > /etc/ou-rb/gromox.json
 fi
+# aliases need a postfix lookup: the Gromox `aliases` table (aliasname -> mainname) as virtual_alias_maps, same credentials as the mailbox map (docs/status/mailbox-admin-results.md)
+if grep -q '"gromox\.set_aliases' /etc/ou-agent/agent.json && [ -f /etc/postfix/mysql-vmbox.cf ]; then
+  sed "s#^query.*#query = SELECT mainname FROM aliases WHERE aliasname='%s'#" /etc/postfix/mysql-vmbox.cf > /etc/postfix/mysql-valias.cf
+  chown root:postfix /etc/postfix/mysql-valias.cf; chmod 0640 /etc/postfix/mysql-valias.cf
+  case "$(postconf -h virtual_alias_maps)" in ""|'$virtual_maps'|*mysql-valias.cf*) postconf -e 'virtual_alias_maps = mysql:/etc/postfix/mysql-valias.cf' && systemctl reload postfix ;; *) echo "virtual_alias_maps is customised: add mysql:/etc/postfix/mysql-valias.cf by hand" >&2 ;; esac
+fi
 python3 "$D/render_polkit.py" /etc/ou-agent/agent.json > /etc/polkit-1/rules.d/50-ou-agent.rules
 chmod 0644 /etc/polkit-1/rules.d/50-ou-agent.rules
 install -d -o ou-agent -g ou-agent -m 0700 /var/lib/ou-agent

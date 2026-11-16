@@ -4,6 +4,7 @@ usage: python3 -m ou_agent.mbxhelper <rid>
 The spool file is never trusted: parameters are re-validated with mbxspec. SQL uses bound parameters; the only subprocesses are
 gromox-mkprivate / gromox-mkmidb with a validated address as the single argument (argv, no shell). Config (root-owned): /etc/ou-rb/gromox.json
 {"mail_domain": "...", "alias_domains": ["..."]}. Result: JSON in /run/ou-rb-gromox-mbx/<rid>.json."""
+import glob
 import json
 import os
 import re
@@ -16,7 +17,7 @@ from . import mbxspec as S
 from .proto import Reject
 
 CFG = "/etc/ou-rb/gromox.json"
-SPOOLS = ("/run/ou-agent-spool", "/run/ou-agent-ac-spool")
+SPOOLS = tuple(sorted(glob.glob("/run/ou-agent*-spool")))   # the agent (or a lab sidecar) drops the validated request into its own spool directory
 RESULT_DIR = "/run/ou-rb-gromox-mbx"
 USERDIR = "/var/lib/gromox/user"
 MYCFG = "/etc/gromox/mysql_adaptor.cfg"

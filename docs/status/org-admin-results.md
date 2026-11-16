@@ -25,7 +25,7 @@ Code: `ics/ics/tenant_admin/{service,api,jwtv,dnscheck}.py`, `ics/migrations/ver
 | Domains: list (the stack's mail domain), live DNS check for MX, SPF, DKIM, DMARC, autodiscover with plain guidance | Integrated in lab (live check ran; lab zone has no public records so all five reported "Missing", which is the correct answer for the lab) |
 | Branding: name, accent colour (contrast-checked, white text >= 4.5:1), logo PNG/JPEG/plain SVG, applied to header, buttons (CSS variables via same-origin `/branding.css`, strict CSP kept), home tiles | Integrated in lab |
 | Activity (who asked, who confirmed, state), second-admin approvals | Integrated in lab |
-| Mailbox aliases, shared-mailbox delegation | **Planned**: the Gromox runbooks (`sync_user`, `kick_user`, `user_state`) have no alias or delegation verb; labelled "Planned" in the UI |
+| Mailbox aliases, shared-mailbox delegation, per-user quota | Built in the mailbox-admin slice: docs/status/mailbox-admin-results.md |
 | Per-user storage quota (OpenCloud) | **Planned**: needs an OpenCloud admin identity for the ICS that does not exist; labelled "Planned" (no invented numbers) |
 | Creating/renaming groups, adding domains | Planned (domains are added by the MSP; the LDAP ICS identity may not create groups by design) |
 
