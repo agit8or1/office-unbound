@@ -15,6 +15,5 @@ TimeoutStartSec=3600
 NoNewPrivileges=true
 PrivateTmp=true
 ProtectHome=true
-ProtectKernelModules=true
-ProtectKernelTunables=true
-LockPersonality=true
+# NOT set: ProtectKernelModules / ProtectKernelTunables / LockPersonality. Together with NoNewPrivileges their seccomp filters make setuid() fail
+# ("runuser: cannot set user id"), and the ICS tier hook must run pg_dump as the postgres user (found in the dev-ICS lab run, docs/status/backup-isolation-results.md)

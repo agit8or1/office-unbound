@@ -180,6 +180,7 @@ def load_settings() -> Settings:
             guest_callback_url=env.get("ICS_GUEST_CALLBACK_URL") or None,
             guest_callback_pin_sha256=env.get("ICS_GUEST_CALLBACK_PIN_SHA256") or None,
             guest_bootstrap_ttl_seconds=int(env.get("ICS_GUEST_BOOTSTRAP_TTL_SECONDS", 1800)),
+            backup_scheduler_enabled=b("ICS_BACKUP_SCHEDULER_ENABLED", True),
         )
         return s
     except KeyError as e:  # pragma: no cover
