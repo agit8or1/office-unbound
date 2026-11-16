@@ -72,4 +72,27 @@ def customer_of_params(db: Session, params: dict) -> str | None:
     if params.get("credential_id"):
         r = db.execute(text("SELECT customer_id FROM credentials WHERE id = :i"), {"i": str(params["credential_id"])}).first()
         return str(r.customer_id) if r else None
+    # review 5 M5: monitoring/backup objects carry their own customer
+    for key, table in (("check_id", "checks"), ("node_id", "nodes"), ("channel_id", "alert_channels"), ("maintenance_id", "maintenance_windows"),
+                       ("runner_node_id", "nodes")):
+        if params.get(key):
+            try:
+                r = db.execute(text(f"SELECT customer_id FROM {table} WHERE id = :i"), {"i": str(UUID(str(params[key])))}).first()
+            except ValueError:
+                return None
+            return str(r.customer_id) if r else None
+    if isinstance(params.get("policy"), str):
+        r = db.execute(text("SELECT customer_id FROM backup_policies WHERE name = :n"), {"n": params["policy"]}).first()
+        return str(r.customer_id) if r else None
     return None
+
+
+def row_customer(db: Session, table: str, row_id) -> str | None:
+    r = db.execute(text(f"SELECT customer_id FROM {table} WHERE id = :i"), {"i": str(row_id)}).first()
+    return str(r.customer_id) if r else None
+
+
+def assert_row(db: Session, user, table: str, row_id, what: str) -> None:
+    cid = row_customer(db, table, row_id)
+    if cid is None or not allowed(user, cid):
+        raise HTTPException(404, f"{what} not found")

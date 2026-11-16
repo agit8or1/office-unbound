@@ -297,13 +297,32 @@ def test_scope_change_mode_b_package_is_idempotent_and_confirm_updates_allowlist
     assert r2.returncode == 0 and "changes made: 0" in r2.stdout
     assert owner.sim.changes == changed and len(owner.sim.write_calls) == writes                      # second run: zero changes, zero writes
     pc2, jc2 = w.run("provider.scope.change", confirm)
-    assert jc2["status"] == "succeeded", jc2
+    assert jc2["status"] == "succeeded", jc2.get("error")
     with rt.session() as db:
         assert sorted(db.execute(text("SELECT allowed_nodes FROM endpoints WHERE id = :i"), {"i": eid}).scalar()) == ["pve01", "pve04", "pve05", "pve06", "pve2", "pve3"]
     # the rollback script restores the single-node scope
     r3 = run_script(owner, tmp_path, files["rollback.sh"], "rb")
     assert r3.returncode == 0, r3.stderr
     assert "/nodes/pve06" in sim_paths(owner) and "/nodes" not in sim_paths(owner)
+
+
+def test_r5_l6_mode_b_confirm_refuses_when_a_managed_guest_appeared_outside_the_new_scope(w, owner, rt, tmp_path):
+    eid = provisioned_single(w, owner)
+    p, j = apply_scope(w, owner, eid, scope_preview(w, owner, eid, {"mode": "whole_cluster"}))
+    assert j["status"] == "succeeded", j
+    pv = scope_preview(w, owner, eid, {"mode": "single_node", "nodes": ["pve06"]})          # nothing is outside yet: previews cleanly
+    assert pv["direction"] == "narrow" and not pv["blocked"]
+    p, j = w.run("provider.scope.package", {"endpoint_id": eid, "preview_id": pv["preview_id"], "plan_hash": pv["plan_hash"], "direction": "narrow"})
+    assert j["status"] == "succeeded", j
+    pkg = j["result"]["package_id"]
+    files = w.ad.get(f"{H}/providers/{eid}/provisioning/packages/{pkg}").json()["files"]
+    assert run_script(owner, tmp_path, files["provision.sh"], "1").returncode == 0
+    owner.sim.add_vm(500, "pve05", "guest-x", tags="ou-managed;ou-deployment-d9", pool="officeunbound-pve06")      # appears between preview and confirm
+    confirm = {"endpoint_id": eid, "preview_id": pv["preview_id"], "plan_hash": pv["plan_hash"], "direction": "narrow", "execution": "confirm_package", "package_id": pkg}
+    pc, jc = w.run("provider.scope.change", confirm)
+    assert jc["status"] == "failed" and "outside the new scope" in jc["error"]["message"], jc
+    with rt.session() as db:
+        assert sorted(db.execute(text("SELECT allowed_nodes FROM endpoints WHERE id = :i"), {"i": eid}).scalar()) == ["pve01", "pve04", "pve05", "pve06", "pve2", "pve3"]
 
 
 def test_customer_policy_applies_to_scope_actions():

@@ -99,8 +99,9 @@ class DbChecks:
                                      "Rename or remove the conflicting check, then re-run the deployment.", retryable=False)
                 return str(row.id)
             cid = str(uuid.uuid4())
-            db.execute(text("INSERT INTO checks (id, name, kind, config, interval_seconds, created_by, deployment_id) "
-                            "VALUES (:i, :n, :k, CAST(:c AS jsonb), :iv, :cb, :dp)"),
+            db.execute(text("INSERT INTO checks (id, name, kind, config, interval_seconds, created_by, deployment_id, customer_id) "
+                            "VALUES (:i, :n, :k, CAST(:c AS jsonb), :iv, :cb, :dp, COALESCE((SELECT e.customer_id FROM deployments d JOIN endpoints e ON e.id = d.endpoint_id "
+                            "WHERE d.id = CAST(:dp AS uuid)), '00000000-0000-0000-0000-00000000a001'))"),
                        {"i": cid, "n": check["name"], "k": kind, "c": json.dumps(cfg, sort_keys=True), "iv": check["interval_seconds"], "cb": created_by,
                         "dp": deployment_id})
             db.commit()

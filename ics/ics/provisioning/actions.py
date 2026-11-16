@@ -404,6 +404,7 @@ def precheck(db: Session, rt: Runtime, action: str, p) -> dict:
             pk = _artifact(db, p.package_id, "package")
             if pk is None or str(pk.data.get("scope_preview_id")) != str(p.preview_id):
                 raise PlanError(404, "scope package not found for this preview")
+        extra["preview_risk"] = sd.get("risk", "high" if sd["direction"] == "widen" else "normal")   # review 5 M3: the plan takes max(risk_fn, preview risk)
         extra["scope_change"] = {"direction": sd["direction"], "old": sd["old_scope"], "new": sd["new_scope"], "detach": sd["detach"],
                                  "acl_add": len(sd["diff"]["acl_add"]), "acl_remove": len(sd["diff"]["acl_remove"])}
     elif action == "provider.token.revoke":
@@ -730,11 +731,15 @@ def exec_scope_change(rt: Runtime, db: Session, m: ScopeChange, plan, known: lis
         c0 = _client_for(rt, ep, known)
         try:
             facts = pp.collect_facts(_Reader(c0))
+            dbg = _db_guests(db, ep.id)
+            rows, gst = _scope_inputs(_Reader(c0), facts, dbg)      # review 5 L6: the same live inputs as Mode A, so orphans are really found
         finally:
             c0.close()
-        sc = sc_mod.build_from(old, stored.design, new, None, managed, detach_requested=detach_req, db_guests=_db_guests(db, ep.id))
+        sc = sc_mod.build_from(old, stored.design, new, facts, managed, detach_requested=detach_req, db_guests=dbg, guest_storages=gst, node_rows=rows)
         if sc.direction != art.data["scope"]["direction"]:
             raise ProxmoxError("the scope change no longer matches the approved preview")
+        if sc.impact["managed_guests_outside"] and not sc.detach:     # orphans re-checked now; other plan blockers refer to a cluster the package already changed
+            raise ProxmoxError("scope change is blocked now: managed guests would be left outside the new scope (" + "; ".join(b for b in sc.blocked if "outside the new scope" in b)[:300] + ")")
         d = pp.design_from_stored(new, stored.design)
         verification = _verify_all(rt, base_url, ca, fp, new, d, _vault_secrets(rt, ep, stored, known), facts, known)
         if not verification["ok"]:

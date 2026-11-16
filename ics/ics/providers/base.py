@@ -149,6 +149,12 @@ class ImageImportSpec:
     cores: int = 2
     memory_mb: int = 2048
     bridge: str | None = None
+    # review 5 M7: the verb verifies the SIGNED release itself (golden.verify_release) and derives path + sha256 from it; `file_path`/`sha256` above are
+    # only claims and must equal the verified values. Without these three the import is refused.
+    release_dir: str | None = None
+    release_pubkey_pem: str | None = None
+    release_pin_sha256: str | None = None
+    allow_downgrade: bool = False   # an explicit, separately approved (high-risk) downgrade plan; otherwise older than the newest imported = refused
 
 
 @dataclass(frozen=True)

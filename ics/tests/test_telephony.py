@@ -65,7 +65,7 @@ def pbx(world, monkeypatch):
         def get(self, uid):
             return super().get(uid)
 
-    def agent(rt, node_id, action, uid, known, device=None, raw=False):
+    def agent(rt, node_id, action, uid, known, device=None, raw=False, customer=None):
         if not action.startswith("pbx."):
             return base_agent(rt, node_id, action, uid, known)
         assert str(node_id) == PBX_NODE

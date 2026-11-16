@@ -10,4 +10,6 @@ TimeoutStartSec=60
 NoNewPrivileges=true
 PrivateTmp=true
 ProtectHome=true
+ProtectSystem=full
+ReadWritePaths=/etc/asterisk
 ProtectKernelModules=true
