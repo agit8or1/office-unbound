@@ -64,25 +64,16 @@ def pub(k):
     return base64.b64encode(k.public_key().public_bytes(serialization.Encoding.Raw, serialization.PublicFormat.Raw)).decode()
 
 
-def in_ledger(sha):
-    for s in ("dev", "staging", "stable"):
-        try:
-            if any(l.split()[0] == sha for l in open(os.path.join(REL, "ledger", s + ".sha256")) if l.strip()):
-                return True
-        except OSError:
-            pass
-    return False
-
-
 def fetch_deb(ref, work):
     if not re.match(r"^[0-9a-f]{64}$", ref):
         die("a .deb is named by its sha256 (64 hex)")
-    if not in_ledger(ref):
-        die("that .deb was never admitted to any channel")
-    src = os.path.join(REL, "blobs", ref)
+    src = os.path.join(REL, "blobs", ref)           # the signer writes a blob only for files it admitted or promoted (the blob store IS the admission record)
     dst = os.path.join(work, "artifact.deb")
     h = hashlib.sha256()
-    fd = os.open(src, os.O_RDONLY | os.O_NOFOLLOW)
+    try:
+        fd = os.open(src, os.O_RDONLY | os.O_NOFOLLOW)
+    except OSError:
+        die("that .deb was never admitted to any channel")
     with os.fdopen(fd, "rb") as f, open(dst, "wb") as o:
         for c in iter(lambda: f.read(1 << 20), b""):
             h.update(c)
