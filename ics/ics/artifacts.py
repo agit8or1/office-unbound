@@ -72,34 +72,51 @@ def _dearmor(armored: str) -> bytes:
     return base64.b64decode("".join(body), validate=True)
 
 
+def _packets(raw: bytes):
+    """(tag, body) of every OpenPGP packet; partial and indeterminate lengths are refused (a public key block never needs them)."""
+    i = 0
+    while i < len(raw):
+        tag = raw[i]
+        if not tag & 0x80:
+            raise ArtifactError("bad OpenPGP packet")
+        if tag & 0x40:                              # new format
+            t, i = tag & 0x3F, i + 1
+            if i >= len(raw):
+                raise ArtifactError("truncated OpenPGP packet")
+            n = raw[i]
+            if n < 192:
+                i += 1
+            elif n < 224:
+                if i + 1 >= len(raw):
+                    raise ArtifactError("truncated OpenPGP packet")
+                n = ((n - 192) << 8) + raw[i + 1] + 192
+                i += 2
+            elif n == 255:
+                n = int.from_bytes(raw[i + 1:i + 5], "big")
+                i += 5
+            else:
+                raise ArtifactError("partial-length key packet")
+        else:                                       # old format
+            t, lt = (tag >> 2) & 0xF, tag & 3
+            sz = {0: 1, 1: 2, 2: 4}.get(lt)
+            if sz is None:
+                raise ArtifactError("indeterminate-length key packet")
+            n, i = int.from_bytes(raw[i + 1:i + 1 + sz], "big"), i + 1 + sz
+        if i + n > len(raw):
+            raise ArtifactError("truncated OpenPGP packet")
+        yield t, raw[i:i + n]
+        i += n
+
+
 def pgp_fingerprint(armored: str) -> str:
-    """Fingerprint (40 upper-case hex) of the PRIMARY key of an armored v4 OpenPGP public key block."""
-    raw = _dearmor(armored)
-    tag = raw[0]
-    if not tag & 0x80:
-        raise ArtifactError("bad OpenPGP packet")
-    if tag & 0x40:                                  # new format
-        t, i = tag & 0x3F, 1
-        n = raw[i]
-        if n < 192:
-            i += 1
-        elif n < 224:
-            n = ((n - 192) << 8) + raw[i + 1] + 192
-            i += 2
-        elif n == 255:
-            n = int.from_bytes(raw[i + 1:i + 5], "big")
-            i += 5
-        else:
-            raise ArtifactError("partial-length key packet")
-    else:                                           # old format
-        t, lt = (tag >> 2) & 0xF, tag & 3
-        sz = {0: 1, 1: 2, 2: 4}.get(lt)
-        if sz is None:
-            raise ArtifactError("indeterminate-length key packet")
-        n, i = int.from_bytes(raw[1:1 + sz], "big"), 1 + sz
-    if t != 6:
+    """Fingerprint (40 upper-case hex) of the ONLY primary key of an armored v4 OpenPGP public key block. review 8 L-1: the whole file becomes the
+    guests' apt keyring, so a block carrying a second primary key (e.g. the dev key exported along) is refused instead of pinning only the first."""
+    pk = list(_packets(_dearmor(armored)))
+    if not pk or pk[0][0] != 6:
         raise ArtifactError("first packet is not a public key")
-    body = raw[i:i + n]
+    if sum(1 for t, _ in pk if t == 6) != 1:
+        raise ArtifactError("the key file holds more than one primary key: export exactly the pinned channel key (gpg --export --armor <fingerprint>)")
+    body = pk[0][1]
     if not body or body[0] != 4:
         raise ArtifactError("only v4 OpenPGP keys are supported")
     return hashlib.sha1(b"\x99" + len(body).to_bytes(2, "big") + body).hexdigest().upper()  # noqa: S324 (OpenPGP v4 fingerprint definition)

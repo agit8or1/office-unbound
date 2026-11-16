@@ -75,6 +75,16 @@ def test_pgp_fingerprint_matches_the_recorded_release_key_fingerprint():
         art.pgp_fingerprint("-----BEGIN PGP PUBLIC KEY BLOCK-----\n\nAAAA\n-----END PGP PUBLIC KEY BLOCK-----")
 
 
+def test_l1_a_key_file_with_a_second_primary_key_is_refused():
+    """review 8 L-1: the whole file becomes the guests' apt keyring; pinning only the first key would let a second (e.g. dev) key ride along"""
+    raw = art._dearmor(LAB_KEY)
+    two = "-----BEGIN PGP PUBLIC KEY BLOCK-----\n\n" + base64.b64encode(raw + raw).decode() + "\n-----END PGP PUBLIC KEY BLOCK-----\n"
+    with pytest.raises(art.ArtifactError, match="more than one primary key"):
+        art.pgp_fingerprint(two)
+    with pytest.raises(art.ArtifactError, match="truncated"):
+        art.pgp_fingerprint("-----BEGIN PGP PUBLIC KEY BLOCK-----\n\n" + base64.b64encode(raw[:-5]).decode() + "\n-----END PGP PUBLIC KEY BLOCK-----\n")
+
+
 def test_unset_is_none_and_broken_config_raises(tmp_path, ca):
     assert art.load_map({}) is None
     m = art.load_map(env(tmp_path, ca))

@@ -1,7 +1,7 @@
 #!/bin/bash
 # Root-owned helper (installed by install-signer.sh; the only thing ou-testrunner may run as root). Usage: nspawn-smoke deb <file>
 # <file> must be /var/lib/ou-testrunner/work/run-*/artifact.deb, a regular file (no symlink) owned by ou-testrunner. The package is installed in a
-# volatile overlay of the base image (nothing persists), WITHOUT network, and checked: no setuid/setgid/world-writable file shipped, dpkg state
+# throw-away copy of the base image (deleted afterwards), in a user namespace with dropped capabilities, WITHOUT network, and checked: no setuid/setgid/world-writable file shipped, dpkg state
 # "install ok installed", every listed file present, `dpkg --verify` clean, removal + purge succeed. Exit 0 pass, 1 test failed, 2 infrastructure problem.
 set -u
 BASE=${OU_TESTRUNNER_BASE:-/var/lib/machines/ou-base-bookworm}
@@ -10,7 +10,11 @@ f=${2:-}
 [[ "$f" =~ ^/var/lib/ou-testrunner/work/run-[A-Za-z0-9_]+/artifact\.deb$ ]] || { echo "bad path"; exit 2; }
 [ -f "$f" ] && [ ! -L "$f" ] && [ "$(stat -c %U "$f")" = ou-testrunner ] || { echo "bad file"; exit 2; }
 [ -d "$BASE/usr" ] || { echo "base image $BASE missing"; exit 2; }
-T=$(mktemp -d /run/ou-smoke.XXXXXX); trap 'rm -rf "$T"' EXIT
+T=$(mktemp -d /run/ou-smoke.XXXXXX)
+# review 8 H-1: a throw-away copy of the base image is chowned into a fresh user-namespace range (idmapped mounts are not available with an overlay here)
+W=$(mktemp -d /var/tmp/ou-smoke-root.XXXXXX)
+trap 'rm -rf "$T"; rm -rf --one-file-system "$W"' EXIT
+cp -a --reflink=auto "$BASE" "$W/root" || { echo "cannot copy base image"; exit 2; }
 cp --no-dereference "$f" "$T/pkg.deb"
 cat > "$T/inner.sh" <<'IN'
 set -u
@@ -25,7 +29,11 @@ dpkg --verify "$P" || { echo "FAIL dpkg --verify"; exit 1; }
 dpkg -r "$P" && dpkg -P "$P" || { echo "FAIL remove/purge"; exit 1; }
 echo "PASS $P"
 IN
-systemd-nspawn -q --volatile=overlay -D "$BASE" --private-network --register=no --bind-ro="$T/pkg.deb:/pkg.deb" --bind-ro="$T/inner.sh:/inner.sh" \
+# review 8 H-1: the package's maintainer scripts are untrusted code. User namespacing maps container root to an unprivileged host uid range, and
+# the capabilities that matter for an escape are dropped; nspawn without -U is not a security boundary.
+systemd-nspawn -q -D "$W/root" --private-network --register=no --private-users=pick --private-users-ownership=chown \
+  --drop-capability=CAP_SYS_ADMIN,CAP_MKNOD,CAP_SYS_PTRACE,CAP_SYS_MODULE,CAP_SYS_RAWIO,CAP_SYS_BOOT,CAP_NET_ADMIN --no-new-privileges=yes \
+  --bind-ro="$T/pkg.deb:/pkg.deb" --bind-ro="$T/inner.sh:/inner.sh" \
   --resolv-conf=off /bin/bash /inner.sh
 rc=$?
 case $rc in 0) exit 0;; 1) exit 1;; *) echo "nspawn rc=$rc"; exit 2;; esac
