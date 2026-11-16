@@ -17,7 +17,7 @@ USERID = re.compile(r"^[A-Za-z0-9][A-Za-z0-9_.-]{0,31}@[A-Za-z0-9._-]{1,32}$")
 TOKENID = re.compile(r"^[A-Za-z0-9][A-Za-z0-9_.-]{0,31}@[A-Za-z0-9._-]{1,32}![A-Za-z0-9][A-Za-z0-9_.-]{0,62}$")
 ROLE = re.compile(r"^[A-Za-z][A-Za-z0-9_.-]{0,62}$")
 PRIV = re.compile(r"^[A-Za-z][A-Za-z0-9.]{0,40}$")
-ACLPATH = re.compile(r"^/[A-Za-z0-9/._:@+-]{0,200}$")
+ACLPATH = re.compile(r"^(?!.*/\.\.?(?:/|$))/(?:[A-Za-z0-9._:@+][A-Za-z0-9._:@+-]{0,62}(?:/[A-Za-z0-9._:@+][A-Za-z0-9._:@+-]{0,62})*)?$")   # no segment may start with "-"; no "//"
 COMMENT = re.compile(r"^[A-Za-z0-9 ._:()/,=+-]{0,120}$")
 ACCOUNT = re.compile(r"^[a-z_][a-z0-9_-]{0,31}$")
 

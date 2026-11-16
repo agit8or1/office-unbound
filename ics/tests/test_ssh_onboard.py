@@ -240,9 +240,10 @@ def test_passphrase_protected_key_works(w, node, owner):
 
 def test_root_login_does_not_use_sudo_and_user_does(w, node):
     s = new_session(w, node, username="root")
-    assert S.row(w.rt.session().__enter__(), s["id"]).use_sudo is False
     s2 = new_session(w, node)
-    assert S.row(w.rt.session().__enter__(), s2["id"]).use_sudo is True
+    with w.rt.session() as db:              # (was .__enter__() without exit: the leaked sessions held locks and made the next test's TRUNCATE time out)
+        assert S.row(db, s["id"]).use_sudo is False
+        assert S.row(db, s2["id"]).use_sudo is True
     ex = node.executed()
     assert ex == []
 
@@ -251,8 +252,10 @@ def test_sudo_user_path_runs_every_command_through_sudo_n(w, node, owner):
     sid, pv, p, j = flow(w, node)
     assert j["status"] == "succeeded", j.get("error")
     ex = node.executed()
-    privileged = [e for e in ex if e[0] != "sudo" and e[0] in {"pveum", "useradd", "install"}]
-    assert not privileged                                              # every privileged tool was reached via sudo -n -- (the fake sudo execs it)
+    # the fake sudo re-execs the inner tool, which logs itself too: every bare privileged entry must be the target of the sudo entry right before it
+    privileged = [e for i, e in enumerate(ex) if e[0] in {"pveum", "useradd", "install"}
+                  and not (i and ex[i - 1][0] == "sudo" and ex[i - 1][1:3] == ["-n", "--"] and ex[i - 1][3:] == e)]
+    assert not privileged                                              # every privileged tool was reached via sudo -n --
     assert all(e[1] == "-n" and e[2] == "--" for e in ex if e[0] == "sudo" and e[3:4] and e[3] != "/usr/local/sbin/ou-pve-helper")
 
 
@@ -297,7 +300,7 @@ def test_injection_in_policy_fields_is_refused_at_plan_time(w, node, owner, fiel
     assert r.status_code == 422
     r = w.o.post(f"{H}/plans", json={"action": "provider.ssh.preview", "params": {"ssh_session_id": sid, "policy": POL, "name": "x';id"}}, headers=w.oh)
     assert r.status_code == 422
-    assert node.executed() and all(e[0] in {"sudo", "pvesh", "cat"} for e in node.executed())
+    assert node.executed() and all(e[0] in {"sudo", "pvesh", "cat", "lvs", "zfs"} for e in node.executed())
 
 
 @pytest.mark.parametrize("body", [{"host": "a;id"}, {"host": "$(id)"}, {"username": "root;id"}, {"username": "a b"}, {"port": 0}, {"port": 70000}, {"api_url": "http://x"}])
@@ -438,7 +441,8 @@ def test_extra_privileges_fail_verification_and_roll_everything_back(w, node, ow
 
     def evil(self, userid, name, comment, privsep=1):
         out = orig(self, userid, name, comment, privsep)
-        owner.sim.acl_entries.append({"path": "/", "type": "token", "ugid": f"{userid}!{name}", "roleid": "PVEAuditor", "propagate": 1})   # Proxmox gives MORE than planned
+        for t, ug in (("user", userid), ("token", f"{userid}!{name}")):   # Proxmox gives MORE than planned (privsep: effective = user AND token, so both)
+            owner.sim.acl_entries.append({"path": "/", "type": t, "ugid": ug, "roleid": "PVEAuditor", "propagate": 1})
         return out
     monkeypatch.setattr(A.SshAdmin, "token_add", evil)
     sid, pv, p, j = flow(w, node)
@@ -535,7 +539,7 @@ def test_rerun_rotates_the_token_reuses_the_account_and_offboard_removes_everyth
         assert c.execute(text("SELECT count(*) FROM endpoints WHERE name = 'onb'")).scalar() == 1
         assert c.execute(text("SELECT count(*) FROM ssh_identities WHERE removed_at IS NULL")).scalar() == 1
     # ---- offboard (needs the admin's credentials again: the ICS identity cannot remove itself)
-    r = w.o.post(f"{H}/plans", json={"action": "provider.ssh_offboard", "params": {"ssh_session_id": connected(w, node), "endpoint_id": eid, "confirm_name": "nope"}}, headers=w.oh)
+    r = w.o.post(f"{H}/plans", json={"action": "provider.ssh_offboard", "params": {"ssh_session_id": (abandoned := connected(w, node)), "endpoint_id": eid, "confirm_name": "nope"}}, headers=w.oh)
     assert r.status_code == 422
     sid3 = connected(w, node)
     p3, j3 = w.run("provider.ssh_offboard", {"ssh_session_id": sid3, "endpoint_id": eid, "confirm_name": "onb", "delete_pool": True})
@@ -547,7 +551,8 @@ def test_rerun_rotates_the_token_reuses_the_account_and_offboard_removes_everyth
     with owner_engine.connect() as c:
         assert c.execute(text("SELECT enabled FROM endpoints WHERE id = :i"), {"i": eid}).scalar() is False
         assert c.execute(text("SELECT removed_at IS NOT NULL FROM ssh_identities WHERE endpoint_id = :i"), {"i": eid}).scalar()
-        assert c.execute(text("SELECT count(*) FROM credentials WHERE provider = 'pve-ssh' AND purged_at IS NULL")).scalar() == 0
+        # nothing usable is left: no ICS SSH key (also not the one replaced by the re-run) and no admin credential except the never-used session's
+        assert c.execute(text("SELECT count(*) FROM credentials WHERE provider = 'pve-ssh' AND purged_at IS NULL AND id <> :a"), {"a": abandoned}).scalar() == 0
 
 
 def test_offboard_keeps_a_pool_that_still_has_guests(w, node, owner):
@@ -599,7 +604,7 @@ def test_discovery_shows_thin_pool_usage_and_firewall_state_without_touching_any
     assert j["status"] == "succeeded", j.get("error")
     ov = j["result"]["overview"]
     tp = ov["storage_usage"]["thin_pools"]
-    assert tp and tp[0]["pool"] == "PVE06data" and tp[0]["overprovision_ratio"] == 1.39 and tp[0]["storages"] == ["PVE06-Storage"] and ov["storage_usage"]["zfs"] == []
+    assert tp and tp[0]["pool"] == "PVE06data" and float(tp[0]["overprovision_ratio"]) == 1.39 and tp[0]["storages"] == ["PVE06-Storage"] and ov["storage_usage"]["zfs"] == []
     fw = ov["firewall"]
     by = {n["name"]: n for n in fw["nodes"]}
     assert fw["datacenter_enabled"] is False and len(fw["nodes"]) == len(ov["nodes"])

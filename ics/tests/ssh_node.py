@@ -11,7 +11,7 @@ import tempfile
 import time
 from pathlib import Path
 
-TOOLS = ("pvesh", "pveum", "sudo", "install", "mv", "rm", "cat", "sha256sum", "visudo", "useradd", "userdel", "usermod", "getent")
+TOOLS = ("pvesh", "pveum", "sudo", "install", "mv", "rm", "cat", "sha256sum", "visudo", "useradd", "userdel", "usermod", "getent", "lvs", "zfs", "apt-get", "test")
 HERE = Path(__file__).parent
 
 

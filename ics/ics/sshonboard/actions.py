@@ -120,6 +120,8 @@ def is_widening(old: Policy | None, new: Policy) -> bool:
     o, n = old.scope, new.scope
     for a, b in ((o.nodes, n.nodes), (o.storages, n.storages), (o.pools, n.pools), (o.networks, n.networks), (o.template_vmids, n.template_vmids),
                  (o.backup_storages, n.backup_storages)):
+        if a is o.nodes and old.mode() == "whole_cluster":
+            continue                      # whole_cluster: an empty node list means ALL nodes, so any node set is within it (narrowing, not widening)
         if set(b) - set(a):
             return True
     if old.mode() != "whole_cluster" and new.mode() == "whole_cluster":
@@ -386,6 +388,10 @@ def _compute(rt: Runtime, db: Session, adm: A.SshAdmin, r, policy: Policy, ep, i
         blocked_extra.append(f"single-node scope: this SSH session is on {local}, which is not the selected node; the ICS's SSH identity is only installed "
                              f"on the node it is limited to. Connect to {', '.join(policy.scope.nodes)} instead")
     pl = pp.plan_for(policy, facts, managed=managed, mode="A")
+    rot = [s.target for s in pl.steps if s.kind == "token" and s.op == "noop"]
+    if rot:   # Proxmox deletes a token's ACL entries with the token: plan the rotation against the state AFTER the delete, so the ACL re-adds are planned and shown
+        facts.acl = [e for e in facts.acl if not (e.get("type") == "token" and e.get("ugid") in rot)]
+        pl = pp.plan_for(policy, facts, managed=managed, mode="A")
     pl.blocked += blocked_extra
     d = pp.design_from_plan(pl, policy)
     rotates: list[str] = []
@@ -512,8 +518,8 @@ def exec_onboard(rt: Runtime, db: Session, m: SshOnboard, plan, known: list[str]
             what = sorted([k for k in bind if bind[k] != old.get(k)] + ["ssh." + k for k in bind["ssh"] if bind["ssh"][k] != old.get("ssh", {}).get(k)])
             raise ProxmoxError("the cluster or the SSH binding changed since the plan was previewed and approved (the commands differ): nothing was applied; preview again"
                                + (f" [changed: {', '.join(what)}]" if what else ""))
-        for t in rotates:
-            u, _, n = t.partition("!")
+        for tok in rotates:                 # (was `t`, which shadowed the TLS trust used by _same_node below: every rotation crashed)
+            u, _, n = tok.partition("!")
             adm.token_delete(u, n)
         res = pp.apply_plan(adm, pl, d)
         installed = True                    # set first: a failure part-way must still remove what was created
@@ -528,7 +534,12 @@ def exec_onboard(rt: Runtime, db: Session, m: SshOnboard, plan, known: list[str]
         eid = str(ep.id) if ep else prov._register(rt, db, m_named(m, r), plan, known, ep, _api_url(r), ca, fp, policy, dict(res.secrets), d)
         mg = prov._merge_managed(dict(stored.managed) if stored else {}, res)
         prov._upsert_policy(db, eid, policy, pd, pp.stored_design(pl), "A", mg, prov._token_state(d, {k: v.get("gen", 1) + 1 for k, v in (stored.tokens if stored else {}).items()}), verification)
+        prev = db.execute(text("SELECT credential_id FROM ssh_identities WHERE endpoint_id = :e"), {"e": eid}).scalar()
         db.execute(text("UPDATE ssh_identities SET removed_at = now() WHERE endpoint_id = :e AND removed_at IS NULL"), {"e": eid})
+        if prev is not None and str(prev) != str(idata["key_credential_id"]):    # re-onboarding replaced the ICS's SSH key: the old private key must not stay usable
+            c_old = cred_service.get_row(db, prev)
+            if c_old is not None and c_old.purged_at is None:
+                cred_service.revoke(db, prev, actor="provider.ssh_onboard", reason="ICS SSH identity key replaced by re-onboarding")
         db.execute(text("INSERT INTO ssh_identities (endpoint_id, customer_id, credential_id, host, port, account, node, hostkey_algo, hostkey_fp, key_fp, helper_sha256, "
                         "conf_sha256, sudoers_sha256, authorized_line) VALUES (:e, :c, :cr, :h, :p, :a, :n, :ha, :hf, :kf, :hs, :cs, :ss, :al) "
                         "ON CONFLICT (endpoint_id) DO UPDATE SET customer_id = EXCLUDED.customer_id, credential_id = EXCLUDED.credential_id, host = EXCLUDED.host, "

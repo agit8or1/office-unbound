@@ -1044,7 +1044,9 @@ def _error_dict(e: BaseException, known: list[str]) -> dict:
     if isinstance(e, _SAFE_ERRORS):
         msg = str(e)[:500]
     else:  # arbitrary exceptions (pydantic, SQLAlchemy, httpx) can embed parameter values: never pass their text through
-        log.error("job failed with %s", type(e).__name__)
+        import traceback as _tb   # frames only (file:line:function) — never the exception text, which can embed parameter values
+        where = " <- ".join(f"{f.filename.rsplit('/ics/', 1)[-1]}:{f.lineno}:{f.name}" for f in reversed(_tb.extract_tb(e.__traceback__)[-6:]))
+        log.error("job failed with %s at %s", type(e).__name__, where)
         msg = "internal error; see the server log"
     return {"type": type(e).__name__, "message": audit.redact(msg, known)}
 
