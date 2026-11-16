@@ -17,6 +17,7 @@ from typing import Any
 
 from pydantic import BaseModel, ConfigDict, Field
 
+from .netmodel import NetworkModel, resolve as resolve_network
 from .catalog import Catalog, Component, Profile, VmLayout, get_catalog
 
 PLAN_VERSION = 1
@@ -536,9 +537,19 @@ def create_steps(vms: list[dict], inp: PlanInput, cat: Catalog, extra_nic: bool 
     return steps
 
 
+def _nic(inp: PlanInput, net: dict | None, vm: str) -> dict:
+    if net is None:
+        return {"bridge": inp.bridge, "vlan": inp.vlan}
+    d = {"bridge": net["vnet"], "vlan": None}
+    if vm in net["addresses"]:
+        d.update(ip=net["addresses"][vm], gw=net["gateway"])
+    return d
+
+
 # ---- main ---------------------------------------------------------------------------------------------------
 
-def generate_plan(inp: PlanInput, cap: Capacity, cat: Catalog | None = None, existing: dict[str, ExistingVm] | None = None) -> dict:
+def generate_plan(inp: PlanInput, cap: Capacity, cat: Catalog | None = None, existing: dict[str, ExistingVm] | None = None,
+                  networks: "NetworkModel | None" = None, scope_networks: tuple[str, ...] | None = None) -> dict:
     cat = cat or get_catalog()
     existing = existing or {}
     errors: list[dict] = []
@@ -563,11 +574,11 @@ def generate_plan(inp: PlanInput, cap: Capacity, cat: Catalog | None = None, exi
         errors.append(_err("unknown_os_image", f"os image {inp.os_image!r} is not in the catalog"))
     elif not osimg.sha256:
         warnings.append(_err("os_image_unpinned", f"OS template {osimg.template!r} has no pinned checksum in the catalog"))
-    if cap.bridges is not None and inp.bridge not in cap.bridges:
+    if networks is None and cap.bridges is not None and inp.bridge not in cap.bridges:
         errors.append(_err("unknown_bridge", f"bridge {inp.bridge!r} is not in the inventory"))
     if not cap.nodes:
         errors.append(_err("no_inventory", "no node inventory is available for the endpoint; run inventory.refresh first"))
-    if inp.vlan is None:
+    if networks is None and inp.vlan is None:
         warnings.append(_err("no_vlan_isolation", "no VLAN is set: guests share the untagged bridge network, so tenants/deployments are NOT network-isolated "
                                                   "from other guests on that bridge (firewall rules in the plan still apply inside the VMs)"))
     if osimg is not None and osimg.id != "ubuntu-24.04":
@@ -603,6 +614,13 @@ def generate_plan(inp: PlanInput, cap: Capacity, cat: Catalog | None = None, exi
     _size(vms, cat)
     capacity = _place(vms, inp, prof, cat, cap, existing, errors, warnings)
     derived = _derive(vms, inp, prof, cat, warnings)
+    net = None
+    if networks is not None:
+        net, nerr, nwarn = resolve_network(networks, inp.customer_id, inp.endpoint, inp.bridge, scope_networks, [v.name for v in vms])
+        errors.extend(nerr)
+        warnings.extend(nwarn)
+        if inp.vlan is not None:
+            errors.append(_err("network_vlan_with_model", "`vlan` must not be set when a network model assigns the customer's VNet"))
     vm_out = []
     tags_base = ["ou-managed", f"ou-deployment-{inp.deployment_id}", f"ou-customer-{inp.customer_id}"]
     for v in sorted(vms, key=lambda x: x.name):
@@ -612,7 +630,7 @@ def generate_plan(inp: PlanInput, cap: Capacity, cat: Catalog | None = None, exi
             "os_image": {"id": osimg.id, "template": osimg.template, "sha256": osimg.sha256} if osimg else None,
             "cores": v.cores, "memory_mb": v.memory_mb,
             "disks": [{"name": d["name"], "size_gb": d["size_gb"], "storage": d.get("storage"), "purpose": d["purpose"]} for d in v.disks],
-            "nics": [{"bridge": inp.bridge, "vlan": inp.vlan}], "node": v.node, "anti_affinity": v.anti_affinity, "users": v.users,
+            "nics": [_nic(inp, net, v.name)], "node": v.node, "anti_affinity": v.anti_affinity, "users": v.users,
             "hostname": v.name, "tags": tags_base, "stateful": any(d["name"] != "root" for d in v.disks)})
     try:
         steps = order_steps(create_steps(vm_out, inp, cat))
@@ -621,7 +639,7 @@ def generate_plan(inp: PlanInput, cap: Capacity, cat: Catalog | None = None, exi
         steps = []
     total_disk = sum(d["size_gb"] for v in vm_out for d in v["disks"])
     plan = {**base, "profile": {"name": prof.name, "version": prof.version, "maturity": prof.maturity},
-            "vms": vm_out, **derived, "steps": steps,
+            "vms": vm_out, **derived, **({"network": net} if net else {}), "steps": steps,
             "consumption": {"vms": len(vm_out), "cores": sum(v["cores"] for v in vm_out), "memory_mb": sum(v["memory_mb"] for v in vm_out),
                             "disk_gb": total_disk, "est_seconds": sum(s["est_seconds"] for s in steps)},
             "capacity": capacity, "warnings": sorted(warnings, key=canon), "errors": sorted(errors, key=canon)}

@@ -26,6 +26,18 @@ LOG_MAX = 2000
 
 # ---- persistence ---------------------------------------------------------------------------------------------
 
+def _ipconfigs(p: dict, boot: bool) -> tuple:
+    n = (p.get("nics") or [{}])[0]
+    if n.get("ip"):   # per-customer VNet: static address from the plan (no DHCP on customer VNets)
+        return (IpConfig(0, n["ip"], n.get("gw")),)
+    return (IpConfig(0, "dhcp"),) if boot else ()
+
+
+def _nameserver(ctx) -> str | None:
+    dns = (ctx.plan.get("network") or {}).get("dns") or []
+    return dns[0] if dns else None
+
+
 def seed_steps(rt, job_id: str, deployment_id: str, revision: int, steps: list[dict], plan_hash: str = "") -> None:
     """Create the job's step rows (idempotent). Steps already succeeded in an earlier job of the same (deployment, revision, plan_hash)
     are carried over; a different approved plan never reuses another plan's steps (review 3 M3)."""
@@ -259,7 +271,7 @@ def h_provider_task(ctx: StepCtx) -> dict:
                                             if i > 0 and (new is None or d["name"] in new)),
                             cloudinit_storage=p["disks"][0]["storage"] if ci else None,
                             ciuser=bc.get("ciuser"), sshkeys=tuple(bc.get("sshkeys", ())), smbios_serial=bc.get("smbios_serial"), smbios_sku=bc.get("smbios_sku"), smbios_family=bc.get("smbios_family"),
-                            ipconfigs=(IpConfig(0, "dhcp"),) if bc else (), ciupgrade=False if bc else None,
+                            ipconfigs=_ipconfigs(p, bool(bc)), nameserver=_nameserver(ctx), ciupgrade=False if bc else None,
                             description=f"Office Unbound deployment {ctx.slug}: {ci.get('hostname', vm)}" if ci else None)
         done = _poll(ctx, prov.configure_vm(ref, spec), f"configure {vm}")
         leaked = False
