@@ -1,0 +1,13 @@
+== T02 WebDAV round-trip (run 8e1ee6fc11) ==
+PASS webdav base path - using /remote.php/dav/files/bob
+PASS MKCOL - created ou-lab-tests-8e1ee6fc11
+PASS PUT small.txt - HTTP 201
+PASS GET small.txt identical - sha256 533d3a272a06
+PASS PUT big.bin - HTTP 201
+PASS GET big.bin identical - sha256 d7878fd29565
+PASS PROPFIND lists files - both files listed
+PASS MOVE (rename) - HTTP 201
+PASS renamed content intact - hash ok
+PASS data after opencloud restart - big.bin identical after restart
+PASS cleanup - deleted
+-- T02 WebDAV round-trip: 11 PASS, 0 FAIL, 0 SKIP

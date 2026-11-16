@@ -37,3 +37,16 @@ def test_h2_matching_release_is_accepted_and_missing_is_refused(tmp_path, monkey
 def test_h2_apt_is_told_to_treat_release_info_changes_as_errors():
     from ou_agent import guesthelper as gh
     assert "Acquire::AllowReleaseInfoChange=false" in gh._apt_opts()
+
+
+def test_distro_suites_are_not_subject_to_the_channel_contract(tmp_path, monkeypatch):
+    """artifacts-core lab run: `noble-updates` has Codename=noble; the check refused every distro package install. Only the OU repo is checked."""
+    gh = _setup(tmp_path, monkeypatch)
+    (tmp_path / "sources.list").write_text(
+        "deb [signed-by=/usr/share/keyrings/ubuntu-archive-keyring.gpg] http://archive.ubuntu.com/ubuntu noble-updates main\n"
+        "deb [signed-by=/etc/ou-agent/apt/keyrings/ou-repo.asc] https://repo.example/apt stable main\n")
+    d = tmp_path / "lists"
+    d.mkdir()
+    (d / "archive.ubuntu.com_ubuntu_dists_noble-updates_InRelease").write_text("Suite: noble-updates\nCodename: noble\n-----BEGIN PGP SIGNATURE-----\nx\n")
+    (d / "repo.example_dists_stable_InRelease").write_text("Suite: stable\nCodename: stable\n-----BEGIN PGP SIGNATURE-----\nx\n")
+    gh._check_channel_release(str(d))

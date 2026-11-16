@@ -51,9 +51,12 @@ def test_real_catalog_loads_and_is_complete():
     for comp in c.components.values():  # every formula cites its evidence
         for f in (comp.resources.cores, comp.resources.memory_mb, comp.resources.disk_gb, *(v.size_gb for v in comp.volumes)):
             assert f.source
-    # OCI artifacts are placeholders until the build pipeline pins them; plans must refuse to execute meanwhile.
-    # `office` is pinned to the LAB-signed Office Unbound Docs image (2026-11-15); `files` is still a placeholder.
-    assert not c.components["office"].unpinned and c.components["files"].unpinned
+    # artifacts-core (2026-11-16): office, identity (Keycloak) and files (OpenCloud) are pinned by digest and signed into the DEV channel by the hardened signer
+    for n in ("office", "identity", "files"):
+        assert not c.components[n].unpinned, n
+    for a in (*c.components["identity"].artifacts, *c.components["files"].artifacts):
+        if a.kind == "oci":
+            assert a.signed and a.unit is not None and a.unit.secrets, a.name   # configured unit, secrets by name only
 
 
 def test_every_stock_profile_generates_a_plan_without_structural_errors():
@@ -151,7 +154,9 @@ def test_plan_contents_small_profile():
 
 
 def test_unpinned_artifacts_block_execution_with_explanation():
-    p = generate_plan(inp(), cap(), load_catalog())        # real catalog: OCI digests are placeholders
+    c = load_catalog()
+    next(a for a in c.components["files"].artifacts if a.kind == "oci").digest = "sha256:"    # an unpinned placeholder anywhere blocks the plan
+    p = generate_plan(inp(), cap(), c)
     assert not p["executable"] and "artifact_unpinned" in codes(p["errors"])
     assert p["vms"] and p["steps"]                        # still previewable
 
@@ -295,7 +300,17 @@ def test_steps_form_a_valid_dependency_order():
     inst = next(s for s in p["steps"] if s["key"] == "comp.install:acme-prod-files:files")
     assert [r["runbook"] for r in inst["params"]["runbooks"]] == ["podman.pull_verified", "podman.deploy_unit"]
     assert inst["params"]["runbooks"][0]["params"]["image"].endswith("@" + DIGEST)   # the exact shape the node agent accepts
-    assert inst["params"]["runbooks"][1]["params"]["type"] == "container" and inst["params"]["runbooks"][1]["params"]["component"] == "files"
+    dep = inst["params"]["runbooks"][1]["params"]
+    assert dep["type"] == "container-hostnet" and dep["component"] == "files" and dep["ports"] == []   # configured unit: no published ports on host networking
+    assert {x["name"] for x in dep["secrets"]} == {"ldap-bind-password", "oc-admin-password"} and {v["name"] for v in dep["volumes"]} == {"data", "config", "tls"}
+    kc = next(s for s in p["steps"] if s["key"] == "comp.install:acme-prod-id:identity")["params"]["runbooks"]
+    kcp = next(r for r in kc if r["runbook"] == "podman.deploy_unit")["params"]
+    assert kcp["env"]["KC_HOSTNAME"] == "https://auth.acme.example" and "KC_DB_PASSWORD" not in kcp["env"]   # {domain} filled in; no secret value in the plan
+    # the exact shape the node agent's closed schema accepts (the same check the helper runs on the node)
+    from ou_agent import guestspec as gs
+    reg = {"registries": ["registry.ou.invalid"]}
+    for params in (kcp, dep):
+        assert gs.check_deploy(params, reg)["image"] == params["image"]
     inst = next(s for s in p["steps"] if s["key"] == "comp.install:acme-prod-groupware:groupware")
     assert {r["runbook"] for r in inst["params"]["runbooks"]} == {"pkg.install_pinned"}
 

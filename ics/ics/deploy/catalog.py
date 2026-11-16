@@ -42,12 +42,37 @@ class Formula(_M):
         return int(v.to_integral_value(rounding=ROUND_CEILING))
 
 
+class UnitVolume(_M):
+    name: str = Field(pattern=r"^[a-z][a-z0-9-]{0,30}[a-z0-9]$")
+    path: str = Field(pattern=r"^/[A-Za-z0-9_.-]+(/[A-Za-z0-9_.-]+){0,6}$")
+    read_only: bool = False
+
+
+class UnitSecret(_M):
+    name: str = Field(pattern=r"^[a-z][a-z0-9-]{1,40}$", description="an EXISTING podman secret on the node (secret values never pass through the catalog or the plan)")
+    env: str = Field(pattern=r"^[A-Z][A-Z0-9_]{0,63}$")
+
+
+class OciUnit(_M):
+    """How the container unit is configured on the node: the closed `podman.deploy_unit` shape of the agent (agent/ou_agent/guestspec.py check_deploy), so
+    the plan carries exactly what the unit needs and nothing the agent would refuse. `{domain}` in an env value is replaced by the customer's domain.
+    Values here are configuration, never secrets (secrets are named podman secrets)."""
+    type: Literal["container", "container-hostnet"] = "container"
+    env: dict[Annotated[str, Field(pattern=r"^[A-Z][A-Z0-9_]{0,63}$")], Annotated[str, Field(pattern=r"^[A-Za-z0-9_./:@,+={}-]{0,256}$")]] = {}
+    secrets: list[UnitSecret] = Field(default=[], max_length=8)
+    volumes: list[UnitVolume] = Field(default=[], max_length=8)
+    memory_mib: int = Field(default=512, ge=16, le=65536)
+    read_only: bool = True
+    user: str | None = Field(default=None, pattern=r"^[0-9]{1,5}(:[0-9]{1,5})?$")
+
+
 class OciArtifact(_M):
     name: str = Field(pattern=NAME)
     kind: Literal["oci"]
     image: str = Field(pattern=r"^[a-z0-9][a-z0-9.:/_-]{2,200}$")
     digest: str = Field(description="sha256:<64 hex>, or exactly 'sha256:' as an explicit unpinned placeholder")
     version: str = Field(pattern=PIN_RE)
+    unit: OciUnit | None = Field(default=None, description="node-side configuration of the container unit (env, volumes, named secrets, host networking); absent = bare unit with the component ports")
     signed: bool = Field(default=True, description="false = digest is pinned but the image has NOT been signed through the hardened signing path; plans containing it are refused (artifact_unsigned)")
 
     @field_validator("digest")

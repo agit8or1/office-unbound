@@ -331,7 +331,10 @@ def _check_channel_release(lists=None):
     lists = lists or APT_STATE + "/lists"
     suites = []
     for ln in open(os.path.join(APT_DIR, "sources.list")).read().split("\n"):
-        if ln.strip() and not ln.startswith("#"):
+        # only the Office Unbound repository carries our channel contract (Suite == Codename == channel). Distro suites (noble-updates has
+        # Codename=noble) are covered by their own archive keyring: applying the check to them refused EVERY distro package install (found by the
+        # artifacts-core lab run, docs/status/artifacts-core-results.md)
+        if ln.strip() and not ln.startswith("#") and "signed-by=/etc/ou-agent/apt/keyrings/ou-repo.asc" in ln:
             suites.append(ln.split()[3])
     for s in suites:
         files = [f for f in os.listdir(lists) if f.endswith("_dists_%s_InRelease" % s)]

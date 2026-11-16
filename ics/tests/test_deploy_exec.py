@@ -230,7 +230,7 @@ def test_catalog_api_and_preview_has_no_side_effects(client, actors, rt, env, mk
     prof = o.get(f"{H}/catalog/profiles").json()
     assert {p["name"] for p in prof["profiles"]} == {"lab", "small", "medium", "large", "ha", "msp-multi", "dedicated", "custom"}
     comp = o.get(f"{H}/catalog/components").json()
-    assert any(c["name"] == "files" and c["unpinned_artifacts"] for c in comp["components"])
+    assert any(c["name"] == "meetings" and c["unpinned_artifacts"] for c in comp["components"])   # files/identity are pinned + signed since artifacts-core; Jitsi is not
     p = preview(actors[0])
     assert p["executable"] is False or p["executable"] is True
     assert p["plan_hash"] and p["vms"] and p["steps"]
@@ -263,9 +263,9 @@ def test_create_refusals(client, actors, rt, env):
 def test_real_catalog_refuses_unpinned_artifacts(client, actors, rt, monkeypatch):
     seed_inventory(rt)
     monkeypatch.undo()
-    p = preview(actors[0])
+    p = preview(actors[0], optional={"meetings": True})   # Jitsi images are still placeholders; files/identity are pinned and signed (artifacts-core)
     assert any(e["code"] == "artifact_unpinned" for e in p["errors"])
-    r = submit(actors, rt, "deployment.create", {"spec": spec_body(), "plan_hash": p["plan_hash"]}, expect=422)
+    r = submit(actors, rt, "deployment.create", {"spec": spec_body(optional={"meetings": True}), "plan_hash": p["plan_hash"]}, expect=422)
     assert "artifact_unpinned" in r.text
 
 
