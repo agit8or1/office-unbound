@@ -12,7 +12,7 @@ set -euo pipefail
 HERE=$(cd "$(dirname "$0")" && pwd); BUILD=$HERE/../../build
 M=${DOCS_MACHINE:-ou-office1}; CHANNEL=${CHANNEL:-dev}; : "${REPO_URL:?REPO_URL=http://<repo ip>:8077}"
 FPR=$(cat "$BUILD/keys/ou-release-lab.FINGERPRINT")
-run() { sudo systemd-run -M "$M" --wait --pipe -q /bin/bash -s -- "$@"; }
+run() { sudo systemd-run -M "$M" --wait --pipe --collect -q /bin/bash -s -- "$@"; }
 CA=${OU_CA_FILE:-}
 
 probe_start() {  # external availability probe through nginx: one line "epoch_ms code" every ~0.2 s

@@ -9,7 +9,7 @@ HERE=$(cd "$(dirname "$0")" && pwd)
 ROUNDS=${ROUNDS:-5}; COLD=${COLD:-1}; LOAD=${LOAD:-0}; LABEL=${LABEL:-run}; M=ou-office1
 ROOT=/var/lib/machines/$M
 mkdir -p "$LOGDIR"
-ex() { sudo systemd-run -M $M --quiet --pipe --wait /bin/sh -c "$1"; }
+ex() { sudo systemd-run -M $M --quiet --pipe --wait --collect /bin/sh -c "$1"; }
 evict() { sudo python3 -I -c '
 import os, sys
 root = sys.argv[1]; n = 0

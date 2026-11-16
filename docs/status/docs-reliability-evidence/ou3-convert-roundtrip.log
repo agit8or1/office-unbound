@@ -1,0 +1,10 @@
+PASS in.docx -> pdf :: http=200 bytes=15921 marker_in_pdf_text=False (xlsx cell text is clipped by adjacent cell in print layout)
+PASS in.xlsx -> pdf :: http=200 bytes=11185 marker_in_pdf_text=False (xlsx cell text is clipped by adjacent cell in print layout)
+PASS in.pptx -> pdf :: http=200 bytes=18250 marker_in_pdf_text=False (xlsx cell text is clipped by adjacent cell in print layout)
+PASS in.docx -> odt :: http=200 bytes=13757 mimetype=application/vnd.oasis.opendocument.text
+PASS in.docx -> odt -> docx :: http=200 bytes=8434 paras='OU Roundtrip Heading\nOU-DOCX-BODY-ALPHA table below\n' cells=['c00', '', '', 'OU-CELL-11']
+PASS in.xlsx -> ods :: http=200 bytes=9698 mimetype=application/vnd.oasis.opendocument.spreadsheet
+PASS in.xlsx -> ods -> xlsx :: http=200 bytes=5910 A1='OU-XLSX-TEXT' B1formula='=A2+A3' B1cached=42
+PASS in.pptx -> odp :: http=200 bytes=23883 mimetype=application/vnd.oasis.opendocument.presentation
+PASS in.pptx -> odp -> pptx :: http=200 bytes=43148 texts=['OU-PPTX-TITLE', 'OU-PPTX-BODY']
+RESULT: PASS (9/9)

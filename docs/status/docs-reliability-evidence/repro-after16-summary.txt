@@ -1,0 +1,6 @@
+p16-cold-load60 r1 start_returned_after=67s discovery_200_after=67s t08_rc=0 nochild_warnings=0 load=60 cold=1 | t08_office_concurrency exit=0 40s: -- T08 Collabora 30 concurrent sessions via OpenCloud: 5 PASS, 0 FAIL, 0 SKIP
+p16-cold-load60 r2 start_returned_after=65s discovery_200_after=65s t08_rc=0 nochild_warnings=0 load=60 cold=1 | t08_office_concurrency exit=0 44s: -- T08 Collabora 30 concurrent sessions via OpenCloud: 5 PASS, 0 FAIL, 0 SKIP
+p16-cold-load60 r3 start_returned_after=47s discovery_200_after=47s t08_rc=0 nochild_warnings=4 load=60 cold=1 | t08_office_concurrency exit=0 46s: -- T08 Collabora 30 concurrent sessions via OpenCloud: 5 PASS, 0 FAIL, 0 SKIP
+p16-cold-load60 r4 start_returned_after=40s discovery_200_after=40s t08_rc=0 nochild_warnings=2 load=60 cold=1 | t08_office_concurrency exit=0 44s: -- T08 Collabora 30 concurrent sessions via OpenCloud: 5 PASS, 0 FAIL, 0 SKIP
+p16-cold-load60 r5 start_returned_after=68s discovery_200_after=68s t08_rc=0 nochild_warnings=0 load=60 cold=1 | t08_office_concurrency exit=0 36s: -- T08 Collabora 30 concurrent sessions via OpenCloud: 5 PASS, 0 FAIL, 0 SKIP
+p16-cold-load60: 0/5 rounds failed
