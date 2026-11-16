@@ -117,7 +117,7 @@ fetch_syft() {
 do_build() {
   [ "$SOURCE_DATE_EPOCH" -gt 1000000000 ] || { echo "set SOURCE_DATE_EPOCH (unix seconds): a golden image is built for an explicit epoch, never for 'now'" >&2; exit 3; }
   [ "$UPSTREAM_MODE" = bootstrap ] || { echo "build for UPSTREAM_MODE=$UPSTREAM_MODE is not supported" >&2; exit 5; }
-  for t in "mmdebstrap mmdebstrap" "systemd-repart systemd-repart" "mkfs.vfat dosfstools" "mkfs.ext4 e2fsprogs" "mcopy mtools" "syslinux syslinux" "sgdisk gdisk" "qemu-img qemu-utils" "sfdisk util-linux" "unshare util-linux"; do need ${t% *} ${t#* }; done
+  for t in "mmdebstrap mmdebstrap" "systemd-repart systemd-repart" "mkfs.vfat dosfstools" "mkfs.ext4 e2fsprogs" "mcopy mtools" "syslinux syslinux" "sgdisk gdisk" "qemu-img qemu-utils" "sfdisk util-linux" "unshare util-linux" "faketime faketime" "debugfs e2fsprogs" "dumpe2fs e2fsprogs"; do need ${t% *} ${t#* }; done
   do_verify
   fetch_syft
   local R=$WORK/rootfs PL=$WORK/payload
@@ -178,11 +178,30 @@ EOT
   awk -F: -v OFS=: -v d=$(( SOURCE_DATE_EPOCH / 86400 )) '$3 ~ /^[0-9]+$/ && $3 > d {$3=d} {print}' "$R/etc/shadow" > "$R/etc/shadow.new"
   cat "$R/etc/shadow.new" > "$R/etc/shadow"; rm "$R/etc/shadow.new"
   find "$R" -xdev -newermt "@$SOURCE_DATE_EPOCH" -exec touch -h --date="@$SOURCE_DATE_EPOCH" {} + 2>/dev/null || true
-  # ---- tree -> partitioned raw image (no mount, no loop device)
-  local D=$WORK/repart.d; rm -rf "$D"; mkdir -p "$D"
-  printf '[Partition]\nType=esp\nUUID=%s\nLabel=ou-boot\nFormat=vfat\nCopyFiles=/boot:/\nSizeMinBytes=256M\nSizeMaxBytes=256M\n' "$ESP_UUID" > "$D/10-boot.conf"
-  printf '[Partition]\nType=root-x86-64\nUUID=%s\nLabel=ou-root\nFormat=ext4\nCopyFiles=/\nExcludeFiles=/boot\nMakeDirectories=/boot\n' "$ROOT_UUID" > "$D/20-root.conf"
-  systemd-repart --empty=create --size="$IMAGE_SIZE" --definitions="$D" --root="$R" --seed=7c1c2cb3-8a63-4cf5-9a4f-0a0f1f2f3f40 --dry-run=no --offline=yes "$WORK/raw.img"
+  # ---- tree -> partitioned raw image (no mount, no loop device). Every filesystem timestamp that mkfs/mcopy would take from the wall clock or from the
+  # builder's own file ctime/atime is pinned: libfaketime freezes the clock at SOURCE_DATE_EPOCH, a pinned mke2fs.conf + fixed UUID/hash seed make the ext4
+  # layout independent of the builder, and every inode's ctime/atime/crtime is rewritten to SOURCE_DATE_EPOCH (mke2fs -d copies the SOURCE's ctime/atime).
+  local FT=(faketime -f "$(date -u -d "@$SOURCE_DATE_EPOCH" '+%Y-%m-%d %H:%M:%S')")
+  local D=$WORK/repart.d BOOTDIR=$WORK/bootdir; rm -rf "$D" "$BOOTDIR"; mkdir -p "$D"
+  mv "$R/boot" "$BOOTDIR"; mkdir "$R/boot"; touch -h --date="@$SOURCE_DATE_EPOCH" "$R/boot"
+  printf '[Partition]\nType=esp\nUUID=%s\nLabel=ou-boot\nSizeMinBytes=256M\nSizeMaxBytes=256M\n' "$ESP_UUID" > "$D/10-boot.conf"
+  printf '[Partition]\nType=root-x86-64\nUUID=%s\nLabel=ou-root\n' "$ROOT_UUID" > "$D/20-root.conf"
+  systemd-repart --empty=create --size="$IMAGE_SIZE" --definitions="$D" --seed=7c1c2cb3-8a63-4cf5-9a4f-0a0f1f2f3f40 --dry-run=no --offline=yes "$WORK/layout.img" >/dev/null
+  local rootbytes; rootbytes=$(sfdisk -J "$WORK/layout.img" | python3 -I -c 'import json,sys;print(json.load(sys.stdin)["partitiontable"]["partitions"][1]["size"]*512)')
+  rm -f "$WORK/root.ext4"
+  MKE2FS_CONFIG="$HERE/mke2fs.conf" "${FT[@]}" mkfs.ext4 -q -F -t ext4 -U "$ROOT_FS_UUID" -E "hash_seed=$ROOT_FS_UUID,lazy_itable_init=0,lazy_journal_init=0,root_owner=0:0" \
+    -L ou-root -d "$R" "$WORK/root.ext4" "$((rootbytes / 1024))k"
+  local used; used=$(dumpe2fs -h "$WORK/root.ext4" 2>/dev/null | awk '/^Inode count:/{c=$3} /^Free inodes:/{f=$3} END{print c-f}')
+  python3 -I -c 'import sys
+n, t = int(sys.argv[1]), sys.argv[2]
+for i in range(2, n + 12):
+    for f in ("atime", "ctime", "crtime"):
+        print("set_inode_field <%d> %s @%s" % (i, f, t))' "$used" "$SOURCE_DATE_EPOCH" | "${FT[@]}" debugfs -w -f - "$WORK/root.ext4" >/dev/null 2>"$WORK/debugfs.err" || true
+  [ "$(grep -c . "$WORK/debugfs.err" || true)" -lt 50 ] || { echo "debugfs inode normalisation failed" >&2; head "$WORK/debugfs.err" >&2; exit 7; }
+  printf '[Partition]\nType=esp\nUUID=%s\nLabel=ou-boot\nFormat=vfat\nCopyFiles=%s:/\nSizeMinBytes=256M\nSizeMaxBytes=256M\n' "$ESP_UUID" "$BOOTDIR" > "$D/10-boot.conf"
+  printf '[Partition]\nType=root-x86-64\nUUID=%s\nLabel=ou-root\nCopyBlocks=%s\n' "$ROOT_UUID" "$WORK/root.ext4" > "$D/20-root.conf"
+  "${FT[@]}" systemd-repart --empty=create --size="$IMAGE_SIZE" --definitions="$D" --seed=7c1c2cb3-8a63-4cf5-9a4f-0a0f1f2f3f40 --dry-run=no --offline=yes "$WORK/raw.img"
+  rm -f "$WORK/root.ext4" "$WORK/layout.img"
   # BIOS boot: protective-MBR boot code + legacy-bootable attribute on the FAT partition + syslinux installed into it (offset install, works on a plain file)
   dd if=/usr/lib/syslinux/mbr/gptmbr.bin of="$WORK/raw.img" bs=440 count=1 conv=notrunc status=none
   sgdisk -A 1:set:2 "$WORK/raw.img" >/dev/null
@@ -199,7 +218,7 @@ EOT
   if [ ! -s "$LOCK" ] || [ "${OU_RELOCK:-0}" = 1 ]; then cp "$WORK/packages.lock.new" "$LOCK"; echo "wrote package lock $LOCK" >&2; fi
   python3 -I "$HERE/manifest.py" provenance --os "$OS" --epoch "$SOURCE_DATE_EPOCH" --recipe-dir "$HERE" --lock "$LOCK" --inrelease "$WORK/inrelease.sha256" \
     --commit "${OU_RECIPE_COMMIT:-unknown}" --tool "mmdebstrap=$(mmdebstrap --version)" --tool "systemd-repart=$(systemd-repart --version | head -1)" \
-    --tool "mkfs.ext4=$(mkfs.ext4 -V 2>&1 | head -1)" --tool "qemu-img=$(qemu-img --version | head -1)" --tool "syft=$SYFT_VERSION" > "$OUT/$IMG.provenance.json"
+    --tool "mkfs.ext4=$(mkfs.ext4 -V 2>&1 | head -1)" --tool "qemu-img=$(qemu-img --version | head -1)" --tool "faketime=$(dpkg-query -W -f '${Version}' faketime)" --tool "syft=$SYFT_VERSION" > "$OUT/$IMG.provenance.json"
   echo "built $OUT/$IMG ($(du -h "$OUT/$IMG" | cut -f1))"
 }
 

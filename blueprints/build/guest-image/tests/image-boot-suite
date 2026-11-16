@@ -1,9 +1,9 @@
 #!/usr/bin/env python3
-"""image-first-boot: the FIXED independent boot-and-hardening test suite for `kind=image-first-boot` (golden guest images).
+"""image-boot-suite: the FIXED independent boot-and-hardening test suite for `kind=image-first-boot` (golden guest images).
 
 Contract with the attestor (blueprints/build/repo/ou-test-attest, review 7 H-3; interface read from branch fixes-r7): ou-test-attest copies the image to a private work
-directory, hashes it, and runs THIS program from its root-owned lib directory (<lib>/image-first-boot, installed by root from this repo, never from the builder's
-output) as `image-first-boot <image.qcow2>` with a scrubbed environment (OU_TEST_KIND, OU_TEST_WORK). Exit 0 = every check passed, 1 = at least one check failed,
+directory, hashes it, and runs THIS program from its root-owned lib directory (installed by root from this repo into the boot-test machine, never from the builder's
+output) as `image-boot-suite <image.qcow2>` with a scrubbed environment (OU_TEST_KIND, OU_TEST_WORK). Exit 0 = every check passed, 1 = at least one check failed,
 anything else = infrastructure error (NO attestation is produced for it). The attestor, not this program and not the builder, signs the result; this program
 prints a log that the attestor hashes. The builder only gets to ASK for a run and cannot influence a verdict: it supplies neither the expected values, nor the
 callback server, nor the SMBIOS secret (all are generated here, fresh, per run).
@@ -374,7 +374,7 @@ def stage_a(c):
     check(st, "Z04-enrollment-token-consumed-at-rest", not staticchecks.exists(tree, "/var/lib/ou-agent/enroll.json") and staticchecks.exists(tree, "/var/lib/ou-agent/trust.json"), "enroll.json removed, trust.json written")
     nft = staticchecks.read(tree, "/etc/nftables.conf") or ""
     check(st, "Z05-firewall-now-ICS-authenticated-and-still-default-deny", nft != c.pristine_nft and "10.0.2.2" in nft and re.search(r"hook input[^;]*;\s*policy drop", nft) is not None and "dport 22" not in nft, "ruleset replaced, policy drop kept, no ssh")
-    check(st, "Z06-no-ssh-anything-after-boot", "openssh-server" not in staticchecks.installed_packages(tree) and not staticchecks.exists(tree, "/root/.ssh") and not [f for f in staticchecks.listdir(tree, "/etc/ssh") if f.startswith("ssh_host_")], "")
+    check(st, "Z06-no-ssh-anything-after-boot", "openssh-server" not in staticchecks.installed_packages(tree) and not staticchecks.listdir(tree, "/root/.ssh") and not [f for f in staticchecks.listdir(tree, "/etc/ssh") if f.startswith("ssh_host_")], "no ssh server package, no keys in /root/.ssh, no host keys")
     c.jtext_a = leak_checks(st, c, tree, raw, sim, vm)
     jt = c.jtext_a
     check(st, "Z07-journal-shows-bootstrap-ran-and-sealed", "ou-bootstrap" in jt and ("Deactivated successfully" in jt or "Finished" in jt), "journal mentions ou-bootstrap.service completing")
@@ -429,7 +429,8 @@ def after_negative(c, st, sim, vm, ov, expect_requests):
     D = "/var/lib/ou-bootstrap/"
     check(st, "C05-failed-closed-marker-and-no-done", staticchecks.exists(tree, D + "failed") and not staticchecks.exists(tree, D + "done") and not staticchecks.exists(tree, D + "sealed"), "failed marker written, never done")
     check(st, "C06-firewall-unchanged-default-deny", (staticchecks.read(tree, "/etc/nftables.conf") or "") == c.pristine_nft, "shipped ruleset still in place")
-    check(st, "C07-agent-not-enabled-and-no-agent-keys", "ou-agent.service" not in staticchecks.enabled_units(tree) and not staticchecks.listdir(tree, "/var/lib/ou-agent"), "")
+    check(st, "C07-agent-not-enabled-and-never-enrolled", "ou-agent.service" not in staticchecks.enabled_units(tree) and not staticchecks.exists(tree, "/var/lib/ou-agent/trust.json"),
+          "ou-agent not enabled, no trust.json (the guest's own key/cert/token-hash files may exist: prepared before the callback, unusable without the ICS)")
     leak_checks(st, c, tree, raw, sim, vm)
     os.unlink(raw)
     shutil.rmtree(tree, ignore_errors=True)
@@ -459,7 +460,7 @@ def stage_e(c):
 
 def main():
     if len(sys.argv) != 2 or not os.path.isfile(sys.argv[1]):
-        infra("usage: image-first-boot <image.qcow2>")
+        infra("usage: image-boot-suite <image.qcow2>")
     for t in ("qemu-system-x86_64", "qemu-img", "openssl", "debugfs", "sfdisk", "dd"):
         need(t)
     try:

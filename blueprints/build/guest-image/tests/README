@@ -1,13 +1,15 @@
-Independent boot-test suite for golden guest images (kind `image-first-boot`).
+Independent boot-test suite for golden guest images (kind `image-first-boot` of ou-test-attest).
 
-  image-first-boot <image.qcow2>     exit 0 = all checks passed, 1 = a check failed, other = infrastructure error (no attestation)
+  image-boot-suite <image.qcow2>     exit 0 = every check passed AND every stage ran, 1 = a check failed, other = infrastructure error (no attestation)
   staticchecks.py                    offline hardening checks over an extracted image tree
   icssim.py                          throw-away ICS callback simulator (protocol pinned to ics.guest.callback by ics/tests/test_golden_prod.py)
-  tcprelay.py                        qemu guestfwd helper (the guest can reach exactly the simulator)
+  tcprelay.py                        qemu guestfwd helper (the guest can reach exactly the simulator, nothing else)
+  install-testsuite.sh               root-owned install into the boot-test machine
 
-Attestor contract (blueprints/build/repo/ou-test-attest `run image-first-boot <path>`, branch fixes-r7, attestation v2):
-  the attestor copies the image into its private work dir, then executes <lib>/image-first-boot <copy> with env OU_TEST_KIND=image-first-boot, OU_TEST_WORK=<dir>.
-  <lib> (default /usr/local/lib/ou-testrunner) must be root-owned, not group/world writable: install ALL files of this directory there with
-  `install -m 0755 image-first-boot` / `install -m 0644 *.py` (see install-testsuite.sh). The program is therefore never taken from the builder's output.
-Needs on the runner: qemu-system-x86_64, qemu-img, openssl, e2fsprogs (debugfs), util-linux (sfdisk), python3 + cryptography, ~6 GiB free in OU_TEST_WORK, 1.2 GiB RAM.
-Run it inside a throw-away container with no network (the guest is untrusted code under TCG; the user-mode network is `restrict=on`).
+Attestor contract (fixes-r7 `ou-test-attest run image-first-boot <path>` -> <lib>/image-first-boot <private copy>, attestation v2, exit 0/1/other):
+  oci-signing's testrunner/image-first-boot -> sudo image-boot-root -> boots the copy in the boot-test machine. That helper must run THIS suite there
+  (see docs/status/golden-image-prod-results.md "Integration with the attestor" for the exact change) and derive the verdict from the exit status and the
+  final `SUMMARY ... failed=0 ... complete=True` line, which this program prints itself.
+Needs in the machine: qemu-system-x86_64, qemu-img, openssl, e2fsprogs (debugfs), util-linux (sfdisk), python3 with `cryptography`, ~6 GiB free in
+OU_TEST_WORK (default /var/tmp), 1.2 GiB RAM. Wall clock under TCG: see the results document. The guest is untrusted code under emulation: the user-mode
+network is `restrict=on`; run it inside the throw-away boot-test machine, never on the signer host.

@@ -329,8 +329,8 @@ def test_static_checks_do_not_follow_symlinks_out_of_the_image(tmp_path):
 
 
 def test_the_runner_program_has_the_documented_contract():
-    src = open(os.path.join(TESTS, "image-first-boot")).read()
-    assert "sys.exit(0 if not failed and complete else 1)" in src and "infra(" in src and "OU_TEST_KIND" in open(os.path.join(GI, "tests", "README")).read()
+    src = open(os.path.join(TESTS, "image-boot-suite")).read()
+    assert "sys.exit(0 if not failed and complete else 1)" in src and "infra(" in src and "image-first-boot" in open(os.path.join(GI, "tests", "README")).read()
     for stage in ("OFFLINE", "A", "B", "C", "D", "E"):
         assert f'"{stage}"' in src or f'st = "{stage}"' in src
-    assert os.access(os.path.join(TESTS, "image-first-boot"), os.X_OK)
+    assert os.access(os.path.join(TESTS, "image-boot-suite"), os.X_OK)

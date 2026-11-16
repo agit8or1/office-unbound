@@ -92,5 +92,5 @@ ROOT_UUID=$ROOT_UUID /usr/local/sbin/ou-bootcfg
 
 apt-get -y autoremove --purge >/dev/null 2>&1 || true
 apt-get clean
-rm -rf /var/lib/apt/lists/* /var/log/*.log /var/log/apt/* /root/.bash_history /tmp/payload
+rm -rf /var/lib/apt/lists/* /var/log/*.log /var/log/apt/* /root/.bash_history /root/.gnupg /tmp/payload
 find /var/log -type f -name '*.log' -delete 2>/dev/null || true
