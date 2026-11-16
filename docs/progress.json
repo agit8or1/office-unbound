@@ -5,16 +5,16 @@
   "repository": "https://github.com/agit8or1/office-unbound",
   "updated": "2026-11-16",
   "stage": "pre-alpha (lab)",
-  "current_version": "0.2.0-dev.1",
+  "current_version": "0.2.0-dev.2",
   "releases": [
     {
-      "version": "0.2.0-dev.1",
+      "version": "0.2.0-dev.2",
       "date": "2026-11-16",
       "status": "prepared",
       "codename": "Beacon",
       "channel": "development",
       "highlights": [
-        "Development build 1 of 0.2.0 \"Beacon\": Proxmox sign-in connection wizard (nodes only, own pool/storage/network), single-admin approvals; alpha readiness continues"
+        "Development build 2 of 0.2.0 \"Beacon\": first production golden image (Debian 12, signed, boot-tested), wizard protections shown as always on"
       ],
       "notes_url": "https://github.com/agit8or1/office-unbound/blob/main/CHANGELOG.md",
       "changelog": "CHANGELOG.md"

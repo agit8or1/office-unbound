@@ -21,8 +21,9 @@ export const LEVELS: { id: Level; title: string; text: string; can: string[] }[]
   { id: 'operations', title: 'Operations', text: 'Everything in Monitoring, plus start, shut down and reboot the selected existing guests.', can: ['Everything in Monitoring', 'Start / shut down / reboot selected guests'] },
   { id: 'deploy', title: 'Deployment', text: 'Everything in Monitoring, plus create and manage its own new guests on the selected nodes, in its own pool, storage and network.', can: ['Everything in Monitoring', 'Create guests in the selected pools', 'Controlled updates and rollback of its own guests'] },
 ]
-// Shown as switches that stay OFF unless chosen; presets never turn them on.
-export const NEVER = ['Delete VMs or disks that Office Unbound did not create', 'Change storage, network or cluster configuration', 'Change Proxmox users or permissions', 'Open consoles or run commands in guests']
+// Protections that are ALWAYS on (owner, 2026-11-16: shown ticked and locked). No level grants the matching Proxmox rights, and the ICS refuses the actions.
+export const NEVER = ['Never delete VMs or disks that Office Unbound did not create', 'Never change storage, network or cluster configuration',
+  'Never change Proxmox users or permissions (except its own service account, during approved setup)', 'Never open consoles or run commands in your guests']
 
 export function emptySelection(): Selection {
   return { operate: [], watch: [], nodes: [], pools: [], storages: [], networks: [], templates: [], level: 'monitoring', allowMigrate: false, protected: [] }

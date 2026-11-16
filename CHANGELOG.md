@@ -12,6 +12,10 @@ isolated lab; nothing is production supported ([ROADMAP.md](ROADMAP.md)).
 
 Target: 0.2.0 "Beacon" (alpha readiness: security hardening, production no-SSH deployment, full stack).
 
+### 0.2.0-dev.2 (2026-11-16)
+- Connection wizard: the four protections (never delete VMs/disks it did not create, never change storage/network/cluster configuration, never change Proxmox users or permissions beyond its own service account, never open consoles or run commands in guests) are shown ticked and locked ("always on") instead of as greyed-out empty boxes.
+- **First production golden image** (owner-authorized): `ou-golden-debian-12-20261116` release version 1 with node agent 0.4.0 (published to the signed `dev` repo after an independent install test), reproducible (two builds byte-identical), independent boot test = enrollment proof + hardening suite 97/97, signed by the new `ou-image-sign sign-manifest` with a dedicated release key; the ICS trusts only that key's pin and the independent test runner. [host-changes](docs/status/host-changes.md)
+
 ### 0.2.0-dev.1 (2026-11-16)
 First numbered development build (ADR-0011 amendment: every production deploy gets its own `-dev.N`; earlier deploys of the 0.2 line all reported `0.2.0-dev`).
 - **Proxmox connection wizard (ADR-0016)**: sign in once with user name, password and TOTP (never stored; 30-minute Proxmox session), pick the hypervisor nodes only (existing VMs and containers are never selectable or shared), Office Unbound picks its own new pool, the roomiest disk storage and the shared bridge, then creates its own restricted service account, tokens, roles and ACLs as one approved plan; Manage access (add/remove nodes, repair, rotate, disconnect); every "add a cluster" entry point and `/setup` open it. Migration `0016p`. [ADR-0016](docs/adr/0016-proxmox-connection-wizard.md)

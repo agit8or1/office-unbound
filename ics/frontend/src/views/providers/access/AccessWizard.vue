@@ -269,8 +269,8 @@ function next() {
         </div>
         <p v-for="(m, k) in w.m.errors" :key="k" class="err" role="alert">{{ m }}</p>
         <label v-if="sel.level === 'deploy'" class="row"><input v-model="sel.allowMigrate" type="checkbox" /> Allow moving its own guests between the selected nodes (VM.Migrate)</label>
-        <fieldset class="ax-set"><legend>Never granted by any level</legend>
-          <label v-for="n in NEVER" :key="n" class="row muted"><input type="checkbox" disabled /> {{ n }}</label>
+        <fieldset class="ax-set"><legend>Protections (always on)</legend>
+          <label v-for="n in NEVER" :key="n" class="row" title="Always on: no level grants this, and Office Unbound refuses it"><input type="checkbox" checked disabled :aria-label="n + ' (always on)'" /> {{ n }} <span class="muted small">🔒 locked</span></label>
           <p class="muted small">Deleting a guest Office Unbound created is a separate, separately approved action. Proxmox cannot split "create" from "delete" inside a pool, so Office Unbound enforces it.</p>
         </fieldset>
         <p class="muted small">Visible nodes (status only): {{ visibleNodes(sel, guests).join(', ') || 'none' }}.</p>
