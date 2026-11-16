@@ -5,13 +5,28 @@ Policy: default REJECT for every transport/registry; only the allowlisted regist
 (cosign-format ECDSA P-256 key pair) that verifies against the ONE pinned public key. podman.pull_verified passes this file explicitly
 with --signature-policy, so neither the service user's ~/.config/containers/policy.json nor /etc/containers/policy.json is consulted."""
 import json
+import os
 import re
 import sys
 
 
-def policy(registries, keypath):
-    req = [{"type": "sigstoreSigned", "keyPath": keypath, "signedIdentity": {"type": "matchRepository"}}]
-    return {"default": [{"type": "reject"}], "transports": {"docker": {r: req for r in sorted(registries)}}}
+def policy(registries, keypath, identity=None):
+    """`identity` (ADR-0015): {serving registry: {"signed": registry host named in the signatures, "repos": ["ou/x", ...]}}.
+    A cosign payload binds the image to the docker-reference it was SIGNED for. When the signer addressed another registry host than the one
+    guests pull from, containers/image offers no prefix remap for repository-only identities (remapIdentity does not match them), so the policy
+    pins every allowed repository explicitly: scope `<serving>/<repo>` = sigstoreSigned by the one key with exactRepository `<signed>/<repo>`,
+    and the registry-wide scope is `reject` (a repository that is not in the plan is refused even when signed)."""
+    identity = identity or {}
+    out = {}
+    for r in sorted(registries):
+        if r in identity:
+            out[r] = [{"type": "reject"}]
+            for repo in sorted(identity[r]["repos"]):
+                out[f"{r}/{repo}"] = [{"type": "sigstoreSigned", "keyPath": keypath,
+                                       "signedIdentity": {"type": "exactRepository", "dockerRepository": f"{identity[r]['signed']}/{repo}"}}]
+        else:
+            out[r] = [{"type": "sigstoreSigned", "keyPath": keypath, "signedIdentity": {"type": "matchRepository"}}]
+    return {"default": [{"type": "reject"}], "transports": {"docker": out}}
 
 
 def pullonly(registries):
@@ -39,7 +54,13 @@ if __name__ == "__main__":
     cfg = json.load(open(sys.argv[1]))
     regs = registries_of(cfg)
     if sys.argv[3] == "policy":
-        print(json.dumps(policy(regs, sys.argv[2]), indent=2))
+        ident = {}
+        idf = os.path.join(os.path.dirname(sys.argv[2]), "image-identity.json")   # optional, root-owned, written next to the pinned key
+        if os.path.exists(idf):
+            ident = json.load(open(idf))
+            host, repo = r"[a-z0-9][a-z0-9.:-]{0,126}", r"ou/[a-z0-9]+(?:[._-][a-z0-9]+)*(?:/[a-z0-9]+(?:[._-][a-z0-9]+)*){0,2}"
+            assert all(re.fullmatch(host, k) and re.fullmatch(host, v["signed"]) and all(re.fullmatch(repo, x) for x in v["repos"]) for k, v in ident.items()), "bad identity map"
+        print(json.dumps(policy(regs, sys.argv[2], ident), indent=2))
     elif sys.argv[3] == "pullonly":
         print(json.dumps(pullonly(regs), indent=2))
     else:

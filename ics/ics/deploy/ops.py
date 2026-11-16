@@ -14,13 +14,19 @@ from sqlalchemy import text
 from .. import audit
 from . import executor, state
 from .lease import Lease, guard_env
-from .catalog import get_catalog
+from .. import artifacts as artmod
+from .catalog import get_catalog as _raw_catalog
 from .envs import real_env_factory
 from .netmodel import load_network_model
 from .plan import PlanInput, VmLayout, canon, capacity_from_inventory, generate_plan, plan_hash
 from .ports import STOP_EVENTS, Cancelled, DeployError, ExecEnv, Fenced, StepFailed
 
 log = logging.getLogger("ics.deploy.ops")
+
+
+def get_catalog():
+    """The reviewed catalog with its OCI images pointed at the configured artifact registry (OU_ARTIFACT_BASE, ADR-0015)."""
+    return artmod.rewrite_catalog(_raw_catalog(), artmod.load_map())
 SLUG = r"^[a-z0-9][a-z0-9-]{1,30}$"
 ACTIONS = ("deployment.create", "deployment.change", "deployment.destroy")
 
@@ -111,7 +117,8 @@ def _scope_networks(db, endpoint_name: str):
 def build_plan(db, spec: PlanInput, existing: dict | None = None) -> dict:
     _, data = _latest_inventory(db, spec.endpoint)
     return generate_plan(spec, capacity_from_inventory(data, spec.deployment_id), get_catalog(), existing,
-                         networks=load_network_model(), scope_networks=_scope_networks(db, spec.endpoint))
+                         networks=load_network_model(), scope_networks=_scope_networks(db, spec.endpoint),
+                         artifacts=artmod.load_map())
 
 
 def _dep(db, slug: str):

@@ -27,6 +27,7 @@ The `ics.cli` commands below must be run from `/opt/office-unbound/ics` (the cod
 | `--skip-tls` | loopback only: backend on 127.0.0.1:8088, no nginx/nftables/certificates; reach it through an SSH tunnel |
 | `--skip-firewall` | do not install the nftables unit (the nginx allow-list still applies) |
 | `--uninstall` / `--purge` | see [Uninstall](#uninstall) |
+| `--artifacts-listen-ip IP` (+ `--artifacts-port`, `--artifacts-hostname`, `--artifacts-allow-cidr` (default `10.64.0.0/16`), `--artifacts-channel-key dev\|staging\|stable=KEY.asc`, `--artifacts-image-key CH=PUB.pem`) | also install the **artifact distribution service** ([ADR-0015](../adr/0015-artifact-distribution.md)): the signed apt repository and OCI registry guests install from, read-only, on its own TLS port (default 8444) with its own private CA and an nftables allow-list for the customer VNets. The installer writes the `OU_ARTIFACT_*` settings (CA pin, channel key pins) to `ics.env`. Published with `ou-artifact-publish apt --src <repo tree>` and `ou-artifact-publish oci --from <registry URL> --repo ou/x --ref <tag or digest> --channel dev` (verifies signatures first; nothing unsigned is served). Standalone: `ics/deploy/artifacts/ou-artifacts-setup.sh`. Lab-proven on a separate machine, **not** yet run through `bootstrap.sh` end to end |
 
 What it does (every step compares before writing, so a re-run changes nothing that is already right; a second run prints `changes this run: none`):
 1. Requires root and Ubuntu 24.04 or Debian 12; refuses a missing allow-list.

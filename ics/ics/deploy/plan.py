@@ -18,6 +18,7 @@ from typing import Any
 from pydantic import BaseModel, ConfigDict, Field
 
 from .netmodel import NetworkModel, resolve as resolve_network
+from ..artifacts import SENTINEL_REGISTRY, ArtifactMap, placeholder_images
 from .catalog import Catalog, Component, Profile, VmLayout, get_catalog
 
 PLAN_VERSION = 1
@@ -559,7 +560,10 @@ def _nic(inp: PlanInput, net: dict | None, vm: str) -> dict:
 # ---- main ---------------------------------------------------------------------------------------------------
 
 def generate_plan(inp: PlanInput, cap: Capacity, cat: Catalog | None = None, existing: dict[str, ExistingVm] | None = None,
-                  networks: "NetworkModel | None" = None, scope_networks: tuple[str, ...] | None = None) -> dict:
+                  networks: "NetworkModel | None" = None, scope_networks: tuple[str, ...] | None = None,
+                  artifacts: "ArtifactMap | None" = None) -> dict:
+    """`artifacts`: the operator's artifact distribution map (ics.artifacts, ADR-0015). The CALLER has already pointed the catalog's OCI images at its
+    registry (`artifacts.rewrite_catalog`); here it only decides the plan's `artifacts` section (inside the hash) and the unset-placeholder warning."""
     cat = cat or get_catalog()
     existing = existing or {}
     errors: list[dict] = []
@@ -599,6 +603,11 @@ def generate_plan(inp: PlanInput, cap: Capacity, cat: Catalog | None = None, exi
         warnings.append(_err("ha_replication_unvalidated", "HA replicas are placed on distinct nodes, but application-level replication of "
                                                           "LDAP/PostgreSQL/MariaDB/OpenCloud storage is not implemented or validated yet"))
     vms, present = _expand(inp, prof, cat, errors)
+    if artifacts is None:
+        ph = placeholder_images(cat, present)
+        if ph:
+            warnings.append(_err("artifact_base_unset", "OU_ARTIFACT_BASE is not configured: these images still point at the placeholder registry "
+                                 f"{SENTINEL_REGISTRY} that no guest can reach: " + ", ".join(ph), items=ph))
     for cn in sorted(present):
         for a in cat.components[cn].artifacts:
             if not a.pinned:
@@ -649,7 +658,8 @@ def generate_plan(inp: PlanInput, cap: Capacity, cat: Catalog | None = None, exi
         steps = []
     total_disk = sum(d["size_gb"] for v in vm_out for d in v["disks"])
     plan = {**base, "profile": {"name": prof.name, "version": prof.version, "maturity": prof.maturity},
-            "vms": vm_out, **derived, **({"network": net} if net else {}), "steps": steps,
+            "vms": vm_out, **derived, **({"network": net} if net else {}),
+            **({"artifacts": artifacts.describe()} if artifacts is not None else {}), "steps": steps,
             "consumption": {"vms": len(vm_out), "cores": sum(v["cores"] for v in vm_out), "memory_mb": sum(v["memory_mb"] for v in vm_out),
                             "disk_gb": total_disk, "est_seconds": sum(s["est_seconds"] for s in steps)},
             "capacity": capacity, "warnings": sorted(warnings, key=canon), "errors": sorted(errors, key=canon)}

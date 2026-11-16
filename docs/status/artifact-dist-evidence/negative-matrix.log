@@ -1,0 +1,173 @@
+
+=== N-1 (re)apply the guest trust configuration (what the golden image first boot writes) so every run starts from the same state ===
+trust re-applied from the bootstrap metadata: ['dev', 'stable'] ['ou/meet-token-service', 'ou/ou-softphone']
+
+=== N0 publish more images (signed by dev key) ===
+REFUSED: cannot read the manifest from the source: URLError
+rc=3
+
+=== P1 positive: pull by digest under sigstoreSigned, identity exactRepository (expect rc=0) ===
+local-images-before-pull: 0
+c4f28a831b6bf53195920b0fb6aa54d807b9948bf132106738a9374bbfdeb72d
+rc=0
+
+=== N1 signed image whose repository is not in this VM's plan -> refused by the registry-wide reject scope ===
+REFUSED: cannot read the manifest from the source: URLError
+local-images-before-pull: 0
+Error: Source image rejected: Running image docker://192.168.186.120:8444/ou/synapse@sha256:542de3d410dc142cf45c69e42c13cbd970a497803dc7edb78c3e2b2ee5160a9d is rejected by policy.
+rc=125
+
+=== N2 UNSIGNED image (signature attachment removed from the registry store) -> refused ===
+0.1.0-ou1
+local-images-before-pull: 0
+Error: Source image rejected: A signature was required, but no signature exists
+rc=125
+0.1.0-ou1
+sha256-69b20d09d661d29ad5482e9603dfe628d5ca176925513c5d312ba04513e1e283.sig
+-- restored; same pull again (expect rc=0):
+local-images-before-pull: 0
+2b8835ad0fc7a90031ca134f2371ca578499250ce28303cabeeb016170b23ed1
+rc=0
+
+=== N3 WRONG CHANNEL KEY: image signed by the dev key, guest pinned the stable image key -> refused ===
+local-images-before-pull: 0
+Error: Source image rejected: cryptographic signature verification failed: invalid signature when validating ASN.1 encoded signature
+rc=125
+
+=== N4 TAMPERED MANIFEST on the server -> refused (digest mismatch) ===
+ac8561a9d8654305dd62
+local-images-before-pull: 0
+Error: determining manifest MIME type for docker://192.168.186.120:8444/ou/ou-softphone@sha256:efc5d8b4ad04b70e25d66b3ef9219c5009f4ee33d328005d6ed3accaa8b33941: Manifest does not match provided manifest digest sha256:efc5d8b4ad04b70e25d66b3ef9219c5009f4ee33d328005d6ed3accaa8b33941
+rc=125
+efc5d8b4ad04b70e25d6
+
+=== N5 TAMPERED LAYER on the server -> refused ===
+93a577d7e251d8d7bfc4
+local-images-before-pull: 0
+Error: writing blob: storing blob to file "/var/tmp/container_images_storage3226445920/1": flate: corrupt input before offset 94
+rc=125
+e36bdbc5138537e1d03b
+restored
+-- after restore (expect rc=0):
+local-images-before-pull: 0
+c4f28a831b6bf53195920b0fb6aa54d807b9948bf132106738a9374bbfdeb72d
+rc=0
+
+=== N6 PUSH / WRITE from the client is refused (GET and HEAD only) ===
+PUT /v2/ou/ou-softphone/blobs/uploads/ -> 405
+POST /v2/ou/ou-softphone/blobs/uploads/ -> 405
+PATCH /v2/ou/ou-softphone/blobs/uploads/ -> 405
+DELETE /v2/ou/ou-softphone/blobs/uploads/ -> 405
+PUT /apt/dists/dev/InRelease -> 405
+DELETE /apt/dists/dev/InRelease -> 405
+PUT manifest -> 405
+-- podman push from the guest:
+Copying blob sha256:c1b7b9dd59c6847cc22a71479558c8ad19a27fd64194bf8b757c3c350350f420
+Error: writing blob: initiating layer upload to /v2/ou/evil/blobs/uploads/ in 192.168.186.120:8444: StatusCode: 405, "<html>\r\n<head><title>405 Not Allowed</title></head..."
+-- the push socket is not reachable from the network (no listener but 127.0.0.1:5001 and nginx):
+127.0.0.1:5001
+192.168.186.120:8444
+ls: cannot access '/run/ou-artifacts': No such file or directory
+inactive
+-- registry reader itself is read-only (direct write to loopback reader):
+POST uploads on the reader -> 405
+
+=== N7 NO LISTINGS of internal content ===
+/apt/                                            -> 404
+/apt/dists/                                      -> 403
+/apt/pool/                                       -> 404
+/apt/pool/dev/                                   -> 404
+/apt/dists/dev/                                  -> 403
+/v2/_catalog                                     -> 403
+/v2/ou/ou-softphone/tags/list                    -> 403
+/v2/ou/ou-softphone/referrers/sha256:efc5d8b4ad04b70e25d66b3ef9219c5009f4ee33d328005d6ed3accaa8b33941 -> 403
+/apt/..                                          -> 404
+/apt/dists/dev/../../../etc/passwd               -> 404
+/apt/dists/dev/InRelease                         -> 200
+/v2/                                             -> 200
+/healthz                                         -> 200
+/nothing                                         -> 404
+
+=== N8 apt: TAMPERED PACKAGE, TAMPERED INDEX, TAMPERED InRelease are refused (published tree modified on the server) ===
+-- control: untouched tree installs (expect ok):
+before: dpkg-query: no packages found matching ou-libhx
+{"installed":[{"name":"ou-libhx","wanted":"4.28-ou1","installed":"4.28-ou1","ok":true}],"ok":true}
+
+after: ii ou-libhx:amd64 4.28-ou1 amd64 libHX
+apt-says:
+-- 8a package bytes changed after signing:
+before: dpkg-query: no packages found matching ou-libhx
+{"installed":[{"name":"ou-libhx","wanted":"4.28-ou1","installed":null,"ok":false}],"ok":false,"error":"5f872e28829e7ab5955c5a4f97e4ed53d\n-SHA256:fc7c7a1e0a62c7b3693633f2e3b4b100631d110c3cacd1056a68ba39e34b9ed1\n-SHA1:d968d56060e580890110a5d04c91814d0be34f9e[weak]\n-MD5Sum:d5a2c2d1eaf51d2355a18e5122
+
+after: dpkg-query: no packages found matching ou-libhx
+apt-says:
+-- 8b Packages index (the .gz apt actually downloads) changed after signing:
+before: dpkg-query: no packages found matching ou-libhx
+{"installed":[],"error":"aptupdatefailed:168.186.1208444]\nHashesofexpectedfile:\n-Filesize:8228[weak]\n-SHA256:abdcc645b45c3a3efcc6fecc46b2868bcfa5c89f4acf52e847d680f437187d55\nReleasefilecreatedat:Mon,16Nov202601:57:24+0000\nE:Someindexfilesfailedtodownload.Theyhavebeenignored,oroldonesusedinstead
+
+after: dpkg-query: no packages found matching ou-libhx
+apt-says:
+Err:3 https://192.168.186.120:8444/apt dev/main amd64 Packages
+E: Failed to fetch https://192.168.186.120:8444/apt/dists/dev/main/binary-amd64/Packages.gz  File has unexpected size (7779 != 8228). Mirror sync in progress? [IP: 192.168.186.120 8444]
+E: Some index files failed to download. They have been ignored, or old ones used instead.
+-- 8c InRelease text changed (signature no longer matches):
+before: dpkg-query: no packages found matching ou-libhx
+{"installed":[],"error":"aptupdatefailed:W:GPGerror:https://192.168.186.120:8444/aptdevInRelease:Thefollowingsignatureswereinvalid:BADSIG26D430237D6322A4OfficeUnboundrelease(dev)<release-dev@office-unbound.invalid>\nE:Therepository'https://192.168.186.120:8444/aptdevInRelease'isnotsigned."}
+
+after: dpkg-query: no packages found matching ou-libhx
+apt-says:
+Err:1 https://192.168.186.120:8444/apt dev InRelease
+W: GPG error: https://192.168.186.120:8444/apt dev InRelease: The following signatures were invalid: BADSIG 26D430237D6322A4 Office Unbound release (dev) <release-dev@office-unbound.invalid>
+E: The repository 'https://192.168.186.120:8444/apt dev InRelease' is not signed.
+-- restored; install again (expect ok):
+before: dpkg-query: no packages found matching ou-libhx
+{"installed":[{"name":"ou-libhx","wanted":"4.28-ou1","installed":"4.28-ou1","ok":true}],"ok":true}
+
+after: ii ou-libhx:amd64 4.28-ou1 amd64 libHX
+apt-says:
+
+=== N9 apt WRONG CHANNEL KEY: a VM that installs from stable only, whose stable keyring holds the DEV key -> refused ===
+before: dpkg-query: no packages found matching ou-libhx
+{"installed":[],"error":"aptupdatefailed:W:GPGerror:https://192.168.186.120:8444/aptstableInRelease:Thefollowingsignaturescouldn'tbeverifiedbecausethepublickeyisnotavailable:NO_PUBKEYCE58A8B691F84C1B\nE:Therepository'https://192.168.186.120:8444/aptstableInRelease'isnotsigned."}
+
+after: dpkg-query: no packages found matching ou-libhx
+apt-says:
+Err:1 https://192.168.186.120:8444/apt stable InRelease
+W: GPG error: https://192.168.186.120:8444/apt stable InRelease: The following signatures couldn't be verified because the public key is not available: NO_PUBKEY CE58A8B691F84C1B
+E: The repository 'https://192.168.186.120:8444/apt stable InRelease' is not signed.
+-- a key that is NOT in pinned-fingerprints -> repo_key_mismatch before any download:
+REJECTED Reject repo_key_mismatch repository keyring does not match the pinned fingerprints
+
+-- restored; install (expect ok):
+before: dpkg-query: no packages found matching ou-libhx
+{"installed":[{"name":"ou-libhx","wanted":"4.28-ou1","installed":"4.28-ou1","ok":true}],"ok":true}
+
+after: ii ou-libhx:amd64 4.28-ou1 amd64 libHX
+apt-says:
+
+=== N10 publisher refuses bad input (nothing published) ===
+REFUSED: InRelease is not signed by the pinned key 3082B558DE354DA69A01C09626D430237D6322A4
+rc=3
+{"apt_release": "20261116T020123Z", "channels": ["dev", "stable", "staging"]}
+REFUSED: InRelease is not signed by the pinned key 3082B558DE354DA69A01C09626D430237D6322A4
+rc=3
+REFUSED: the image signature does not verify with the pinned channel key
+rc=3
+
+=== N11 rate limit: 400 requests in a burst from one client address ===
+{200: 154, 429: 246}
+
+=== LOGS (dedicated access log, last entries by status) ===
+192.168.186.164 [2026-11-16T02:09:02+00:00] "PUT /v2/ou/ou-softphone/blobs/uploads/ HTTP/1.1" 405 150 rt=0.000 ua="curl/8.5.0"
+192.168.186.164 [2026-11-16T02:09:02+00:00] "POST /v2/ou/ou-softphone/blobs/uploads/ HTTP/1.1" 405 150 rt=0.000 ua="curl/8.5.0"
+192.168.186.164 [2026-11-16T02:09:03+00:00] "GET /apt/dists/ HTTP/1.1" 403 146 rt=0.000 ua="curl/8.5.0"
+192.168.186.164 [2026-11-16T02:09:03+00:00] "GET /apt/dists/dev/ HTTP/1.1" 403 146 rt=0.000 ua="curl/8.5.0"
+192.168.186.164 [2026-11-16T02:10:14+00:00] "GET /v2/ HTTP/1.1" 429 162 rt=0.000 ua="Python-urllib/3.12"
+192.168.186.164 [2026-11-16T02:10:14+00:00] "GET /v2/ HTTP/1.1" 429 162 rt=0.000 ua="Python-urllib/3.12"
+192.168.186.164 [2026-11-16T02:08:36+00:00] "GET /v2/ou/meet-token-service/manifests/sha256-69b20d09d661d29ad5482e9603dfe628d5ca176925513c5d312ba04513e1e283.sig HTTP/1.1" 404 165 rt=0.005 ua="containers/5.29.2 (github.com/containers/image)"
+192.168.186.164 [2026-11-16T02:09:03+00:00] "GET /apt/ HTTP/1.1" 404 146 rt=0.000 ua="curl/8.5.0"
+2120 /var/log/nginx/ou-artifacts.access.log
+
+real	4m9.084s
+user	0m0.775s
+sys	0m0.807s

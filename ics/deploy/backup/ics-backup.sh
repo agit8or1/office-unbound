@@ -19,13 +19,20 @@ HEAD_SEQ="$(pq 'select max(seq) from audit_events')"; HEAD_HASH="$(pq "select ha
 /usr/sbin/runuser -u postgres -- pg_dumpall --globals-only | grep -E "^(CREATE|ALTER) ROLE ($ROLES)( |;)" > "$W/roles.sql"
 printf 'db_name=%s\ndb_owner=%s\n' "$DB" "$OWNER" > "$W/meta.env"
 # optional front-end files exist only on hosts installed with TLS (bootstrap.sh --skip-tls has none)
+# ADR-0015 artifact distribution: its config, private CA key, pinned keys, units and nginx site are small and always included; the published DATA
+# (apt tree, registry blobs) is rebuildable from the release pipeline, so it is included only with OU_ICS_BACKUP_ARTIFACT_DATA=1 (artifacts-data.tgz).
 FILES=(etc/office-unbound/ics.env etc/office-unbound/ics-migrate.env etc/office-unbound/vault.key etc/office-unbound/audit.key etc/office-unbound/ics-signing.key)
 # units: /etc/systemd/system on a git-tree install (install.sh), /usr/lib/systemd/system on a packaged (ou-ics) install: whichever exists
 for f in etc/systemd/system/ics.service etc/systemd/system/ics-migrate.service usr/lib/systemd/system/ics.service usr/lib/systemd/system/ics-migrate.service \
          etc/office-unbound/ics-tuning.env; do [ -e "$P/$f" ] && FILES+=("$f"); done
-for f in etc/office-unbound/tls etc/office-unbound/callback.env etc/office-unbound/callback-tls etc/office-unbound/ics-callback-fw.nft etc/systemd/system/ics-callback-fw.service etc/systemd/system/ics-bootstrap.service etc/office-unbound/ics-admin-fw.nft etc/systemd/system/ics-admin-fw.service etc/nginx/sites-available/ics.conf; do
+for f in etc/office-unbound/tls etc/office-unbound/callback.env etc/office-unbound/callback-tls etc/office-unbound/ics-callback-fw.nft etc/systemd/system/ics-callback-fw.service etc/systemd/system/ics-bootstrap.service etc/office-unbound/ics-admin-fw.nft etc/systemd/system/ics-admin-fw.service etc/nginx/sites-available/ics.conf \
+         etc/office-unbound/artifacts etc/nginx/conf.d/ou-artifacts.conf etc/systemd/system/ou-registry-ro.service etc/systemd/system/ou-registry-push.service \
+         etc/systemd/system/ou-artifacts-fw.service; do
   [ -e "$P/$f" ] && FILES+=("$f"); done
 tar --numeric-owner -cpzf "$W/etc.tgz" -C "${P:-/}" "${FILES[@]}"
+if [ "${OU_ICS_BACKUP_ARTIFACT_DATA:-0}" = 1 ] && [ -d "$P/var/lib/office-unbound/artifacts" ]; then
+  tar --numeric-owner -cpzf "$W/artifacts-data.tgz" -C "${P:-/}" var/lib/office-unbound/artifacts
+fi
 # the deployed release that produced this DB schema (code only; the venv is rebuilt from requirements.lock with --require-hashes)
 tar -cpzf "$W/release.tgz" -C "$P/opt/office-unbound" --exclude .venv --exclude __pycache__ ics $( [ -d "$P/opt/office-unbound/blueprints" ] && echo blueprints )
 ( cd "$W" && sha256sum ./* > SHA256SUMS ) && tar -cf "$DEST/ics-backup.tar" -C "$W" .

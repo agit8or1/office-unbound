@@ -9,6 +9,7 @@ from fastapi import Depends, FastAPI, HTTPException
 from sqlalchemy import text
 from sqlalchemy.orm import Session
 
+from . import artifacts as artmod
 from . import audit, epoch, standby
 from . import version as ver
 from .auth import User, get_db, require
@@ -29,6 +30,28 @@ def _last_backup() -> dict:
     except ValueError:
         return {"known": False, "at": None}
     return {"known": True, "at": at.isoformat()}
+
+
+_ART_CACHE: dict = {"at": 0.0, "value": None}
+
+
+def _artifacts() -> dict:
+    """ADR-0015: health of the artifact distribution service as a guest sees it (TLS with the pinned CA, InRelease freshness per channel, registry
+    /v2/). Cached for 30 s so the System page cannot be used to hammer it; a broken configuration is reported, never raised."""
+    now = time.monotonic()
+    if _ART_CACHE["value"] is not None and now - _ART_CACHE["at"] < 30:
+        return _ART_CACHE["value"]
+    try:
+        m = artmod.load_map()
+        if m is None:
+            v = {"configured": False}
+        else:
+            r = artmod.probe(m, tuple(c for c, _, _ in m.channel_keys) or artmod.CHANNELS)
+            v = {"configured": True, "ok": r["ok"], "apt_url": r["apt_url"], "registry": r["registry"], "checks": r["checks"]}
+    except Exception as e:  # noqa: BLE001
+        v = {"configured": True, "ok": False, "error": "invalid OU_ARTIFACT_* configuration" if isinstance(e, artmod.ArtifactError) else type(e).__name__}
+    _ART_CACHE.update(at=now, value=v)
+    return v
 
 
 def register(app: FastAPI, rt, API: str, worker) -> None:
@@ -92,4 +115,4 @@ def register(app: FastAPI, rt, API: str, worker) -> None:
                 "updates": ver.update_status(),   # read-only comparison with the bundled release list; no network
                 "migration_head": head, "ready": len(checks) == 3 and all(checks.values()), "checks": checks,
                 "heartbeat_age_seconds": round(hb_age) if hb_age is not None else None, "worker_enabled": worker is not None,
-                "threads": threads, "database_bytes": size, "disk": disk, "backup": _last_backup(), "controller": controller}
+                "threads": threads, "database_bytes": size, "disk": disk, "backup": _last_backup(), "controller": controller, "artifacts": _artifacts()}

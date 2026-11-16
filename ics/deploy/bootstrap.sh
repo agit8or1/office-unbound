@@ -22,6 +22,7 @@ LISTEN_IP=""; HOSTNAME_FQDN=""; ADMIN=""; SKIP_TLS=0; SKIP_FW=0; UNINSTALL=0; PU
 TLS_CERT=""; TLS_KEY=""; ALLOW=()
 STANDBY_OF=""; KEY_BUNDLE=""; BUNDLE_PASS=""; REBUILD=0
 CB_LISTEN=""; CB_ALLOW=(); CB_IP=""; CB_PORT=8444; CBTLS=$ETC/callback-tls
+ART_IP=""; ART_PORT=8446; ART_NAMES=(); ART_ALLOW=(); ART_CKEYS=(); ART_IKEYS=()
 CHANGES=()
 OS_RELEASE_FILE="${OU_OS_RELEASE:-/etc/os-release}"   # overridable only so the OS check can be unit-tested
 CHECK_OS=0
@@ -52,6 +53,10 @@ usage: bootstrap.sh --listen-ip IP --allow-cidr CIDR [--allow-cidr CIDR ...] [--
                      --repo-key (default: blueprints/build/keys/ou-release-lab.pub.asc next to this script) must have the fingerprint given
                      by --repo-key-fingerprint (default: the .FINGERPRINT file beside the key); anything else is refused.
   --version V        with --from-repo: install exactly this package version (e.g. 0.1.0-ou1); allows a deliberate downgrade
+  --artifacts-listen-ip IP   ALSO install the artifact distribution service (ADR-0015: signed apt repo + OCI registry for guests, read-only, TLS,
+                     separate port) on this address; --artifacts-port N (8446), --artifacts-hostname FQDN, --artifacts-allow-cidr C (repeatable; default
+                     10.64.0.0/16 = customer VNets), --artifacts-channel-key dev|staging|stable=KEY.asc, --artifacts-image-key CH=PUB.pem.
+                     The OU_ARTIFACT_* settings (pins) are written to ics.env. Needs the TLS console (not --skip-tls).
 EOF
 }
 die() { echo "bootstrap: ERROR: $*" >&2; exit 1; }
@@ -70,6 +75,12 @@ while [ $# -gt 0 ]; do
     --callback-allow-cidr) CB_ALLOW+=("${2:?}"); shift 2;;
     --skip-tls) SKIP_TLS=1; shift;;
     --skip-firewall) SKIP_FW=1; shift;;
+    --artifacts-listen-ip) ART_IP="${2:?}"; shift 2;;
+    --artifacts-port) ART_PORT="${2:?}"; shift 2;;
+    --artifacts-hostname) ART_NAMES+=("${2:?}"); shift 2;;
+    --artifacts-allow-cidr) ART_ALLOW+=("${2:?}"); shift 2;;
+    --artifacts-channel-key) ART_CKEYS+=("${2:?}"); shift 2;;
+    --artifacts-image-key) ART_IKEYS+=("${2:?}"); shift 2;;
     --standby-of) STANDBY_OF="${2:?}"; shift 2;;
     --key-bundle) KEY_BUNDLE="${2:?}"; shift 2;;
     --bundle-passphrase-file) BUNDLE_PASS="${2:?}"; shift 2;;
@@ -112,8 +123,10 @@ if [ "$UNINSTALL" = 1 ]; then
     [ "$ans" = "purge $(hostname)" ] || die "confirmation did not match; nothing was changed"
   }
   log "stopping and removing services and configuration (keys, database, certificates are kept unless --purge)"
-  for u in ics ics-bootstrap ics-migrate ics-admin-fw ics-callback-fw; do systemctl disable --now "$u.service" 2>/dev/null || true; done
-  rm -f "$SYSD/ics.service" "$SYSD/ics-migrate.service" "$SYSD/ics-admin-fw.service" "$SYSD/ics-bootstrap.service" "$SYSD/ics-callback-fw.service" "$SYSD/ics-callback.service"
+  for u in ics ics-bootstrap ics-migrate ics-admin-fw ics-callback-fw ou-registry-ro ou-registry-push ou-artifacts-fw; do systemctl disable --now "$u.service" 2>/dev/null || true; done
+  rm -f "$SYSD/ics.service" "$SYSD/ics-migrate.service" "$SYSD/ics-admin-fw.service" "$SYSD/ics-bootstrap.service" "$SYSD/ics-callback-fw.service" "$SYSD/ics-callback.service" \
+        "$SYSD/ou-registry-ro.service" "$SYSD/ou-registry-push.service" "$SYSD/ou-artifacts-fw.service" /etc/nginx/conf.d/ou-artifacts.conf /usr/local/sbin/ou-artifact-publish
+  nft delete table inet ou_artifacts 2>/dev/null || true
   systemctl daemon-reload
   nft delete table inet ics_admin 2>/dev/null || true
   nft delete table inet ics_callback 2>/dev/null || true
@@ -127,10 +140,10 @@ if [ "$UNINSTALL" = 1 ]; then
   rm -rf "$OPT" "$STAMP"; rmdir /opt/office-unbound 2>/dev/null || true
   if [ "$PURGE" = 1 ]; then
     runuser -u postgres -- psql -q -c "DROP DATABASE IF EXISTS ics" -c "DROP ROLE IF EXISTS ics_app" -c "DROP ROLE IF EXISTS ics_owner" 2>/dev/null || true
-    rm -rf "$ETC" "$STATE"; userdel ics 2>/dev/null || true
+    rm -rf "$ETC" "$STATE" /var/lib/office-unbound/artifacts; userdel ics 2>/dev/null || true; userdel ou-artifacts 2>/dev/null || true
     log "purged: database, roles, keys, env files, certificates, service user. Packages (postgresql, nginx, ...) were left installed."
   else
-    log "kept: $ETC (env files, keys, tls), PostgreSQL database 'ics' and roles, service user 'ics', packages. Re-run bootstrap.sh to reinstall on the same data."
+    log "kept: $ETC (env files, keys, tls, artifacts), /var/lib/office-unbound/artifacts (published apt tree + registry), PostgreSQL database 'ics' and roles, service user 'ics', packages. Re-run bootstrap.sh to reinstall on the same data."
   fi
   exit 0
 fi
@@ -163,6 +176,8 @@ if [ -n "$FROM_REPO" ]; then
   [[ -z "$PKG_VERSION" || "$PKG_VERSION" =~ ^[0-9A-Za-z.+~:-]+$ ]] || die "invalid --version"
 elif [ -n "$REPO_URL$REPO_KEY$REPO_FPR$PKG_VERSION" ]; then die "--repo-url/--repo-key/--repo-key-fingerprint/--version only make sense with --from-repo"; fi
 [[ -z "$ADMIN" || "$ADMIN" =~ ^[a-z0-9._-]{1,64}$ ]] || die "--admin must match [a-z0-9._-]{1,64}"
+[ -z "$ART_IP" ] || [ "$SKIP_TLS" = 0 ] || die "--artifacts-listen-ip needs the TLS console (nginx); it cannot be combined with --skip-tls"
+[ -z "$ART_IP" ] || [ -z "$STANDBY_OF" ] || die "--artifacts-listen-ip is configured on the primary; a standby receives the settings from the restored backup"
 if [ "$SKIP_TLS" = 1 ]; then
   [ -z "$LISTEN_IP$HOSTNAME_FQDN$TLS_CERT$TLS_KEY" ] && [ ${#ALLOW[@]} = 0 ] || die "--skip-tls (loopback only) cannot be combined with --listen-ip/--allow-cidr/--hostname/--tls-*"
 else
@@ -639,6 +654,21 @@ EOF
   elif [ "$NG_CH" = 1 ]; then systemctl reload nginx.service; changed "reloaded nginx"; fi
 fi
 
+# ------------------------------------------------------------------------------------- artifact distribution (ADR-0015)
+if [ -n "$ART_IP" ]; then
+  AA=(--listen-ip "$ART_IP" --port "$ART_PORT"); for x in "${ART_NAMES[@]}"; do AA+=(--hostname "$x"); done; for x in "${ART_ALLOW[@]}"; do AA+=(--allow-cidr "$x"); done
+  for x in "${ART_CKEYS[@]}"; do AA+=(--channel-key "$x"); done; for x in "${ART_IKEYS[@]}"; do AA+=(--image-key "$x"); done
+  [ "$SKIP_FW" = 0 ] || AA+=(--skip-firewall)
+  bash "$SRC/deploy/artifacts/ou-artifacts-setup.sh" "${AA[@]}" > "$TMP/art.out" 2>&1 || { cat "$TMP/art.out" >&2; die "artifact distribution setup failed"; }
+  sed -n '/^changes this run/,$p' "$TMP/art.out" | grep -q 'none$' || changed "artifact distribution service ($ART_IP:$ART_PORT)"
+  ART_ENV_CH=0
+  while IFS='=' read -r k v; do
+    case "$k" in OU_ARTIFACT_BASE|OU_ARTIFACT_CA_FILE|OU_ARTIFACT_CA_SHA256|OU_ARTIFACT_KEYS_DIR|OU_ARTIFACT_CHANNEL_FPRS)
+      [ "$(envget "$ETC/ics.env" "$k")" = "$v" ] || { envset "$ETC/ics.env" "$k" "$v" force; ART_ENV_CH=1; };; esac
+  done < <(grep -E '^OU_ARTIFACT_[A-Z0-9_]+=' "$TMP/art.out")
+  if [ "$ART_ENV_CH" = 1 ]; then systemctl restart ics.service; changed "OU_ARTIFACT_* written to ics.env (guest bootstrap now carries the artifact service)"; fi
+fi
+
 # ------------------------------------------------------------------------------------------------------- readiness
 log "waiting for /readyz (backend, 127.0.0.1:8088)"
 PASSIVE=0; [ "$(envget "$ETC/ics.env" ICS_WORKER_ENABLED)" = false ] && PASSIVE=1
@@ -694,6 +724,7 @@ if [ -n "$CB_LISTEN" ]; then
   echo "guest bootstrap    : https://$CB_IP:$CB_PORT (only POST $PATH_CB + /healthz) <- ${CB_ALLOW[*]}"
   echo "  pin (sha256 DER) : $CB_FPR  (set as ICS_GUEST_CALLBACK_PIN_SHA256 in $ETC/ics.env)"
 else echo "guest bootstrap    : not enabled (console still serves the callback route; re-run with --callback-listen)"; fi
+[ -z "$ART_IP" ] || echo "artifact service   : https://$ART_IP:$ART_PORT (apt /apt, registry /v2; read-only; CA $ETC/artifacts/tls/ca.crt) - publish with ou-artifact-publish"
 echo "config / keys      : $ETC (env files and keys are root-only; DB passwords exist only there)"
 if [ ${#CHANGES[@]} = 0 ]; then echo "changes this run   : none"; else printf 'changes this run   : %s\n' "${CHANGES[0]}"; for c in "${CHANGES[@]:1}"; do printf '                     %s\n' "$c"; done; fi
 [ -z "$ADMIN_NOTE" ] || echo "admin              : $ADMIN_NOTE"

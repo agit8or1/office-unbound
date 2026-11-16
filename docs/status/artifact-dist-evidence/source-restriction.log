@@ -1,0 +1,34 @@
+== allowed (lab /24): client healthz
+/healthz                     -> 200
+/v2/                         -> 200
+/apt/dists/dev/InRelease     -> 200
+== re-run setup with --allow-cidr 10.64.0.0/16 only (customer VNets), client is outside
+ou-artifacts-setup: changed: wrote /etc/office-unbound/artifacts/server.json
+ou-artifacts-setup: changed: wrote /etc/office-unbound/artifacts/ou-artifacts-fw.nft
+ou-artifacts-setup: changed: wrote /etc/nginx/conf.d/ou-artifacts.conf
+ou-artifacts-setup: changed: nftables table inet ou_artifacts loaded
+ou-artifacts-setup: changed: reloaded nginx
+allowed sources    : 127.0.0.1 192.168.186.120 10.64.0.0/16
+		tcp dport 8444 ip saddr { 10.64.0.0/16, 127.0.0.1, 192.168.186.120 } accept
+		tcp dport 8444 drop
+-- client (nftables layer drops: expect timeout / 000):
+/healthz                     -> 000
+/v2/                         -> 000
+/apt/dists/dev/InRelease     -> 000
+rc=0
+-- nftables table removed, nginx allow-list alone (expect 403):
+/healthz                     -> 403
+/v2/                         -> 403
+/apt/dists/dev/InRelease     -> 403
+== restore the lab allow-list
+ou-artifacts-setup: changed: wrote /etc/office-unbound/artifacts/server.json
+ou-artifacts-setup: changed: wrote /etc/office-unbound/artifacts/ou-artifacts-fw.nft
+ou-artifacts-setup: changed: wrote /etc/nginx/conf.d/ou-artifacts.conf
+ou-artifacts-setup: changed: nftables table inet ou_artifacts loaded
+ou-artifacts-setup: changed: reloaded nginx
+allowed sources    : 127.0.0.1 192.168.186.120 192.168.186.0/24
+/healthz                     -> 200
+/v2/                         -> 200
+/apt/dists/dev/InRelease     -> 200
+== idempotent re-run (expect: changes none)
+changes this run   : none
