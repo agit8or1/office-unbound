@@ -1,0 +1,19 @@
+# Office Unbound: Keycloak 26.8.2 (Maven Central / GitHub release tarball, checksums cross-checked by 01-fetch-verify.sh) on Ubuntu noble OpenJDK 21 headless. Non-root uid 10130.
+# Production-optimized: `kc.sh build` runs at image build time (db=postgres, health on :9000, metrics off). Keycloak has no telemetry/phone-home.
+ARG BASE=localhost/ou-base-noble:latest
+FROM ${BASE}
+ARG DEBIAN_FRONTEND=noninteractive
+RUN apt-get -o APT::Sandbox::User=root update && apt-get -o APT::Sandbox::User=root install -y --no-install-recommends openjdk-21-jre-headless ca-certificates \
+ && rm -rf /var/lib/apt/lists/* /var/cache/apt/archives/* \
+ && groupadd -g 10130 keycloak && useradd -u 10130 -g 10130 -d /opt/keycloak -M -s /usr/sbin/nologin keycloak
+COPY kc/ /opt/keycloak/
+COPY entrypoint.sh /usr/local/bin/ou-keycloak-entrypoint
+RUN KC_DB=postgres KC_HEALTH_ENABLED=true KC_METRICS_ENABLED=false /opt/keycloak/bin/kc.sh build \
+ && chown -R keycloak:keycloak /opt/keycloak/data /opt/keycloak/lib/quarkus 2>/dev/null; chmod -R a+rX /opt/keycloak && chmod 0755 /usr/local/bin/ou-keycloak-entrypoint /opt/keycloak/bin/kc.sh
+LABEL org.opencontainers.image.title="Keycloak (Office Unbound build)" org.opencontainers.image.version="26.8.2" org.opencontainers.image.licenses="Apache-2.0" \
+      org.opencontainers.image.source="https://repo1.maven.org/maven2/org/keycloak/keycloak-quarkus-dist/26.8.2/"
+USER 10130:10130
+EXPOSE 8080 9000
+HEALTHCHECK --interval=30s --timeout=5s --start-period=90s --retries=3 CMD ["bash","-c","exec 3<>/dev/tcp/127.0.0.1/9000 && printf 'GET /health/ready HTTP/1.0\\r\\n\\r\\n' >&3 && head -1 <&3 | grep -q ' 200 '"]
+ENTRYPOINT ["/usr/local/bin/ou-keycloak-entrypoint"]
+CMD ["start", "--optimized"]

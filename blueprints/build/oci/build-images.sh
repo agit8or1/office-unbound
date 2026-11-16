@@ -2,7 +2,7 @@
 # Build the MAS and Jitsi OCI images in the builder (ou-build1), UNSIGNED, and push them to the lab registry (127.0.0.1:5000 inside the builder, 192.168.186.235:5000 in the zone).
 # Prerequisites: mas/01-prepare.sh + mas/02-compile.sh (outputs in /home/imgbuild/mas/out), jitsi/01-fetch-verify.sh (debs in /home/imgbuild/jitsi/debs),
 # the lab base image localhost/ou-base-noble (blueprints/build/collab/build.sh make_base). Signing is NOT done here: ou-oci-sign signs, on the ICS host.
-# usage (root): build-images.sh <mas|jitsi-web|prosody|jicofo|jvb|all>      source tree: /root/oci-oci/src = this directory (blueprints/build/oci)
+# usage (root): build-images.sh <mas|jitsi-web|prosody|jicofo|jvb|keycloak|opencloud|all>      source tree: /root/oci-oci/src = this directory (blueprints/build/oci)
 set -euo pipefail
 SRC=${SRC:-/root/oci/src}; OUT=/root/oci/out; REG=127.0.0.1:5000; BASE=localhost/ou-base-noble:latest
 JW=/home/imgbuild/jitsi; MO=/home/imgbuild/mas/out
@@ -34,6 +34,8 @@ stage() {
     jicofo) cp -a "$SRC/jitsi/jicofo/." "$c/"; mkdir -p "$c/jicofo"; cp -a "$JW/x/jicofo/usr/share/jicofo/." "$c/jicofo/"; cp "$JW/x/jicofo/etc/jitsi/jicofo/logging.properties" "$c/" ;;
     jvb) cp -a "$SRC/jitsi/jvb/." "$c/"; mkdir -p "$c/jitsi-videobridge"; cp -a "$JW/x/jitsi-videobridge2/usr/share/jitsi-videobridge/." "$c/jitsi-videobridge/"
          cp "$JW/x/jitsi-videobridge2/etc/jitsi/videobridge/logging.properties" "$c/" ;;
+    keycloak) cp -a "$SRC/idfiles/keycloak/." "$c/"; cp -a /home/imgbuild/idfiles/kc "$c/kc" ;;
+    opencloud) cp -a "$SRC/idfiles/opencloud/." "$c/"; cp /home/imgbuild/idfiles/opencloud "$c/opencloud" ;;
   esac
   chown -R imgbuild:imgbuild "$c"
 }
@@ -54,7 +56,7 @@ EOS
 }
 
 T=${1:-all}
-for n in mas jitsi-web prosody jicofo jvb; do
+for n in mas jitsi-web prosody jicofo jvb keycloak opencloud; do
   [ "$T" = all ] || [ "$T" = "$n" ] || continue
   case $n in
     mas) build mas ou/matrix-authentication-service 1.29.0 ;;      # repo names and tags are the ones the catalog (blueprints/catalog/components) uses
@@ -62,5 +64,7 @@ for n in mas jitsi-web prosody jicofo jvb; do
     prosody) build prosody ou/jitsi-prosody 0.12.4 ;;
     jicofo) build jicofo ou/jicofo 1.0.1205 ;;
     jvb) build jvb ou/jitsi-videobridge 2.3.318 ;;
+    keycloak) build keycloak ou/keycloak 26.8.2 ;;
+    opencloud) build opencloud ou/opencloud 9.1.0 ;;
   esac
 done

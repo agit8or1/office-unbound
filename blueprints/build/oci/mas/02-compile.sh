@@ -25,7 +25,7 @@ mv .cargo/config.toml.new .cargo/config.toml
 cargo build --frozen --offline --locked --release --bin mas-cli --no-default-features --features docker
 install -m 0755 target/release/mas-cli "$O/mas-cli"
 # 3. frontend
-corepack enable --install-directory "$W/bin"
+mkdir -p "$W/bin"; corepack enable --install-directory "$W/bin"
 export PATH=$W/bin:$PATH
 pnpm --version
 pnpm install --frozen-lockfile
