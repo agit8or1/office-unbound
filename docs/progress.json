@@ -183,10 +183,9 @@
         {
           "id": "P1.11",
           "title": "Real Outlook, Thunderbird and mobile client compatibility matrix",
-          "status": "planned",
-          "evidence": [
-            "blueprints/lab/tests/MANUAL-CHECKLIST.md"
-          ]
+          "status": "implementing",
+          "evidence": [],
+          "note": "Thunderbird 24/25 and Evolution calendar/contacts tested in lab (branch integration-7, pending merge); groupware fixes from these tests in progress; Outlook/mobile need owner devices"
         },
         {
           "id": "P1.12",
@@ -195,10 +194,38 @@
           "evidence": [
             "docs/adr/0011-versioning-and-releases.md",
             "CHANGELOG.md",
-            "docs/RELEASING.md",
-            "ics/tests/test_version.py"
+            "VERSIONS.json"
           ],
-          "note": "Release 0.1.0 prepared; signed tag and GitHub Release are published by the owner. Production signing key not yet created."
+          "note": "0.1.0 \"Anchor\" released (tag v0.1.0, GitHub pre-release); main is 0.2.0-dev \"Beacon\"; release names per minor line (ADR-0011 amendment)"
+        },
+        {
+          "id": "P1.13",
+          "title": "Alpha security remediation (reviews 1-7): signing, attestation, cross-tenant scoping, fencing, admin takeover",
+          "status": "implementing",
+          "evidence": [
+            "docs/status/SECURITY-REMEDIATION.md",
+            "docs/status/ALPHA-EXECUTION-QUEUE.md",
+            "scripts/security_remediation_check.py"
+          ],
+          "note": "132 findings tracked with verified evidence; open Highs fixed on branches fixes-r7, tenant-msp, oci-signing (pending merge); independent review 8 follows"
+        },
+        {
+          "id": "P1.14",
+          "title": "Least-privilege host accounts, sudoers, unit hardening",
+          "status": "implementing",
+          "evidence": [
+            "docs/status/security-review-7-2026-11-16.md"
+          ],
+          "note": "Prepared and lab-tested on branch privsep (pending merge); removal of administrator NOPASSWD:ALL is an owner action"
+        },
+        {
+          "id": "P1.15",
+          "title": "ICS warm standby with fenced failover (epoch + lease/witness)",
+          "status": "implementing",
+          "evidence": [
+            "docs/runbooks/ics-recovery.md"
+          ],
+          "note": "Streaming standby, promotion in 3.1 s in lab; lease-based self-fencing and two-controller partition test in progress (branches integration-7, fixes-r7, ha-proof; pending merge)"
         }
       ]
     },
@@ -223,16 +250,18 @@
           "status": "implementing",
           "evidence": [
             "docs/status/deployment-engine.md"
-          ]
+          ],
+          "note": "Engine and plans work; full-stack bill of materials shows missing/unsigned artifacts (Keycloak, OpenCloud, MAS, Jitsi) being produced on branches artifacts-core / oci-signing"
         },
         {
           "id": "P2.3",
           "title": "Guest bootstrap: cloud-init, rootless Podman, signed digest-pinned images, agent enrollment",
           "status": "integrated_lab",
           "evidence": [
+            "docs/status/bootstrap-v2.md",
             "docs/status/guest-bootstrap-results.md"
           ],
-          "note": "Tested in lab containers; real VM boot pending"
+          "note": "Bootstrap v2 (no-SSH HMAC callback) on main; golden images Debian 12 + Ubuntu 24.04 with independent boot attestation on branch golden-prod (pending merge); real VM run on pve06 after owner onboarding"
         },
         {
           "id": "P2.4",
@@ -244,10 +273,13 @@
         {
           "id": "P2.5",
           "title": "Build and release pipeline for own distributions (signed packages/images, SBOM, staged channels)",
-          "status": "planned",
+          "status": "implementing",
           "evidence": [
+            "docs/status/package-pipeline-results.md",
+            "docs/RELEASING.md",
             "docs/adr/0008-build-release-pipeline.md"
-          ]
+          ],
+          "note": "Signed apt pipeline with dev/staging/stable on main; hardened signer, per-channel keys, ICS-approved promotion and independent test attestation on branch fixes-r7 (pending merge); production keys need an owner key ceremony"
         },
         {
           "id": "P2.6",
@@ -256,6 +288,34 @@
           "evidence": [
             ".github/workflows/"
           ]
+        },
+        {
+          "id": "P2.7",
+          "title": "Connect with SSH: discover cluster, choose scope and rights, ICS creates its own Proxmox user/token and restricted SSH account",
+          "status": "implementing",
+          "evidence": [],
+          "note": "Owner request 2026-11-16; owner will test against pve06 via pve.agit8or.net (branch ssh-onboard)"
+        },
+        {
+          "id": "P2.8",
+          "title": "Signed artifact distribution to guests (apt repo + OCI registry, per-channel key pins)",
+          "status": "implementing",
+          "evidence": [],
+          "note": "Branch artifact-dist"
+        },
+        {
+          "id": "P2.9",
+          "title": "ICS shipped as signed ou-ics package with automatic pre-upgrade backup and rollback",
+          "status": "implementing",
+          "evidence": [],
+          "note": "Branch ics-pkg; install/upgrade/rollback drill on Ubuntu 24.04 and Debian 12 in progress"
+        },
+        {
+          "id": "P2.10",
+          "title": "Per-customer network isolation (Proxmox SDN VNet per customer, default deny)",
+          "status": "planned",
+          "evidence": [],
+          "note": "Design and owner commands prepared (branch fullstack-plan); owner decision: option A (VNet + PVE firewall) if no node rules on pve01-05, else option B"
         }
       ]
     },
@@ -271,7 +331,7 @@
           "evidence": [
             "docs/screenshots/"
           ],
-          "note": "Redesigned console deployed; infrastructure views await Proxmox provider integration"
+          "note": "Redesigned console deployed; console v3 (releases/promotion, controller role banner, scope approvers, guest start-up panel) on branch console-new (pending merge)"
         },
         {
           "id": "P3.2",
@@ -298,20 +358,25 @@
         {
           "id": "P4.1",
           "title": "Two isolated customer stacks with cross-customer access-denial tests",
-          "status": "planned",
-          "evidence": []
+          "status": "integrated_lab",
+          "evidence": [
+            "docs/status/tenant-isolation-results.md"
+          ],
+          "note": "Two independent lab customers: 153/155 isolation checks on main; with per-customer encrypted backups 209 pass / 0 fail on branch integration-7 (pending merge); network isolation pending SDN (P2.10)"
         },
         {
           "id": "P4.2",
           "title": "Organization admin and MSP Control Center",
-          "status": "planned",
-          "evidence": []
+          "status": "implementing",
+          "evidence": [],
+          "note": "Organization Admin in the portal (separate tenant API, customer-bound) + aliases/shared mailboxes/quotas tested in lab on branch tenant-msp (pending merge); send-as pending groupware fix"
         },
         {
           "id": "P4.3",
           "title": "Versioned MSP provisioning API",
-          "status": "planned",
-          "evidence": []
+          "status": "implementing",
+          "evidence": [],
+          "note": "/api/msp/v1 with HMAC signing, idempotency, permission sets, signed webhooks, OpenAPI 3.1, reference client on branch tenant-msp (pending merge)"
         }
       ]
     },
@@ -325,13 +390,14 @@
           "title": "Patch rings, controlled upgrades and rollback",
           "status": "implementing",
           "evidence": [],
-          "note": "Signed pinned-package upgrade + rollback demonstrated on the lab mail server; merge pending"
+          "note": "Signed pinned-package upgrade + rollback drills: groupware (A21) and document engine (ou1<->ou2, ~30 s downtime, data intact; branch docs-rollout)"
         },
         {
           "id": "P5.2",
           "title": "Capacity analytics and scaling plans",
           "status": "planned",
-          "evidence": []
+          "evidence": [],
+          "note": "Capacity planning per full stack computed against pve06 (branch fullstack-plan); analytics/forecasting not built"
         },
         {
           "id": "P5.3",
@@ -395,7 +461,7 @@
           "title": "Mail, calendar, contacts and file migration engine",
           "status": "integrated_lab",
           "evidence": [],
-          "note": "IMAP to groupware mail migration verified in lab (incremental, resumable); merge pending"
+          "note": "IMAP to groupware mail migration verified in lab; calendar/contacts/tasks migration frozen as WIP (verification did not pass) until after the alpha"
         }
       ]
     },
