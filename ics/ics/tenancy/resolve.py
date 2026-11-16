@@ -25,7 +25,10 @@ _SQL = {
     "plan": "SELECT customer_id FROM plans WHERE id = :i",
     "stack": "SELECT customer_id FROM idm_stacks WHERE name = :i",     # idm_stacks.customer_id is NOT NULL (MSP-internal default), migration 0012a
     "policy": "SELECT customer_id FROM backup_policies WHERE name = :i",
-    "deployment": "SELECT customer_id FROM deployments WHERE slug = :i",
+    # deployments.customer_id is the customer's SLUG text (tenant-msp, migration 0012b): join to the customer row. A legacy value that is itself a UUID still resolves.
+    "deployment": "SELECT COALESCE(c.id::text, CASE WHEN d.customer_id ~* '^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$' THEN d.customer_id END) AS customer_id "
+                  "FROM deployments d LEFT JOIN customers c ON c.slug = d.customer_id WHERE d.slug = :i",
+    "customer_ref": "SELECT id::text AS customer_id FROM customers WHERE slug = :i",
 }
 DEFAULT_CUSTOMER = "00000000-0000-0000-0000-00000000a001"
 _UUID_KINDS = {"endpoint", "credential", "check", "node", "runner_node", "channel", "maintenance", "incident", "artifact", "plan"}
@@ -50,7 +53,7 @@ REFS: dict[str, list[tuple[str, str]]] = {
     "credential.rotate": [("credential_id", "credential")],
     "credential.test": [("credential_id", "credential")],
     "deployment.change": [("deployment_id", "deployment"), ("maintenance_window_id", "maintenance")],
-    "deployment.create": [("spec.customer_id", "customer")],
+    "deployment.create": [("spec.customer_id", "customer_ref")],
     "deployment.destroy": [("deployment_id", "deployment")],
     "endpoint.disable": [("endpoint_id", "endpoint")],
     "endpoint.enable": [("endpoint_id", "endpoint")],
@@ -144,6 +147,8 @@ def lookup(db, kind: str, value) -> str | None:
     """customer id of one referenced resource (None when it does not exist or has no customer)"""
     if kind == "customer":
         return _norm(value)
+    if kind == "customer_ref":      # a customer UUID or its slug (deployment specs carry the slug)
+        return _norm(value) or _norm(db.execute(text(_SQL["customer_ref"]), {"i": str(value)}).scalar())
     if kind in _UUID_KINDS:
         try:
             value = str(UUID(str(value)))

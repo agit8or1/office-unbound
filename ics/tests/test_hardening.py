@@ -101,7 +101,7 @@ def test_listener_serves_only_the_callback_route_and_health(rt, base_settings, m
     app = callback.create_callback_app()
     paths = sorted(r.path for r in app.routes)
     assert paths == ["/api/v1/guest-bootstrap/report", "/healthz"]
-    assert app.user_middleware == []                                                 # no session / CSRF / CORS middleware
+    assert [m.cls.__name__ for m in app.user_middleware] == ["FenceGuard"]            # no session / CSRF / CORS middleware; only the fence guard (review 7 L-8)
 
 
 def test_listener_isolation_and_no_cookies(listener):
