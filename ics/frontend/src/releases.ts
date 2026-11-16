@@ -49,9 +49,9 @@ export function promotePlanParams(c: PromotionCandidate, reason: string): Promot
 }
 
 export function canPromote(c: PromotionCandidate, r: Releases, role: string): { ok: boolean; why: string } {
-  if (role !== 'admin') return { ok: false, why: 'Only administrators can propose a promotion.' }
-  if (!r.promote_enabled) return { ok: false, why: 'This server is not connected to the release pipeline yet.' }
-  if (!c.ready) return { ok: false, why: 'Every package needs a passing install test first.' }
+  if (role !== 'admin') return { ok: false, why: 'Blocked: only administrators can propose a promotion.' }
+  if (!r.promote_enabled) return { ok: false, why: 'Blocked: this server is not connected to the release pipeline yet.' }
+  if (!c.ready) return { ok: false, why: 'Blocked: every package needs a passing install test first.' }
   return { ok: true, why: '' }
 }
 

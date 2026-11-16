@@ -58,7 +58,7 @@ const may = (c: PromotionCandidate) => canPromote(c, rel.data.value!, session.us
               <ul v-if="c.blocked.length" class="small rel-block"><li v-for="b in c.blocked" :key="b">{{ b }}</li></ul>
             </div>
             <div class="rel-side">
-              <StatusBadge :s="c.risk" :text="c.risk === 'high' ? 'High risk' : 'Normal risk'" />
+              <StatusBadge :s="c.risk === 'high' ? 'high' : 'info'" :text="c.risk === 'high' ? 'High risk' : 'Normal risk'" />
               <span class="muted small">Needs {{ approverText(c.approvals_required) }}</span>
               <Button size="sm" variant="primary" :disabled="!may(c).ok" :title="may(c).why" @click="open(c)">Review and promote</Button>
             </div>
@@ -74,7 +74,7 @@ const may = (c: PromotionCandidate) => canPromote(c, rel.data.value!, session.us
             <p class="muted small">Indexed {{ fmtTime(channel(n)?.indexed_at) }}</p>
             <div v-for="c in channel(n)!.components" :key="c.component" class="rel-comp">
               <h3>{{ c.component }}</h3>
-              <div class="tablewrap">
+              <div class="tablewrap" tabindex="0" role="region" :aria-label="c.component + ' packages in ' + CHANNEL_LABEL[n]">
                 <table class="dense" :aria-label="c.component + ' in ' + CHANNEL_LABEL[n]">
                   <thead><tr><th>Package</th><th>Version</th><th>Tests</th></tr></thead>
                   <tbody>
@@ -96,7 +96,7 @@ const may = (c: PromotionCandidate) => canPromote(c, rel.data.value!, session.us
       <div class="rel-drawer">
         <template v-if="!created">
           <p>This proposes moving exactly these files. Nothing changes until {{ approverText(sel.approvals_required) }} other than you approve it in Approvals.</p>
-          <div class="tablewrap">
+          <div class="tablewrap" tabindex="0" role="region" aria-label="Exact package set table">
             <table class="dense" aria-label="Exact package set" data-testid="promote-set">
               <thead><tr><th>File</th><th>SHA-256</th><th>Test record</th></tr></thead>
               <tbody>

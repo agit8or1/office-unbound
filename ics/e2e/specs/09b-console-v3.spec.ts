@@ -119,13 +119,15 @@ test.describe('controller role', () => {
     await clean(page, 'standby banner')
   })
 
-  test('a standby that fell behind is red and warns against taking over; a fenced primary says it was replaced', async ({ page }) => {
+  test('a standby that fell behind is red and warns against taking over', async ({ page }) => {
     await readyAs(page, LAGGING, 503)
     await gotoRoute(page, 'overview')
     await expect(page.getByTestId('controller-banner')).toContainText('7 minutes old')
     await expect(page.getByTestId('controller-banner')).toContainText('do not take over')
     await expect(page.getByTestId('controller-banner')).toHaveClass(/bad/)
-    await page.unroute('**/readyz')
+  })
+
+  test('a fenced primary says it was replaced', async ({ page }) => {
     await readyAs(page, FENCED, 503)
     await gotoRoute(page, 'overview')
     await expect(page.getByTestId('controller-banner')).toContainText('has been replaced')
