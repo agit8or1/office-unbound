@@ -45,7 +45,7 @@ REFS: dict[str, list[tuple[str, str]]] = {
     "backup.run": [("policy", "policy")],
     "backup.verify": [("policy", "policy")],
     "check.bind_remediation": [("check_id", "check"), ("remediation.node_id", "node")],
-    "check.create": [("customer_id", "customer"), ("remediation.node_id", "node")],
+    "check.create": [("customer_id", "customer"), ("remediation.node_id", "node"), ("config.endpoint_id", "endpoint")],
     "check.delete": [("check_id", "check")],
     "check.set_enabled": [("check_id", "check")],
     "image.import": [("endpoint_id", "endpoint")],

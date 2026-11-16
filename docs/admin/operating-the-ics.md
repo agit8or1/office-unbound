@@ -19,6 +19,17 @@ The monitoring pages were not exercised in a browser in the monitoring session; 
 `fail_threshold` / `recover_threshold` damp flapping. TLS checks require exactly one trust anchor (CA bundle or SHA-256 pin). Check passwords are vault-encrypted and
 never returned. All five kinds ran against the lab groupware node. States: `unknown -> ok | warning | critical`; results are kept 14 days.
 
+**Infrastructure alerts (`kind: infra`).** These are evaluated from the inventory and metrics the ICS already collects. They make no extra Proxmox calls and install nothing in guests. Config: `{"endpoint_id", "rule", "target", "warn_pct", "crit_pct", "stale_after_seconds"}`.
+- **Rules:**
+  - `node_offline`: a node is not online.
+  - `guest_stopped`: a guest is not running. Set it on the guests you expect to run.
+  - `node_cpu` and `node_memory`: usage at or above `warn_pct` / `crit_pct`.
+  - `storage_used`: usage at or above the thresholds; an inactive storage is critical.
+- **Target:** a node, VMID or storage name, or `*` for everything the read token sees. With *Monitoring scope: whole cluster, read-only*, that includes guests Office Unbound did not create.
+- **Stale data:** data older than `stale_after_seconds` (default 900) is reported as **stale** (warning), never as a reading. A metric Proxmox does not report is shown as missing, not estimated.
+- **Alert handling:** results use the normal state machine, incidents, escalation, maintenance windows and alert channels.
+- **Not available from the Proxmox API without an agent:** in-guest disk usage, per-process data and application health. Use the service checks (`http`, `tcp_tls`, …) or the node agent for those.
+
 ## Incidents
 One active incident per check: opens on the first non-ok state, updates on severity change, closes on recovery. `incident.ack` stops reminders (the first 5 acks per user per hour
 are low risk; more need one approver). Notifications use a durable outbox: 5 attempts with exponential backoff, then `failed` (audited).
