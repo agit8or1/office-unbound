@@ -22,6 +22,7 @@ class ScopeTarget(BaseModel):
     preset: Literal["monitoring", "operations", "deploy"] | None = Field(default=None, description="permission level; omitted = unchanged")
     risk_overrides: list[str] = Field(default_factory=list, max_length=50)
     allow_migrate: bool | None = None
+    monitor_cluster: bool | None = Field(default=None, description="read-only monitoring of the whole cluster; omitted = unchanged")
     detach_orphans: bool = Field(default=False, description="narrowing only: ICS stops managing guests that would fall outside the new scope (they keep running in Proxmox)")
 
     @field_validator("nodes")

@@ -184,6 +184,7 @@ def mount(app: FastAPI) -> None:
             out = inventory_tree.annotate(out, ep, keys)
             out["approved_scope"]["preset"] = (pol or {}).get("preset")
             out["approved_scope"]["allow_migrate"] = bool((pol or {}).get("allow_migrate"))
+            out["approved_scope"]["monitor_cluster"] = bool((pol or {}).get("monitor_cluster"))
         audit.append(db, "pve.session.discovered", actor_id=user.id, actor_name=user.username, ip=client_ip(request), resource="pve_session",
                      resource_id=str(sid), details={"nodes": out["cluster"]["nodes_total"], "guests": out["cluster"]["guests"],
                                                     "can_setup": out["account"]["ok"]})

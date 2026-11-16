@@ -13,6 +13,8 @@ isolated lab; nothing is production supported ([ROADMAP.md](ROADMAP.md)).
 Target: 0.2.0 "Beacon" (alpha readiness: security hardening, production no-SSH deployment, full stack).
 
 ### 0.2.0-dev.3 (2026-11-16)
+- **Read-only cluster monitoring** (`monitor_cluster`): a separate choice ("only the selected nodes" / "the whole cluster, read-only"). It grants an audit-only role (Sys.Audit, VM.Audit, Datastore.Audit, Pool.Audit) at `/` to the READ token only; the write token stays confined to its pool, storage and network; monitoring alone never creates a write token; post-setup verification accepts exactly those read-only rights and still refuses anything more; node metrics then cover every online node. Can be switched on later through Manage access without touching deployment rights.
+- **Permissions screen**: "Can observe / Can modify / Never allowed", each line labelled with who enforces it (Proxmox RBAC, Office Unbound, or both) and the real node, pool, storage and network names; levels renamed "Monitoring (read-only)" and "Deployment + Monitoring"; the Review step shows the cluster, address, signed-in user and a compact summary, and states that Calculate is a dry run.
 - **Fix: "Calculate the exact Proxmox changes" appeared to do nothing.** The server rejected the dry-run plan (422) and the wizard only rendered progress once a plan existed, so the reason was never shown. Submission errors of the calculation, of Apply and of the maintenance actions are now shown; every rejected plan is logged by the ICS (action, user, field names and messages only, never values). Regression test: public-CA sign-in -> dry run through the HTTP API.
 
 ### 0.2.0-dev.2 (2026-11-16)

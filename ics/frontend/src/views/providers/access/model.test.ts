@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest'
 import type { InvGuest } from './api'
-import { apiUrl, diffSelection, emptySelection, filterGuests, suggestTargets, toPolicy, toScopeTarget, validate, visibleNodes } from './model'
+import { apiUrl, diffSelection, emptySelection, filterGuests, permissionSummary, suggestTargets, toPolicy, toScopeTarget, validate, visibleNodes } from './model'
 
 const g = (vmid: number, node: string, extra: Partial<InvGuest> = {}): InvGuest => ({ vmid, type: 'qemu', name: `vm${vmid}`, node, status: 'running', cpus: 2, cpu: 0, mem: 0,
   maxmem: 2 ** 31, maxdisk: 2 ** 33, pool: null, template: false, tags: '', ...extra })
@@ -87,5 +87,23 @@ describe('edit mode', () => {
     expect(s.nodes).toEqual(['pve06'])                // the chosen hypervisors, at every level
     expect(s.networks).toEqual(['vmbr0'])
     expect(s.operate).toEqual([105])
+  })
+})
+
+describe('permission summary', () => {
+  it('monitoring modifies nothing; deployment names the real resources; delete-after-approval is labelled as Office Unbound enforced', () => {
+    const mon = permissionSummary({ ...emptySelection(), nodes: ['pve06'] })
+    expect(mon.modify).toEqual([])
+    expect(mon.observe[0].text).toContain('pve06')
+    const dep = permissionSummary({ ...emptySelection(), nodes: ['pve06'], pools: ['office-unbound'], storages: ['local-lvm'], networks: ['vmbr0'], level: 'deploy' })
+    expect(dep.modify.map((m) => m.text).join(' ')).toMatch(/office-unbound.*pve06/)
+    expect(dep.modify.find((m) => m.text.startsWith('Delete its own'))?.by).toBe('ou')
+    expect(dep.never.find((m) => m.text.startsWith('Change Proxmox users'))?.by).toBe('proxmox')
+    expect(permissionSummary({ ...emptySelection(), nodes: ['pve06'], monitorCluster: true }).observe[0].text).toContain('whole cluster')
+  })
+  it('the cluster-monitoring choice reaches the policy and the scope target', () => {
+    const s = { ...emptySelection(), nodes: ['pve06'], monitorCluster: true }
+    expect((toPolicy(s, GUESTS) as { monitor_cluster: boolean }).monitor_cluster).toBe(true)
+    expect(toScopeTarget(s, GUESTS)).toMatchObject({ monitor_cluster: true })
   })
 })

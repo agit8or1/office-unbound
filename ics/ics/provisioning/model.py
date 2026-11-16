@@ -86,6 +86,8 @@ class Policy(BaseModel):
     allow_cicustom: bool = False
     allow_migrate: bool = False
     guest_agent: bool = False
+    monitor_cluster: bool = Field(default=False, description="READ-ONLY monitoring of the whole cluster (every node, guest, storage) for the inventory "
+                                  "token only: Sys.Audit/VM.Audit/Datastore.Audit/Pool.Audit at '/'. Write rights stay confined to the selected scope.")
     acknowledge_full_admin: bool = False
     approve_elevated: list[str] = Field(default_factory=list, description="elevated privileges the approver explicitly accepts, e.g. ['Sys.Modify']")
     scope_mode: Literal["single_node", "whole_cluster"] | None = Field(

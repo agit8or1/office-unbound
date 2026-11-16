@@ -179,3 +179,62 @@ def test_public_ca_sign_in_new_connection_preview_and_apply(w, owner, rt, monkey
     r = w.ad.post(f"{H}/plans", json={"action": "provider.provision.plan_preview",
                                       "params": {"name": "owner", "base_url": s["base_url"], "admin_session": s["id"], "policy": pol}}, headers=w.adh)
     assert r.status_code == 201, r.text
+
+
+def _connect_policy(w, owner, pol):  # noqa: F811
+    s = sign_in(w, owner)
+    base = {"name": "owner", "base_url": owner.url, "fingerprint_sha256": owner.fingerprint, "admin_session": s["id"]}
+    _, j = run_as_admin(w, "provider.provision.plan_preview", {**base, "policy": pol})
+    assert j["status"] == "succeeded" and not j["result"]["plan"]["blocked"], j
+    _, j2 = run_as_admin(w, "provider.provision.apply", {**base, "preview_id": j["result"]["preview_id"], "plan_hash": j["result"]["plan_hash"]})
+    assert j2["status"] == "succeeded", (j2.get("error"), j2.get("result"))
+    return j["result"], j2["result"]["endpoint_id"]
+
+
+def _acl_by_token(owner):  # noqa: F811
+    out = {}
+    for e in owner.sim.acl_entries:
+        if e["ugid"].startswith("ics-svc@pve!"):
+            out.setdefault(e["ugid"].split("!")[1], set()).add((e["path"], e["roleid"]))
+    return out
+
+
+def test_cluster_monitoring_is_read_only_for_the_read_token_and_deployment_stays_in_its_pool(w, owner, rt):  # noqa: F811
+    """Monitor the whole cluster (read-only) while deploying only on pve06 in its own pool: '/' gets the read-only role for the INVENTORY token only;
+    the write token's ACLs are exactly the pool / storage / network; the planner never marks the read-only '/' grant as a write."""
+    owner.sim.add_vm(105, "pve06", "customer-app", status="running", storage="PVE06-Storage")
+    pol = {"preset": "deploy", "scope_mode": "single_node", "monitor_cluster": True,
+           "scope": {"nodes": ["pve06"], "pools": ["office-unbound"], "storages": ["PVE06-Storage"], "networks": ["vmbr0"], "protected_vmids": [126]}}
+    pv, eid = _connect_policy(w, owner, pol)
+    roles = {r["name"]: set(r["privileges"]) for r in pv["plan"]["roles"]} if "roles" in pv["plan"] else None
+    acl = _acl_by_token(owner)
+    inv, prov = acl["ics-inv"], acl["ics-prov"]
+    root = [r for p, r in inv if p == "/"]
+    assert len(root) == 1 and root[0].endswith("ClusterMonitor"), inv
+    assert not any(p == "/" for p, _ in prov), prov                                 # the write token never gets anything at '/'
+    assert {p for p, _ in prov} <= {"/nodes/pve06", "/pool/office-unbound", "/storage/PVE06-Storage", "/sdn/zones/localnetwork/vmbr0"}, prov
+    privs = owner.sim.roles[root[0]]
+    assert privs == {"Sys.Audit", "VM.Audit", "Datastore.Audit", "Pool.Audit"} if isinstance(privs, set) else set(privs) == {"Sys.Audit", "VM.Audit", "Datastore.Audit", "Pool.Audit"}
+    if roles is not None:
+        assert not any(p.startswith(("VM.Allocate", "Sys.Modify", "Permissions")) for p in roles.get(root[0], set()))
+
+
+def test_monitoring_only_cluster_wide_creates_no_write_token(w, owner, rt):  # noqa: F811
+    pol = {"preset": "monitoring", "scope_mode": "single_node", "monitor_cluster": True, "scope": {"nodes": ["pve06"]}}
+    _, eid = _connect_policy(w, owner, pol)
+    acl = _acl_by_token(owner)
+    assert set(acl) == {"ics-inv"}, acl                                            # monitoring never creates a write (provision) token
+    assert any(p == "/" for p, _ in acl["ics-inv"])
+
+
+def test_cluster_monitoring_can_be_switched_on_later_without_touching_deployment(w, owner, rt):  # noqa: F811
+    pol = {"preset": "deploy", "scope_mode": "single_node",
+           "scope": {"nodes": ["pve06"], "pools": ["office-unbound"], "storages": ["PVE06-Storage"], "networks": ["vmbr0"], "protected_vmids": [126]}}
+    _, eid = _connect_policy(w, owner, pol)
+    before = _acl_by_token(owner)
+    assert not any(p == "/" for p, _ in before["ics-inv"])
+    pv, p, j = change(w, owner, eid, {"mode": "single_node", "nodes": ["pve06"], "monitor_cluster": True})
+    assert j["status"] == "succeeded", j
+    after = _acl_by_token(owner)
+    assert after["ics-prov"] == before["ics-prov"]                                  # deployment access unchanged
+    assert after["ics-inv"] - before["ics-inv"] and all(pp == "/" for pp, _ in after["ics-inv"] - before["ics-inv"])

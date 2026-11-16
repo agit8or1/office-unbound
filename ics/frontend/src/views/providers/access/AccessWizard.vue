@@ -10,8 +10,9 @@ import PlanView from '../PlanView.vue'
 import type { PlanPreviewOut } from '../model'
 import InventoryTree from './InventoryTree.vue'
 import MaintenancePanel from './MaintenancePanel.vue'
+import PermissionSummary from './PermissionSummary.vue'
 import { accessApi, type Inventory, type PveSession, type TlsLookup } from './api'
-import { DEFAULT_POOL, LEVELS, NEVER, apiUrl, suggestTargets, diffSelection, emptySelection, fromApproved, gib, pctOf, toPolicy, toScopeTarget, validate, visibleNodes, type Selection } from './model'
+import { DEFAULT_POOL, LEVELS, apiUrl, suggestTargets, diffSelection, emptySelection, fromApproved, gib, pctOf, toPolicy, toScopeTarget, validate, visibleNodes, type Selection } from './model'
 import '../providers.css'
 
 const props = defineProps<{ id?: string }>()
@@ -224,6 +225,10 @@ function next() {
         <h2>Which hypervisors may Office Unbound use?</h2>
         <p class="muted">Tick the nodes it may use. It sees their status and, with the Deployment level, creates its own guests there. Your existing VMs and containers stay invisible to it.</p>
         <InventoryTree :inv="inv" :sel="sel" :edit="edit" />
+        <fieldset class="ax-set"><legend>Monitoring scope</legend>
+          <label class="row"><input v-model="sel.monitorCluster" type="radio" :value="false" name="monscope" /> Only the selected nodes</label>
+          <label class="row"><input v-model="sel.monitorCluster" type="radio" :value="true" name="monscope" /> The whole cluster, read-only <span class="muted small">every node, VM, container and storage, including ones Office Unbound did not create. It can look, never change. Uses the read-only token only.</span></label>
+        </fieldset>
         <div class="row"><button type="button" class="wz-btn" :disabled="busy" @click="rescan">Rescan</button></div>
         <MaintenancePanel v-if="edit && session && id" :endpoint-id="id" :session-id="session.id" :endpoint-name="epName" />
         <p v-if="w.m.errors.select" class="err" role="alert">{{ w.m.errors.select }}</p>
@@ -269,16 +274,17 @@ function next() {
         </div>
         <p v-for="(m, k) in w.m.errors" :key="k" class="err" role="alert">{{ m }}</p>
         <label v-if="sel.level === 'deploy'" class="row"><input v-model="sel.allowMigrate" type="checkbox" /> Allow moving its own guests between the selected nodes (VM.Migrate)</label>
-        <fieldset class="ax-set"><legend>Protections (always on)</legend>
-          <label v-for="n in NEVER" :key="n" class="row" title="Always on: no level grants this, and Office Unbound refuses it"><input type="checkbox" checked disabled :aria-label="n + ' (always on)'" /> {{ n }} <span class="muted small">🔒 locked</span></label>
-          <p class="muted small">Deleting a guest Office Unbound created is a separate, separately approved action. Proxmox cannot split "create" from "delete" inside a pool, so Office Unbound enforces it.</p>
-        </fieldset>
+        <PermissionSummary :sel="sel" />
+        <p class="muted small">"Proxmox enforces" = the service account simply does not hold that right. "Office Unbound enforces" = Proxmox would allow it, Office Unbound refuses it (approval, ownership records, scope checks).</p>
         <p class="muted small">Visible nodes (status only): {{ visibleNodes(sel, guests).join(', ') || 'none' }}.</p>
       </section>
 
       <!-- 5. Review -->
       <section v-else-if="cur === 'review'" class="ax-step">
         <h2>Review</h2>
+        <p v-if="inv && session" class="muted"><b>{{ inv.cluster.name }}</b> at <span class="mono">{{ session.base_url }}</span> · signed in as {{ session.username }} ({{ session.state === 'ready' ? 'session active' : session.state }}) · nodes: {{ sel.nodes.join(', ') || 'none' }} · monitoring: {{ sel.monitorCluster ? 'whole cluster, read-only' : 'selected nodes' }}</p>
+        <PermissionSummary :sel="sel" compact />
+        <p class="muted small">"Calculate" is a dry run: it reads Proxmox and computes the exact accounts, roles and permissions below. Nothing changes until you approve.</p>
         <div v-if="change" class="ax-diff">
           <p v-if="before && before.level !== sel.level"><b>Permission level:</b> {{ LEVELS.find((l) => l.id === before!.level)?.title }} → {{ LEVELS.find((l) => l.id === sel.level)?.title }}</p>
           <p v-if="!change.added.length && !change.removed.length" class="muted">No resources added or removed.</p>

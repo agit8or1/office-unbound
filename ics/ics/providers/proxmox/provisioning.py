@@ -106,8 +106,11 @@ class PlanBuildError(ValueError):
     pass
 
 
+READ_ONLY_AUDIT = frozenset({"Sys.Audit", "VM.Audit", "Datastore.Audit", "Pool.Audit"})
+
+
 # ---------------------------------------------------------------------------------------------------- design
-CAP_ROLE_SUFFIX = {"monitor": "Monitor", "operate": "Operate", "deploy": "Deploy", "storage": "Storage", "template_clone": "TemplateClone", "network": "Network",
+CAP_ROLE_SUFFIX = {"monitor_cluster": "ClusterMonitor", "monitor": "Monitor", "operate": "Operate", "deploy": "Deploy", "storage": "Storage", "template_clone": "TemplateClone", "network": "Network",
                    "backup": "Backup", "custom": "Custom", "full_admin": "FullAdmin", "node_audit": "NodeAudit"}
 
 
@@ -116,6 +119,8 @@ def capabilities(policy: Policy) -> list[str]:
     if policy.scope_mode and "full_admin" not in caps:
         # scope modes: Sys.Audit lives in its own role so it is granted ONLY on /nodes paths (never on pool/storage/vm paths)
         caps.insert(1, "node_audit")
+    if policy.monitor_cluster and "full_admin" not in caps:
+        caps.append("monitor_cluster")       # read-only, '/' for the inventory token: never a reason for a write token
     return caps
 
 
@@ -145,6 +150,8 @@ def role_privileges(cap: str, policy: Policy, major: int) -> set[str]:
         p = {"VM.Audit", "Datastore.Audit", "Pool.Audit"} if (policy.scope_mode and policy.preset != "full_admin") else {"Sys.Audit", "VM.Audit", "Datastore.Audit", "Pool.Audit"}
         if policy.guest_agent:
             p.add("VM.GuestAgent.Audit" if major >= 9 else "VM.Monitor")
+    elif cap == "monitor_cluster":
+        p = set(READ_ONLY_AUDIT)                                                    # read-only, whole cluster, inventory token only
     elif cap == "deploy":
         p = {"VM.Allocate", "VM.Audit", "VM.PowerMgmt", "VM.Config.CPU", "VM.Config.Memory", "VM.Config.Disk", "VM.Config.Network",
              "VM.Config.Cloudinit", "VM.Config.Options", "VM.Config.HWType", "VM.Config.CDROM", "VM.Snapshot", "VM.Snapshot.Rollback", "VM.Clone", "Pool.Audit"}
@@ -234,6 +241,8 @@ def design(policy: Policy, major: int, final_names: dict[str, str] | None = None
             acl.append(AclSpec("/nodes", nodecap, 1, both))          # every current and future node: Sys.Audit with propagation
         else:
             acl += [AclSpec(f"/nodes/{n}", nodecap, 1, both) for n in s.nodes]   # single_node / legacy: exactly the selected nodes, never /nodes or /
+        if "monitor_cluster" in caps:
+            acl.append(AclSpec("/", "monitor_cluster", 1, ("inventory",)))   # read-only everywhere, for the READ token only (never the write token)
         acl += [AclSpec(f"/pool/{p}", "monitor", 1, both) for p in s.pools]
         acl += [AclSpec(f"/storage/{x}", "monitor", 1, both) for x in s.storages]
         acl += [AclSpec(f"/vms/{t}", "monitor", 0, both) for t in s.template_vmids]
@@ -255,7 +264,7 @@ def design(policy: Policy, major: int, final_names: dict[str, str] | None = None
             acl += [AclSpec(g.path, "custom", 1, prov) for g in policy.custom_grants]
             if policy.allow_cicustom:
                 acl.append(AclSpec("/", "custom", 1, prov))
-    kinds = ["inventory"] + (["provision"] if len([c for c in caps if c != "node_audit"]) > 1 else [])
+    kinds = ["inventory"] + (["provision"] if len([c for c in caps if c not in ("node_audit", "monitor_cluster")]) > 1 else [])
     base = policy.token_base
     toks = {k: (token_names or {}).get(k) or f"{base}-{'inv' if k == 'inventory' else 'prov'}" for k in kinds}
     # monitoring-only: the single token is the inventory token
@@ -663,7 +672,7 @@ def plan_for(policy: Policy, facts: Facts | None, *, pve_major: int | None = Non
     for path, subj, role, prop in want:
         key = f"{path}|{subj}|{role}"
         step_risk = "high" if path in risky_paths else "normal"
-        if path == "/" and policy.preset != "full_admin" and role != d.roles.get("monitor", ("",))[0]:
+        if path == "/" and policy.preset != "full_admin" and role not in (d.roles.get("monitor", ("",))[0], d.roles.get("monitor_cluster", ("",))[0]):
             step_risk = "high"
         if (path, subj, role) in have:
             plan.steps.append(Step("acl", "noop", key, {"path": path, "subject": subj, "role": role, "propagate": prop}, "already present"))
@@ -838,6 +847,11 @@ def verify_token(reader, d: Design, policy: Policy, kind: str, facts_nodes: list
     seen = {r["path"] for r in reach}
     reach += [{**e, "reaches": _path_reach(e["path"], set(s.nodes)) or "outside the approved scope", "enforced_by": "proxmox"}
               for e in exposure if policy.mode() == "single_node" and e["path"] not in seen]
+    if kind == "inventory" and policy.monitor_cluster:
+        # owner-approved cluster-wide READ monitoring: read-only audit privileges anywhere are expected for the READ token (never for the write token);
+        # anything beyond them is still exposure
+        exposure = [e for e in exposure if not set(e["privileges"]) <= READ_ONLY_AUDIT]
+        reach = [r for r in reach if not set(r.get("privileges", ())) <= READ_ONLY_AUDIT or not r.get("privileges")]
     ok = rep.ok and not exposure and not bad and not reach
     return {"kind": kind, "ok": ok, "missing": rep.missing, "unexpected": rep.unexpected, "forbidden": rep.forbidden, "unauthorized_exposure": exposure, "scope_reach": reach,
             "verbs": [{"verb": v.verb, "ok": v.ok, "missing": v.missing} for v in verbs], "suggestion": rep.suggestion,

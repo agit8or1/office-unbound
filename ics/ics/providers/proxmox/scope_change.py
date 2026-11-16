@@ -45,6 +45,8 @@ def target_policy(old: Policy, t: ScopeTarget, stored_roles: dict | None = None)
         d["preset"] = t.preset
     if t.allow_migrate is not None:
         d["allow_migrate"] = t.allow_migrate
+    if t.monitor_cluster is not None:
+        d["monitor_cluster"] = t.monitor_cluster
     try:
         return Policy.model_validate(d)
     except ValueError as e:      # pydantic ValidationError is a ValueError

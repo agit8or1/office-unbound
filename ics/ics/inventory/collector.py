@@ -124,7 +124,9 @@ def collect_metrics(rt: Runtime, db: Session, endpoint_id, known: list[str] | No
     last = {(r.scope_type, r.scope_id): r.ts for r in db.execute(text(
         "SELECT scope_type, scope_id, max(ts) AS ts FROM metric_samples WHERE endpoint_id = :e AND resolution = '1m' "
         "AND scope_type IN ('node','guest') GROUP BY 1, 2"), {"e": eid})}
-    nodes = db.execute(text("SELECT id, name FROM infra_nodes WHERE endpoint_id = :e AND status = 'online' AND managed"), {"e": eid}).all()
+    # node history: the authorized nodes, or every online node when READ-ONLY cluster monitoring was approved (policy.monitor_cluster)
+    whole = bool(db.execute(text("SELECT (policy->>'monitor_cluster')::boolean FROM endpoint_policy WHERE endpoint_id = :e"), {"e": eid}).scalar())
+    nodes = db.execute(text("SELECT id, name FROM infra_nodes WHERE endpoint_id = :e AND status = 'online' AND (managed OR :w)"), {"e": eid, "w": whole}).all()
     guests = db.execute(text("SELECT id, vmid, kind, node FROM infra_guests WHERE endpoint_id = :e AND status = 'running' "
                              "ORDER BY vmid LIMIT :n"), {"e": eid, "n": max_guests}).all()
     try:
