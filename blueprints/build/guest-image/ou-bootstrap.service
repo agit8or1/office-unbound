@@ -5,11 +5,14 @@ After=network-online.target nftables.service
 Wants=network-online.target
 ConditionPathExists=!/var/lib/ou-bootstrap/done
 ConditionPathExists=!/var/lib/ou-bootstrap/failed
+ConditionPathExists=!/var/lib/ou-bootstrap/sealed
 
 [Service]
 Type=oneshot
 Environment=PYTHONPATH=/opt/ou-agent PYTHONDONTWRITEBYTECODE=1
 ExecStart=/usr/bin/python3 -m ou_agent.firstboot
+# SEAL: only after a successful bootstrap (ExecStartPost is skipped when ExecStart fails): marker + the unit disables itself
+ExecStartPost=/usr/local/sbin/ou-seal
 # FAIL CLOSED: no restart policy. A failed first boot leaves the image state exactly as shipped (default-deny nftables, SSH masked, agent not started)
 # and the /var/lib/ou-bootstrap/failed marker; the ICS destroys or re-creates the VM.
 Restart=no

@@ -1,0 +1,20 @@
+{
+ "archive_inrelease_sha256": {
+  "deb.debian.org_debian-security_dists_bookworm-security_InRelease": "b3f07c0d2f852f5efc4a3c811eed82f449f64dfb005e59ce7f13aa5df22851a2",
+  "deb.debian.org_debian_dists_bookworm-updates_InRelease": "425e6e1e79054ce2af4dcd3711a8f5aee5d9140349c8fcac802f5dc8167525dd",
+  "deb.debian.org_debian_dists_bookworm_InRelease": "77737fa4b34f2693e982cc9ee35736816c35a7778fc2d326cc1bbf5b301fe1aa"
+ },
+ "os": "debian-12",
+ "package_lock_sha256": "c3d73dae7acc89a594042a1610811d2e867a8b278a1da00b1eb74c51b84f7434",
+ "recipe_commit": "unknown",
+ "recipe_sha256": "995c604d8f73ad053a418939ef766ebf3f8d49267440924e1b3fae02d3603637",
+ "source_date_epoch": 1794787200,
+ "tools": {
+  "faketime": "0.9.10-2.1",
+  "mkfs.ext4": "mke2fs 1.47.0 (5-Feb-2023)",
+  "mmdebstrap": "mmdebstrap 1.4.3",
+  "qemu-img": "qemu-img version 8.2.2 (Debian 1:8.2.2+ds-0ubuntu1.18)",
+  "syft": "1.57.1",
+  "systemd-repart": "systemd 255 (255.4-1ubuntu8.18)"
+ }
+}

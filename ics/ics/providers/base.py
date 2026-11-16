@@ -149,11 +149,14 @@ class ImageImportSpec:
     cores: int = 2
     memory_mb: int = 2048
     bridge: str | None = None
-    # review 5 M7 / review 7 M-4: the verb verifies the SIGNED release itself (golden.verify_release) and derives path + sha256 from it; `file_path`/`sha256`
-    # above are only claims and must equal the verified values. The public key and its pin come ONLY from the server's configuration (golden.trust_root),
-    # never from the caller; the downgrade floor is read from / raised in the ICS database (golden.floor_store).
+    # review 5 M7: the verb verifies the SIGNED release itself (golden.verify_release) and derives path + sha256 from it; `file_path`/`sha256` above are
+    # only claims and must equal the verified values. Without these three the import is refused.
+    # review 7 M-4: the trust (release key + pin + test-runner key) comes from Settings through golden.trust_from_settings / golden.verify_for_import, and the rollback
+    # floor from the ICS database (golden.get_floor); neither is a free-text field of a plan. The caller records the accepted release with golden.advance_floor.
     release_dir: str | None = None
-    allow_downgrade: bool = False   # an explicit, separately approved (high-risk) downgrade plan; otherwise older than the newest imported = refused
+    trust: object | None = None     # golden.Trust
+    floor: object | None = None     # golden.Floor | None (None = first import of this OS)
+    allow_downgrade: bool = False   # an explicit, separately approved (high-risk) downgrade plan; otherwise a version below the DB floor is refused
 
 
 @dataclass(frozen=True)

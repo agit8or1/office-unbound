@@ -107,6 +107,9 @@ class Settings:
     guest_bootstrap_timeout_seconds: int = 1500
     environment: str = "production"              # "production" (default) | "lab"; lab-only features are refused unless this is "lab"
     lab_ssh_bootstrap: bool = False              # LAB ONLY (ICS_LAB_SSH_BOOTSTRAP): the ICS-driven SSH guest bootstrap of docs/status/first-real-deployment.md; ADR-0002 addendum
+    guest_golden_release_pubkey_file: str | None = None   # PEM (ECDSA P-256) public key of the golden-image release signer (review 7 M-4: Settings only)
+    guest_golden_release_pin_sha256: str | None = None     # operator-confirmed SPKI pin of that key
+    guest_golden_attestor_pubkey: str | None = None        # base64 raw Ed25519 public key of the independent test runner (ou-test-attest trust/test-runner.pub)
     guest_callback_url: str | None = None        # https://<ics-host>:<port> the guests call back (golden-image bootstrap); no path
     guest_callback_pin_sha256: str | None = None # sha256 (hex) of the certificate (CA or leaf) the guests pin for that URL
     guest_bootstrap_ttl_seconds: int = 1800      # lifetime of a per-VM one-time bootstrap secret
@@ -209,6 +212,9 @@ def load_settings() -> Settings:
             guest_keep_bootstrap_ssh=b("ICS_GUEST_KEEP_BOOTSTRAP_SSH", False),
             environment=env.get("ICS_ENVIRONMENT", "production").strip().lower(),
             lab_ssh_bootstrap=b("ICS_LAB_SSH_BOOTSTRAP", False),
+            guest_golden_release_pubkey_file=env.get("ICS_GUEST_GOLDEN_RELEASE_PUBKEY_FILE") or None,
+            guest_golden_release_pin_sha256=env.get("ICS_GUEST_GOLDEN_RELEASE_PIN_SHA256") or None,
+            guest_golden_attestor_pubkey=env.get("ICS_GUEST_GOLDEN_ATTESTOR_PUBKEY") or None,
             guest_callback_url=env.get("ICS_GUEST_CALLBACK_URL") or None,
             guest_callback_pin_sha256=env.get("ICS_GUEST_CALLBACK_PIN_SHA256") or None,
             guest_bootstrap_ttl_seconds=int(env.get("ICS_GUEST_BOOTSTRAP_TTL_SECONDS", 1800)),

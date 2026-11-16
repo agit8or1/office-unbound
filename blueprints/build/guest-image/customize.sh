@@ -33,6 +33,7 @@ echo 'ou-svc:100000:65536' | tee -a /etc/subuid >> /etc/subgid
 install -d /var/lib/systemd/linger; : > /var/lib/systemd/linger/ou-svc
 
 # --- first boot + root growth
+install -m 0755 "$P/ou-seal" /usr/local/sbin/ou-seal
 install -m 0644 "$P/ou-bootstrap.service" /etc/systemd/system/ou-bootstrap.service
 install -m 0644 "$P/ou-growroot.service" /etc/systemd/system/ou-growroot.service
 install -m 0755 "$P/ou-growroot" /usr/local/sbin/ou-growroot
@@ -59,8 +60,14 @@ systemctl enable systemd-timesyncd.service >/dev/null 2>&1 || true
 systemctl mask ssh.service ssh.socket sshd.service >/dev/null 2>&1 || true
 rm -f /etc/ssh/ssh_host_* /root/.ssh/authorized_keys
 passwd -l root >/dev/null
-touch /etc/cloud/cloud-init.disabled     # nothing creates users or keys from a cloud-init drive; per-VM material comes only through ou-bootstrap
-printf 'datasource_list: [ NoCloud, None ]\nssh_pwauth: false\ndisable_root: true\nmanage_etc_hosts: false\n' > /etc/cloud/cloud.cfg.d/99-ou.cfg
+# cloud-init is not installed at all (absent). If a later package pulls it in, it stays inert: the disabled marker + a datasource list without network sources.
+install -d /etc/cloud/cloud.cfg.d
+touch /etc/cloud/cloud-init.disabled
+printf 'datasource_list: [ None ]\nssh_pwauth: false\ndisable_root: true\nmanage_etc_hosts: false\n' > /etc/cloud/cloud.cfg.d/99-ou.cfg
+# persistent journal (forensics survive a reboot; the boot test reads it offline and asserts the bootstrap secret never reached it)
+install -d -m 2755 -g systemd-journal /var/log/journal
+install -d /etc/systemd/journald.conf.d
+printf '[Journal]\nStorage=persistent\nSystemMaxUse=64M\n' > /etc/systemd/journald.conf.d/10-ou.conf
 
 # --- unattended security updates (Debian-Security origin only; the ICS schedules reboots, the guest never reboots by itself)
 cat > /etc/apt/apt.conf.d/20auto-upgrades <<'EOF'
@@ -68,8 +75,8 @@ APT::Periodic::Update-Package-Lists "1";
 APT::Periodic::Unattended-Upgrade "1";
 APT::Periodic::AutocleanInterval "7";
 EOF
-cat > /etc/apt/apt.conf.d/52ou-unattended <<'EOF'
-Unattended-Upgrade::Origins-Pattern { "origin=Debian,codename=${distro_codename}-security,label=Debian-Security"; };
+cat > /etc/apt/apt.conf.d/52ou-unattended <<EOF
+Unattended-Upgrade::Origins-Pattern { "$UNATTENDED_ORIGIN"; };
 Unattended-Upgrade::Automatic-Reboot "false";
 Unattended-Upgrade::Remove-Unused-Dependencies "true";
 EOF
@@ -85,5 +92,5 @@ ROOT_UUID=$ROOT_UUID /usr/local/sbin/ou-bootcfg
 
 apt-get -y autoremove --purge >/dev/null 2>&1 || true
 apt-get clean
-rm -rf /var/lib/apt/lists/* /var/log/*.log /var/log/apt/* /root/.bash_history /tmp/payload
+rm -rf /var/lib/apt/lists/* /var/log/*.log /var/log/apt/* /root/.bash_history /root/.gnupg /tmp/payload
 find /var/log -type f -name '*.log' -delete 2>/dev/null || true
