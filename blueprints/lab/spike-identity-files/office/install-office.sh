@@ -36,7 +36,10 @@ coolconfig --config-file="$C" set security.capabilities false
 coolconfig --config-file="$C" set mount_jail_tree false
 coolconfig --config-file="$C" set logging.level_startup warning
 coolconfig --config-file="$C" set storage.wopi.alias_groups.mode groups 2>/dev/null || true
-coolconfig --config-file="$C" set-admin-password --user=admin --password="${ADMIN_PW}" >/dev/null 2>&1 || warn "set-admin-password failed (non-fatal)"
+# PBKDF2 hash gets a fresh random salt on every call -> only set once (marker), else every re-run churns coolwsd.xml
+if [ ! -e "${SECRETS_DIR}/.collabora-admin-set" ]; then
+  coolconfig --config-file="$C" set-admin-password --user=admin --password="${ADMIN_PW}" >/dev/null 2>&1 && touch "${SECRETS_DIR}/.collabora-admin-set" || warn "set-admin-password failed (non-fatal)"
+fi
 # WOPI host allow-list: only the OpenCloud WOPI host
 python3 - "$C" "${HOST_FILES}" <<'PY'
 import re, sys
@@ -45,7 +48,8 @@ s = open(p).read()
 s = s.replace('<alias_groups desc="The WOPI hosts that may connect. In mode \'first\'', '<alias_groups desc="The WOPI hosts that may connect. In mode \'first\'', 1)
 s = re.sub(r'(<alias_groups[^>]*?)mode="first"', r'\1mode="groups"', s, count=1)
 grp = '\n            <group>\n                <host allow="true">https://%s:443</host>\n            </group>\n' % host
-if grp.strip() not in s:
+# idempotency (A22 clean-room): coolconfig rewrites the file with tab indentation, so compare on the host element, not on our whitespace
+if '<host allow="true">https://%s:443</host>' % host not in s:
     # insert right after the opening tag of alias_groups
     s = re.sub(r'(<alias_groups[^>]*>)', lambda m: m.group(1) + grp, s, count=1)
 open(p, 'w').write(s)

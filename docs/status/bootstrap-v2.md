@@ -55,3 +55,9 @@ and in the ICS, add `local` to the endpoint's allowed storage. Existing grants a
 
 ## New configuration
 `ICS_ENVIRONMENT` (production|lab, default production), `ICS_LAB_SSH_BOOTSTRAP` (default false; lab only), `ICS_GUEST_CALLBACK_URL`, `ICS_GUEST_CALLBACK_PIN_SHA256`, `ICS_GUEST_BOOTSTRAP_TTL_SECONDS`. `ICS_GUEST_KEEP_BOOTSTRAP_SSH` now requires the lab flag.
+
+## Review 5 hardening (agent BA)
+- `ICS_GUEST_REQUIRE_NIC_BINDING` (default true): the callback source address must resolve in the ICS host ARP table to the VM net0 MAC; set false only for routed guest networks (weaker binding).
+- Callback limits: per source IP 12/min, per bootstrap id 30/min (reserved for known VMs), unknown ids share 60/min; the guest retries 429/503 with backoff within its 600 s budget. Body cap 4 KiB. A second valid report before enrollment fails the record and stops the deployment.
+- Dedicated listener: `python -m ics.serve_callback` (`deploy/ics-callback.service`, `ICS_GUEST_CALLBACK_LISTEN`, default 127.0.0.1:8089) and `ICS_GUEST_CALLBACK_DEDICATED=true`; run it with one worker.
+- Golden image import verifies the signed release itself and refuses older releases than the newest imported (template tag `ou-rel-<os>-<date>`); upstream builds are pinned by `UPSTREAM_SERIAL` in `blueprints/build/guest-image/os/*.env`.

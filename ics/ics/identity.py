@@ -639,17 +639,20 @@ def _audit(rt: Runtime, action: str, plan=None, resource="idm_user", resource_id
         d.commit()
 
 
-def agent_user(rt: Runtime, node_id, action: str, uid: str, known: list[str], device: str | None = None, raw: bool = False) -> dict:
+def agent_user(rt: Runtime, node_id, action: str, uid: str, known: list[str], device: str | None = None, raw: bool = False,
+               customer: str | None = None) -> dict:
     """One signed agent request (fixed runbook, params exactly {user}; {user, device} for pbx.issue_credential). Returns the helper's JSON result
     (sanitised; raw=True only for the SIP credential issue, whose result carries the one-time secret and is never audited); raises IdentityError otherwise."""
     with rt.session() as d:
         node = d.execute(text("SELECT * FROM nodes WHERE id = :i"), {"i": str(node_id)}).first()
     if node is None:
         raise IdentityError("node not found (enroll the node first)")
+    if customer is not None and str(node.customer_id) != str(customer):     # review 5 M6: never talk to another customer's node on this stack's behalf
+        raise IdentityError("the node does not belong to this stack's customer")
     priv = agentclient.load_signing_key(rt.settings.signing_key_file)
     jid = str(uuid.uuid4())
     params = {"user": uid, **({"device": device} if device else {})}
-    body = agentclient.build_request(priv, action=action, params=params, node_id=str(node.id), job_id=jid, ttl=rt.settings.agent_request_ttl_seconds)
+    body = agentclient.build_request(priv, action=action, params=params, node_id=str(node.id), job_id=jid, ttl=rt.settings.agent_request_ttl_seconds, epoch=rt.agent_epoch())
     req = body["req"]
     with rt.session() as d:
         d.execute(text("INSERT INTO agent_requests (node_id, job_id, nonce, action, issued_at, expires_at) "
@@ -834,6 +837,18 @@ def risk_for(db, action: str, p) -> str:
     return "normal"
 
 
+def _nodes_belong_to(db, p) -> None:
+    """Review 5 M6: a stack may only reference nodes of ITS OWN customer (nodes are customer-bound, MSP-internal by default). A foreign node, or one
+    that does not exist, is refused with the same message (no existence oracle)."""
+    cust = str(p.customer_id) if p.customer_id else "00000000-0000-0000-0000-00000000a001"
+    for nid in (p.files_node_id, p.gromox_node_id, p.pbx_node_id):
+        if nid is None:
+            continue
+        r = db.execute(text("SELECT customer_id FROM nodes WHERE id = :i"), {"i": str(nid)}).first()
+        if r is None or str(r.customer_id) != cust:
+            raise ValueError("node not found (enroll it first, for this customer)")
+
+
 def precheck(db, rt: Runtime, action: str, p) -> dict:
     """Raises ValueError (-> HTTP 422/409 via PlanError in actions.py). Returns extra info shown to the approver."""
     if action == "idm.stack.register":
@@ -844,9 +859,7 @@ def precheck(db, rt: Runtime, action: str, p) -> dict:
         for h in (p.ldap_url.split("//")[1].split(":")[0], p.kc_url.split("//")[1].split(":")[0], *( [p.files_url.split("//")[1].split(":")[0]] if p.files_url else []),
                   *([p.mail_host] if p.mail_host else [])):
             _guard(rt, h)
-        for nid in (p.files_node_id, p.gromox_node_id, p.pbx_node_id):
-            if nid and db.execute(text("SELECT 1 FROM nodes WHERE id = :i"), {"i": str(nid)}).first() is None:
-                raise ValueError("node not found (enroll it first)")
+        _nodes_belong_to(db, p)
         return {}
     row = _stack_row(db, p.stack)
     cfg = row.config
@@ -944,6 +957,10 @@ def _pbx(rt, stack, action, uid, known) -> dict | None:
 
 
 def exec_register(rt: Runtime, db, m: StackRegister, plan, known: list[str]) -> dict:
+    try:
+        _nodes_belong_to(db, m)      # again at execution: the node's owner may have changed since the plan was approved
+    except ValueError as e:
+        raise IdentityError(str(e)) from None
     sid = uuid.uuid4()
     cfg = m.model_dump(mode="json", exclude={"ldap_bind_password", "kc_client_secret", "mas_client_secret"})
     sec = {"ldap_bind_password": m.ldap_bind_password.get_secret_value(), "kc_client_secret": m.kc_client_secret.get_secret_value()}
@@ -1090,7 +1107,8 @@ def exec_issue_sip(rt: Runtime, db, m: IssueSipCredential, plan, known: list[str
     if not u.extension or not stack.cfg.get("pbx_node_id"):
         raise IdentityError("user has no extension or the stack has no PBX node")
     t = time.monotonic()
-    r = agent_user(rt, stack.cfg["pbx_node_id"], "pbx.issue_credential", m.uid, known, device=m.device, raw=True)
+    r = agent_user(rt, stack.cfg["pbx_node_id"], "pbx.issue_credential", m.uid, known, device=m.device, raw=True,
+                   customer=stack.cfg.get("customer_id") or "00000000-0000-0000-0000-00000000a001")
     pw = r.pop("password", None)
     if not isinstance(pw, str) or len(pw) < 16 or r.get("extension") != u.extension:
         raise IdentityError("PBX did not return a usable credential for the user's extension")
@@ -1633,3 +1651,25 @@ EXECUTORS = {"idm.user.devices": exec_devices, "idm.stack.register": exec_regist
              "idm.user.disable": exec_disable, "idm.user.enable": exec_enable, "idm.user.delete": exec_delete, "idm.reconcile": exec_reconcile,
              "idm.user.set_extension": exec_set_extension, "idm.user.issue_sip_credential": exec_issue_sip}
 SECRETS = {"idm.stack.register": ("ldap_bind_password", "kc_client_secret", "mas_client_secret")}
+
+
+def sweep_sip_credentials(rt: Runtime) -> int:
+    """Review 5 L1: an issued SIP credential that was never revealed and has expired keeps a still-valid password at rest (vault ciphertext) and on the PBX.
+    Wipe the ciphertext, then (best effort) kick the user's registrations on the PBX so nothing keeps working under it; audited per credential."""
+    with rt.session() as db:
+        rows = db.execute(text(
+            "UPDATE idm_sip_credentials c SET secret_enc = NULL FROM idm_users u, idm_stacks s "
+            "WHERE c.user_id = u.id AND s.id = u.stack_id AND c.secret_enc IS NOT NULL AND c.revealed_at IS NULL AND c.expires_at < now() "
+            "RETURNING c.id, c.device, u.uid, s.name AS stack, s.config AS cfg")).all()
+        for r in rows:
+            audit.append(db, "identity.sip_credential_expired_unrevealed", actor_name="worker", resource="idm_user", resource_id=r.uid,
+                         details={"stack": r.stack, "device": r.device, "credential_id": str(r.id)})
+        db.commit()
+    for r in rows:
+        nid = (r.cfg or {}).get("pbx_node_id")
+        if nid:
+            try:
+                agent_user(rt, nid, "pbx.kick_user", r.uid, [])
+            except Exception as e:  # noqa: BLE001
+                log.warning("sip credential sweep: PBX kick for %s failed: %s", r.uid, type(e).__name__)
+    return len(rows)

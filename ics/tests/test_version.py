@@ -58,9 +58,10 @@ def test_write_build_info_script(tmp_path):
 
 def test_public_version_is_minimal_and_authed_is_full(client, mk_user, login):
     r = client.get("/api/v1/version")
-    assert r.status_code == 200 and r.json() == {"product": "Office Unbound", "version": ver.__version__, "codename": ver.codename()}
-    u = mk_user("vera", "viewer")
-    c, _ = login(u)
+    assert r.status_code == 200 and r.json() == {"product": "Office Unbound", "version": ver.__version__.split(".")[0]}   # review 5 L5
+    v, _ = login(mk_user("vera", "viewer"))
+    assert v.get("/api/v1/version").json() == {"product": "Office Unbound", "version": ver.__version__.split(".")[0]}   # not an admin: minimal too
+    c, _ = login(mk_user("vera-admin", "admin"))
     d = c.get("/api/v1/version").json()
     assert d["version"] == ver.__version__ and d["api"] == "v1" and "components" in d and "database" in d["schema"]
     assert d["components"]["ics"] == ver.__version__
@@ -76,7 +77,8 @@ def test_system_requires_auth_and_reports_updates(client, mk_user, login):
 
 
 def test_readyz_includes_version(client):
-    assert client.get("/readyz").json()["version"] == ver.__version__
+    assert client.get("/readyz").json()["version"] == ver.__version__.split(".")[0]
+
 
 
 def test_codename_from_release_names():

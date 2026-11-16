@@ -20,7 +20,8 @@
 | Desktop sync engine (opencloudcmd 4.0): upload/download/offline/conflict/delete | Integrated in lab | T07 11/0 |
 | Backup → restore to separate machine: files tier | Tested in lab | restore-drill-results.md: 18 s restore, content + version history byte-identical |
 | Backup → restore to separate machine: identity tier | Tested in lab | online backup; 79 s restore; logins via restored KC+LDAP, DB-only canary, identical realm keys + entryUUIDs |
-| GUI desktop client, mobile, real Outlook clients | Planned (manual) | blueprints/lab/tests/MANUAL-CHECKLIST.md |
+| Thunderbird + Evolution/EWS desktop clients | Tested in lab (automated, GUI not clicked) | client-compat-results.md: Thunderbird mail 12/13, DAV 12/12; Evolution calendar/contacts/free-busy PASS, mail partly inconclusive |
+| Real Outlook (classic/new/Mac/mobile), Apple, iOS/Android EAS, DAVx5 | Not tested - needs vendor client/licence or device | blueprints/lab/tests/MANUAL-CHECKLIST.md |
 | Build/release pipeline | Implementing (design ADR-0008; first recipe = Collabora) | |
 | MSP center, migration, chat/meetings | Planned | |
 
@@ -28,7 +29,7 @@
 - KI-1 (diagnosed): ~5 s window after OpenCloud restart before the editor app re-registers; tests now wait on `/app/list`; ICS check must use it. No data loss.
 - KI-2: LDAP lock alone does not end Keycloak SSO/offline refresh tokens (>420 s). Deprovisioning must revoke in Keycloak (<1 s measured).
 - KI-3: Collabora CODE in nspawn runs without chroot jails (unshare fails in unprivileged container) — lab-only acceptable; production VM must have jails.
-- Lab install scripts were fixed incrementally; clean-room re-runs pending.
+- Lab install scripts: clean-room one-pass re-runs of identity, files, office (vendor + own editor) and groupware DONE on fresh machines in a separate domain (A22), 12 script fixes, all tiers idempotent; see docs/status/clean-room-results.md. Not covered: t07 desktop sync, manual checklist, collab/pbx spikes.
 
 ## Open owner items
 1. Gateway resolver 192.168.22.1 SERVFAILs officeunbound.com (local workaround in host-changes.md).

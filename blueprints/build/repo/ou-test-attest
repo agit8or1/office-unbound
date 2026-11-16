@@ -1,0 +1,70 @@
+#!/usr/bin/env python3
+"""ou-test-attest: the pipeline's own test runner identity (security review 5 H2). Runs as the system user `ou-testrunner` (sudo rule in install-signer.sh).
+It signs an ATTESTATION for one .deb: "the install smoke test <name> had result <pass|fail>, evidence log sha256 X". ou-release-sign only accepts
+test records that carry such a signature, so the release signer's caller can not type a test record any more; a promotion manifest then binds the
+attestation hash. The runner refuses packages that were never admitted to a ledger and results other than pass|fail.
+  attest <deb-sha256> <name> <pass|fail> <log-sha256>   prints {"attestation":{...},"sig":"..."} on stdout
+  keygen                                                creates the runner key (once) and prints the public key (base64 raw) for trust/test-runner.pub
+State: $OU_TESTRUNNER_STATE (default /var/lib/ou-testrunner)/key (32 raw bytes, 0400). Ledgers are read from $OU_RELEASE_STATE (default /var/lib/ou-release).
+"""
+import base64
+import json
+import os
+import re
+import sys
+import time
+
+ST = os.environ.get("OU_TESTRUNNER_STATE", "/var/lib/ou-testrunner")
+REL = os.environ.get("OU_RELEASE_STATE", "/var/lib/ou-release")
+PREFIX = b"ou-test-attestation-v1\n"
+
+
+def die(m):
+    print("REFUSED: " + m, file=sys.stderr)
+    sys.exit(3)
+
+
+def canon(o):
+    return json.dumps(o, sort_keys=True, separators=(",", ":"), ensure_ascii=True, allow_nan=False).encode()
+
+
+def key():
+    from cryptography.hazmat.primitives.asymmetric.ed25519 import Ed25519PrivateKey
+    return Ed25519PrivateKey.from_private_bytes(open(os.path.join(ST, "key"), "rb").read())
+
+
+def pub(k):
+    from cryptography.hazmat.primitives import serialization
+    return base64.b64encode(k.public_key().public_bytes(serialization.Encoding.Raw, serialization.PublicFormat.Raw)).decode()
+
+
+def main():
+    a = sys.argv[1:]
+    if a[:1] == ["keygen"]:
+        from cryptography.hazmat.primitives.asymmetric.ed25519 import Ed25519PrivateKey
+        p = os.path.join(ST, "key")
+        os.makedirs(ST, mode=0o700, exist_ok=True)
+        if not os.path.exists(p):
+            fd = os.open(p, os.O_WRONLY | os.O_CREAT | os.O_EXCL | os.O_NOFOLLOW, 0o400)
+            with os.fdopen(fd, "wb") as f:
+                f.write(Ed25519PrivateKey.generate().private_bytes_raw())
+        print(pub(key()))
+        return
+    if len(a) != 5 or a[0] != "attest":
+        die("usage: attest <deb-sha256> <name> <pass|fail> <log-sha256> | keygen")
+    sha, name, res, logsha = a[1:]
+    if not re.match(r"^[0-9a-f]{64}$", sha) or not re.match(r"^[0-9a-f]{64}$", logsha) or res not in ("pass", "fail") or not re.match(r"^[a-z0-9-]{1,40}$", name):
+        die("bad arguments")
+    seen = False
+    for s in ("dev", "staging", "stable"):
+        try:
+            seen = seen or any(l.split()[0] == sha for l in open(os.path.join(REL, "ledger", s + ".sha256")) if l.strip())
+        except OSError:
+            pass
+    if not seen:
+        die("that .deb was never admitted to any channel")
+    att = {"v": 1, "sha256": sha, "name": name, "result": res, "log_sha256": logsha, "at": int(time.time())}
+    print(json.dumps({"attestation": att, "sig": base64.b64encode(key().sign(PREFIX + canon(att))).decode()}))
+
+
+main()

@@ -11,7 +11,7 @@ from sqlalchemy import text
 from ics.credentials import service as cred_service
 
 HERE = os.path.dirname(__file__)
-EXPECTED = ["0001", "0002", "0003", "0004", "0005", "0006d", "0006b", "0006a", "0007", "0007s3", "0007l", "0007m", "0008i", "0008", "0009", "0009b"]
+EXPECTED = ["0001", "0002", "0003", "0004", "0005", "0006d", "0006b", "0006a", "0007", "0007s3", "0007l", "0007m", "0008i", "0008", "0009", "0009b", "0009a", "0010", "0011"]
 
 
 def _cfg(url):
@@ -24,7 +24,7 @@ def _cfg(url):
 
 def test_single_linear_chain():
     sd = ScriptDirectory(os.path.join(HERE, "..", "migrations"))
-    assert sd.get_heads() == ["0009b"]
+    assert sd.get_heads() == ["0011"]
     assert [s.revision for s in reversed(list(sd.walk_revisions()))] == EXPECTED
 
 
@@ -58,7 +58,7 @@ def test_upgrade_from_production_state_0007_with_a_legacy_endpoint(rt, base_sett
 
 
 def test_upgrade_from_production_head_0008i(rt, base_settings, owner_engine):
-    """Production is at 0008i: the whole remaining chain (backups, telephony, guest bootstrap) applies on top and leaves the expected tables."""
+    """Production is at 0008i: the whole remaining chain (backups, telephony, guest bootstrap, controller epoch) applies on top and leaves the expected tables."""
     from tests.conftest import _test_env
     cfg = _cfg(_test_env()["ICS_TEST_OWNER_DATABASE_URL"])
     with owner_engine.connect() as c:
@@ -68,10 +68,36 @@ def test_upgrade_from_production_head_0008i(rt, base_settings, owner_engine):
     try:
         command.upgrade(cfg, "head")
         with owner_engine.connect() as c:
-            assert c.execute(text("SELECT version_num FROM alembic_version")).scalar() == "0009b"
+            assert c.execute(text("SELECT version_num FROM alembic_version")).scalar() == "0011"
             have = {r[0] for r in c.execute(text("SELECT table_name FROM information_schema.tables WHERE table_schema = 'public'"))}
-            assert {"backup_policies", "idm_sip_credentials", "guest_bootstrap"} <= have
+            assert {"backup_policies", "idm_sip_credentials", "guest_bootstrap", "controller_state"} <= have
             assert c.execute(text("SELECT count(*) FROM information_schema.columns WHERE table_name = 'idm_users' AND column_name = 'extension'")).scalar() == 1
+    finally:
+        with owner_engine.connect() as c:
+            c.execute(text("DROP SCHEMA public CASCADE"))
+            c.execute(text("CREATE SCHEMA public"))
+        command.upgrade(cfg, "head")
+
+
+
+
+def test_upgrade_from_production_head_0008(rt, base_settings, owner_engine):
+    """Production head 0008: the whole remaining chain (backups, telephony, guest bootstrap, controller epoch) applies on top and leaves the expected tables."""
+    from tests.conftest import _test_env
+    cfg = _cfg(_test_env()["ICS_TEST_OWNER_DATABASE_URL"])
+    with owner_engine.connect() as c:
+        c.execute(text("DROP SCHEMA public CASCADE"))
+        c.execute(text("CREATE SCHEMA public"))
+    command.upgrade(cfg, "0008")
+    try:
+        command.upgrade(cfg, "head")
+        with owner_engine.connect() as c:
+            assert c.execute(text("SELECT version_num FROM alembic_version")).scalar() == "0011"
+            have = {r[0] for r in c.execute(text("SELECT table_name FROM information_schema.tables WHERE table_schema = 'public'"))}
+            assert {"backup_policies", "idm_sip_credentials", "guest_bootstrap", "controller_state"} <= have
+            assert c.execute(text("SELECT count(*) FROM information_schema.columns WHERE table_name = 'idm_users' AND column_name = 'extension'")).scalar() == 1
+            for t in ("nodes", "checks", "alert_channels", "maintenance_windows", "backup_policies"):     # review 5 M5: customer binding, MSP-internal default
+                assert c.execute(text("SELECT column_default FROM information_schema.columns WHERE table_name = :t AND column_name = 'customer_id'"), {"t": t}).scalar().startswith("'00000000-0000-0000-0000-00000000a001'")
     finally:
         with owner_engine.connect() as c:
             c.execute(text("DROP SCHEMA public CASCADE"))

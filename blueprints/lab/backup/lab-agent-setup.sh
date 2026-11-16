@@ -7,10 +7,16 @@ set -euo pipefail
 R="${1:?ics repo root}"; ADDR="${2:?bind address (e.g. the oulab bridge IP)}"; PORT="${3:-18443}"; ST=/var/lib/ou-agent-bkplab; HS="${4:-$ST/handshake.json}"
 rm -rf /opt/ou-agent-bkplab; install -d -m 0755 /opt/ou-agent-bkplab /etc/ou-agent-bkplab
 cp -r "$R/ics/agent/ou_agent" /opt/ou-agent-bkplab/ou_agent; chown -R root:root /opt/ou-agent-bkplab; find /opt/ou-agent-bkplab -name __pycache__ -prune -exec rm -rf {} +
-python3 - "$R/ics/agent/deploy/agent-backup.json" "$ADDR" "$PORT" > /etc/ou-agent-bkplab/agent.json <<'PY'
+# OU_BKP_CUSTOMERS="c-<hex32>,c-<hex32>" (per-customer profiles this runner may serve) and OU_BKP_TIERS="identity,files,ics" narrow/extend the allowlist
+python3 - "$R/ics/agent/deploy/agent-backup.json" "$ADDR" "$PORT" "${OU_BKP_CUSTOMERS:-}" "${OU_BKP_TIERS:-}" > /etc/ou-agent-bkplab/agent.json <<'PY'
 import json, sys
 c = json.load(open(sys.argv[1])); c["listen"] = {"address": sys.argv[2], "port": int(sys.argv[3])}
 c["runbooks"] = {k: v for k, v in c["runbooks"].items() if k.startswith("backup.")}
+for v in c["runbooks"].values():
+    if sys.argv[5]:
+        v["tiers"] = sys.argv[5].split(",")
+    if sys.argv[4]:
+        v["customers"] = sys.argv[4].split(",")
 print(json.dumps(c, indent=2))
 PY
 chmod 0644 /etc/ou-agent-bkplab/agent.json

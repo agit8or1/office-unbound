@@ -2,9 +2,12 @@
 refusal to run with an unpinned upstream key, the image's closed shape (no SSH, default-deny, agent not initialised) and the SBOM generator."""
 import base64
 import hashlib
+import io
 import json
 import os
+import shutil
 import subprocess
+import tarfile
 
 import pytest
 from cryptography.hazmat.primitives import hashes, serialization
@@ -81,35 +84,165 @@ def test_only_an_ecdsa_p256_release_key_is_accepted(tmp_path):
         golden.verify_release(d, "not a pem", "00" * 32)
 
 
-def test_the_recipe_refuses_to_fetch_until_the_upstream_signing_key_is_pinned():
-    for os_id in ("debian-12", "ubuntu-24.04"):
-        r = subprocess.run(["bash", os.path.join(RECIPE_DIR, "recipe.sh"), os_id, "fetch"], capture_output=True, text=True, timeout=30,
-                           env={"PATH": os.environ["PATH"], "WORK": "/nonexistent-ou-test/work", "OUT": "/nonexistent-ou-test/out"})
-        # (mkdir of the work dir fails first on a read-only path; either way nothing is downloaded)
-        assert r.returncode != 0 and "curl" not in r.stdout
+PINS = {"debian-12": ("B8B80B5B623EAB6AD8775C45B7C5D7D6350947F8", "4D64FEC119C2029067D6E791F8D2585B8783D481", "05AB90340C0C5E797F44A8C8254CF3B5AEC0A8F0"),
+        "ubuntu-24.04": ("D2EB44626FDDC30B513D5BB71A5D6C4C7DB87C81",)}
+needs_gpg = pytest.mark.skipif(shutil.which("gpg") is None, reason="gpg not installed")
+
+
+def _run(os_id, step, **env):
+    w = env.pop("WORK")
+    e = {"PATH": os.environ["PATH"], "WORK": w, "OUT": env.pop("OUT", w + "/out")}
+    e.update(env)
+    return subprocess.run(["bash", os.path.join(RECIPE_DIR, "recipe.sh"), os_id, step], capture_output=True, text=True, timeout=60, env=e)
+
+
+def _primary_fprs(path, home):
+    out = subprocess.run(["gpg", "--show-keys", "--with-colons", path], capture_output=True, text=True, env={"PATH": os.environ["PATH"], "HOME": str(home)}).stdout.splitlines()
+    prim, want = [], False
+    for l in out:
+        if l.startswith("pub:"):
+            want = True
+        elif l.startswith("fpr:") and want:
+            prim.append(l.split(":")[9])
+            want = False
+    return prim
+
+
+@needs_gpg
+def test_the_recipe_pins_the_authoritative_upstream_fingerprints_and_the_shipped_keys_match_them(tmp_path):
+    """Agent AT (docs/status/golden-image-results.md s1): the pins are set and every key file in keys/ holds EXACTLY one pinned primary fingerprint."""
+    for os_id, fprs in PINS.items():
+        env = open(os.path.join(RECIPE_DIR, "os", os_id + ".env")).read()
+        assert all(f in env for f in fprs)
+    keys = os.path.join(RECIPE_DIR, "keys")
+    seen = set()
+    for f in sorted(os.listdir(keys)):
+        prim = _primary_fprs(os.path.join(keys, f), tmp_path)
+        assert len(prim) == 1
+        seen.add(prim[0])
+    assert seen == {x for v in PINS.values() for x in v}
+    ok = _run("debian-12", "verify", WORK=str(tmp_path / "w"), HOME=str(tmp_path))
+    assert ok.returncode == 0, ok.stderr
+    bad = tmp_path / "keys"
+    shutil.copytree(keys, bad)
+    shutil.copy(os.path.join(keys, "ubuntu-uec-image-signing.asc"), bad / "debian-archive-bookworm-stable.asc")     # a key that is not pinned for Debian
+    r = _run("debian-12", "verify", WORK=str(tmp_path / "w2"), HOME=str(tmp_path), KEYS=str(bad))
+    assert r.returncode == 4 and "not pinned" in r.stderr
+
+
+@needs_gpg
+def test_the_ubuntu_profile_refuses_a_wrong_pin_a_tampered_checksum_file_and_a_wrong_image(tmp_path):
+    """Offline: a locally generated key stands in for upstream; a signed checksum file + image verify, and each attack exits 4."""
+    gh = tmp_path / "gh"
+    gh.mkdir(mode=0o700)
+    base = ["gpg", "--homedir", str(gh), "--batch", "--pinentry-mode", "loopback", "--passphrase", ""]
+    subprocess.run(base + ["--quick-generate-key", "upstream test <t@example.invalid>", "ed25519", "sign", "1d"], check=True, capture_output=True)
+    fpr = [l.split(":")[9] for l in subprocess.run(base + ["--list-keys", "--with-colons"], capture_output=True, text=True).stdout.splitlines() if l.startswith("fpr:")][0]
+    up = tmp_path / "w" / "up"
+    up.mkdir(parents=True)
+    img = up / "noble-server-cloudimg-amd64.img"
+    img.write_bytes(b"image bytes")
+    sums = hashlib.sha256(b"image bytes").hexdigest() + " *noble-server-cloudimg-amd64.img\n"
+    (up / "SHA256SUMS").write_text(sums)
+    subprocess.run(base + ["--detach-sign", "-o", str(up / "SHA256SUMS.gpg"), str(up / "SHA256SUMS")], check=True, capture_output=True)
+    key = tmp_path / "k.asc"
+    key.write_bytes(subprocess.run(base + ["--export", "--armor", fpr], capture_output=True, check=True).stdout)
+    rd = tmp_path / "recipe"
+    shutil.copytree(RECIPE_DIR, rd, ignore=shutil.ignore_patterns("keys", "__pycache__"))
+    shutil.copytree(os.path.join(RECIPE_DIR, "..", "keys"), tmp_path / "keys")
+    envf = rd / "os" / "ubuntu-24.04.env"
+    orig = envf.read_text()
+    real = "D2EB44626FDDC30B513D5BB71A5D6C4C7DB87C81"
+
+    def run():
+        e = {"PATH": os.environ["PATH"], "WORK": str(tmp_path / "w"), "OUT": str(tmp_path / "o"), "UPSTREAM_KEY_FILE": str(key), "HOME": str(tmp_path), "UPSTREAM_SERIAL": "release-20261101", "OU_TODAY": "20261115"}      # frozen clock: review 5 L7 freshness is a real check, the test must not depend on the wall clock
+        return subprocess.run(["bash", str(rd / "recipe.sh"), "ubuntu-24.04", "verify"], capture_output=True, text=True, timeout=60, env=e)
+    envf.write_text(orig.replace(real, fpr))
+    r = run()
+    assert r.returncode == 0 and "verified" in r.stdout, r.stderr
+    envf.write_text(orig)                                            # the real pin is not this key: refused
+    assert run().returncode == 4
+    envf.write_text(orig.replace(real, fpr))
+    (up / "SHA256SUMS").write_text(sums.replace("*", "#", 1))        # tampered checksum file: the signature no longer verifies
+    assert run().returncode == 4
+    (up / "SHA256SUMS").write_text(sums)
+    img.write_bytes(b"other bytes")                                  # image differs from the signed checksum
+    assert run().returncode == 4
 
 
 def test_the_recipe_scripts_are_valid_shell_and_the_image_has_a_closed_shape():
-    for f in ("recipe.sh", "customize.sh"):
-        assert subprocess.run(["bash", "-n", os.path.join(RECIPE_DIR, f)]).returncode == 0
+    for f in ("recipe.sh", "customize.sh", "ou-bootcfg", "ou-growroot", os.path.join("agent-deb", "build-deb.sh"), os.path.join("agent-deb", "publish-dev.sh"),
+              os.path.join("signer", "install-image-signer.sh")):
+        assert subprocess.run(["bash", "-n", os.path.join(RECIPE_DIR, f)]).returncode == 0, f
     c = "\n".join(l.split(" #")[0] for l in open(os.path.join(RECIPE_DIR, "customize.sh")).read().splitlines() if not l.lstrip().startswith("#"))
     assert "systemctl mask ssh.service ssh.socket" in c and "cloud-init.disabled" in c and "passwd -l root" in c
-    assert "install -y" in c and "qemu-guest-agent" not in c                         # no hypervisor exec channel in the image (ADR-0002 s7)
-    assert "ou_agent init" not in c and "ou-agent init" not in c and "ssh_host_" in c       # no per-VM identity is baked into the image
+    assert "install -y" in c and "qemu-guest-agent" not in c and "openssh-server" not in c      # no hypervisor exec channel (ADR-0002 s7), no SSH server
+    assert "ou_agent init" not in c and "ou-agent init" not in c and "ssh_host_" in c           # no per-VM identity is baked into the image
+    assert "apt-get install -y --no-install-recommends ou-node-agent" in c and "curl" not in c and "| sh" not in c   # the agent comes from the signed repo only
     nft = open(os.path.join(RECIPE_DIR, "nftables.conf")).read()
     assert "policy drop" in nft and "dport 22" not in nft and "8443" not in nft
     unit = open(os.path.join(RECIPE_DIR, "ou-bootstrap.service")).read()
     assert "Restart=no" in unit and "ConditionPathExists=!/var/lib/ou-bootstrap/failed" in unit and "ou_agent.firstboot" in unit
     rec = open(os.path.join(RECIPE_DIR, "recipe.sh")).read()
-    assert "VALIDSIG" in rec and "UPSTREAM_KEY_FPR" in rec and "qemu-guest-agent" not in rec
+    assert "VALIDSIG" in rec and "UPSTREAM_KEY_FPR" in rec and "qemu-guest-agent" not in rec and "NOPASSWD" not in rec
     for os_id in ("debian-12", "ubuntu-24.04"):
-        env = open(os.path.join(RECIPE_DIR, "os", os_id + ".env")).read()
-        assert "UPSTREAM_KEY_FPR=\n" in env and "https://" in env
+        assert "https://" in open(os.path.join(RECIPE_DIR, "os", os_id + ".env")).read()
 
 
-def test_sbom_generator_emits_cyclonedx_for_installed_packages(tmp_path):
-    r = subprocess.run(["python3", "-I", os.path.join(RECIPE_DIR, "sbom.py"), "debian-12"], capture_output=True, text=True, timeout=60)
-    if r.returncode != 0:
-        pytest.skip("dpkg-query not available")
-    j = json.loads(r.stdout)
-    assert j["bomFormat"] == "CycloneDX" and j["components"] and all(c["purl"].startswith("pkg:deb/debian/") for c in j["components"][:5])
+def test_the_licence_scan_denies_non_free_and_reports_unknown_licences(tmp_path):
+    bom = {"bomFormat": "CycloneDX", "components": [
+        {"type": "library", "name": "a", "version": "1", "licenses": [{"license": {"id": "MIT"}}]},
+        {"type": "library", "name": "b", "version": "1", "licenses": [{"license": {"name": "GPL-2+"}}]},
+        {"type": "library", "name": "c", "version": "1", "licenses": [{"license": {"name": "Weird-Custom"}}]},
+        {"type": "file", "name": "/boot/x"}]}
+    (tmp_path / "in.json").write_text(json.dumps(bom))
+    args = ["python3", "-I", os.path.join(RECIPE_DIR, "licensescan.py"), str(tmp_path / "in.json"), os.path.join(RECIPE_DIR, "license-policy.yaml"), "debian-12",
+            str(tmp_path / "o.json"), str(tmp_path / "r.json")]
+    assert subprocess.run(args, capture_output=True).returncode == 0
+    rep = json.loads((tmp_path / "r.json").read_text())
+    assert rep["summary"] == {"components": 3, "allowed": 2, "review": 1, "denied": 0} and "c@1" in rep["review"]
+    bom["components"].append({"type": "library", "name": "d", "version": "1", "licenses": [{"license": {"name": "Proprietary EULA"}}]})
+    (tmp_path / "in.json").write_text(json.dumps(bom))
+    assert subprocess.run(args, capture_output=True).returncode == 5
+
+
+@pytest.mark.skipif(shutil.which("openssl") is None, reason="openssl not installed")
+def test_the_image_signer_needs_a_passing_boot_record_recomputes_hashes_and_signs_what_the_ics_verifies(tmp_path):
+    st = tmp_path / "state"
+    (st / "records").mkdir(parents=True)
+    (st / "passphrase").write_text("pp-" + "x" * 20)
+    subprocess.run(["openssl", "genpkey", "-algorithm", "EC", "-pkeyopt", "ec_paramgen_curve:P-256", "-aes-256-cbc", "-pass", f"file:{st}/passphrase", "-out", str(st / "key.pem")],
+                   check=True, capture_output=True)
+    prog = os.path.join(RECIPE_DIR, "signer", "ou-image-sign")
+    env = {"PATH": os.environ["PATH"], "OU_IMGSIGN_STATE": str(st)}
+    name = "ou-golden-debian-12-20261115.qcow2"
+    image = b"QFI\xfb" + b"img" * 100
+    sbom = json.dumps({"bomFormat": "CycloneDX", "components": [{"name": f"p{i}"} for i in range(60)]}).encode()
+
+    def mk(img=image, sb=sbom, extra=False):
+        bio = io.BytesIO()
+        with tarfile.open(fileobj=bio, mode="w") as tf:
+            for n, b in ((name, img), (name + ".sbom.cdx.json", sb)) + ((("evil", b"x"),) if extra else ()):
+                ti = tarfile.TarInfo(n)
+                ti.size = len(b)
+                tf.addfile(ti, io.BytesIO(b))
+        return bio.getvalue()
+
+    def sign(data):
+        return subprocess.run([prog, "sign"], input=data, capture_output=True, env=env)
+    first = sign(mk())
+    assert first.returncode == 3 and b"no test record" in first.stderr                          # no boot proof recorded: refused
+    h = hashlib.sha256(image).hexdigest()
+    subprocess.run([prog, "record-test", h, "first-boot", "fail", "0" * 64], check=True, env=env, capture_output=True)
+    assert b"did not pass" in sign(mk()).stderr
+    subprocess.run([prog, "record-test", h, "first-boot", "pass", "0" * 64], check=True, env=env, capture_output=True)
+    assert sign(mk(extra=True)).returncode == 3 and sign(mk(sb=b"{}")).returncode == 3         # extra member / not a CycloneDX inventory
+    assert sign(mk(img=image + b"x")).returncode == 3                                             # a different image has no record
+    r = sign(mk())
+    assert r.returncode == 0, r.stderr
+    tarfile.open(fileobj=io.BytesIO(r.stdout)).extractall(tmp_path / "rel", filter="data")
+    (tmp_path / "rel" / name).write_bytes(image)
+    (tmp_path / "rel" / (name + ".sbom.cdx.json")).write_bytes(sbom)
+    key, pin = subprocess.run([prog, "pubkey"], capture_output=True, text=True, env=env, check=True).stdout.split("# spki-sha256 pin: ")
+    rel = golden.verify_release(str(tmp_path / "rel"), key, pin.strip())                         # exactly what the ICS runs before image.import
+    assert rel.sha256 == h and rel.os == "debian-12"

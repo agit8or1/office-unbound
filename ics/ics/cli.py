@@ -1,4 +1,4 @@
-"""python -m ics.cli {create-admin,issue-enrollment,unlock,verify-chain}
+"""python -m ics.cli {create-admin,issue-enrollment,unlock,verify-chain,promote,controller-status,...}
 
 Run on the host as the service user (`sudo -u ics .venv/bin/python -m ics.cli ...`). This is the break-glass path:
 it talks to the database directly, is never rate limited, and never prints a password. Tokens are printed once here
@@ -36,7 +36,19 @@ def main(argv=None) -> int:
     ra = sub.add_parser("backup-recovery-ack", help="record that the offline recovery key was exported (fingerprint only, never the key); audited")
     ra.add_argument("--policy", required=True)
     ra.add_argument("--fingerprint", required=True, help="16 hex characters printed by `ou-backup --direct recovery-key`")
+    pr = sub.add_parser("promote", help="ROOT, on the STANDBY: fenced promotion to primary (docs/runbooks/ics-recovery.md, ADR-0012)")
+    pr.add_argument("--confirm", help='non-interactive confirmation: exactly "promote <hostname>"')
+    pr.add_argument("--fence-old-dsn-file", help="file with a postgresql+psycopg:// URL of the (still reachable) old primary: mark it fenced first")
+    pr.add_argument("--no-restart", action="store_true")
+    pr.add_argument("--no-announce", action="store_true", help="do not send the new epoch to agents now (they learn it on the first monitor pass)")
+    sn = sub.add_parser("standby-note", help="record a standby lifecycle event in the audit log (called by the standby scripts on the primary)")
+    sn.add_argument("event", choices=["keys-exported", "standby-prepared"])
+    sn.add_argument("--standby-ip", required=True)
+    sub.add_parser("controller-status", help="print role, controller epoch and replication position")
     args = ap.parse_args(argv)
+    if args.cmd == "promote":
+        from . import promote
+        return promote.promote(args)
     rt = Runtime()
     with rt.session() as db:
         if args.cmd == "rewrap-master":
@@ -72,6 +84,17 @@ def main(argv=None) -> int:
                 print(e, file=sys.stderr)
                 return 1
             _show(args.username, token)
+            return 0
+        if args.cmd == "controller-status":
+            from . import epoch as epochmod
+            print({"configured_role": rt.settings.role, **epochmod.get_state(db),
+                   "in_recovery": db.execute(text("SELECT pg_is_in_recovery()")).scalar()})
+            return 0
+        if args.cmd == "standby-note":
+            audit.append(db, "standby." + args.event.replace("-", "_"), actor_name="cli", resource="controller",
+                         details={"standby_ip": args.standby_ip, "operator": __import__("os").environ.get("SUDO_USER", "root")})
+            db.commit()
+            print("recorded", args.event)
             return 0
         if args.cmd == "unlock":
             n = db.execute(text("DELETE FROM login_attempts WHERE username = :u"), {"u": args.username}).rowcount

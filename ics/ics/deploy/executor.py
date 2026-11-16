@@ -261,8 +261,15 @@ def h_provider_task(ctx: StepCtx) -> dict:
                             ciuser=bc.get("ciuser"), sshkeys=tuple(bc.get("sshkeys", ())), smbios_serial=bc.get("smbios_serial"), smbios_sku=bc.get("smbios_sku"), smbios_family=bc.get("smbios_family"),
                             ipconfigs=(IpConfig(0, "dhcp"),) if bc else (), ciupgrade=False if bc else None,
                             description=f"Office Unbound deployment {ctx.slug}: {ci.get('hostname', vm)}" if ci else None)
-        _poll(ctx, prov.configure_vm(ref, spec), f"configure {vm}")
-        return {"configured": True}
+        done = _poll(ctx, prov.configure_vm(ref, spec), f"configure {vm}")
+        leaked = False
+        if getattr(prov, "task_log_mentions", None) and (spec.smbios_serial or spec.sshkeys):
+            # review 5 M2: the one-time secret must not sit in PVE's task log either. The log is PVE's (not ours to edit): flag it so the operator purges
+            # the task, and keep the secret out of everything the ICS stores.
+            leaked = bool(prov.task_log_mentions(done, [x for x in (spec.smbios_serial, spec.smbios_sku) if x]))
+            if leaked:
+                ctx.log(f"WARNING: the Proxmox task log of {vm}'s configuration contains bootstrap material; purge that task in Proxmox")
+        return {"configured": True, **({"pve_task_log_has_bootstrap_material": True} if leaked else {})}
     if op == "power":
         want = p["op"]
         g = _owned_guest(ctx, ref, vm)

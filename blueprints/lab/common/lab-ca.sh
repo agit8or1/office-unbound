@@ -71,7 +71,8 @@ CNF
   fi
   # bundle: ca.crt + <role>.crt (full chain = leaf only, CA pathlen 0) + <role>.key
   cp ca.crt "$d/ca.crt"
-  tar -czf "out/${role}.tar.gz" -C "$d" ca.crt "${role}.crt" "${role}.key"
+  # deterministic archive (fixed mtime/owner, no gzip timestamp): a re-run must not change the bundle bytes (A22 idempotency)
+  tar --sort=name --mtime=@0 --owner=0 --group=0 --numeric-owner -cf - -C "$d" ca.crt "${role}.crt" "${role}.key" | gzip -n > "out/${role}.tar.gz"
   chmod 0600 "out/${role}.tar.gz"
 }
 

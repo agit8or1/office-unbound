@@ -1,6 +1,6 @@
 # Quick start: fresh Ubuntu 24.04 / Debian 12 host to "Proxmox connected"
 
-For an IT administrator who is not a developer. Time: about 30 minutes plus the approvals. Pre-alpha lab software, not for production ([index](index.md)). Terms are in the [Glossary](glossary.md).
+For an IT administrator who is not a developer. Time: about 30 minutes plus the approvals. Pre-alpha lab software, not for production ([guide index](README.md)). Terms are in the [Glossary](glossary.md).
 Steps 1-4 were executed on two fresh Ubuntu lab machines ([ics-installer-results.md](../status/ics-installer-results.md)) and, end to end, on a fresh Debian 12 VM on a real Proxmox node ([quickstart-dryrun-results.md](../status/quickstart-dryrun-results.md)). Steps 5-7 use the real-cluster procedure ([provider-proxmox-real.md](../status/provider-proxmox-real.md)); the one gap is flagged in step 7.
 
 **You need:** a fresh Ubuntu 24.04 or Debian 12 host with a sudo-capable user (or root) and a fixed IP address; three people (one requester, two approvers) and an admin workstation; root on a Proxmox VE node (PVE 9.2 was tested).
@@ -42,6 +42,6 @@ Log in as `approver1` and `approver2` in turn and approve the `endpoint.register
 **Status of this step:** the probe, inventory, and every Proxmox call it relies on were run against a real cluster, and the plan/approval/job path was exercised in the lab. Registering through this console wizard on a real cluster is not recorded in any evidence document yet; if it fails, send the error text, and note the console shows the exact `pveum` fix commands for missing permissions.
 
 ## Next
-- Optional: **Start deployment wizard** builds a deployment plan and sends it for approval. Running a deployment on Proxmox is **In development** ([Operating](operating-the-ics.md#deployments-in-development)).
+- Optional: **Start deployment wizard** builds a deployment plan and sends it for approval. Running a deployment on Proxmox is **Implementing** ([Deploying a customer environment](deploying-a-customer.md)).
 - Take a backup now: `sudo ics/deploy/backup/ics-backup.sh` ([Backup and restore](backup-and-restore.md)).
 - Troubleshooting: [troubleshooting.md](troubleshooting.md).

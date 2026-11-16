@@ -1,0 +1,30 @@
+== T03 Office document round-trip (run 867280ab61) ==
+PASS webdav base path - using /remote.php/dav/files/bob
+PASS test.docx local self-check - heads=['Heading OU-867280ab61'] cells=['a', 'b', 'c', 'OU-867280ab61']
+PASS upload test.docx - HTTP 201
+PASS test.xlsx local self-check - formulas=('=SUM(A1:A3)', '=AVERAGE(A1:A3)', '=Data!B1*2', 'OU-867280ab61')
+PASS upload test.xlsx - HTTP 201
+PASS test.pptx local self-check - slides=2 title='Slide one OU-867280ab61' notes='notes OU-867280ab61' pics=1
+PASS upload test.pptx - HTTP 201
+PASS test.docx bytes identical (after upload) - sha256 de028850a903
+PASS test.docx content (after upload) - heads=['Heading OU-867280ab61'] cells=['a', 'b', 'c', 'OU-867280ab61']
+PASS test.xlsx bytes identical (after upload) - sha256 df4db38b4957
+PASS test.xlsx content (after upload) - formulas=('=SUM(A1:A3)', '=AVERAGE(A1:A3)', '=Data!B1*2', 'OU-867280ab61')
+PASS test.pptx bytes identical (after upload) - sha256 73cd4e5d3545
+PASS test.pptx content (after upload) - slides=2 title='Slide one OU-867280ab61' notes='notes OU-867280ab61' pics=1
+PASS test.docx bytes identical (after restart) - sha256 de028850a903
+PASS test.docx content (after restart) - heads=['Heading OU-867280ab61'] cells=['a', 'b', 'c', 'OU-867280ab61']
+PASS test.xlsx bytes identical (after restart) - sha256 df4db38b4957
+PASS test.xlsx content (after restart) - formulas=('=SUM(A1:A3)', '=AVERAGE(A1:A3)', '=Data!B1*2', 'OU-867280ab61')
+PASS test.pptx bytes identical (after restart) - sha256 73cd4e5d3545
+PASS test.pptx content (after restart) - slides=2 title='Slide one OU-867280ab61' notes='notes OU-867280ab61' pics=1
+PASS test.docx edited+saved in Collabora - PutFile ok
+PASS test.docx content after Collabora save - heads=['EDITED-Heading OU-867280ab61'] cells=['a', 'b', 'c', 'OU-867280ab61']
+PASS test.docx bytes changed by editor save - 36815 -> 20834 bytes
+PASS test.xlsx edited+saved in Collabora - PutFile ok
+PASS test.xlsx content after Collabora save - formulas=('=SUM(A1:A3)', '=AVERAGE(A1:A3)', '=Data!B1*2', 'OU-867280ab61') cached=(60, 20, 120) D5='EDITED-OU-867280ab61'
+PASS test.xlsx bytes changed by editor save - 5367 -> 7744 bytes
+PASS test.pptx edited+saved in Collabora - PutFile ok
+PASS test.pptx content after Collabora save - slides=2 title='Slide one OU-867280ab61' notes='notes OU-867280ab61' pics=1
+PASS test.pptx bytes changed by editor save - 34092 -> 36983 bytes
+-- T03 Office document round-trip: 28 PASS, 0 FAIL, 0 SKIP

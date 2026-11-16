@@ -2,10 +2,12 @@
 # Office Unbound signed apt repository (ADR-0008 steps 8-9). Run on the ICS host as the operator user. The signing key is NOT reachable from here:
 # everything that needs it goes through the fixed program /usr/local/sbin/ou-release-sign as user `ou-release` (install-signer.sh; security review 4).
 #   repo.sh publish <component>             verify the built artifacts (regular files only, dpkg-deb parsed), add to channel `dev`, admit + sign dev
-#   repo.sh record-test <component> <suite-name> pass|fail <logfile>   record a test result for every .deb of the component's dev pool (operator-supplied;
-#                                           tests/pkgtest.sh records what it really installed on its own)
-#   repo.sh record-installed <suite> <name> pass|fail <logfile> <pkg_version>...   record for exactly the named pool .debs (used by pkgtest.sh)
-#   repo.sh promote <from> <to> <component> [--approved-by NAME]       dev->staging->stable; ENFORCED by ou-release-sign (test records + approver + ledger)
+#   repo.sh retain <component> <suite>      copy the older versions of <component> from another channel's pool into dev again (rollback targets) and admit+sign
+#   repo.sh record-test <component> <suite-name> pass|fail <logfile>   have the test runner (ou-test-attest) sign a result for every .deb of the component's dev pool
+#                                           and hand the attestation to the signer (a record can no longer be typed by the caller)
+#   repo.sh record-installed <suite> <name> pass|fail <logfile> <pkg_version>...   same for exactly the named pool .debs (used by pkgtest.sh)
+#   repo.sh promote-manifest <manifest.json>    dev->staging->stable: ONLY with a manifest signed by the ICS after a release.promote plan was approved
+#                                           (executor of that action calls this); ENFORCED by ou-release-sign (manifest signature, exact package set, evidence)
 #   repo.sh index <suite>                   regenerate metadata of a suite and have it signed (Valid-Until set by the signer)
 #   repo.sh resign-all                      re-index + re-sign every suite (run from the timer: Valid-Until must never lapse)
 #   repo.sh serve|unserve                   push the public tree to the DEDICATED read-only repo machine (not the builder) on the oulab zone
@@ -16,6 +18,7 @@ BUILD=$(cd "$HERE/.." && pwd)
 STATE=${OU_PKG_STATE:-/var/lib/office-unbound/pkgbuild}
 REPO=${OU_REPO_DIR:-$STATE/repo}             # served tree (public)
 SIGN=${OU_RELEASE_CMD:-sudo -n -u ou-release /usr/local/sbin/ou-release-sign}   # tests point this at a sandbox signer
+ATTEST=${OU_ATTEST_CMD:-sudo -n -u ou-testrunner /usr/local/sbin/ou-test-attest}   # the pipeline's test runner identity (review 5 H2)
 SUITES="dev staging stable"
 ARCH=amd64
 mkdir -p "$REPO"
@@ -71,12 +74,23 @@ publish() {
   index dev
 }
 
+attest_record() {  # <deb file> <name> <res> <log>
+  h=$(sha256sum < "$1" | cut -d' ' -f1)
+  $ATTEST attest "$h" "$2" "$3" "$(sha256sum < "$4" | cut -d' ' -f1)" | $SIGN record-test
+}
+
+retain() {  # <component> <from-suite>: put the older versions of a component that are in another channel's pool back into dev (publish replaces dev with the
+  # current build only, so a pinned-downgrade target would vanish from dev); only files the signer already knows are re-admitted by hash, nothing is rebuilt
+  c=$1; from=$2; strict_dir "$REPO/pool/$from/$c"; strict_dir "$REPO/pool/dev/$c"; d="$REPO/pool/dev/$c"   # strict_dir overwrites $d
+  for f in "$REPO/pool/$from/$c"/*; do [ -e "$d/$(basename "$f")" ] || cp --no-dereference -p "$f" "$d/"; done
+  tar_dir "$d" | $SIGN admit dev
+  index dev
+}
+
 record_test() {
   c=$1; name=$2; res=$3; log=$4
   [ "$res" = pass ] || [ "$res" = fail ] || { echo "result must be pass|fail"; exit 2; }
-  for f in "$REPO/pool/dev/$c"/*.deb; do
-    $SIGN record-test "$(sha256sum "$f" | cut -d' ' -f1)" "$name" "$res" "$(sha256sum "$log" | cut -d' ' -f1)"
-  done
+  for f in "$REPO/pool/dev/$c"/*.deb; do attest_record "$f" "$name" "$res" "$log"; done
   echo "recorded $name=$res for $c"
 }
 
@@ -85,23 +99,45 @@ record_installed() {  # <suite> <name> <res> <log> <package_version>... -> only 
   for pv in "$@"; do
     for f in "$REPO"/pool/"$s"/*/"${pv}"_*.deb; do
       [ -f "$f" ] && [ ! -L "$f" ] || continue
-      $SIGN record-test "$(sha256sum "$f" | cut -d' ' -f1)" "$name" "$res" "$(sha256sum "$log" | cut -d' ' -f1)"; n=$((n+1))
+      attest_record "$f" "$name" "$res" "$log"; n=$((n+1))
     done
   done
   echo "recorded $name=$res for $n installed packages of suite $s"
 }
 
-promote() {
-  from=$1; to=$2; c=$3; shift 3; approver=""
-  [ "${1:-}" = "--approved-by" ] && approver=${2:-}
+promote_manifest() {  # <manifest.json: {"manifest":{...},"sig":"..."} signed by the ICS>
+  mf=$1; [ -f "$mf" ] && [ ! -L "$mf" ] || { echo "REFUSED: manifest file"; exit 2; }
+  read -r from to c < <(python3 -I - "$mf" <<'PY'
+import json, re, sys
+m = json.load(open(sys.argv[1]))["manifest"]
+for k in ("from", "to", "component"):
+    if not re.match(r"^[a-z0-9][a-z0-9._-]{0,60}$", str(m.get(k, ""))):
+        sys.exit("bad manifest field " + k)
+print(m["from"], m["to"], m["component"])
+PY
+  )
   case "$from>$to" in "dev>staging"|"staging>stable") ;; *) echo "only dev>staging or staging>stable"; exit 2;; esac
   src="$REPO/pool/$from/$c"; [ -d "$src" ] || { echo "REFUSED: $c is not in $from"; exit 3; }
   tmp=$(mktemp -d); trap 'rm -rf "$tmp"' RETURN
-  tar_dir "$src" > "$tmp/set.tar"                      # ONE tar: the signer approves exactly these bytes and exactly these bytes are copied
-  $SIGN promote "$from" "$to" "$approver" < "$tmp/set.tar" || { echo "promotion refused by the signer"; exit 3; }
-  # earlier promoted versions stay in the target pool (rollback = pinned downgrade to a version that is still in the channel); only dev is replaced
-  mkdir -p "$REPO/pool/$to/$c"; tar -x -C "$REPO/pool/$to/$c" -f "$tmp/set.tar" --no-same-owner --no-same-permissions
-  echo "{\"component\":\"$c\",\"from\":\"$from\",\"to\":\"$to\",\"approved_by\":\"$approver\",\"at\":\"$(date -u +%FT%TZ)\",\"set_sha256\":\"$(sha256sum < "$tmp/set.tar" | cut -c1-16)\"}" >> "$STATE/records-promotions.log"
+  mkdir "$tmp/set"
+  # exactly the approved files (names from the manifest), copied from the source pool; the signer compares the set and the hashes with the manifest
+  python3 -I - "$mf" > "$tmp/files.txt" <<'PY'
+import json, re, sys
+for e in json.load(open(sys.argv[1]))["manifest"]["packages"]:
+    if not re.match(r"^[A-Za-z0-9][A-Za-z0-9._+~:-]{0,200}$", e["file"]):
+        sys.exit("bad file name")
+    print(e["file"])
+PY
+  while read -r f; do
+    [ -f "$src/$f" ] && [ ! -L "$src/$f" ] || { echo "REFUSED: approved file $f is not in $src"; exit 3; }
+    cp --no-dereference -p "$src/$f" "$tmp/set/$f"
+  done < "$tmp/files.txt"
+  cp "$mf" "$tmp/set/promotion-manifest.json"
+  tar_dir "$tmp/set" > "$tmp/set.tar"                      # ONE tar: the signer approves exactly these bytes and exactly these bytes are copied
+  $SIGN promote "$from" "$to" < "$tmp/set.tar" || { echo "promotion refused by the signer"; exit 3; }
+  mkdir -p "$REPO/pool/$to/$c"; rm "$tmp/set/promotion-manifest.json"
+  cp --no-dereference -p "$tmp/set"/* "$REPO/pool/$to/$c/"
+  echo "{\"component\":\"$c\",\"from\":\"$from\",\"to\":\"$to\",\"at\":\"$(date -u +%FT%TZ)\",\"manifest_sha256\":\"$(sha256sum < "$mf" | cut -c1-16)\"}" >> "$STATE/records-promotions.log"
   index "$to"
 }
 
@@ -127,9 +163,11 @@ unserve() { . "$BUILD/tools.env"; sudo systemd-run -M "$REPO_MACHINE" --wait --p
 case "${1:-}" in
   keygen) echo "the signing key is managed by install-signer.sh (run as root); see the header of that file"; exit 2 ;;
   publish) publish "$2" ;;
+  retain) retain "$2" "$3" ;;
   record-test) shift; record_test "$@" ;;
   record-installed) shift; record_installed "$@" ;;
-  promote) shift; promote "$@" ;;
+  promote) echo "promotion needs an ICS-approved release.promote plan (repo.sh promote-manifest <manifest>); the old CLI path with a typed approver is gone (security review 5 H2)"; exit 2 ;;
+  promote-manifest) promote_manifest "$2" ;;
   index) index "$2" ;;
   resign-all) resign_all ;;
   serve) serve ;;
