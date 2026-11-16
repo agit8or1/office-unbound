@@ -1,0 +1,17 @@
+{% set rows = rows if rows is defined else recent %}
+<div class="tablewrap">
+<table>
+  <caption class="sr">Recent changes</caption>
+  <thead><tr><th scope="col">Change</th><th scope="col">Asked by</th><th scope="col">When</th><th scope="col">Status</th></tr></thead>
+  <tbody>
+  {% for r in rows %}
+  <tr>
+    <th scope="row"><a href="/admin/requests/{{ r.id }}">{{ r.summary }}</a></th>
+    <td>{{ r.requested_by }}</td>
+    <td><time datetime="{{ r.created_at }}">{{ r.created_at | isoago }}</time></td>
+    <td><span class="pill {% if r.state == 'done' %}ok{% elif r.state in ('failed', 'rejected') %}bad{% elif r.state != 'working' %}warn{% endif %}">{{ r.state_label }}</span></td>
+  </tr>
+  {% endfor %}
+  </tbody>
+</table>
+</div>

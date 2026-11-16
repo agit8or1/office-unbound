@@ -1,0 +1,30 @@
+{% extends "admin/base.html" %}
+{% block atitle %}Groups and apps{% endblock %}
+{% block admin %}
+<h1>Groups and apps</h1>
+<p class="sub">Which apps your organisation uses, and who belongs to each. A person gets an app by being in its group. You change that on their page or when you invite them.</p>
+
+<section class="card" aria-labelledby="h-org">
+  <h2 id="h-org">Apps for your organisation</h2>
+  <p>Turn an app off to hide it from everyone's home page. Their access is not removed.</p>
+  <form method="post" action="/admin/apps">
+    <input type="hidden" name="csrf" value="{{ sess.csrf }}">
+    <fieldset class="checks"><legend class="sr">Apps</legend>
+    {% for key, a in apps.items() %}
+      <label class="check"><input type="checkbox" name="app_{{ key }}" {% if a.enabled %}checked{% endif %}><span><b>{{ a.label }}</b></span></label>
+    {% endfor %}
+    </fieldset>
+    <button class="btn" type="submit">Save</button>
+  </form>
+</section>
+
+<section aria-labelledby="h-g">
+  <h2 id="h-g">Groups</h2>
+  <div class="tablewrap"><table>
+    <caption class="sr">Groups and how many people are in them</caption>
+    <thead><tr><th scope="col">Group</th><th scope="col">Gives access to</th><th scope="col">People</th></tr></thead>
+    <tbody>{% for g in groups %}<tr><th scope="row">{{ g.name }}</th><td>{{ g.label }}</td><td>{{ g.members }}</td></tr>{% endfor %}</tbody>
+  </table></div>
+  <p class="hint">Creating your own groups is <span class="pill">Planned</span>. Groups that give administrator rights are managed by your service provider.</p>
+</section>
+{% endblock %}

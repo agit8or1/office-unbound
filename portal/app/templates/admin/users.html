@@ -1,0 +1,43 @@
+{% extends "admin/base.html" %}
+{% block atitle %}People{% endblock %}
+{% block admin %}
+<div class="pagehead">
+  <h1>People</h1>
+  <a class="btn primary" href="/admin/users/new">Invite someone</a>
+</div>
+<form method="get" action="/admin/users" class="filter" role="search">
+  <label class="sr" for="q">Search people</label>
+  <input id="q" name="q" type="search" value="{{ q }}" placeholder="Search by name or e-mail" autocomplete="off">
+  <label class="sr" for="show">Show</label>
+  <select id="show" name="show">
+    <option value="all" {% if show == 'all' %}selected{% endif %}>Everyone</option>
+    <option value="active" {% if show == 'active' %}selected{% endif %}>With access</option>
+    <option value="disabled" {% if show == 'disabled' %}selected{% endif %}>Switched off</option>
+  </select>
+  <button class="btn" type="submit">Search</button>
+</form>
+{% if users %}
+<div class="tablewrap">
+<table class="people">
+  <caption class="sr">People in your organisation</caption>
+  <thead><tr><th scope="col">Name</th><th scope="col">E-mail</th><th scope="col">Apps</th><th scope="col">Access</th></tr></thead>
+  <tbody>
+  {% for u in users %}
+  <tr>
+    <th scope="row"><a href="/admin/users/{{ u.uid }}">{{ u.display_name }}</a>{% if u.is_you %} <span class="pill">You</span>{% endif %}</th>
+    <td>{{ u.mail }}</td>
+    <td>{% for a, on in u.apps.items() if on %}<span class="pill">{{ a | capitalize }}</span> {% else %}<span class="muted">None</span>{% endfor %}</td>
+    <td>{% if u.state == 'active' %}<span class="pill ok">On</span>{% else %}<span class="pill warn">Off</span>{% endif %}</td>
+  </tr>
+  {% endfor %}
+  </tbody>
+</table>
+</div>
+{% elif q or show != 'all' %}
+<p class="empty">Nobody matches that. <a href="/admin/users">Show everyone</a></p>
+{% else %}
+<section class="card"><h2>Nobody here yet</h2><p>Add the first person to your organisation. You choose which apps they get and we give you a one-time link to send them.</p>
+<p><a class="btn primary" href="/admin/users/new">Invite someone</a></p></section>
+{% endif %}
+<p class="hint">Only people added through this portal are listed.</p>
+{% endblock %}

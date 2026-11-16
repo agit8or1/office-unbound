@@ -12,6 +12,7 @@ import json, os, ssl, urllib.parse, urllib.request
 
 URL, REALM = os.environ["KC_URL"].rstrip("/"), os.environ.get("KC_REALM", "ou-lab")
 PORTAL = os.environ["PORTAL_URL"].rstrip("/")
+CLIENT = os.environ.get("PORTAL_CLIENT_ID", "ou-portal")   # a second client (e.g. a throwaway test portal) can be registered with the same mappers
 ctx = ssl.create_default_context(cafile=os.environ["KC_CA"])
 
 
@@ -40,7 +41,7 @@ def claim_mapper(name, typ, config):
 
 
 client = {
-    "clientId": "ou-portal", "name": "Office Unbound user portal (BFF)", "enabled": True, "protocol": "openid-connect",
+    "clientId": CLIENT, "name": "Office Unbound user portal (BFF)", "enabled": True, "protocol": "openid-connect",
     "publicClient": False, "clientAuthenticatorType": "client-secret",
     "standardFlowEnabled": True, "implicitFlowEnabled": False, "directAccessGrantsEnabled": False, "serviceAccountsEnabled": False,
     "fullScopeAllowed": True,
@@ -60,16 +61,16 @@ client = {
             "access.token.claim": "true", "userinfo.token.claim": "true", "introspection.token.claim": "true"}),
     ],
 }
-_, cl, _ = call("GET", f"{A}/clients?clientId=ou-portal", T)
+_, cl, _ = call("GET", f"{A}/clients?clientId={CLIENT}", T)
 if cl:
     cid = cl[0]["id"]
     call("PUT", f"{A}/clients/{cid}", T, {**client, "id": cid})
-    print("client ou-portal updated")
+    print(f"client {CLIENT} updated")
 else:
     call("POST", f"{A}/clients", T, client)
-    _, cl, _ = call("GET", f"{A}/clients?clientId=ou-portal", T)
+    _, cl, _ = call("GET", f"{A}/clients?clientId={CLIENT}", T)
     cid = cl[0]["id"]
-    print("client ou-portal created")
+    print(f"client {CLIENT} created")
 _, sec, _ = call("GET", f"{A}/clients/{cid}/client-secret", T)
 fd = os.open(os.environ["OUT_SECRET_FILE"], os.O_WRONLY | os.O_CREAT | os.O_TRUNC, 0o600)
 os.write(fd, sec["value"].encode()); os.close(fd)

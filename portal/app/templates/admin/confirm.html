@@ -1,0 +1,16 @@
+{% extends "admin/base.html" %}
+{% block atitle %}{{ title }}{% endblock %}
+{% block admin %}
+<p class="crumb"><a href="/admin/users">People</a> / <a href="/admin/users/{{ u.uid }}">{{ u.display_name }}</a></p>
+<section class="card narrowcard" aria-labelledby="h-c">
+  <h1 id="h-c" class="h2like">{{ title }}</h1>
+  <p>{{ text }}</p>
+  <form method="post" action="/admin/users/{{ u.uid }}/do/{{ what }}">
+    <input type="hidden" name="csrf" value="{{ sess.csrf }}">
+    {% if what in ('disable', 'delete') %}
+    <div class="field"><label for="reason">Reason (optional, kept in the activity log)</label><input id="reason" name="reason" maxlength="200" autocomplete="off"></div>
+    {% endif %}
+    <p><button class="btn {{ 'primary' if tone == 'primary' else 'dangerbtn' }}" type="submit">{{ label }}</button> <a class="btn" href="/admin/users/{{ u.uid }}">Keep as it is</a></p>
+  </form>
+</section>
+{% endblock %}

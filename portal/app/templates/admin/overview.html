@@ -1,0 +1,52 @@
+{% extends "admin/base.html" %}
+{% block atitle %}Administration{% endblock %}
+{% block admin %}
+<h1 class="greet">{{ me.customer }}</h1>
+<p class="sub">You manage the people, apps and settings of your organisation here. Changes are carried out for you and recorded with your name.</p>
+
+{% if waiting %}
+<section class="card attention" aria-labelledby="h-wait">
+  <h2 id="h-wait">Waiting for you</h2>
+  <p>A colleague asked for these changes. Another administrator has to confirm them.</p>
+  <ul class="plain">
+  {% for r in waiting %}<li><a href="/admin/requests/{{ r.id }}"><b>{{ r.summary }}</b></a> <span class="muted">asked by {{ r.requested_by }}, {{ r.created_at | isoago }}</span></li>{% endfor %}
+  </ul>
+</section>
+{% endif %}
+
+<ul class="tiles stats">
+  <li class="tile"><span class="t">{{ me.users.get('active', 0) }}</span><span class="d">people with access</span></li>
+  <li class="tile"><span class="t">{{ me.users.get('disabled', 0) }}</span><span class="d">people switched off</span></li>
+  <li class="tile"><span class="t">{{ me.domain }}</span><span class="d">your mail domain</span></li>
+</ul>
+
+<section aria-labelledby="h-start">
+  <h2 id="h-start">What would you like to do?</h2>
+  <ul class="actions">
+    <li><a class="act" href="/admin/users/new">{{ icon('contacts') }}<span><b>Invite someone new</b><small>Add a person, choose their apps, and get a one-time sign-up link</small></span></a></li>
+    <li><a class="act" href="/admin/users">{{ icon('account') }}<span><b>Manage people</b><small>Turn access on or off, reset sign-in, change apps</small></span></a></li>
+    <li><a class="act" href="/admin/domains">{{ icon('mail') }}<span><b>Check your mail domain</b><small>See whether your DNS is set up for sending and receiving</small></span></a></li>
+    <li><a class="act" href="/admin/branding">{{ icon('devices') }}<span><b>Make it yours</b><small>Name, colour and logo shown to your people</small></span></a></li>
+  </ul>
+</section>
+
+<section class="card" aria-labelledby="h-rules">
+  <h2 id="h-rules">How changes are approved</h2>
+  <p>
+    {% if me.policy.self_service_auto %}Everyday changes such as adding a person or turning access on or off are carried out straight away.
+    {% else %}Every change needs a second administrator of your organisation to confirm it.{% endif %}
+    {% if me.policy.destructive_approval == 'msp' %}Deleting a person is confirmed by your service provider.{% else %}Deleting a person needs a second administrator of your organisation.{% endif %}
+    Everything is written to an activity log that includes who asked.</p>
+</section>
+
+{% if recent %}
+<section aria-labelledby="h-recent"><h2 id="h-recent">Recent activity</h2>
+  {% include "admin/_requests_table.html" %}
+</section>
+{% endif %}
+
+<section class="card" aria-labelledby="h-planned">
+  <h2 id="h-planned">Coming later</h2>
+  <ul class="plain">{% for p in me.planned %}<li><span class="pill">Planned</span> {{ p }}</li>{% endfor %}</ul>
+</section>
+{% endblock %}

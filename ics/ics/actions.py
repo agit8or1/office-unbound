@@ -18,7 +18,7 @@ from pydantic import BaseModel, ConfigDict, Field, SecretStr, field_validator, m
 from sqlalchemy import text
 from sqlalchemy.orm import Session
 
-from . import agentclient, alerts, audit, auth, checks as checkmod, endpoint_actions, identity, monitor, removal
+from . import agentclient, alerts, audit, auth, checks as checkmod, endpoint_actions, identity, mailadmin, monitor, removal
 from .deploy import ops as deploy_ops
 from .deploy import ports as deploy_ports
 from .deploy.ports import DeployError
@@ -65,10 +65,18 @@ class ActionType(StrEnum):
     idm_user_disable = "idm.user.disable"
     idm_user_enable = "idm.user.enable"
     idm_user_delete = "idm.user.delete"
+    idm_user_reset_credentials = "idm.user.reset_credentials"
     idm_reconcile = "idm.reconcile"
     idm_user_devices = "idm.user.devices"
     idm_user_set_extension = "idm.user.set_extension"
     idm_user_issue_sip_credential = "idm.user.issue_sip_credential"
+    idm_user_set_aliases = "idm.user.set_aliases"
+    idm_shared_mailbox_create = "idm.shared_mailbox.create"
+    idm_shared_mailbox_delete = "idm.shared_mailbox.delete"
+    idm_shared_mailbox_grant = "idm.shared_mailbox.grant"
+    idm_shared_mailbox_revoke = "idm.shared_mailbox.revoke"
+    idm_user_set_mail_quota = "idm.user.set_mail_quota"
+    idm_user_set_storage_quota = "idm.user.set_storage_quota"
     deployment_create = "deployment.create"
     deployment_change = "deployment.change"
     deployment_destroy = "deployment.destroy"
@@ -381,10 +389,12 @@ CATALOG: dict[ActionType, dict] = {
     ActionType.idm_user_disable: {"model": identity.UserDisable, "risk": "normal", "secrets": ()},
     ActionType.idm_user_enable: {"model": identity.UserEnable, "risk": "normal", "secrets": ()},
     ActionType.idm_user_delete: {"model": identity.UserDelete, "risk": "high", "secrets": ()},
+    ActionType.idm_user_reset_credentials: {"model": identity.UserResetCredentials, "risk": "normal", "secrets": ()},
     ActionType.idm_reconcile: {"model": identity.Reconcile, "risk": "low", "secrets": ()},
     ActionType.idm_user_devices: {"model": identity.UserDevices, "risk": "low", "secrets": ()},
     ActionType.idm_user_set_extension: {"model": identity.UserSetExtension, "risk": "normal", "secrets": ()},
     ActionType.idm_user_issue_sip_credential: {"model": identity.IssueSipCredential, "risk": "normal", "secrets": ()},
+    **{ActionType(a): {"model": m, "risk": "high" if a == "idm.shared_mailbox.delete" else "normal", "secrets": ()} for a, m in mailadmin.MODELS.items()},
     # deployment engine (deploy/ops.py). "risk" is the catalog default; create_plan takes the real tier from the change diff (override => high)
     ActionType.deployment_create: {"model": deploy_ops.DeploymentCreate, "risk": "high", "secrets": ()},
     ActionType.deployment_change: {"model": deploy_ops.DeploymentChange, "risk": "normal", "secrets": ()},
@@ -426,7 +436,10 @@ def endpoint_binding(base_url: str, token_id: str, fingerprint: str | None, ca_p
 
 def needed_approvals(rt: Runtime, plan) -> int:
     """Distinct ICS approvers required: risk tier + the customer policy's extra approvals for sensitive operations."""
-    return (rt.settings.required_approvals_high if plan.risk == "high" else 1) + (getattr(plan, "extra_approvals", 0) or 0)
+    tier = getattr(plan, "tenant_required", None)  # tenant-admin plans: the customer's own authority supplies the tier approval (tenant_admin.service)
+    if tier is None:
+        tier = rt.settings.required_approvals_high if plan.risk == "high" else 1
+    return tier + (getattr(plan, "extra_approvals", 0) or 0)
 
 
 def trust_binding(base_url: str, token_id: str, fingerprint: str | None, ca_pem: str | None, nodes=None) -> str:
@@ -679,6 +692,9 @@ def create_plan(db: Session, rt: Runtime, user, action: ActionType, params: dict
         extra.update(prov_actions.precheck(db, rt, action.value, p))
     # ---- customer scoping + policy (agent M) ----
     cust = full.get("customer_id") or tscope.customer_of_params(db, full)
+    if action in _IDM and not cust and full.get("stack"):  # identity stacks belong to one customer (0009a): scoped/tenant principals are bound through it
+        r = db.execute(text("SELECT customer_id FROM idm_stacks WHERE name = :n"), {"n": full["stack"]}).first()
+        cust = str(r.customer_id) if r else None
     if action == ActionType.endpoint_register and not cust:
         cust = full["customer_id"] = tscope.DEFAULT_CUSTOMER
     if action in _PROV:
@@ -1327,6 +1343,7 @@ _EXEC = {ActionType.endpoint_register: endpoint_actions.exec_register, ActionTyp
          ActionType.node_decommission: removal.exec_node_decommission, ActionType.maintenance_cancel: removal.exec_maintenance_cancel,
          ActionType.maintenance_delete: removal.exec_maintenance_delete, ActionType.plan_archive: removal.exec_plan_archive,
          **{ActionType(k): v for k, v in identity.EXECUTORS.items()},
+         **{ActionType(k): v for k, v in mailadmin.EXECUTORS.items()},
          **{ActionType(k): v for k, v in deploy_ops.EXECUTORS.items()},
          **{ActionType(k): v for k, v in endpoint_actions.EXECUTORS.items()},
          **{ActionType(k): v for k, v in prov_actions.EXECUTORS.items()},

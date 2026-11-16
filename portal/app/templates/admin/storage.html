@@ -1,0 +1,32 @@
+{% extends "admin/base.html" %}
+{% block atitle %}Storage{% endblock %}
+{% macro bar(used, limit, label) %}
+  {% if limit %}
+    {% set pct = ((used or 0) * 100 / limit) | round | int %}
+    <progress class="usage {{ 'full' if pct >= 90 }}" value="{{ [pct, 100] | min }}" max="100" aria-label="{{ label }}: {{ pct }} percent used"></progress>
+    <small>{{ (used or 0) | size }} of {{ limit | size }} ({{ pct }}%)</small>
+  {% elif used is not none %}<small>{{ used | size }} used, no limit</small>
+  {% else %}<small class="muted">Not available right now</small>{% endif %}
+{% endmacro %}
+{% block admin %}
+<h1>Storage</h1>
+<p class="sub">How much space each person uses in their mailbox and in their files, and the limits you set. Leave a box empty to keep the current limit, type <b>0</b> for no limit.</p>
+{% if error == 'badnumber' %}<p class="notice bad" role="alert">Enter whole numbers of megabytes.</p>{% elif error %}<p class="notice bad" role="alert">{{ error }}</p>{% endif %}
+{% if not q.available.mail %}<p class="notice" role="status">Mailbox usage could not be read right now.</p>{% endif %}
+{% if q.files_quota_supported and not q.available.files %}<p class="notice" role="status">File usage could not be read right now.</p>{% endif %}
+{% if not q.files_quota_supported %}<p class="notice" role="status">File storage limits are not switched on for your organisation. Ask your service provider.</p>{% endif %}
+<div class="tablewrap"><table class="people">
+  <caption class="sr">Storage per person</caption>
+  <thead><tr><th scope="col">Person</th><th scope="col">Mailbox</th>{% if q.files_quota_supported %}<th scope="col">Files</th>{% endif %}<th scope="col">New limits (MB)</th></tr></thead>
+  <tbody>{% for u in q.users %}
+  <tr><th scope="row">{{ u.display_name }}</th>
+    <td>{% if u.has_mailbox %}{{ bar(u.mail.used_bytes, (u.mail.limit_kb or 0) * 1024, 'Mailbox of ' ~ u.display_name) }}{% else %}<span class="muted">No mailbox</span>{% endif %}</td>
+    {% if q.files_quota_supported %}<td>{{ bar(u.files.used_bytes, u.files.limit_bytes, 'Files of ' ~ u.display_name) }}</td>{% endif %}
+    <td><form method="post" action="/admin/storage/{{ u.uid }}" class="row2">
+      <input type="hidden" name="csrf" value="{{ sess.csrf }}">
+      {% if u.has_mailbox %}<label class="sr" for="m-{{ u.uid }}">Mailbox limit in megabytes for {{ u.display_name }}</label><input id="m-{{ u.uid }}" name="mail_mb" inputmode="numeric" size="7" placeholder="mailbox">{% endif %}
+      {% if q.files_quota_supported %}<label class="sr" for="f-{{ u.uid }}">File limit in megabytes for {{ u.display_name }}</label><input id="f-{{ u.uid }}" name="files_mb" inputmode="numeric" size="7" placeholder="files">{% endif %}
+      <button class="btn" type="submit">Save</button></form></td></tr>
+  {% else %}<tr><td colspan="4" class="muted">Nobody yet.</td></tr>{% endfor %}</tbody>
+</table></div>
+{% endblock %}
