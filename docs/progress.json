@@ -858,5 +858,14 @@
     "New Outlook for Windows and Outlook mobile cannot use MAPI/EWS against non-Microsoft servers (Microsoft limitation); IMAP/SMTP only",
     "Lab currently runs in isolated containers on a single host; production topology is full VMs on Proxmox",
     "Release 0.1.0 is a lab pre-alpha, unsigned; no production-supported release exists yet"
-  ]
+  ],
+  "beta": {
+    "target_date": "2026-12-31",
+    "kind": "invite-only beta",
+    "readiness_percent": 40,
+    "as_of": "2026-11-16",
+    "stage": "Stage 1 \u2014 security and repository stabilization (Nov 16\u201322)",
+    "scorecard": "docs/status/ALPHA-EXECUTION-QUEUE.md",
+    "method": "Weighted: security 20, install/full-stack deploy 20, data integrity/recovery 15, tenant isolation 15, core services 15, MSP admin 8, operations 7; only tested requirements count."
+  }
 }

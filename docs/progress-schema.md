@@ -13,6 +13,7 @@ Human view: [`ROADMAP.md`](../ROADMAP.md) (generated — run `python3 scripts/re
 | `summary` | string | one-paragraph public summary |
 | `status_values` | object | machine status key → display label (ADR-0000 values + `blocked` + `deferred` — owner-deferred work that must not start before its stated condition) |
 | `principles` | string[] | product principles |
+| `beta` | object | optional: `target_date`, `kind`, `readiness_percent` (evidence-based, weighted), `as_of`, `stage`, `scorecard` (repo path), `method` |
 | `phases[]` | object | `id`, `name`, `status`, `items[]` |
 | `phases[].items[]` | object | `id` (unique), `title`, `status`, `evidence[]` (repo paths, validated to exist), optional `note` |
 | `acceptance[]` | object | first-demo acceptance tests: `id`, `title`, `status`, optional `note`, optional `evidence[]` |

@@ -1,63 +1,70 @@
-# Alpha readiness — current state and execution queue
+# Office Unbound: beta execution queue and scorecard
 
-Owner directive 2026-11-16: "Alpha readiness & execution". Feature expansion is frozen. Order: security → production no-SSH Proxmox deployment → full stack → two-customer isolation → operations → internal alpha → MSP pilot report. A stage with an open blocking security issue does not progress into customer-facing deployment.
+This is the one authoritative queue. Owner directive 2026-11-16: **invite-only beta by 2026-12-31**.
 
-Evidence levels used everywhere: **Unit tested · Integration tested · Lab tested · Real infrastructure · Production verified**.
+How it is run:
+- A single controller does the work. No agents unless the owner approves one.
+- Feature freeze: P9 PDF Studio and P10 Post-Core stay deferred.
+- Evidence levels: Unit · Integration · Lab · Real infrastructure · Production.
+- Every evidence row records the commit it was produced on.
 
-## Stage 1 — state established (2026-11-16)
+## Beta scorecard (evidence-based, weighted)
 
-**Production ICS:** v0.1.0, commit 416aafe, schema 0009b, one owner account, no Proxmox endpoint registered, audit chain verifies.
+Readiness is the weighted share of each area's beta requirements that are **tested on the relevant level**. Implementation without tests counts zero. Data comes from this file and `docs/progress.json`.
 
-**main** = 518e326. Acceptance A1–A24: 22 lab-demonstrated (`integrated_lab`), A14 (real Outlook/mobile) and A24 (admin docs) implementing. **No acceptance item is production verified.**
-
-**Unmerged work (27 branches):**
-- `integration-7`: standby/epoch fencing, review-5 fixes, per-customer backups, editor drill, client-compat results, admin docs. Being gated.
-- `tenant-msp`: Org Admin, mailbox admin, MSP API, collaboration catalog. Merged on the branch; review-6 fixes in progress.
-- `fixes-r7`: review-7 fixes, in progress.
-- Others: `oci-signing`, `golden-prod`, `privsep`, `fullstack-plan`, `ssh-onboard`, `hardening`, `ics-pkg`, `console-new`, `gw-fixes`, `docs-reliability`. Each has its own agent.
-- An earlier capacity worktree (`agent-a3ae…`) holds uncommitted `blueprints/lab/perf/`. Its agent stopped; it is kept and not deleted, and is to be salvaged by the capacity follow-up.
-- Frozen: PIM migration (`worktree-agent-a1c66e0c…`, committed as WIP).
-
-### Security findings: open Critical/High, verified against the current code by review 7
-
-| ID | Finding | Status | Owner (branch) |
+| Area | Weight | Status (2026-11-16) | Evidence-based score |
 |---|---|---|---|
-| R7-H1 | Signer: duplicate stanzas get a trojan signed into stable (reproduced) | Open | fixes-r7 |
-| R7-H2 | One signing key for all channels | Open | fixes-r7 |
-| R7-H3 | ou-test-attest signs caller-supplied results | Open | fixes-r7, consumed by oci-signing and golden-prod |
-| R7-H4 | Cross-tenant plans: customer taken from caller parameters (reproduced) | Open | fixes-r7 |
-| R7-H5 | Fencing covers agent calls only | Open | fixes-r7, then a two-controller partition test |
-| R6-H1 | Image signer boot-test record forgeable | Open | oci-signing |
-| R6-H2 | Org-admin account takeover via reset | Open | tenant-msp |
-| R5 partials H1, H2, M2, M7, L4, L5 | See review 7 | Partial | fixes-r7 |
-| Host | `administrator` has NOPASSWD: ALL | Open, **owner action** | privsep prepares the script |
+| Security (no Critical/High; review 8; least privilege applied; signing verified) | 20 | 0 Critical. Highs fixed in code; 5 still Partial until owner privsep apply, the image-signing merge and review 8 | 50% |
+| Installation and full-stack deploy through ICS (fresh, repeated) | 20 | Single VM and container on real PVE (A1). Full stack not yet deployed. Golden images and artifacts are on branches | 15% |
+| Data integrity and recovery (backup and restore of tenant and ICS; upgrade and rollback; failover) | 15 | Lab-verified: restores, ICS controller tier, editor and groupware rollback, HA partition proof | 55% |
+| Tenant isolation (identity, mail, files, docs, chat, meetings, admin, API, backups, network) | 15 | App and backup isolation lab-verified (209/0). Network (SDN) not yet applied | 45% |
+| Core services working together (identity, mail incl. external, calendar and contacts, files and sync, docs, chat, meetings, telephony) | 15 | Lab-integrated. External mail, GUI desktop sync and Outlook not yet tested | 40% |
+| MSP and Org admin (control center, Org Admin, provisioning API, quotas, audit) | 8 | Built and lab-tested on branches, merged in 5504775 | 50% |
+| Operations (monitoring, alerts incl. email/SMS/webhook, updates, capacity) | 7 | Monitoring and incidents exist. Alert channels beyond webhook/email are partial | 35% |
+| **Overall** | **100** | | **≈ 40%** |
 
-Consolidated evidence: `docs/status/SECURITY-REMEDIATION.md`. It is produced once the fixes land, followed by an independent re-verification (review 8).
+| Tracker | Value (commit) |
+|---|---|
+| Security findings open | Critical 0 · High 5 Partial · Medium/Low: see `SECURITY-REMEDIATION.md` |
+| Backend / frontend / e2e | Gate on 5504775 running. Last green: 9715881 (885 / 127 / 418+12) |
+| Full-stack deploy success | 0 of 0 attempts |
+| Tenant isolation | 209 pass / 0 fail (lab, branch evidence); network isolation pending |
+| External mail | Not tested; needs owner domain/DNS |
+| Backup and recovery | Lab restores verified (RTO 29–127 s); ICS tier verified |
+| **Critical blockers** | Owner prerequisites for pve06 (connect via SSH onboarding, image import, SDN); external mail domain; privsep apply |
+| **Estimated beta date** | 2026-12-31. On track only if the pve06 onboarding and the external-mail domain arrive in Stage 1–2 |
 
-## Execution queue
+## Stages (owner schedule)
 
-| # | Stage | Work | State |
+| Stage | Dates | Scope | State |
 |---|---|---|---|
-| 1 | 2 | Review-7 fixes: signer, channel keys, real attestation, tenant resolver, full fencing | fixes-r7 running |
-| 2 | 2 | Review-6 H2 and MSP Mediums on tenant/MSP | tenant-msp running |
-| 3 | 2 | Image/OCI signer gating on the real attestor; sign the images | oci-signing running |
-| 4 | 2 | Least-privilege accounts, sudoers, unit hardening; owner script | privsep running |
-| 5 | 2 | Separate bootstrap listener; DB-backed rate limits | hardening running |
-| 6 | 2 | Merge integration-7 → gate → deploy; then merge 1–5 → gate → **review 8 (independent)** → SECURITY-REMEDIATION.md | lead |
-| 7 | 2 | Two-controller partition test: only one controller executes | after #1 |
-| 8 | 3 | Golden images: Debian 12 + Ubuntu 24.04, reproducible, independent boot attestation, sealed bootstrap | golden-prod running |
-| 9 | 3 | **Owner prerequisite:** pve06 `import` content + OUImport ACLs (`docs/status/golden-image-results.md` §5) | **waiting on owner** |
-| 10 | 3 | Real acceptance on pve06: no-SSH VM, signed component, health, restart, update, rollback, destroy-only-own | after 8, 9 |
-| 11 | 3 | Wizards: connect (incl. SSH onboarding, owner request), deployment, change, rollback; console for releases and standby | ssh-onboard and console-new running |
-| 12 | 4 | Full-stack BOM: every component real (no placeholders); capacity against pve06 | fullstack-plan running |
-| 13 | 4 | Component fixes found by real clients (Gromox SMTP/587/special-use/send-as); editor kit spawning | gw-fixes and docs-reliability running |
-| 14 | 4 | ICS as a signed package with controlled upgrade and rollback | ics-pkg running |
-| 15 | 4 | Deploy the full profile through ICS on pve06; repeatable; failure recovery | after 10, 12 |
-| 16 | 5 | **Owner prerequisite:** PVE SDN zone, VNets, firewall per customer (`docs/admin/proxmox-sdn-isolation.md`, being written) | waiting on fullstack-plan, then owner |
-| 17 | 5 | Two full customer deployments; isolation positive and negative across every service, network and backups | after 15, 16 |
-| 18 | 6 | Alerts (email/SMS/webhook/in-product, escalation, per-customer routing, delivery tracking); MSP workflows end to end | after 17 |
-| 19 | 7 | Internal alpha acceptance with real clients (GUI desktop sync, Thunderbird, Evolution, softphones; Outlook/mobile need owner devices) | after 18 |
-| 20 | 8 | MSP pilot readiness report | last |
+| 1 | Nov 16–22 | Security and repo stabilization: integrate remediation branches, review 8, gitleaks full history, signing/attestation verified, fencing, least privilege, SSH onboarding restrictions, no exposed secrets | **in progress** |
+| 2 | Nov 23–29 | ICS complete: connection wizard, credentials, golden-image deploy, signed artifacts, profiles, VM and container deploy, change/rollback wizards, health verification, capacity. **Full-stack deploy demonstrated** | queued |
+| 3 | Nov 30–Dec 6 | Integrated stack incl. email: external in/out, SMTP auth, IMAP, MAPI/HTTP, EWS, EAS, autodiscover, CalDAV/CardDAV, SPF/DKIM/DMARC, TLS, rspamd, ClamAV, queues, mailbox backup/restore, real Outlook where available | queued |
+| 4 | Dec 7–13 | MSP and multi-tenant: two real customers, SDN/firewall applied, cross-tenant tests across every service | queued |
+| 5 | Dec 14–20 | Alerts (email/SMS/webhook/in-product, escalation, routing, delivery status), backup and recovery RPO/RTO, updates and rollback, client compatibility, migration (mail first), onboarding | queued |
+| 6 | Dec 21–27 | Clean-room beta candidate (24-step flow), guides, known limitations, release notes, freeze | queued |
+| 7 | Dec 28–31 | Invite-only launch: 1–2 MSP partners, two isolated customers, ~20–30 users | queued |
+
+## Stage 1 queue (next actions in order)
+
+1. Gate 5504775 (integration-8 merged) → backup → deploy.
+2. Integrate, with targeted tests then a full gate:
+   - `ssh-onboard`: run its unrun tests first.
+   - `oci-signing`, then `golden-prod`, then `artifacts-core`, then `artifact-dist`.
+   - `gw-fixes`: `ou-gromox` ou3 still has to go through the signed pipeline.
+   - `docs-reliability`.
+   - `ha-proof`.
+3. Fix gitleaks full-history scanning in CI.
+4. Prepare the batched owner-action sheet (`docs/admin/OWNER-ACTIONS.md`).
+5. Independent security review 8. Ask the owner before using a reviewer agent.
+6. Refresh `SECURITY-REMEDIATION.md`, then decide whether the Stage 1 exit criteria are met.
+7. Follow-ups:
+   - R1: mark jobs from the replication gap as `uncertain` at promotion.
+   - Set `wal_receiver_timeout` to 5 s on standbys.
+   - Triage OSV findings so artifacts can be promoted to staging/stable.
+
+**Frozen work:** PIM migration (`worktree-agent-a1c66e0c…`, WIP 247f94d; verification failed). It is preserved and re-enters in Stage 5 (migration) only after it verifies.
 
 ## Owner actions known now
 
