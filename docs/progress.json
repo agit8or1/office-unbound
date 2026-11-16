@@ -208,9 +208,10 @@
           "evidence": [
             "docs/status/SECURITY-REMEDIATION.md",
             "docs/status/ALPHA-EXECUTION-QUEUE.md",
-            "scripts/security_remediation_check.py"
+            "scripts/security_remediation_check.py",
+            "docs/status/security-review-8-2026-11-16.md"
           ],
-          "note": "132 findings tracked with verified evidence; after integration-8 every finding with a code fix is on main (96 Fixed, 0 pending merge; tenant-msp, hardening, privsep, fixes-r5/r7 landed); the 5 Highs still Partial (R4-H2, R5-H2, R7-H3, R7-H5 need the owner to remove administrator NOPASSWD:ALL / lab drills; R6-H1 needs oci-signing); stays implementing until the independent review 8"
+          "note": "140 findings tracked with verified evidence. Independent review 8 (2026-11-16): 0 Critical, 1 High, 4 Medium, 3 Low; all fixed in code except R8-L-2 (open by design until the ICS source address seen by pve06 is known). 6 Highs Partial: R4-H2, R5-H2, R7-H3, R7-H5 need the owner privsep apply / lab drills, R6-H1 the signed registry, R8-H-1 the re-installed smoke-test helper on the ICS host"
         },
         {
           "id": "P1.14",
@@ -268,7 +269,7 @@
             "docs/status/golden-image-prod-results.md",
             "docs/status/bootstrap-v2.md"
           ],
-          "note": "Golden images Debian 12 + Ubuntu 24.04 built reproducibly from signed archives, independent boot suite 97/97 each, manifest v2 + DB version floor; image.import not yet wired to an approved action (Stage 2)"
+          "note": "Golden images Debian 12 + Ubuntu 24.04 built reproducibly from signed archives, independent boot suite 97/97 each, manifest v2 + DB version and date floor. image.import is an approved high-risk action (trust from Settings, floor from the DB, previewed sha256 bound into the plan) with a console Images page; not yet run against pve06"
         },
         {
           "id": "P2.4",
@@ -304,7 +305,7 @@
             "docs/status/ssh-onboard-results.md",
             "docs/adr/0014-ssh-onboarding.md"
           ],
-          "note": "Connect with SSH merged to main (integration-9): own officeunbound@pve user/role/ACL/token + restricted ou-ics account and helper, host-key and API-certificate trust modes (incl. public CA), normal risk per owner; owner test against pve06 pending"
+          "note": "Connect with SSH: own officeunbound@pve user/role/ACL/token + restricted ou-ics account and helper, host-key and API-certificate trust, normal risk per owner. Review 8 fixes: never adopts or deletes a pre-existing node account, offboarding bound to the onboarded host and key, cluster-wide helper reads need an approver. Owner test against pve06 pending"
         },
         {
           "id": "P2.8",
@@ -512,7 +513,7 @@
     },
     {
       "id": "P9",
-      "name": "Office Unbound PDF Studio: full PDF reader, editor, forms and document management (DEFERRED \u2014 absolute last priority)",
+      "name": "Office Unbound PDF Studio: full PDF reader, editor, forms and document management (DEFERRED — absolute last priority)",
       "status": "deferred",
       "items": [
         {
@@ -864,9 +865,9 @@
   "beta": {
     "target_date": "2026-12-31",
     "kind": "invite-only beta",
-    "readiness_percent": 40,
+    "readiness_percent": 42,
     "as_of": "2026-11-16",
-    "stage": "Stage 1 \u2014 security and repository stabilization (Nov 16\u201322)",
+    "stage": "Stage 1 — security and repository stabilization (Nov 16–22)",
     "scorecard": "docs/status/ALPHA-EXECUTION-QUEUE.md",
     "method": "Weighted: security 20, install/full-stack deploy 20, data integrity/recovery 15, tenant isolation 15, core services 15, MSP admin 8, operations 7; only tested requirements count."
   }
