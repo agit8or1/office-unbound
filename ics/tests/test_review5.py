@@ -99,7 +99,7 @@ def test_m5_every_listed_get_route_is_scoped_or_explicitly_global(client, world)
     for route in client.app.routes:
         methods = getattr(route, "methods", None) or set()
         path = getattr(route, "path", "")
-        if "GET" not in methods or path in GLOBAL or path.startswith(("/openapi", "/redoc", "/static", "/assets")):
+        if "GET" not in methods or path in GLOBAL or path.startswith(("/openapi", "/redoc", "/static", "/assets", "/api/msp/v1/", "/api/v1/tenant/")):  # key-gated MSP API and tenant-principal-only /tenant API: customer-bound by construction (tests/test_msp_api.py, tests/test_tenant_admin.py)
             continue
         names = [seg[1:-1] for seg in path.split("/") if seg.startswith("{")]
         missing = [n for n in names if n not in params]

@@ -105,7 +105,7 @@ changes the pin: VMs that were provisioned but have not reported yet carry the o
 
 **Rate limits are shared.** Login throttling was already in PostgreSQL (`login_attempts`). The remaining in-process buckets (guest callback per source /
 per bootstrap id / unknown ids, public approval links, identity enrollment) now use `rate_limits` (UNLOGGED token buckets, one atomic upsert per decision,
-`ics/ratelimit.py`), so the limits hold across any number of uvicorn workers or hosts sharing the database. A database error answers 5xx (fail closed).
+`ics/ics/ratelimit.py`), so the limits hold across any number of uvicorn workers or hosts sharing the database. A database error answers 5xx (fail closed).
 `ics.service` runs `ICS_WORKERS=2` (override in `ics.env`, 1..16). The background worker (jobs, monitor, inventory, backups) runs in exactly one process,
 chosen by a PostgreSQL advisory lock; if that process dies the supervisor restarts it and the lock is taken again.
 
