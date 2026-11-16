@@ -10,12 +10,12 @@ isolated lab; nothing is production supported ([ROADMAP.md](ROADMAP.md)).
 
 ## [Unreleased]
 
-Merged on integration branches `integration-5`, `integration-6` and `integration-7` (not yet released). Production schema head is `0009b`; this batch adds `0009a`, `0010`, `0011`, `0012`, `0013`.
+Merged on integration branches `integration-5`, `integration-6` and `integration-7` (not yet released). Production schema head is `0009b`; this batch adds `0009a`, `0010`, `0011`, `0012r7`, `0013r7`.
 
 ### Security (review 7, agent BU)
 - **Release signer**: strict deb822 parsing, every index stanza bound to the ledger (control fields, size, hashes), one signing key per channel, Suite/Codename checks on first contact; `ou-test-attest` runs the install smoke test itself in a throw-away container. [security-review-7](docs/status/security-review-7-2026-11-16.md)
-- **Fencing**: a fenced, standby or superseded controller stops all side effects (job claim, worker loops, provider/agent/notification egress, enrollment, API mutations); migration `0012`.
-- **Tenancy**: plan customer derived server-side from every referenced resource; scoped admins cannot invite wider accounts; image import trust and downgrade floor are server state (migration `0013`).
+- **Fencing**: a fenced, standby or superseded controller stops all side effects (job claim, worker loops, provider/agent/notification egress, enrollment, API mutations); migration `0012r7`; with a witness configured a lease (`ics.witness`) fences an isolated old primary and promotion waits for it to expire.
+- **Tenancy**: plan customer derived server-side from every referenced resource; scoped admins cannot invite wider accounts; image import trust and downgrade floor are server state (migration `0013r7`).
 - Agent epoch mark fails closed and is stored twice; standby key-bundle passphrase never stored beside the bundle.
 
 ### Added
