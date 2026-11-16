@@ -2,7 +2,6 @@
 import { computed, ref } from 'vue'
 import { useLoad } from '../../store'
 import { belongs, loadInfra, type Infra, type Res } from '../../infra'
-import { hasPath } from '../../router'
 import DataTable, { type Col } from '../../ui/DataTable.vue'
 import PageHeader from '../../ui/PageHeader.vue'
 import StatusBadge from '../../ui/StatusBadge.vue'
@@ -46,7 +45,7 @@ const cols = computed<Col[]>(() => ({
 } as Record<string, Col[]>)[props.kind] ?? [])
 const href = (r: Res) => `/infrastructure/${meta.value.path}/${encodeURIComponent(r.id)}`
 const rawStr = (r: Res, k: string) => (r.raw[k] === undefined || r.raw[k] === null ? '-' : String(r.raw[k]))
-const connectTo = computed(() => (hasPath('/setup') ? '/setup' : '/endpoints'))
+const connectTo = computed(() => '/infrastructure/providers/proxmox/connect')
 </script>
 <template>
   <div class="page">
@@ -57,7 +56,7 @@ const connectTo = computed(() => (hasPath('/setup') ? '/setup' : '/endpoints'))
     <Skeleton v-if="!infra.data.value && !infra.error.value" />
     <Card v-else-if="infra.data.value" flush>
       <EmptyState v-if="!all.length && (infra.data.value.missing || !infra.data.value.connected)" :icon="meta.icon" title="Connect your first Proxmox cluster" :text="`${meta.title} are discovered from your Proxmox clusters. Connect one and they will appear here automatically.`">
-        <Button variant="primary" icon="plus" :to="connectTo">{{ connectTo === '/setup' ? 'Start setup wizard' : 'Add a cluster' }}</Button>
+        <Button variant="primary" icon="plus" :to="connectTo">Connect a cluster</Button>
       </EmptyState>
       <EmptyState v-else-if="!all.length" :icon="meta.icon" :title="`No ${meta.title.toLowerCase()} found`" text="Nothing of this kind was reported by your connected clusters yet. Discovery runs periodically." />
       <template v-else>

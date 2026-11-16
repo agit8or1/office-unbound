@@ -72,8 +72,8 @@ const notReady = computed(() => ready.data.value && !ready.data.value.ready ? Ob
     <div v-if="notReady.length" class="alert warn" role="alert"><Icon name="alert" /><span>ICS service component not ready: {{ notReady.join(', ').replace('_', ' ') }}. Operations may be delayed.</span></div>
 
     <div v-if="loaded && !i.connected" class="card">
-      <EmptyState icon="cluster" title="Connect your first Proxmox cluster" text="The guided setup walks you through connecting Proxmox in a few steps — it checks the connection and permissions and shows everything before anything is saved. Afterwards this dashboard fills with live node, VM and storage status, utilization charts and a health matrix.">
-        <Button variant="primary" icon="plus" :to="hasPath('/setup') ? '/setup' : '/endpoints'">Start guided setup</Button>
+      <EmptyState icon="cluster" title="Connect your first Proxmox cluster" text="Sign in to Proxmox once, tick exactly what Office Unbound may use, and it sets up its own restricted access. You see every change before anything is saved. Afterwards this dashboard fills with live node, VM and storage status, utilization charts and a health matrix.">
+        <Button variant="primary" icon="plus" to="/infrastructure/providers/proxmox/connect">Start guided setup</Button>
       </EmptyState>
       <ol class="steps3" aria-label="Getting started">
         <li><b>1. Connect</b><span>Add your Proxmox cluster with the guided setup.</span></li>

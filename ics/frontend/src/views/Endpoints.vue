@@ -98,7 +98,7 @@ async function doConfirm() {
   <div class="page">
     <PageHeader title="Integrations" sub="Proxmox servers and clusters this console manages. Add as many as you need." help="Credentials are stored in the vault and never shown. Connection and permission changes go through approval.">
       <template #actions>
-        <Button v-if="canEdit && wizard" variant="primary" icon="plus" to="/setup">Add endpoint</Button>
+        <Button v-if="canEdit && wizard" variant="primary" icon="plus" to="/infrastructure/providers/proxmox/connect">Add endpoint</Button>
         <Button v-else-if="canEdit" variant="primary" icon="plus" @click="openAdd">Add endpoint</Button>
       </template>
     </PageHeader>
@@ -107,7 +107,7 @@ async function doConfirm() {
     <Skeleton v-if="!eps.data.value && !eps.error.value" />
     <Card v-else-if="eps.data.value && !eps.data.value.length">
       <EmptyState icon="plug" title="Connect your first Proxmox cluster" text="Add a Proxmox server or cluster with a read-only API token to discover nodes, VMs, storage and networks. You can add a separate provisioning credential later.">
-        <Button v-if="canEdit && wizard" variant="primary" icon="plus" to="/setup">Start setup wizard</Button>
+        <Button v-if="canEdit && wizard" variant="primary" icon="plus" to="/infrastructure/providers/proxmox/connect">Start setup wizard</Button>
         <Button v-else-if="canEdit" variant="primary" icon="plus" @click="openAdd">Add endpoint</Button>
         <span v-else class="muted">Ask an operator to connect one.</span>
       </EmptyState>

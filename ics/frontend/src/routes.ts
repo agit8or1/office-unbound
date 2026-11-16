@@ -24,6 +24,9 @@ const infraList = (path: string, kind: string, title: string): RouteRecordRaw[] 
 const wizardRecord = (w: WizardRoute): RouteRecordRaw => ({
   path: w.path, name: w.name, component: w.component,
   meta: { title: w.title, section: w.path === '/setup' || w.path === '/setup/connection' ? 'Administration' : 'Deployments', min: w.minRole, bare: w.path === '/setup' },
+  // ADR-0016: connecting a NEW cluster is the sign-in wizard; the old token flow stays for editing an endpoint (?endpoint=<id>) and under "Use an API token"
+  ...(w.path === '/setup' || w.path === '/setup/connection'
+    ? { beforeEnter: (to: { query: Record<string, unknown> }) => (to.query.endpoint ? true : '/infrastructure/providers/proxmox/connect') } : {}),
 })
 
 export const routes: RouteRecordRaw[] = [
