@@ -160,4 +160,5 @@ const notReady = computed(() => ready.data.value && !ready.data.value.ready ? Ob
 </template>
 <style scoped>
 .vis-note { display: flex; flex-wrap: wrap; align-items: center; gap: 6px; margin: -4px 0 0; }
+.vis-note svg { width: 16px; height: 16px; flex: none; }
 </style>
