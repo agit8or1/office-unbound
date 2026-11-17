@@ -3,10 +3,22 @@
   "schema_doc": "docs/progress-schema.md",
   "project": "Office Unbound",
   "repository": "https://github.com/agit8or1/office-unbound",
-  "updated": "2026-11-17",
+  "updated": "2026-11-18",
   "stage": "pre-alpha (lab)",
-  "current_version": "0.2.0-dev.7",
+  "current_version": "0.2.0-dev.8",
   "releases": [
+    {
+      "version": "0.2.0-dev.8",
+      "date": "2026-11-18",
+      "status": "prepared",
+      "codename": "Beacon",
+      "channel": "development",
+      "highlights": [
+        "Development build 8 of 0.2.0 \"Beacon\": dashboard icon fix, roadmap CI fix"
+      ],
+      "notes_url": "https://github.com/agit8or1/office-unbound/blob/main/CHANGELOG.md",
+      "changelog": "CHANGELOG.md"
+    },
     {
       "version": "0.2.0-dev.7",
       "date": "2026-11-17",

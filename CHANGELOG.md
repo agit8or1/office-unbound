@@ -12,6 +12,10 @@ isolated lab; nothing is production supported ([ROADMAP.md](ROADMAP.md)).
 
 Target: 0.2.0 "Beacon" (alpha readiness: security hardening, production no-SSH deployment, full stack).
 
+### 0.2.0-dev.8 (2026-11-18)
+- **Fix: oversized info icon on the dashboard** (the guest-visibility note). Icons now default to 1em, so an icon without explicit sizing can no longer fill the page.
+- **CI: roadmap workflow** accepted only `X.Y.Z-dev`; numbered builds (`-dev.N`) made it fail on every push. Fixed in `scripts/release_notes.py`.
+
 ### 0.2.0-dev.7 (2026-11-17)
 - **Conflict choices in the dry run.** When Calculate finds an existing role, service account or token, it offers four choices: use it as is (only if it grants nothing beyond what is needed), overwrite it, remove and recreate it, or create a new one alongside (the default). Built-in roles, roles used by other users' permissions and anything a connected integration owns are never overwritten or removed. Overwriting a role other users rely on lists them and needs an explicit acknowledgement (high risk). The choices are part of the plan fingerprint; Apply is offered only for the plan on screen.
 - **Cleanup of failed earlier attempts.** Office Unbound leftovers that no connected integration owns can be removed as part of the same plan: marked users, tokens, empty pools, unused `OfficeUnbound…` roles and stale permissions. Anything it cannot remove is listed with the reason. Evidence: `ics/tests/test_conflict_choices.py` (simulator).
