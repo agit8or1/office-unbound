@@ -104,3 +104,21 @@ def test_projection_needs_history_and_never_invents_a_date(rt):
         assert projection(db, eid, sid, 5, 100)["note"] == "not growing"
         assert overview(db, "e.id = '" + eid + "'", 900)[0]["freshness"]["stale"] is True
         db.rollback()
+
+
+def test_summary_reports_guest_visibility_from_the_approved_policy(w, owner, rt):  # noqa: F811
+    """GET /infra/summary says whether 0/0 guests means "none exist" or "only Office Unbound's pool is visible" (from the policy, never guessed)."""
+    s = w.v.get(f"{H}/infra/summary").json()
+    assert s["guest_visibility"] == "none" and s["guest_visibility_limited"] == []
+    _, eid = _connect_policy(w, owner, POOLED)                             # "selected nodes": the read token only sees its own pool
+    s = w.v.get(f"{H}/infra/summary").json()
+    assert s["guest_visibility"] == "own_only" and [x["endpoint_id"] for x in s["guest_visibility_limited"]] == [eid]
+    with rt.session() as db:
+        db.execute(text("UPDATE endpoint_policy SET policy = jsonb_set(policy, '{monitor_cluster}', 'true') WHERE endpoint_id = :e"), {"e": eid})
+        db.commit()
+    s = w.v.get(f"{H}/infra/summary").json()
+    assert s["guest_visibility"] == "cluster" and s["guest_visibility_limited"] == []
+    with rt.session() as db:                                               # a hand-registered token: no policy to read -> unknown, not "cluster"
+        db.execute(text("DELETE FROM endpoint_policy WHERE endpoint_id = :e"), {"e": eid})
+        db.commit()
+    assert w.v.get(f"{H}/infra/summary").json()["guest_visibility"] == "unknown"

@@ -17,6 +17,7 @@ import PageHeader from '../ui/PageHeader.vue'
 import Button from '../ui/Button.vue'
 import EmptyState from '../ui/EmptyState.vue'
 import Icon from '../ui/Icon.vue'
+import { guestVisibilityNote } from './providers/nextSteps'
 
 const EMPTY: Infra = { clusters: [], nodes: [], storage: [], networks: [], guests: [], connected: false, missing: true }
 const infra = useLoad(loadInfra, 30000)
@@ -27,6 +28,10 @@ const plans = useLoad(() => get<Plan[]>('plans'), 15000)
 const deployments = useLoad(loadDeployments, 30000)
 const windows = useLoad(async () => (await tryGet<MaintenanceWindow[]>('maintenance', [])).data, 60000)
 const ready = useLoad(async () => { const r = await fetch('/readyz', { credentials: 'same-origin' }); try { return (await r.json()) as Ready } catch { return null } }, 30000)
+
+// whether 0 / 0 guests means "none exist" or "the read token only sees Office Unbound's own pool" (approved policy, GET /infra/summary)
+const summary = useLoad(async () => (await tryGet<{ guest_visibility?: string; guest_visibility_limited?: { endpoint_id: string; name: string }[] } | null>('infra/summary', null)).data, 60000)
+const visNote = computed(() => guestVisibilityNote(summary.data.value))
 
 const now = ref(Date.now())
 let tick: number | undefined
@@ -91,12 +96,13 @@ const notReady = computed(() => ready.data.value && !ready.data.value.ready ? Ob
       <StatCard label="Infrastructure health" :value="health.text" :sub="health.sub" icon="shield" :tone="health.tone" :loading="!loaded" />
       <StatCard label="Clusters" :value="i.clusters.length" :sub="i.clusters.length ? i.clusters.filter((c) => isUp(c.status)).length + ' online' : 'None connected'" icon="cluster" :tone="i.clusters.some((c) => isDown(c.status)) ? 'bad' : i.clusters.length ? 'ok' : 'idle'" to="/infrastructure/clusters" :loading="!loaded" />
       <StatCard label="Nodes" :value="nodesUp" :of="i.nodes.length" :sub="i.nodes.length - nodesUp ? i.nodes.length - nodesUp + ' not online' : 'All online'" icon="server" :tone="!i.nodes.length ? 'idle' : nodesUp < i.nodes.length ? 'bad' : 'ok'" to="/infrastructure/nodes" :loading="!loaded" />
-      <StatCard label="Virtual machines" :value="runningGuests(vms).length" :of="vms.length" sub="running" icon="vm" :tone="vms.length ? 'info' : 'idle'" to="/infrastructure/vms" :loading="!loaded" />
-      <StatCard label="Containers" :value="runningGuests(lxc).length" :of="lxc.length" sub="running" icon="box" :tone="lxc.length ? 'info' : 'idle'" to="/infrastructure/containers" :loading="!loaded" />
+      <StatCard label="Virtual machines" :value="runningGuests(vms).length" :of="vms.length" :sub="visNote ? 'running · Office Unbound guests only' : 'running'" icon="vm" :tone="vms.length ? 'info' : 'idle'" to="/infrastructure/vms" :loading="!loaded" />
+      <StatCard label="Containers" :value="runningGuests(lxc).length" :of="lxc.length" :sub="visNote ? 'running · Office Unbound guests only' : 'running'" icon="box" :tone="lxc.length ? 'info' : 'idle'" to="/infrastructure/containers" :loading="!loaded" />
       <StatCard label="Active deployments" :value="deployments.data.value?.state === 'ok' ? activeDeploys.length : '-'" :sub="deployments.data.value?.state === 'ok' ? 'in progress' : 'None yet'" icon="rocket" :tone="activeDeploys.length ? 'warn' : 'idle'" to="/deployments" :loading="!loaded" />
       <StatCard label="Pending operations" :value="pendingOps" :sub="`${pendingPlans.length} awaiting approval, ${activeJobs.length} running`" icon="list" :tone="pendingPlans.length ? 'warn' : 'idle'" to="/plans" :loading="!loaded" />
       <StatCard label="Active incidents" :value="inc.length" :sub="inc.length ? inc.filter((x) => x.severity === 'critical').length + ' critical' : 'All clear'" icon="bell" :tone="inc.some((x) => x.severity === 'critical') ? 'bad' : inc.length ? 'warn' : 'ok'" to="/incidents" :loading="!loaded" />
     </section>
+    <p v-if="visNote" class="muted small vis-note" data-testid="guest-visibility-note"><Icon name="info" />{{ visNote.text }} <router-link :to="visNote.to">Manage access</router-link></p>
 
     <Card title="Active incidents" :hint="inc.length ? 'Most severe first. Each shows the affected resource, how long it has lasted, and what to do next.' : undefined">
       <template #actions><Button size="sm" variant="ghost" to="/incidents">All incidents</Button></template>
@@ -152,3 +158,6 @@ const notReady = computed(() => ready.data.value && !ready.data.value.ready ? Ob
     </div>
   </div>
 </template>
+<style scoped>
+.vis-note { display: flex; flex-wrap: wrap; align-items: center; gap: 6px; margin: -4px 0 0; }
+</style>
