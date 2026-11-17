@@ -5,8 +5,20 @@
   "repository": "https://github.com/agit8or1/office-unbound",
   "updated": "2026-11-17",
   "stage": "pre-alpha (lab)",
-  "current_version": "0.2.0-dev.5",
+  "current_version": "0.2.0-dev.6",
   "releases": [
+    {
+      "version": "0.2.0-dev.6",
+      "date": "2026-11-17",
+      "status": "prepared",
+      "codename": "Beacon",
+      "channel": "development",
+      "highlights": [
+        "Development build 6 of 0.2.0 \"Beacon\": wizard never suggests storage shared with other nodes; neutral console palette"
+      ],
+      "notes_url": "https://github.com/agit8or1/office-unbound/blob/main/CHANGELOG.md",
+      "changelog": "CHANGELOG.md"
+    },
     {
       "version": "0.2.0-dev.5",
       "date": "2026-11-17",

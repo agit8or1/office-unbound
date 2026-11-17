@@ -1,6 +1,6 @@
 # Office Unbound roadmap & progress
 
-> Generated from [`docs/progress.json`](docs/progress.json) by `scripts/render_roadmap.py` — edit the JSON, not this file. Last updated **2026-11-17** · stage: **pre-alpha (lab)** · current version: **0.2.0-dev.5**.
+> Generated from [`docs/progress.json`](docs/progress.json) by `scripts/render_roadmap.py` — edit the JSON, not this file. Last updated **2026-11-17** · stage: **pre-alpha (lab)** · current version: **0.2.0-dev.6**.
 
 Core platform components are integrated and tested in an isolated lab: own source build of Exchange-compatible groupware with single sign-on webmail, Keycloak SSO, file sync and browser document editing, backup/restore drills, chat and video meetings, and an infrastructure control server with monitoring, self-healing and a real Proxmox integration (VM lifecycle verified on a live cluster). Guided deployment wizards, provisioning automation and the credential vault are being integrated.
 
@@ -170,6 +170,7 @@ Core platform components are integrated and tested in an isolated lab: own sourc
 
 | Version | Date | Status | Highlights |
 |---|---|---|---|
+| [0.2.0-dev.6](https://github.com/agit8or1/office-unbound/blob/main/CHANGELOG.md) | 2026-11-17 | prepared | Development build 6 of 0.2.0 "Beacon": wizard never suggests storage shared with other nodes; neutral console palette |
 | [0.2.0-dev.5](https://github.com/agit8or1/office-unbound/blob/main/CHANGELOG.md) | 2026-11-17 | prepared | Development build 5 of 0.2.0 "Beacon": multi-cluster Infrastructure health page with capacity outlook, HA and backup alerts, one-click standard alerts, wizard Validate step |
 | [0.2.0-dev.4](https://github.com/agit8or1/office-unbound/blob/main/CHANGELOG.md) | 2026-11-17 | prepared | Development build 4 of 0.2.0 "Beacon": infrastructure alert rules (node offline, guest stopped, CPU / memory / storage) from recorded inventory, stale data flagged |
 | [0.2.0-dev.3](https://github.com/agit8or1/office-unbound/blob/main/CHANGELOG.md) | 2026-11-16 | prepared | Development build 3 of 0.2.0 "Beacon": connection wizard Review step shows every error; plan rejections are logged |

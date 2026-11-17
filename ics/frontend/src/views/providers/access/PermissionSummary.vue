@@ -31,12 +31,12 @@ const BY: Record<EnforcedBy, string> = { proxmox: 'Proxmox enforces', ou: 'Offic
 
 <style scoped>
 .ps { display: grid; grid-template-columns: repeat(auto-fit, minmax(240px, 1fr)); gap: 12px; }
-.ps-col { border: 1px solid var(--border, #d0d5dd); border-radius: 10px; padding: 12px 14px; min-width: 0; }
+.ps-col { border: 1px solid var(--line); border-radius: var(--radius); padding: 12px 14px; min-width: 0; }
 .ps-col h3 { margin: 0 0 8px; font-size: 15px; }
-.ps-col.read { border-top: 3px solid #175cd3; } .ps-col.write { border-top: 3px solid #b54708; } .ps-col.never { border-top: 3px solid #b42318; }
+.ps-col.read { border-top: 3px solid var(--info); } .ps-col.write { border-top: 3px solid var(--warn); } .ps-col.never { border-top: 3px solid var(--bad); }
 .ps ul { list-style: none; margin: 0; padding: 0; display: grid; gap: 8px; }
 .ps li { display: grid; gap: 2px; font-size: 14px; }
 .by { justify-self: start; font-size: 11px; padding: 1px 8px; border-radius: 999px; border: 1px solid currentColor; }
-.by[data-by="proxmox"] { color: #067647; } .by[data-by="ou"] { color: #b54708; } .by[data-by="both"] { color: #175cd3; }
+.by[data-by="proxmox"] { color: var(--ok); } .by[data-by="ou"] { color: var(--warn); } .by[data-by="both"] { color: var(--info); }
 .compact li small { display: none; }
 </style>

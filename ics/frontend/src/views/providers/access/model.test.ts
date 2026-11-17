@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest'
 import type { InvGuest } from './api'
-import { apiUrl, diffSelection, emptySelection, filterGuests, permissionSummary, suggestTargets, toPolicy, toScopeTarget, validate, visibleNodes } from './model'
+import { apiUrl, diffSelection, emptySelection, filterGuests, outsideNodes, permissionSummary, suggestTargets, toPolicy, toScopeTarget, validate, visibleNodes } from './model'
 
 const g = (vmid: number, node: string, extra: Partial<InvGuest> = {}): InvGuest => ({ vmid, type: 'qemu', name: `vm${vmid}`, node, status: 'running', cpus: 2, cpu: 0, mem: 0,
   maxmem: 2 ** 31, maxdisk: 2 ** 33, pool: null, template: false, tags: '', ...extra })
@@ -69,6 +69,12 @@ describe('deployment targets Office Unbound picks itself', () => {
     expect(suggestTargets(emptySelection(), inv)).toEqual({})
     expect(suggestTargets({ ...emptySelection(), nodes: ['pve06'] }, inv)).toEqual({ pools: ['office-unbound'], storages: ['big'], networks: ['vmbr0'] })
     expect(suggestTargets({ ...emptySelection(), nodes: ['pve06'], pools: ['mine'], networks: ['vmbr1'] }, inv)).toEqual({ storages: ['big'] })
+  })
+  it('never suggests storage that also exists on other nodes (shared / HA, e.g. ha-zfs): disks could land outside the selection', () => {
+    const shared = { ...st('ha-zfs', ['pve06', 'pve04', 'pve05', 'pve2', 'pve3'], 9e13), shared: true }
+    expect(suggestTargets({ ...emptySelection(), nodes: ['pve06'] }, { storages: [shared, st('PVE06-Storage', ['pve06'], 1e11)], networks: [] }).storages).toEqual(['PVE06-Storage'])
+    expect(suggestTargets({ ...emptySelection(), nodes: ['pve06'] }, { storages: [shared], networks: [] }).storages).toBeUndefined()
+    expect(outsideNodes(shared, ['pve06'])).toEqual(['pve04', 'pve05', 'pve2', 'pve3'])
   })
   it('validates the pool name and asks for a network', () => {
     const base = { ...emptySelection(), nodes: ['pve06'], storages: ['big'], level: 'deploy' as const }

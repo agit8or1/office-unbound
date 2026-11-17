@@ -62,7 +62,7 @@ const blocked = computed(() => preview.value?.plan.blocked ?? [])
 </template>
 
 <style scoped>
-.ax-maint { border: 1px solid var(--border, #d0d5dd); border-radius: 8px; padding: 10px 14px; display: grid; gap: 10px; }
+.ax-maint { border: 1px solid var(--line); border-radius: 8px; padding: 10px 14px; display: grid; gap: 10px; }
 .ax-maint summary { cursor: pointer; font-weight: 600; }
 .row { display: flex; flex-wrap: wrap; gap: 8px; align-items: center; margin: 8px 0; }
 .fld { display: grid; gap: 4px; max-width: 420px; }

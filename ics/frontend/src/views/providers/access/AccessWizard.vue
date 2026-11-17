@@ -12,7 +12,7 @@ import InventoryTree from './InventoryTree.vue'
 import MaintenancePanel from './MaintenancePanel.vue'
 import PermissionSummary from './PermissionSummary.vue'
 import { accessApi, type Inventory, type PveSession, type TlsLookup } from './api'
-import { DEFAULT_POOL, LEVELS, apiUrl, suggestTargets, diffSelection, emptySelection, fromApproved, gib, pctOf, toPolicy, toScopeTarget, validate, visibleNodes, type Selection } from './model'
+import { DEFAULT_POOL, LEVELS, apiUrl, suggestTargets, outsideNodes, diffSelection, emptySelection, fromApproved, gib, pctOf, toPolicy, toScopeTarget, validate, visibleNodes, type Selection } from './model'
 import '../providers.css'
 
 const props = defineProps<{ id?: string }>()
@@ -255,7 +255,10 @@ function next() {
             <p v-if="w.m.errors.pools || errs.pools" class="err" role="alert">{{ w.m.errors.pools || errs.pools }}</p>
           </fieldset>
           <fieldset class="ax-set"><legend>Storage for disks</legend>
-            <label v-for="s in nodeStorages" :key="s.storage" class="row"><input v-model="sel.storages" type="checkbox" :value="s.storage" /> {{ s.storage }} <span class="muted small">{{ s.type }}{{ s.shared ? ' · shared' : '' }} · {{ gib(s.total - s.used) }} free</span></label>
+            <label v-for="s in nodeStorages" :key="s.storage" class="row"><input v-model="sel.storages" type="checkbox" :value="s.storage" :disabled="!!outsideNodes(s, sel.nodes).length && !sel.storages.includes(s.storage)" /> {{ s.storage }} <span class="muted small">{{ s.type }}{{ s.shared ? ' · shared' : '' }} · {{ gib(s.total - s.used) }} free</span>
+              <span v-if="outsideNodes(s, sel.nodes).length" class="small ax-warn">Not offered: also on {{ outsideNodes(s, sel.nodes).join(', ') }}, so disks could end up outside the selected node(s).</span></label>
+            <p v-if="!nodeStorages.some((s) => !outsideNodes(s, sel.nodes).length)" class="err" role="alert">No storage is confined to the selected node(s). Add a storage local to {{ sel.nodes.join(', ') }} in Proxmox (for example a directory or LVM-thin on that node's disk), then Rescan.</p>
+            <p v-if="w.m.errors.storages || errs.storages" class="err" role="alert">{{ w.m.errors.storages || errs.storages }}</p>
           </fieldset>
           <fieldset class="ax-set"><legend>Network new guests connect to</legend>
             <label v-for="x in nodeNetworks" :key="x.name" class="row"><input v-model="sel.networks" type="checkbox" :value="x.name" /> {{ x.name }} <span class="muted small">{{ x.kind }}{{ x.comment ? ' · ' + x.comment : '' }}</span></label>
@@ -355,6 +358,7 @@ function next() {
 
 <style scoped>
 .ax-step { display: grid; gap: 14px; }
+.ax-warn { flex-basis: 100%; color: var(--warn-fg, var(--muted)); }
 .ax-val h3 { display: flex; gap: 8px; align-items: center; margin: 0 0 6px; font-size: 1rem; }
 .ax-val-verbs { list-style: none; padding: 0; margin: 0 0 6px; display: grid; gap: 4px; }
 .ax-form { display: grid; gap: 12px; max-width: 560px; }
@@ -365,15 +369,15 @@ function next() {
 .ax-adv { display: grid; gap: 12px; } .ax-pool { width: 14em; max-width: 100%; font: inherit; } .ax-adv-toggle { justify-self: start; }
 .ax-fp { word-break: break-all; padding: 8px; border-radius: 6px; background: var(--code-bg, rgba(0, 0, 0, .04)); }
 .ax-cards { display: grid; grid-template-columns: repeat(auto-fill, minmax(170px, 1fr)); gap: 10px; }
-.ax-card { display: grid; gap: 2px; padding: 12px; border: 1px solid var(--border, #d0d5dd); border-radius: 8px; }
+.ax-card { display: grid; gap: 2px; padding: 12px; border: 1px solid var(--line); border-radius: 8px; }
 .ax-card progress { width: 100%; height: 6px; }
-.ax-set { border: 1px solid var(--border, #d0d5dd); border-radius: 8px; padding: 10px 14px; display: grid; gap: 4px; }
+.ax-set { border: 1px solid var(--line); border-radius: 8px; padding: 10px 14px; display: grid; gap: 4px; }
 .ax-levels { display: grid; grid-template-columns: repeat(auto-fit, minmax(200px, 1fr)); gap: 10px; }
-.ax-level { display: grid; gap: 4px; padding: 14px; border: 2px solid var(--border, #d0d5dd); border-radius: 10px; cursor: pointer; }
-.ax-level.on { border-color: var(--accent, #175cd3); }
+.ax-level { display: grid; gap: 4px; padding: 14px; border: 2px solid var(--line); border-radius: var(--radius); cursor: pointer; }
+.ax-level.on { border-color: var(--accent); }
 .ax-level input { justify-self: start; }
 .ax-acl { list-style: none; padding: 0; margin: 0; display: grid; gap: 2px; }
-.ax-acl .add { color: #067647; } .ax-acl .rm { color: #b42318; }
-.err { color: #b42318; }
+.ax-acl .add { color: var(--ok); } .ax-acl .rm { color: var(--bad); }
+.err { color: var(--bad); }
 .mono { font-family: var(--mono, ui-monospace, monospace); }
 </style>

@@ -12,6 +12,10 @@ isolated lab; nothing is production supported ([ROADMAP.md](ROADMAP.md)).
 
 Target: 0.2.0 "Beacon" (alpha readiness: security hardening, production no-SSH deployment, full stack).
 
+### 0.2.0-dev.6 (2026-11-17)
+- **Fix: the wizard pre-selected shared storage** (owner report: `ha-zfs`, also present on pve04, pve05, pve2, pve3). The read-only calculation correctly refused it. Storage that also exists on nodes outside the selection is now never suggested and cannot be ticked. The picker says which other nodes it is on, and says so when no storage is confined to the selected node(s). The server-side refusal and its explicit high-risk override are unchanged.
+- **Neutral console palette**: cool greys, one steel-blue accent, system fonts, no gradients (replaces the copper / cream scheme). Wizard components use the shared colour tokens, so dark mode is consistent.
+
 ### 0.2.0-dev.5 (2026-11-17)
 - **Infrastructure health page** (*Monitoring › Infrastructure health*, `GET /api/v1/infra/overview`): every connected cluster on one page with quorum, nodes, guests, HA, backup coverage, storage with a capacity outlook, data age and the alert rules configured. The outlook is a least-squares trend of recorded storage usage, only with at least 24 h of samples; otherwise it says "insufficient history". Nothing is estimated.
 - **HA and backup monitoring** (migration 0018h): read-only collection of HA service / LRM state, newest backup per guest on readable backup storage and recent vzdump results. New alert rules `cluster_quorum`, `ha_state`, `backup_age`, `backup_failed`; without visibility they report "no data", never "no backup". Evidence: `ics/tests/test_infra_ha_backups.py`.

@@ -31,15 +31,15 @@ function toggle(n: string) {
 </template>
 
 <style scoped>
-.ax-nodes { list-style: none; padding: 0; margin: 0; border: 1px solid var(--border, #d0d5dd); border-radius: 8px; }
-.ax-nodes > li + li { border-top: 1px solid var(--border, #d0d5dd); }
+.ax-nodes { list-style: none; padding: 0; margin: 0; border: 1px solid var(--line); border-radius: 8px; }
+.ax-nodes > li + li { border-top: 1px solid var(--line); }
 .ax-node { display: flex; flex-wrap: wrap; align-items: center; gap: 10px; padding: 12px; cursor: pointer; }
 .ax-node.on { background: var(--accent-bg, rgba(59, 130, 246, .08)); }
 .ax-node.off { opacity: .65; cursor: not-allowed; }
 .ax-name { font-weight: 600; }
 .ax-dot { font-size: 12px; }
 .ax-dot::before { content: '●'; margin-right: 4px; }
-.ax-dot.ok::before { color: #12b76a; } .ax-dot.bad::before { color: #f04438; }
+.ax-dot.ok::before { color: var(--ok); } .ax-dot.bad::before { color: var(--bad); }
 .ax-badge { font-size: 11px; padding: 1px 8px; border-radius: 999px; border: 1px solid currentColor; }
-.ax-badge.ok { color: #067647; }
+.ax-badge.ok { color: var(--ok); }
 </style>
