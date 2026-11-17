@@ -432,3 +432,14 @@ def test_drift_findings_report_only():
     assert [x["type"] for x in drift_findings([r for r in res if r["kind"] == "vm"], [], "prod")] == ["missing"]
     sv = [dict(r, actual={"version": "0.0.1"}) for r in res if r["kind"] == "service"][:1]
     assert drift_findings(sv, [], "prod")[0]["type"] == "changed"
+
+
+def test_naming_the_node_agent_in_a_custom_layout_does_not_add_it_twice():
+    """Real-cluster finding 2026-11-17: a custom layout naming `monitoring-agent` (placement every_vm) listed it twice and the plan refused
+    with a self port conflict on tcp/8443. The agent is added once; a layout of only the agent is a VM with just the agent."""
+    c = load_catalog()
+    p = generate_plan(inp(profile="custom", custom_layout=[{"name": "smoke", "components": ["monitoring-agent"]}]), cap(), c)
+    assert "port_conflict" not in codes(p["errors"]), p["errors"]
+    assert [v["components"] for v in p["vms"]] == [["monitoring-agent"]]
+    p2 = generate_plan(inp(profile="custom", custom_layout=[{"name": "a", "components": ["identity", "monitoring-agent"]}]), cap(), c)
+    assert p2["vms"][0]["components"].count("monitoring-agent") == 1 and "port_conflict" not in codes(p2["errors"])

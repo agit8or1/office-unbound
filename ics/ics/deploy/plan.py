@@ -159,7 +159,11 @@ def _expand(inp: PlanInput, prof: Profile, cat: Catalog, errors: list[dict]) -> 
             if c not in cat.components:
                 errors.append(_err("unknown_component", f"layout {lay.name!r}: unknown component {c!r}"))
         comps = [c for c in comps if c in cat.components]
-        if not comps:
+        # every_vm components (the node agent) are added to every VM by the planner itself; naming one in a layout must not add it twice
+        # (that produced a self port conflict). A layout that names only every_vm components is a VM with just the agent.
+        only_every = bool(comps) and all(cat.components[c].placement == "every_vm" for c in comps)
+        comps = [c for c in comps if cat.components[c].placement != "every_vm"]
+        if not comps and not only_every:
             continue
         for t in (tenants if lay.per_tenant else [None]):
             users = inp.users * (len(tenants) if (prof.tenancy == "multi" and t is None) else 1)
