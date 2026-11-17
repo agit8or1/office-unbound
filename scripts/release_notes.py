@@ -59,7 +59,7 @@ def check() -> int:
     secs = sections(text)
     if "Unreleased" not in secs:
         errs.append("CHANGELOG.md has no [Unreleased] section")
-    if ver.endswith("-dev"):
+    if re.search(r"-dev(\.\d+)?$", ver):   # 0.2.0-dev and numbered builds 0.2.0-dev.N (ADR-0011 amendment)
         pass  # development line: changes accumulate under [Unreleased] until the release is cut (docs/RELEASING.md)
     elif ver not in secs or secs[ver][0] is None:
         errs.append(f"CHANGELOG.md has no dated [{ver}] section for the VERSION file")
