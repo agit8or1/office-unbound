@@ -40,12 +40,15 @@ class ProvisioningPlan:
     consequences: list[str] = field(default_factory=list)
     enforcement: list[EnforcementNote] = field(default_factory=list)
     blocked: list[str] = field(default_factory=list)     # reasons the plan cannot be applied as it stands
+    choices: dict = field(default_factory=dict)          # conflict choices + leftover cleanup the approver made (hash-bound when present)
     schema: str = SCHEMA
 
     def hash(self) -> str:
         body = {"schema": self.schema, "provider": self.provider, "policy": self.policy,
                 "steps": [[s.kind, s.op, s.target, s.detail] for s in self.steps], "elevated": self.elevated,
                 "blocked": self.blocked}
+        if self.choices:                 # only when present: hashes of plans without choices stay what they were
+            body["choices"] = self.choices
         return hashlib.sha256(json.dumps(body, sort_keys=True, separators=(",", ":"), default=str).encode()).hexdigest()
 
     def changes(self) -> list[Step]:

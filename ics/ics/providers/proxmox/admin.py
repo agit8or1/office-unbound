@@ -240,3 +240,7 @@ class ProxmoxAdminClient(ProxmoxWriteClient):
 
     def pool_add(self, pool: str, comment: str = ""):
         return self.post("/pools", {"poolid": pool, "comment": comment})
+
+    def pool_delete(self, pool: str):
+        """Proxmox refuses to delete a pool that still has members; the planner only offers empty Office Unbound pools."""
+        return self.delete(f"/pools/{seg(pool)}")

@@ -17,7 +17,7 @@ import shlex
 from dataclasses import dataclass, field
 
 from ...provisioning.drift import compare_permissions
-from ...provisioning.model import Policy
+from ...provisioning.model import ConflictChoices, Policy
 from ...provisioning.plan import EnforcementNote, ProvisioningPlan, Step
 from ...proxmox import ProxmoxError
 from . import privileges as priv
@@ -219,6 +219,7 @@ class Design:
     acl: list[AclSpec]
     major: int
     pools: list[str]
+    withheld: frozenset = frozenset()            # privileges the design deliberately lacks (a role used as is, by the approver's choice)
 
 
 def role_name(policy: Policy, cap: str) -> str:
@@ -226,11 +227,20 @@ def role_name(policy: Policy, cap: str) -> str:
 
 
 def design(policy: Policy, major: int, final_names: dict[str, str] | None = None, token_names: dict[str, str] | None = None,
-           vnet_zones: dict[str, str] | None = None) -> Design:
+           vnet_zones: dict[str, str] | None = None, role_privs: dict[str, list[str]] | None = None) -> Design:
+    """`role_privs`: per capability, the privileges of an existing role the approver chose to use AS IS (always a subset of what the
+    capability needs; the difference is `withheld`)."""
     caps = capabilities(policy)
     s = policy.scope
     zones = vnet_zones or {}
-    roles = {c: ((final_names or {}).get(c) or role_name(policy, c), frozenset(role_privileges(c, policy, major))) for c in caps}
+    roles, withheld = {}, set()
+    for c in caps:
+        need = frozenset(role_privileges(c, policy, major))
+        have = frozenset((role_privs or {}).get(c, need))
+        if not have <= need:
+            raise PlanBuildError(f"an existing role used as is for '{c}' must not grant more than the capability needs")
+        withheld |= need - have
+        roles[c] = ((final_names or {}).get(c) or role_name(policy, c), have)
     both, prov = ("inventory", "provision"), ("provision",)
     nodecap = "node_audit" if "node_audit" in caps else "monitor"
     acl: list[AclSpec] = []
@@ -277,7 +287,7 @@ def design(policy: Policy, major: int, final_names: dict[str, str] | None = None
             continue
         seen.add(k)
         uniq.append(a)
-    return Design(f"{policy.service_user}@{policy.realm}", roles, toks, uniq, major, list(s.pools))
+    return Design(f"{policy.service_user}@{policy.realm}", roles, toks, uniq, major, list(s.pools), frozenset(withheld))
 
 
 def acl_entries(d: Design) -> list[tuple[str, str, str, int]]:
@@ -308,6 +318,8 @@ class Facts:
     nodes: dict[str, str] = field(default_factory=dict)
     storages: dict[str, dict] = field(default_factory=dict)
     pools: set[str] = field(default_factory=set)
+    pool_comments: dict[str, str] = field(default_factory=dict)
+    pool_members: dict[str, int] = field(default_factory=dict)      # only for pools carrying the Office Unbound marker (cleanup candidates)
     guests: dict[int, dict] = field(default_factory=dict)
     networks: dict[str, str] = field(default_factory=dict)         # bridge/vnet -> zone
     bridge_nodes: dict[str, set] = field(default_factory=dict)     # classic bridge -> nodes that have it
@@ -343,6 +355,7 @@ def collect_facts(c) -> Facts:
                                     "node_restricted": bool(s.get("nodes"))}
     for p in _opt(c, "/pools", f, "pools") or []:
         f.pools.add(p["poolid"])
+        f.pool_comments[p["poolid"]] = p.get("comment") or ""
     for r in _opt(c, "/cluster/resources?type=vm", f, "guests") or []:
         if "vmid" in r:
             f.guests[int(r["vmid"])] = {"node": r.get("node"), "name": r.get("name"), "pool": r.get("pool"), "template": bool(r.get("template")), "type": r.get("type"),
@@ -365,6 +378,10 @@ def collect_facts(c) -> Facts:
     acl = _opt(c, "/access/acl", f, "ACL")
     f.acl_readable = acl is not None
     f.acl = acl or []
+    for pid, com in f.pool_comments.items():
+        if MARK in com:      # leftover candidates only: count members (guests AND storages) so a non-empty pool is never offered for removal
+            got = _opt(c, f"/pools/{pid}", f, f"members of pool {pid}")
+            f.pool_members[pid] = len((got or {}).get("members") or []) if got is not None else -1
     return f
 
 
@@ -522,9 +539,71 @@ def _single_node_checks(plan: ProvisioningPlan, policy: Policy, facts: Facts) ->
     return risky
 
 
+# ---------------------------------------------------------------------------------------------------- ownership (conflict choices, leftovers)
+CHOICE_ACTIONS = ("use_existing", "overwrite", "recreate", "create_new")
+
+
+class _Own:
+    """Who an existing Proxmox object belongs to. `owned` = what EVERY connected (not removed) Office Unbound integration in the ICS database
+    holds (users, tokens, roles, pools); `managed` = this integration's own objects. Ownership is 'known' only when both the connected
+    integrations and the cluster's ACL list could be read; otherwise nothing is ever offered for removal or overwrite."""
+
+    def __init__(self, facts: Facts | None, owned: dict | None, managed: dict):
+        self.known = owned is not None and facts is not None and facts.acl_readable
+        o = owned or {}
+        self.users, self.tokens = set(o.get("users") or []), set(o.get("tokens") or [])
+        self.roles, self.pools = set(o.get("roles") or []), set(o.get("pools") or [])
+        self.m_user, self.m_tokens = managed.get("user"), set(managed.get("tokens") or [])
+        users = facts.users if facts else {}
+        self.marked_users = {u for u, x in users.items() if MARK in (x.get("comment") or "") and u.endswith("@pve")}
+        self.marked_tokens = {f"{u}!{t}" for u in self.marked_users for t, td in (users[u].get("tokens") or {}).items()
+                              if str(td.get("comment") or "").startswith(MARK)}
+
+    def other_integration(self, ugid: str) -> bool:
+        if "!" in ugid:
+            return ugid in self.tokens and ugid not in self.m_tokens
+        return ugid in self.users and ugid != self.m_user
+
+    def leftover(self, ugid: str) -> bool:
+        """Provably Office Unbound's (marker comment) and owned by no connected integration."""
+        if not self.known or self.other_integration(ugid) or ugid == self.m_user or ugid in self.m_tokens:
+            return False
+        if "!" in ugid:
+            return ugid in self.marked_tokens
+        return ugid in self.marked_users and not any(t.startswith(ugid + "!") for t in self.tokens)
+
+    def classify(self, ugid: str, typ: str | None) -> str:
+        if typ == "group":
+            return "foreign"
+        if self.other_integration(ugid):
+            return "other_integration"
+        if ugid == self.m_user or ugid in self.m_tokens:
+            return "this_integration"
+        return "ou_leftover" if self.leftover(ugid) else "foreign"
+
+
+def _ou_role_re(policy: Policy) -> re.Pattern:
+    sfx = "|".join(sorted(map(re.escape, CAP_ROLE_SUFFIX.values())))
+    pre = "|".join(sorted({re.escape(policy.role_prefix), "OfficeUnbound"}))
+    return re.compile(rf"^(?:{pre})(?:{sfx})(?:-\d+)?$")
+
+
+def _acl_id(a: dict) -> str:
+    return f"{a['path']}|{a['ugid']}|{a['roleid']}"
+
+
+def _acl_rm(a: dict, why: str) -> Step:
+    return Step("acl", "remove", _acl_id(a), {"path": a["path"], "subject": a["ugid"], "role": a["roleid"], "phase": "before"}, why)
+
+
 def plan_for(policy: Policy, facts: Facts | None, *, pve_major: int | None = None, managed: dict | None = None, prune: bool = False,
-             mode: str = "A") -> ProvisioningPlan:
-    """Compute the plan. `facts=None` => offline plan (Mode B without connectivity): every object is a `create`, the script re-checks at run time."""
+             mode: str = "A", choices: ConflictChoices | None = None, owned: dict | None = None) -> ProvisioningPlan:
+    """Compute the plan. `facts=None` => offline plan (Mode B without connectivity): every object is a `create`, the script re-checks at run time.
+
+    `choices`: the approver's decision per conflicting pre-existing object (use as is / overwrite / remove and recreate / create a new one
+    alongside) and the leftovers of failed earlier attempts to remove. Every option is listed in `facts.conflict_options` with the reason an
+    option is not available; a chosen action that is not available blocks the plan. `owned`: users/tokens/roles/pools held by every connected
+    integration (from the ICS database); without it nothing is offered for removal or overwrite."""
     major = facts.major if facts else pve_major
     if not major:
         raise PlanBuildError("the Proxmox VE major version (8 or 9) is required when no cluster is reachable")
@@ -552,6 +631,51 @@ def plan_for(policy: Policy, facts: Facts | None, *, pve_major: int | None = Non
         plan.warnings.append("Full cluster administration selected: this is never a default and must be a conscious customer decision.")
     plan.facts = facts.summary() if facts else {"offline": True, "pve_major": major}
     zones = facts.networks if facts else {}
+    own = _Own(facts, owned, managed)
+    ch = choices or ConflictChoices()
+    used: set[tuple[str, str]] = set()
+    options: list[dict] = []
+    unknown = "ownership could not be checked (the connected integrations or the cluster's ACL list are unknown)"
+
+    def pick(kind: str, target: str, avail: dict[str, str | None], default: str | None, existing: dict):
+        c = ch.get(kind, target)
+        if c is not None:
+            used.add((kind, target))
+        act = c.action if c else default
+        options.append({"kind": kind, "target": target, "default": default, "chosen": act, "existing": existing,
+                        "options": [{"action": a, "available": avail.get(a) is None, "why_not": avail.get(a)} for a in CHOICE_ACTIONS]})
+        if act is not None and avail.get(act) is not None:
+            plan.blocked.append(f"{kind} {target}: '{act}' is not possible: {avail[act]}")
+            return None, c
+        return act, c
+
+    # --- service user (decided first: 'create a new one alongside' changes the service account name)
+    userid = f"{policy.service_user}@{policy.realm}"
+    ex_u = facts.users.get(userid) if facts else None
+    user_recreate: dict | None = None
+    if ex_u is not None and managed.get("user") != userid:
+        marked = MARK in (ex_u.get("comment") or "")
+        utoks = {f"{userid}!{t}": td for t, td in (ex_u.get("tokens") or {}).items()}
+        why_rc = ("this user was not created by Office Unbound" if not marked else unknown if not own.known
+                  else "it is used by a connected Office Unbound integration" if (userid in own.users or set(utoks) & own.tokens)
+                  else "it carries API tokens Office Unbound did not create" if set(utoks) - own.marked_tokens else None)
+        avail = {"use_existing": None if marked else "this user was not created by Office Unbound and is never reused",
+                 "overwrite": "a user carries no privileges of its own; choose 'remove and recreate' instead",
+                 "recreate": why_rc, "create_new": None}
+        act, _ = pick("user", userid, avail, "use_existing" if marked else None,
+                      {"created_by_office_unbound": marked, "tokens": sorted(utoks)})
+        if act == "create_new":
+            base = policy.service_user[:28]
+            n = 2
+            while f"{base}-{n}@{policy.realm}" in facts.users:
+                n += 1
+            policy = policy.model_copy(update={"service_user": f"{base}-{n}"})
+            plan.policy = policy.model_dump(mode="json")
+            plan.conflicts.append(f"user {userid} already exists; it will NOT be touched, a new service account {base}-{n}@{policy.realm} is created instead")
+            userid = f"{base}-{n}@{policy.realm}"
+            ex_u = None
+        elif act == "recreate":
+            user_recreate = {"id": userid, "tokens": sorted(utoks)}
     d0 = design(policy, major, vnet_zones=zones)
     userid = d0.userid
 
@@ -607,30 +731,109 @@ def plan_for(policy: Policy, facts: Facts | None, *, pve_major: int | None = Non
         for pname in policy.scope.pools:
             plan.steps.append(Step("pool", "create", pname, {}, "created only if it does not exist"))
 
-    # --- roles (collision-safe)
+    # --- roles (collision-safe; the approver may choose another option per conflicting role)
     final: dict[str, str] = {}
     existing_roles = facts.roles if facts else {}
     taken = set(existing_roles)
     mroles = set(managed.get("roles", []))
+    role_choice: dict[str, tuple[str, frozenset, list, list]] = {}
+    role_privs: dict[str, list[str]] = {}
     for cap, (name, privs) in d0.roles.items():
         if name in FORBIDDEN_ROLES:
             plan.blocked.append(f"role name {name} is reserved: Administrator/PVEAdmin are never used or generated")
         chosen = name
         ex = existing_roles.get(name)
-        if ex is not None and (name in (facts.builtin_roles if facts else set()) or (ex != privs and name not in mroles)):
-            n = 2
-            while f"{name}-{n}" in taken:
-                n += 1
-            chosen = f"{name}-{n}"
-            plan.conflicts.append(f"role {name} already exists with {'a built-in definition' if name in facts.builtin_roles else 'different privileges'}"
-                                  f" ({', '.join(sorted(ex))}); it will NOT be touched, a new role {chosen} is created instead")
+        builtin = bool(facts) and name in facts.builtin_roles
+        if ex is not None and (builtin or (ex != privs and name not in mroles)):
+            refs = [a for a in facts.acl if a.get("roleid") == name]
+            by: dict[str, list[str]] = {}
+            for a in refs:
+                by.setdefault(own.classify(a["ugid"], a.get("type")), []).append(f"{a['ugid']} on {a['path']}")
+            foreign, other = by.get("foreign", []), by.get("other_integration", [])
+            fixed = ("a built-in Proxmox role is never modified or removed" if builtin
+                     else "Administrator/PVEAdmin are never used or changed" if name in FORBIDDEN_ROLES else None)
+            in_use = (f"it is used by a connected Office Unbound integration ({'; '.join(other[:5]) or name})"
+                      if (other or (name in own.roles and name not in mroles)) else None)
+            avail = {
+                "use_existing": (None if (ex and ex <= privs and name not in FORBIDDEN_ROLES)
+                                 else "it has no privileges" if not ex
+                                 else f"it grants more than Office Unbound needs ({', '.join(sorted(ex - privs)[:12])})"),
+                "overwrite": fixed or (unknown if not own.known else in_use),
+                "recreate": fixed or (unknown if not own.known else in_use) or (
+                    f"ACL entries Office Unbound did not create use it ({'; '.join(foreign[:5])}); removing it would take their rights away" if foreign else None),
+                "create_new": None,
+            }
+            act, c = pick("role", name, avail, "create_new",
+                          {"privileges": sorted(ex), "builtin": builtin, "needed": sorted(privs), "would_add": sorted(privs - ex),
+                           "would_remove": sorted(ex - privs), "used_by_others": foreign, "used_by_integrations": other})
+            if act == "overwrite" and foreign and not (c and c.acknowledge_shared):
+                plan.blocked.append(f"role {name} is also used by ACL entries Office Unbound did not create ({'; '.join(foreign[:5])}): overwriting it "
+                                    "changes their rights too. Confirm this explicitly (acknowledge_shared) or choose another option")
+            if act in ("use_existing", "overwrite", "recreate"):
+                role_choice[cap] = (act, ex, refs, foreign)
+                if act == "use_existing":
+                    role_privs[cap] = sorted(ex)
+            else:
+                n = 2
+                while f"{name}-{n}" in taken:
+                    n += 1
+                chosen = f"{name}-{n}"
+                plan.conflicts.append(f"role {name} already exists with {'a built-in definition' if builtin else 'different privileges'}"
+                                      f" ({', '.join(sorted(ex))}); it will NOT be touched, a new role {chosen} is created instead")
         taken.add(chosen)
         final[cap] = chosen
-    d = design(policy, major, final, vnet_zones=zones)
+
+    # --- token names (a conflicting token can be replaced, or a new one created alongside)
+    tnames: dict[str, str] = {}
+    token_recreate: set[str] = set()
+    if ex_u is not None and user_recreate is None:
+        u_marked = MARK in (ex_u.get("comment") or "")
+        for kind, tname in d0.tokens.items():
+            full = f"{userid}!{tname}"
+            if tname not in (ex_u.get("tokens") or {}) or full in managed.get("tokens", []):
+                continue
+            t_marked = str(ex_u["tokens"][tname].get("comment") or "").startswith(MARK)
+            why_rc = ("this token was not created by Office Unbound" if not t_marked else "its user was not created by Office Unbound" if not u_marked
+                      else unknown if not own.known else "it is used by a connected Office Unbound integration" if full in own.tokens else None)
+            avail = {"use_existing": "a token secret is shown only once, when the token is created; Office Unbound cannot use a token it did not capture",
+                     "overwrite": "Proxmox cannot issue a new secret for an existing token; choose 'remove and recreate' instead",
+                     "recreate": why_rc, "create_new": None}
+            act, _ = pick("token", full, avail, None, {"created_by_office_unbound": t_marked})
+            if act == "create_new":
+                n = 2
+                while f"{tname}-{n}" in ex_u["tokens"]:
+                    n += 1
+                tnames[kind] = f"{tname}-{n}"
+                plan.conflicts.append(f"token {full} already exists; it will NOT be touched, a new token {userid}!{tname}-{n} is created instead")
+            elif act == "recreate":
+                token_recreate.add(full)
+    d = design(policy, major, final, token_names=tnames or None, vnet_zones=zones, role_privs=role_privs or None)
+    gone_subjects: set[str] = set()
+    gone_roles: set[str] = set()
     for cap, (name, privs) in d.roles.items():
         ex = existing_roles.get(name)
         det = {"privileges": sorted(privs), "capability": cap}
-        if ex is None:
+        rc = role_choice.get(cap)
+        if rc and rc[0] == "use_existing":
+            lack = sorted(role_privileges(cap, policy, major) - privs)
+            plan.steps.append(Step("role", "noop", name, {**det, "choice": "use_existing", "withheld": lack}, "existing role used as is (your choice)"))
+            if lack:
+                plan.warnings.append(f"role {name} is used as is: Office Unbound will NOT have {', '.join(lack)} for '{cap}'; actions that need them will fail")
+        elif rc and rc[0] == "overwrite":
+            nf = len(rc[3])
+            plan.steps.append(Step("role", "modify", name, {**det, "was": sorted(ex), "added": sorted(privs - ex), "removed": sorted(ex - privs),
+                                                            "choice": "overwrite", "affects": rc[3]},
+                                   "overwrite the pre-existing role (your choice)"
+                                   + (f"; this also changes the rights of {nf} ACL entr{'y' if nf == 1 else 'ies'} Office Unbound did not create" if nf else ""),
+                                   "high" if nf else "normal"))
+        elif rc and rc[0] == "recreate":
+            for a in rc[2]:
+                plan.steps.append(_acl_rm(a, f"uses role {name}, which is removed and recreated"))
+            plan.steps.append(Step("role", "remove", name, {"privileges": sorted(ex), "phase": "before", "choice": "recreate"},
+                                   "remove the pre-existing role (your choice: remove and recreate)"))
+            plan.steps.append(Step("role", "create", name, det, f"capability '{cap}' (recreated)"))
+            gone_roles.add(name)
+        elif ex is None:
             plan.steps.append(Step("role", "create", name, det, f"capability '{cap}'"))
         elif ex == privs:
             plan.steps.append(Step("role", "noop", name, det, "already exists with exactly these privileges"))
@@ -638,7 +841,17 @@ def plan_for(policy: Policy, facts: Facts | None, *, pve_major: int | None = Non
             plan.steps.append(Step("role", "modify", name, {**det, "was": sorted(ex)}, "restore the approved privilege set"))
 
     # --- user
-    ex_u = facts.users.get(userid) if facts else None
+    if user_recreate is not None:
+        subj = {userid} | set(user_recreate["tokens"])
+        for a in facts.acl:
+            if a["ugid"] in subj:
+                plan.steps.append(_acl_rm(a, f"belongs to {a['ugid']}, which is removed and recreated"))
+        for t in user_recreate["tokens"]:
+            plan.steps.append(Step("token", "remove", t, {"phase": "before"}, "token of the service account that is removed and recreated"))
+        plan.steps.append(Step("user", "remove", userid, {"phase": "before", "choice": "recreate", "tokens": user_recreate["tokens"]},
+                               "remove the pre-existing Office Unbound service account (your choice: remove and recreate)"))
+        gone_subjects |= subj
+        ex_u = None
     if facts:
         for other in facts.users:
             if other.split("@")[0] == policy.service_user and other != userid:
@@ -654,7 +867,16 @@ def plan_for(policy: Policy, facts: Facts | None, *, pve_major: int | None = Non
     # --- tokens
     for kind, tname in d.tokens.items():
         full = f"{userid}!{tname}"
-        if ex_u is not None and tname in ex_u.get("tokens", {}):
+        if full in token_recreate:
+            for a in facts.acl:
+                if a["ugid"] == full:
+                    plan.steps.append(_acl_rm(a, f"belongs to {full}, which is removed and recreated"))
+            plan.steps.append(Step("token", "remove", full, {"phase": "before", "choice": "recreate"},
+                                   "remove the pre-existing Office Unbound token (your choice: remove and recreate)"))
+            gone_subjects.add(full)
+            plan.steps.append(Step("token", "create", full, {"kind": kind, "privsep": 1},
+                                   "privilege-separated token; the secret is shown once and captured straight into the vault"))
+        elif ex_u is not None and tname in ex_u.get("tokens", {}):
             if full in managed.get("tokens", []):
                 plan.steps.append(Step("token", "noop", full, {"kind": kind, "privsep": 1}, "existing ICS-managed token"))
             else:
@@ -667,7 +889,7 @@ def plan_for(policy: Policy, facts: Facts | None, *, pve_major: int | None = Non
     if "provision" in d.tokens and not (policy.scope.pools or policy.scope.managed_vmids):
         plan.blocked.append("a provisioning (write) credential needs at least one authorised pool or selected existing guest")
     # --- ACL entries
-    have = {(a["path"], a["ugid"], a["roleid"]) for a in (facts.acl if facts else [])}
+    have = {(a["path"], a["ugid"], a["roleid"]) for a in (facts.acl if facts else []) if a["ugid"] not in gone_subjects and a["roleid"] not in gone_roles}
     want = acl_entries(d)
     for path, subj, role, prop in want:
         key = f"{path}|{subj}|{role}"
@@ -686,12 +908,106 @@ def plan_for(policy: Policy, facts: Facts | None, *, pve_major: int | None = Non
             if a["ugid"] in mine and (a["path"], a["ugid"], a["roleid"]) not in wantk:
                 plan.steps.append(Step("acl", "remove", f"{a['path']}|{a['ugid']}|{a['roleid']}",
                                        {"path": a["path"], "subject": a["ugid"], "role": a["roleid"]}, "not part of the approved policy"))
+    # --- leftovers of failed earlier attempts (offered for removal; removed only when chosen)
+    if facts is not None:
+        los = _leftovers(policy, facts, own, d, want, gone_subjects, gone_roles) if own.known else []
+        plan.facts["leftovers"] = [{k: v for k, v in x.items() if k != "steps"} for x in los]
+        by_id = {x["id"]: x for x in los}
+        have_steps = {(s.kind, s.op, s.target) for s in plan.steps}
+        for lid in ch.cleanup:
+            lo = by_id.get(lid)
+            if lo is None or not lo["removable"]:
+                plan.blocked.append(f"cleanup {lid}: " + (lo["kept_because"] if lo else "not a removable Office Unbound leftover in this cluster"))
+                continue
+            for st in lo["steps"]:
+                if (st.kind, st.op, st.target) not in have_steps:
+                    have_steps.add((st.kind, st.op, st.target))
+                    plan.steps.append(st)
+    elif not ch.empty():
+        plan.blocked.append("conflict choices and cleanup need a preview against the cluster")
+    for c in ch.items:
+        if (c.kind, c.target) not in used:
+            plan.warnings.append(f"the choice for {c.kind} {c.target} was not needed: it does not conflict with this plan")
+    removals = [s for s in plan.steps if s.op == "remove" and s.detail.get("phase") == "before"]
+    if removals:
+        plan.consequences.append(f"{len(removals)} pre-existing Office Unbound object(s) or permission(s) are removed BEFORE anything is created. "
+                                 "A removal is not undone if a later step fails; what this run created is still rolled back.")
+    plan.choices = {} if ch.empty() else ch.model_dump(mode="json")
+    plan.facts["conflict_options"] = options
     plan.facts["pve_major"] = major
     plan.facts["scope_mode"] = policy.mode()
     plan.facts["service_user"] = userid
     plan.facts["roles"] = {cap: n for cap, (n, _) in d.roles.items()}
     plan.facts["tokens"] = dict(d.tokens)
+    if role_privs:
+        plan.facts["role_privileges"] = role_privs
     return plan
+
+
+def _leftovers(policy: Policy, facts: Facts, own: _Own, d: Design, want, gone_subjects: set[str], gone_roles: set[str]) -> list[dict]:
+    """Office Unbound objects (marker comment on users/tokens/pools, Office Unbound role names) that NO connected integration owns.
+    Each entry says whether it may be removed and, if not, why. Never offered: built-in roles, objects without the marker, a role that ACL
+    entries of anyone else use, a user with tokens that are not Office Unbound's, a pool that is not empty."""
+    out: list[dict] = []
+    planned_tokens = {f"{d.userid}!{t}" for t in d.tokens.values()}
+    planned_roles = {n for n, _ in d.roles.values()}
+    wantk = {(p, s, r) for p, s, r, _ in want}
+
+    def acl_of(subjects: set[str]) -> list[dict]:
+        return [a for a in facts.acl if a["ugid"] in subjects]
+
+    def entry(kind, target, why, steps, kept=None, **extra):
+        return {"id": f"{kind}:{target}", "kind": kind, "target": target, "why": why, "removable": kept is None, "kept_because": kept,
+                "removes": [f"{s.kind} {s.target}" for s in steps], "steps": steps, **extra}
+
+    # users (with their tokens and ACL entries)
+    for u in sorted(own.marked_users - {d.userid} - gone_subjects):
+        if not own.leftover(u):
+            continue
+        toks = sorted(f"{u}!{t}" for t in (facts.users[u].get("tokens") or {}))
+        bad = [t for t in toks if not own.leftover(t)]
+        steps = [_acl_rm(a, f"permission of leftover {a['ugid']}") for a in acl_of({u, *toks})]
+        steps += [Step("token", "remove", t, {"phase": "before", "cleanup": True}, "leftover Office Unbound token") for t in toks]
+        steps.append(Step("user", "remove", u, {"phase": "before", "cleanup": True, "tokens": toks}, "leftover Office Unbound service account"))
+        out.append(entry("user", u, "service account with the Office Unbound marker that no connected integration uses", steps,
+                         f"it carries tokens that are not removable Office Unbound leftovers ({', '.join(bad)})" if bad else None))
+    listed_users = {x["target"] for x in out}
+    # tokens of accounts that stay (the planned one, or one a connected integration uses)
+    for t in sorted(own.marked_tokens - planned_tokens - gone_subjects):
+        if t.split("!")[0] in listed_users or not own.leftover(t):
+            continue
+        steps = [_acl_rm(a, f"permission of leftover {t}") for a in acl_of({t})]
+        steps.append(Step("token", "remove", t, {"phase": "before", "cleanup": True}, "leftover Office Unbound token"))
+        out.append(entry("token", t, "API token with the Office Unbound marker that no connected integration uses", steps))
+    # stale permissions of the reused (leftover) service account and of its planned tokens
+    if own.leftover(d.userid):
+        for a in facts.acl:
+            if a["ugid"] in gone_subjects or (a["path"], a["ugid"], a["roleid"]) in wantk:
+                continue
+            if a["ugid"] == d.userid or a["ugid"] in planned_tokens:
+                st = _acl_rm(a, "stale permission from an earlier attempt")
+                out.append(entry("acl", _acl_id(a), f"{a['roleid']} on {a['path']} for {a['ugid']} is not part of this plan", [st]))
+    # roles named like Office Unbound roles that nothing connected uses
+    rx = _ou_role_re(policy)
+    for r in sorted(facts.roles):
+        if not rx.match(r) or r in facts.builtin_roles or r in FORBIDDEN_ROLES or r in own.roles or r in planned_roles or r in gone_roles:
+            continue
+        refs = [a for a in facts.acl if a.get("roleid") == r]
+        blockers = [f"{a['ugid']} on {a['path']}" for a in refs if own.classify(a["ugid"], a.get("type")) != "ou_leftover"]
+        steps = [_acl_rm(a, f"uses leftover role {r}") for a in refs]
+        steps.append(Step("role", "remove", r, {"phase": "before", "cleanup": True, "privileges": sorted(facts.roles[r])}, "leftover Office Unbound role"))
+        out.append(entry("role", r, "role with an Office Unbound name that no connected integration uses", steps,
+                         f"it is used by {'; '.join(blockers[:5])}" if blockers else None))
+    # pools: only empty ones
+    for pid in sorted(facts.pools):
+        if MARK not in facts.pool_comments.get(pid, "") or pid in own.pools or pid in policy.scope.pools:
+            continue
+        members = facts.pool_members.get(pid, -1)
+        guests = [v for v, g in facts.guests.items() if g.get("pool") == pid]
+        kept = ("its members could not be read" if members < 0 else f"it is not empty ({max(members, len(guests))} member(s))" if (members or guests) else None)
+        out.append(entry("pool", pid, "pool with the Office Unbound marker that no connected integration uses",
+                         [Step("pool", "remove", pid, {"phase": "before", "cleanup": True}, "leftover empty Office Unbound pool")], kept))
+    return out
 
 
 def design_from_plan(plan: ProvisioningPlan, policy: Policy) -> Design:
@@ -700,26 +1016,31 @@ def design_from_plan(plan: ProvisioningPlan, policy: Policy) -> Design:
         if st.kind == "acl" and st.detail["path"].startswith("/sdn/zones/"):
             _, _, _, zone, vnet = st.detail["path"].split("/")
             zones[vnet] = zone
-    return design(policy, plan.facts["pve_major"], plan.facts["roles"], plan.facts["tokens"], zones)
+    return design(policy, plan.facts["pve_major"], plan.facts["roles"], plan.facts["tokens"], zones, plan.facts.get("role_privileges"))
 
 
 def stored_design(plan: ProvisioningPlan) -> dict:
     """What must be remembered to recompute the design later (drift, rotate, revoke)."""
     d = design_from_plan(plan, Policy.model_validate(plan.policy))
     zones = {a.path.split("/")[4]: a.path.split("/")[3] for a in d.acl if a.path.startswith("/sdn/zones/")}
-    return {"pve_major": d.major, "roles": plan.facts["roles"], "tokens": plan.facts["tokens"], "zones": zones}
+    out = {"pve_major": d.major, "roles": plan.facts["roles"], "tokens": plan.facts["tokens"], "zones": zones}
+    if plan.facts.get("role_privileges"):
+        out["role_privileges"] = plan.facts["role_privileges"]
+    return out
 
 
 def design_from_stored(policy: Policy, st: dict) -> Design:
-    return design(policy, st["pve_major"], st["roles"], st["tokens"], st.get("zones") or {})
+    return design(policy, st["pve_major"], st["roles"], st["tokens"], st.get("zones") or {}, st.get("role_privileges"))
 
 
 # ---------------------------------------------------------------------------------------------------- Mode A apply
 @dataclass
 class ApplyResult:
     secrets: dict[str, tuple[str, str]] = field(default_factory=dict)     # kind -> (full token id, secret)
-    created: dict = field(default_factory=lambda: {"pools": [], "roles": [], "user": None, "tokens": [], "acl": []})
+    created: dict = field(default_factory=lambda: {"pools": [], "roles": [], "user": None, "tokens": [], "acl": [], "adopted_roles": []})
     log: list[str] = field(default_factory=list)
+    removed: list[str] = field(default_factory=list)                  # pre-existing objects removed by choice (not restorable)
+    modified_roles: list[list] = field(default_factory=list)          # [name, previous privileges]: put back on rollback
 
 
 def apply_plan(admin: ProxmoxAdminClient, plan: ProvisioningPlan, d: Design) -> ApplyResult:
@@ -728,11 +1049,27 @@ def apply_plan(admin: ProxmoxAdminClient, plan: ProvisioningPlan, d: Design) -> 
     res = ApplyResult()
     steps = [s for s in plan.steps if s.op in ("create", "modify", "remove")]
     order = {"pool": 0, "role": 1, "user": 2, "token": 3, "acl": 4}
-    steps.sort(key=lambda s: (order[s.kind], s.op == "remove"))
+    first = {"acl": 0, "token": 1, "user": 2, "role": 3, "pool": 4}       # removals chosen by the approver run first, dependants before owners
+
+    def key(s):
+        before = s.op == "remove" and s.detail.get("phase") == "before"
+        return (0, first[s.kind]) if before else (1, order[s.kind], s.op == "remove")
+    steps.sort(key=key)
     kinds = {v: k for k, v in d.tokens.items()}
     try:
         for s in steps:
-            if s.kind == "pool":
+            if s.op == "remove" and s.kind != "acl":
+                if s.kind == "pool":
+                    admin.pool_delete(s.target)
+                elif s.kind == "role":
+                    admin.role_delete(s.target)
+                elif s.kind == "user":
+                    admin.user_delete(s.target)
+                elif s.kind == "token":
+                    uid, _, name = s.target.partition("!")
+                    admin.token_delete(uid, name)
+                res.removed.append(f"{s.kind} {s.target}")
+            elif s.kind == "pool":
                 admin.pool_add(s.target, MARK)
                 res.created["pools"].append(s.target)
             elif s.kind == "role" and s.op == "create":
@@ -740,6 +1077,9 @@ def apply_plan(admin: ProxmoxAdminClient, plan: ProvisioningPlan, d: Design) -> 
                 res.created["roles"].append(s.target)
             elif s.kind == "role" and s.op == "modify":
                 admin.role_set(s.target, s.detail["privileges"])
+                res.modified_roles.append([s.target, list(s.detail.get("was") or [])])
+                if s.detail.get("choice") == "overwrite":
+                    res.created["adopted_roles"].append(s.target)
             elif s.kind == "user":
                 admin.user_add(s.target, s.detail["comment"])
                 res.created["user"] = s.target
@@ -790,6 +1130,13 @@ def rollback_created(admin: ProxmoxAdminClient, res: ApplyResult) -> list[str]:
             admin.role_delete(r)
         except Exception:  # noqa: BLE001
             left.append(f"role {r}")
+    for name, was in reversed(res.modified_roles):
+        if not was:
+            continue
+        try:
+            admin.role_set(name, was)
+        except Exception:  # noqa: BLE001
+            left.append(f"role {name} (previous privileges)")
     return left
 
 
@@ -842,7 +1189,8 @@ def verify_token(reader, d: Design, policy: Policy, kind: str, facts_nodes: list
             verbs.append(priv.evaluate(verb, reqs, perms_at))
         if "template_clone" in caps:
             verbs.append(priv.evaluate("clone_template", [(f"/vms/{t}", ["VM.Clone", "VM.Audit"]) for t in s.template_vmids], perms_at))
-    bad = [v for v in verbs if not v.ok]
+    # a verb that fails ONLY for privileges the approver chose to withhold (an existing role used as is) is disclosed, not a failure
+    bad = [v for v in verbs if not v.ok and not (d.withheld and all(set(m["privileges"]) <= d.withheld for m in v.missing))]
     reach = scope_reach(actual, policy, set(s.storages) | set(s.backup_storages))
     seen = {r["path"] for r in reach}
     reach += [{**e, "reaches": _path_reach(e["path"], set(s.nodes)) or "outside the approved scope", "enforced_by": "proxmox"}

@@ -406,11 +406,18 @@ export const KIND_LABEL: Record<string, string> = { pool: 'Pool', role: 'Role', 
 export interface StepRow { kind: string; kindLabel: string; op: PlanStep['op']; opLabel: string; target: string; what: string; reason: string; high: boolean; tone: Tone }
 export function describeStep(s: PlanStep): string {
   const d = s.detail ?? {}
-  if (s.kind === 'role') return `Privileges: ${(Array.isArray(d.privileges) ? (d.privileges as string[]) : []).join(', ') || 'none listed'}`
+  const list = (x: unknown) => (Array.isArray(x) ? (x as string[]) : [])
+  if (s.kind === 'role' && s.op === 'modify' && (list(d.added).length || list(d.removed).length))
+    return [list(d.added).length ? `Adds ${list(d.added).join(', ')}` : '', list(d.removed).length ? `Removes ${list(d.removed).join(', ')}` : ''].filter(Boolean).join('. ')
+      + (list(d.affects).length ? `. Also changes the rights of: ${list(d.affects).join('; ')}` : '')
+  if (s.kind === 'role' && s.op === 'remove') return `Pre-existing role with ${list(d.privileges).join(', ') || 'no privileges'} is deleted`
+  if (s.kind === 'role') return `Privileges: ${list(d.privileges).join(', ') || 'none listed'}` + (list(d.withheld).length ? `. Used as is: Office Unbound will not have ${list(d.withheld).join(', ')}` : '')
   if (s.kind === 'acl') {
     const parts = s.target.split('|')
+    if (parts.length === 3 && s.op === 'remove') return `On ${parts[0]}: ${parts[1]} loses role ${parts[2]}`
     return parts.length === 3 ? `On ${parts[0]}: ${parts[1]} gets role ${parts[2]}` : s.target
   }
+  if (s.op === 'remove' && (s.kind === 'token' || s.kind === 'user' || s.kind === 'pool')) return 'Pre-existing Office Unbound object is deleted'
   if (s.kind === 'token') return d.privsep === false ? 'Not privilege-separated' : 'Privilege-separated (cannot exceed the account\'s own rights)'
   if (s.kind === 'user') return 'No password, no shell login; exists only to own the API tokens'
   if (s.kind === 'pool') return 'Container that limits which guests the account can reach'

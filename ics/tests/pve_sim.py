@@ -70,6 +70,7 @@ class PveSim:
         self.sdn_zones: dict[str, dict] = {}
         self.sdn_vnets: dict[str, dict] = {}
         self.pools: set[str] = set()
+        self.pool_comments: dict[str, str] = {}
         self.vms: dict[int, dict] = {}
         self.tasks: dict[str, dict] = {}
         self.failures: list[dict] = []
@@ -475,7 +476,7 @@ class PveSim:
 
     def r_pool(self, tid, q, f, pool):
         self.need(tid, "pool", pool, "Pool.Audit")
-        return {"poolid": pool, "members": [{"vmid": v["vmid"], "node": v["node"], "type": v["kind"]} for v in self.vms.values() if v["pool"] == pool]}
+        return {"poolid": pool, "comment": self.pool_comments.get(pool, ""), "members": [{"vmid": v["vmid"], "node": v["node"], "type": v["kind"]} for v in self.vms.values() if v["pool"] == pool]}
 
     def r_nextid(self, tid, q, f):
         n = 100
@@ -796,7 +797,8 @@ class PveSim:
                     self._log(f"acl~{path}|{ugid}|{r}")
 
     def r_pools(self, tid, q, f):
-        return [{"poolid": p} for p in sorted(self.pools) if self.can(tid, "pool", p, "Pool.Audit", "Pool.Allocate")]
+        return [{"poolid": p, **({"comment": self.pool_comments[p]} if self.pool_comments.get(p) else {})}
+                for p in sorted(self.pools) if self.can(tid, "pool", p, "Pool.Audit", "Pool.Allocate")]
 
     def r_pool_add(self, tid, q, f):
         self._need_at(tid, "/pool", "Pool.Allocate")
@@ -804,13 +806,19 @@ class PveSim:
         if p in self.pools:
             raise HTTPErr(500, f"pool '{p}' already exists")
         self.pools.add(p)
+        if f.get("comment"):
+            self.pool_comments[p] = f["comment"]
         self._log(f"pool+{p}")
 
     def r_pool_del(self, tid, q, f, p):
         self._need_at(tid, "/pool", "Pool.Allocate")
         if any(v["pool"] == p for v in self.vms.values()):
             raise HTTPErr(500, f"pool '{p}' is not empty")
+        if p not in self.pools:
+            raise HTTPErr(500, f"pool '{p}' does not exist")
         self.pools.discard(p)
+        self.pool_comments.pop(p, None)
+        self.acl_entries = [e for e in self.acl_entries if e["path"] != f"/pool/{p}"]
         self._log(f"pool-{p}")
 
     def r_list_guests(self, tid, q, f, node, kind):

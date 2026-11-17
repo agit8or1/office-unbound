@@ -9,6 +9,8 @@ import RunPanel from '../RunPanel.vue'
 import PlanView from '../PlanView.vue'
 import type { PlanPreviewOut } from '../model'
 import InventoryTree from './InventoryTree.vue'
+import ConflictPanel from './ConflictPanel.vue'
+import { choicesMatch, conflictsOf, emptyChoices, leftoversOf, seedChoices, toChoicesParam, type ChoiceState, type ChoicesParam } from './conflicts'
 import MaintenancePanel from './MaintenancePanel.vue'
 import PermissionSummary from './PermissionSummary.vue'
 import { accessApi, type Inventory, type PveSession, type TlsLookup } from './api'
@@ -40,6 +42,13 @@ const baseUrl = computed(() => apiUrl(f.host, f.port))
 const guests = computed(() => inv.value?.guests ?? [])
 const errs = computed(() => (inv.value ? validate(sel, guests.value) : {}))
 const change = computed(() => (before.value ? diffSelection(before.value, sel) : null))
+const choices = reactive<ChoiceState>(emptyChoices())
+const planFacts = computed(() => (edit.value ? undefined : (preview.value?.plan as { facts?: Record<string, unknown> } | undefined)?.facts))
+const conflictList = computed(() => conflictsOf(planFacts.value))
+const leftoverList = computed(() => leftoversOf(planFacts.value))
+const wantedChoices = computed(() => toChoicesParam(choices, conflictList.value))
+/** The plan on screen was calculated with other choices than the ones now selected: Apply waits for a recalculation. */
+const choicesStale = computed(() => !edit.value && !!preview.value && !choicesMatch((preview.value.plan as { choices?: Partial<ChoicesParam> })?.choices, wantedChoices.value))
 const nodeStorages = computed(() => (inv.value?.storages ?? []).filter((s) => s.content.split(',').some((c) => c === 'images' || c === 'rootdir'))
   .filter((s) => !sel.nodes.length || s.nodes.some((n) => sel.nodes.includes(n))))
 const nodeNetworks = computed(() => (inv.value?.networks ?? []).filter((x) => !sel.nodes.length || x.nodes.some((n) => sel.nodes.includes(n))))
@@ -128,13 +137,15 @@ async function discover0() { if (session.value) inv.value = await accessApi.inve
 const policy = computed(() => toPolicy(sel, guests.value))
 async function runPreview() {
   if (!session.value) return
+  const ch = edit.value ? null : wantedChoices.value
   st.ok = false; preview.value = null
   const params: Record<string, unknown> = edit.value
     ? { endpoint_id: props.id, purpose: 'scope_change', scope_target: toScopeTarget(sel, guests.value), admin_session: session.value.id }
-    : { name: f.name, base_url: session.value.base_url, admin_session: session.value.id, policy: policy.value }   // TLS anchor: taken from the sign-in by the server
+    : { name: f.name, base_url: session.value.base_url, admin_session: session.value.id, policy: policy.value, ...(ch ? { choices: ch } : {}) }   // TLS anchor: taken from the sign-in by the server
   const j = await previewRun.start('provider.provision.plan_preview', params)
   if (j?.status === 'succeeded') {
     preview.value = j.result as Record<string, unknown>
+    if (!edit.value) seedChoices(choices, conflictList.value, ch)
     const blocked = (edit.value ? (preview.value.blocked as string[]) : ((preview.value.plan as { blocked: string[] }).blocked)) ?? []
     st.ok = !blocked.length
   }
@@ -158,7 +169,7 @@ const verification = computed(() => {
 const scopeDiff = computed(() => (preview.value?.scope as { diff?: Record<string, unknown>; impact?: { notes?: string[] } } | undefined))
 const blockedList = computed<string[]>(() => (!preview.value ? [] : edit.value ? (preview.value.blocked as string[]) ?? [] : (preview.value.plan as { blocked: string[] })?.blocked ?? []))
 function next() {
-  if (cur.value === 'permissions') { st.ok = false; preview.value = null }
+  if (cur.value === 'permissions') { st.ok = false; preview.value = null; Object.assign(choices, emptyChoices()) }
   w.next()
 }
 </script>
@@ -315,7 +326,12 @@ function next() {
             </ul>
             <Banner v-for="n in scopeDiff.impact?.notes ?? []" :key="n" kind="info">{{ n }}</Banner>
           </template>
-          <div v-if="st.ok" class="row mt">
+          <template v-if="!edit && (conflictList.length || leftoverList.length)">
+            <ConflictPanel :conflicts="conflictList" :leftovers="leftoverList" :state="choices" :disabled="previewRun.busy.value || applyRun.busy.value" />
+            <p v-if="choicesStale" class="cp-stale" role="status">Your choices changed. Recalculate to see the exact plan with them; Apply uses only a calculated plan.</p>
+            <div class="row"><button type="button" class="wz-btn" :class="{ primary: choicesStale }" :disabled="previewRun.busy.value || applyRun.busy.value" @click="runPreview">{{ previewRun.busy.value ? 'Calculating…' : 'Recalculate with these choices' }}</button></div>
+          </template>
+          <div v-if="st.ok && !choicesStale" class="row mt">
             <button type="button" class="wz-btn primary" :disabled="applyRun.busy.value" @click="apply">{{ edit ? 'Request approval and apply' : 'Request approval and connect' }}</button>
             <button type="button" class="wz-btn" :disabled="applyRun.busy.value" @click="preview = null; st.ok = false">Recalculate</button>
           </div>
@@ -378,6 +394,7 @@ function next() {
 .ax-level input { justify-self: start; }
 .ax-acl { list-style: none; padding: 0; margin: 0; display: grid; gap: 2px; }
 .ax-acl .add { color: var(--ok); } .ax-acl .rm { color: var(--bad); }
+.cp-stale { color: var(--warn); margin: 0; }
 .err { color: var(--bad); }
 .mono { font-family: var(--mono, ui-monospace, monospace); }
 </style>

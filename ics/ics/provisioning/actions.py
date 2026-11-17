@@ -34,7 +34,7 @@ from ..providers.proxmox import scope_change as sc_mod
 from ..providers.proxmox.admin import ProxmoxAdminClient
 from ..proxmox import ProxmoxError, normalize_fingerprint
 from ..runtime import Runtime
-from .model import Policy
+from .model import ConflictChoices, Policy
 from .scope_model import ScopeTarget
 
 TEMP_CRED_TTL = 15 * 60
@@ -118,11 +118,15 @@ class PlanPreview(Conn, TempCreds):
     policy: Policy | None = None
     scope_target: ScopeTarget | None = None
     pve_major: Literal[8, 9] | None = Field(default=None, description="only for an offline preview")
+    choices: ConflictChoices | None = Field(default=None, description="purpose=provision only: what to do with each conflicting pre-existing object "
+                                            "and which Office Unbound leftovers to remove. Bound into the plan hash; re-checked at apply.")
 
     @model_validator(mode="after")
     def _chk(self):
         self._conn_ok(False)
         self._shape()
+        if self.choices is not None and (self.purpose != "provision" or not self.has_creds()):
+            raise ValueError("conflict choices and cleanup apply to a provisioning preview with temporary provisioning credentials")
         if self.purpose == "scope_change":
             if self.endpoint_id is None or self.scope_target is None or self.policy is not None:
                 raise ValueError("a scope-change preview names an endpoint and a scope_target (the policy itself is not edited here)")
@@ -365,6 +369,28 @@ def _managed(db: Session, ep) -> dict:
     return dict(r.managed) if r else {}
 
 
+def _owned(db: Session) -> dict:
+    """Everything a CONNECTED (not removed) integration holds in any Proxmox cluster: its service user, tokens, roles and pools (stored
+    provisioning state plus the endpoint's own token ids and pool allowlist). Nothing in here is ever offered as a leftover."""
+    o: dict[str, set] = {"users": set(), "tokens": set(), "roles": set(), "pools": set()}
+    rows = db.execute(text("SELECT e.token_id, e.provision_token_id, e.allowed_pools, p.managed, p.design FROM endpoints e "
+                           "LEFT JOIN endpoint_policy p ON p.endpoint_id = e.id WHERE e.detached_at IS NULL")).all()
+    for r in rows:
+        for t in (r.token_id, r.provision_token_id):
+            if t:
+                o["tokens"].add(t)
+                o["users"].add(t.split("!")[0])
+        o["pools"] |= set(r.allowed_pools or [])
+        mg, dz = dict(r.managed or {}), dict(r.design or {})
+        if mg.get("user"):
+            o["users"].add(mg["user"])
+        o["tokens"] |= set(mg.get("tokens") or [])
+        o["users"] |= {t.split("!")[0] for t in mg.get("tokens") or []}
+        o["roles"] |= set(mg.get("roles") or []) | set((dz.get("roles") or {}).values())
+        o["pools"] |= set(mg.get("pools") or [])
+    return {k: sorted(v) for k, v in o.items()}
+
+
 def _save_artifact(db: Session, kind: str, ep_id, plan_hash, data: dict, user, customer_id=None) -> str:
     aid = uuid.uuid4()
     db.execute(text("INSERT INTO provision_artifacts (id, kind, endpoint_id, plan_hash, data, created_by, customer_id) VALUES "
@@ -546,10 +572,13 @@ def exec_preview(rt: Runtime, db: Session, m: PlanPreview, plan, known: list[str
         facts = pp.collect_facts(cli) if cli is not None else None
     finally:
         close()
-    pl = pp.plan_for(policy, facts, pve_major=m.pve_major, managed=_managed(db, ep), prune=(m.purpose == "reconcile"), mode="A")
+    owned = _owned(db) if (facts is not None and m.has_creds()) else None
+    pl = pp.plan_for(policy, facts, pve_major=m.pve_major, managed=_managed(db, ep), prune=(m.purpose == "reconcile"), mode="A",
+                     choices=m.choices, owned=owned)
     pd = pl.to_dict()
     aid = _save_artifact(db, "plan", ep.id if ep else None, pd["plan_hash"],
-                         {"plan": pd, "purpose": m.purpose, "conn": {"base_url": base_url, "name": m.name}}, plan.requested_by,
+                         {"plan": pd, "purpose": m.purpose, "conn": {"base_url": base_url, "name": m.name},
+                          **({"choices": m.choices.model_dump(mode="json")} if m.choices is not None else {})}, plan.requested_by,
                          plan.customer_id)
     audit.append(db, "provider.provision.previewed", actor_name="worker", resource="plan", resource_id=str(plan.id),
                  details={"preview_id": aid, "plan_hash": pd["plan_hash"], "purpose": m.purpose, "summary": pd["summary"], "blocked": pd["blocked"]})
@@ -631,6 +660,7 @@ def _merge_managed(old: dict, res: pp.ApplyResult) -> dict:
     m["user"] = old.get("user") or c["user"]
     for k in ("pools", "roles", "tokens"):
         m[k] = sorted(set(m[k]) | set(c[k]))
+    m["roles"] = sorted(set(m["roles"]) | set(c.get("adopted_roles") or []))      # overwritten by the approver's choice: now Office Unbound's
     m["acl"] = sorted({tuple(x) for x in m["acl"]} | {tuple(x) for x in c["acl"]})
     m["acl"] = [list(x) for x in m["acl"]]
     return m
@@ -665,7 +695,9 @@ def _apply(rt: Runtime, db: Session, m, plan, known: list[str], reconcile: bool)
     try:
         facts = pp.collect_facts(admin)
         managed = dict(stored.managed) if (stored and reconcile) else _managed(db, ep)
-        pl = pp.plan_for(policy, facts, managed=managed, prune=reconcile, mode="A")
+        # the approved choices are re-validated against the cluster NOW: same choices + same cluster => same plan hash, anything else refuses
+        choices = ConflictChoices.model_validate(art.data["choices"]) if (art.data.get("choices") and not reconcile) else None
+        pl = pp.plan_for(policy, facts, managed=managed, prune=reconcile, mode="A", choices=choices, owned=_owned(db) if not reconcile else None)
         pd = pl.to_dict()
         if pd["plan_hash"] != m.plan_hash:
             raise ProxmoxError("the cluster changed since the plan was previewed and approved (plan hash differs): nothing was applied; preview again")
@@ -689,7 +721,7 @@ def _apply(rt: Runtime, db: Session, m, plan, known: list[str], reconcile: bool)
         gens = {k: v.get("gen", 1) for k, v in (stored.tokens if stored else {}).items()} if reconcile else {}
         _upsert_policy(db, eid, policy, pd, pp.stored_design(pl), "A", mg, _token_state(d, gens), verification)
         audit.append(db, "provider.permissions.reconciled" if reconcile else "provider.provision.applied", actor_name="worker", resource="endpoint",
-                     resource_id=eid, details={"plan_hash": pd["plan_hash"], "mode": "A", "steps": res.log, "verification_ok": True,
+                     resource_id=eid, details={"plan_hash": pd["plan_hash"], "mode": "A", "steps": res.log, "removed": res.removed, "verification_ok": True,
                                                "temporary_credentials": "discarded"})
         return {"endpoint_id": eid, "plan_hash": pd["plan_hash"], "applied": res.log, "verification": _verif_public(verification),
                 "temporary_credentials": "discarded"}
