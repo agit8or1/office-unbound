@@ -1,5 +1,6 @@
 <script setup lang="ts">
 import { computed, ref, watch } from 'vue'
+import { useRoute } from 'vue-router'
 import { ApiError, get, post, type Endpoint, type PlanCreated } from '../api'
 import { useLoad } from '../store'
 import PageHeader from '../ui/PageHeader.vue'
@@ -19,6 +20,7 @@ const rel = useLoad(() => get<{ configured: boolean; releases: ImageRelease[] }>
 const eps = useLoad(() => get<Endpoint[]>('endpoints'))
 const usable = computed(() => (eps.data.value ?? []).filter((e) => e.credentials.provision.present && e.scope.allowed_pools.length))
 
+const route = useRoute()
 const sel = ref<ImageRelease | null>(null)
 const f = ref({ endpoint_id: '', pve_node: '', pool: '', import_storage: '', target_storage: '', bridge: '', template_name: '', allow_downgrade: false })
 const busy = ref(false)
@@ -29,7 +31,8 @@ const downgrade = computed(() => !!sel.value && sel.value.floor_version != null 
 
 function open(r: ImageRelease) {
   sel.value = r; err.value = null; created.value = null
-  f.value = { endpoint_id: usable.value[0]?.id ?? '', pve_node: '', pool: '', import_storage: '', target_storage: '', bridge: '', template_name: r.default_template ?? '', allow_downgrade: false }
+  const want = typeof route.query.endpoint === 'string' ? route.query.endpoint : ''   // from a cluster's "Next steps"
+  f.value = { endpoint_id: usable.value.find((e) => e.id === want)?.id ?? usable.value[0]?.id ?? '', pve_node: '', pool: '', import_storage: '', target_storage: '', bridge: '', template_name: r.default_template ?? '', allow_downgrade: false }
 }
 watch(ep, (e) => {
   if (!e) return

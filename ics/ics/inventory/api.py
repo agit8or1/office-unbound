@@ -227,6 +227,20 @@ def _wizard_permissions(res) -> dict:
     return {"inventory": cap(inv), "provision": cap(prov)}
 
 
+def guest_visibility(db) -> dict:
+    """Which guests the read tokens can see, from the approved access policy (endpoint_policy.policy->>'monitor_cluster').
+    cluster = every connected integration monitors the whole cluster read-only; own_only = at least one only sees Office Unbound's own
+    pool(s) (listed in guest_visibility_limited); unknown = an integration was registered with a hand-made token (no policy to read);
+    none = no integration. Never guessed from guest counts."""
+    rows = db.execute(text("SELECT e.id, e.name, e.display_name, p.endpoint_id IS NOT NULL AS has_policy, "
+                           "COALESCE((p.policy->>'monitor_cluster')::boolean, false) AS whole FROM endpoints e "
+                           "LEFT JOIN endpoint_policy p ON p.endpoint_id = e.id "
+                           f"WHERE e.detached_at IS NULL AND {tscope.clause(db, 'e.customer_id')} ORDER BY e.name")).all()
+    limited = [{"endpoint_id": str(r.id), "name": r.display_name or r.name} for r in rows if r.has_policy and not r.whole]
+    vis = "none" if not rows else "own_only" if limited else "cluster" if all(r.has_policy for r in rows) else "unknown"
+    return {"guest_visibility": vis, "guest_visibility_limited": limited}
+
+
 def mount(app: FastAPI) -> None:
     def stale(request: Request) -> int:
         return request.app.state.rt.settings.inventory_stale_seconds
@@ -265,7 +279,8 @@ def mount(app: FastAPI) -> None:
                 "templates": q(f"SELECT count(*) AS c FROM infra_templates WHERE {_active(db)}").c,
                 "storage": {"pools": s.total, "bytes_total": s.bytes_total, "bytes_used": s.bytes_used},
                 "networks": q(f"SELECT count(*) AS c FROM infra_networks WHERE {_active(db)}").c,
-                "new_resources": ledger.new_count(db, f"e.detached_at IS NULL AND {tscope.clause(db, 'e.customer_id')}")}
+                "new_resources": ledger.new_count(db, f"e.detached_at IS NULL AND {tscope.clause(db, 'e.customer_id')}"),
+                **guest_visibility(db)}
 
     @app.get(f"{API}/infra/overview")
     def infra_overview(request: Request, user: User = Depends(require("viewer")), db: Session = Depends(get_db)):

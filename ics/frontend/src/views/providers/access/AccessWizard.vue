@@ -11,6 +11,8 @@ import type { PlanPreviewOut } from '../model'
 import InventoryTree from './InventoryTree.vue'
 import MaintenancePanel from './MaintenancePanel.vue'
 import PermissionSummary from './PermissionSummary.vue'
+import NextSteps from '../NextSteps.vue'
+import Button from '../../../ui/Button.vue'
 import { accessApi, type Inventory, type PveSession, type TlsLookup } from './api'
 import { DEFAULT_POOL, LEVELS, apiUrl, suggestTargets, outsideNodes, diffSelection, emptySelection, fromApproved, gib, pctOf, toPolicy, toScopeTarget, validate, visibleNodes, type Selection } from './model'
 import '../providers.css'
@@ -158,6 +160,7 @@ const verification = computed(() => {
 })
 const scopeDiff = computed(() => (preview.value?.scope as { diff?: Record<string, unknown>; impact?: { notes?: string[] } } | undefined))
 const blockedList = computed<string[]>(() => (!preview.value ? [] : edit.value ? (preview.value.blocked as string[]) ?? [] : (preview.value.plan as { blocked: string[] })?.blocked ?? []))
+const doneId = computed(() => (edit.value ? props.id : (done.value?.endpoint_id as string | undefined)) || '')
 function next() {
   if (cur.value === 'permissions') { st.ok = false; preview.value = null }
   w.next()
@@ -351,9 +354,14 @@ function next() {
         <h2>{{ edit ? 'Access updated' : 'Connected' }}</h2>
         <p class="muted">Office Unbound now uses its own restricted account. Your Proxmox sign-in was destroyed.</p>
         <p v-if="change && edit"><span v-if="change.added.length">Added: {{ change.added.join(', ') }}. </span><span v-if="change.removed.length">Removed: {{ change.removed.join(', ') }}.</span></p>
-        <div class="row">
-          <router-link class="wz-btn primary" :to="`/infrastructure/providers/${edit ? id : (done?.endpoint_id as string)}`">Open the cluster</router-link>
-          <router-link class="wz-btn" :to="`/infrastructure/providers/${edit ? id : (done?.endpoint_id as string)}/permissions`">Review permissions</router-link>
+        <NextSteps v-if="doneId" :id="doneId" :fallback-to="`/infrastructure/providers/${doneId}`" fallback-label="Open the cluster">
+          <template #default="{ primary }">
+            <Button v-if="primary" :to="`/infrastructure/providers/${doneId}`">Open the cluster</Button>
+            <Button :to="`/infrastructure/providers/${doneId}/permissions`">Review permissions</Button>
+          </template>
+        </NextSteps>
+        <div v-else class="row">
+          <router-link class="wz-btn primary" to="/infrastructure/providers">Open clusters</router-link>
         </div>
       </section>
     </WizardShell>

@@ -14,6 +14,7 @@ import EmptyState from '../../ui/EmptyState.vue'
 import ErrorBox from '../../components/ErrorBox.vue'
 import StatusBadge from '../../ui/StatusBadge.vue'
 import ClusterHeader from './ClusterHeader.vue'
+import NextSteps from './NextSteps.vue'
 import { api, load } from './api'
 import { accessApi } from './access/api'
 import {
@@ -102,6 +103,8 @@ const nodeMem = (n: InfraNode) => pctOf(n.mem_used, n.mem_total)
       <div v-if="alerts.length" class="card pv-alerts"><h2>Needs attention</h2>
         <ul><li v-for="(a, i) in alerts" :key="i" :class="a.tone"><span class="badge" :class="a.tone">{{ a.tone === 'bad' ? 'Problem' : 'Warning' }}</span> <router-link v-if="a.to" :to="a.to">{{ a.text }}</router-link><span v-else>{{ a.text }}</span></li></ul></div>
       <div v-else class="card pv-ok"><span class="badge ok">All clear</span> Nothing needs attention on this cluster.<template v-if="d.incidents.length"> There are {{ d.incidents.length }} active health-check incident(s) elsewhere in the console. <router-link to="/incidents">View</router-link></template></div>
+
+      <NextSteps :id="id" hide-when-done />
 
       <Card title="Utilisation" hint="Average across nodes and authorised storage from collected samples">
         <template #actions><Segmented v-model="range" :options="RANGES.map((r) => ({ value: r.value, label: r.label }))" label="Time range" /></template>
