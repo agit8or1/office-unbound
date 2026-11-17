@@ -5,8 +5,20 @@
   "repository": "https://github.com/agit8or1/office-unbound",
   "updated": "2026-11-17",
   "stage": "pre-alpha (lab)",
-  "current_version": "0.2.0-dev.6",
+  "current_version": "0.2.0-dev.7",
   "releases": [
+    {
+      "version": "0.2.0-dev.7",
+      "date": "2026-11-17",
+      "status": "prepared",
+      "codename": "Beacon",
+      "channel": "development",
+      "highlights": [
+        "Development build 7 of 0.2.0 \"Beacon\": conflict choices and leftover cleanup in the dry run, next-steps checklist, quieter discovery, dependency security fixes"
+      ],
+      "notes_url": "https://github.com/agit8or1/office-unbound/blob/main/CHANGELOG.md",
+      "changelog": "CHANGELOG.md"
+    },
     {
       "version": "0.2.0-dev.6",
       "date": "2026-11-17",

@@ -12,6 +12,14 @@ isolated lab; nothing is production supported ([ROADMAP.md](ROADMAP.md)).
 
 Target: 0.2.0 "Beacon" (alpha readiness: security hardening, production no-SSH deployment, full stack).
 
+### 0.2.0-dev.7 (2026-11-17)
+- **Conflict choices in the dry run.** When Calculate finds an existing role, service account or token, it offers four choices: use it as is (only if it grants nothing beyond what is needed), overwrite it, remove and recreate it, or create a new one alongside (the default). Built-in roles, roles used by other users' permissions and anything a connected integration owns are never overwritten or removed. Overwriting a role other users rely on lists them and needs an explicit acknowledgement (high risk). The choices are part of the plan fingerprint; Apply is offered only for the plan on screen.
+- **Cleanup of failed earlier attempts.** Office Unbound leftovers that no connected integration owns can be removed as part of the same plan: marked users, tokens, empty pools, unused `OfficeUnbound…` roles and stale permissions. Anything it cannot remove is listed with the reason. Evidence: `ics/tests/test_conflict_choices.py` (simulator).
+- **Next steps after connecting**: a checklist (import the golden image → standard alerts → first deployment) on the wizard's last step and on the cluster page, from real state, with one button to the next step. The dashboard explains that only Office Unbound's guests are visible without whole-cluster read-only monitoring.
+- **Quieter discovery**: nodes outside the selection and the cluster summary (needs Sys.Audit on `/`) are no longer warnings when the administrator chose "selected nodes". The cluster is recorded with quorum "unknown" instead of missing.
+- **Storage picker**: aligned rows, usable storage first.
+- **Dependencies / CI**: paramiko 5.0.0 (PYSEC-2026-2858), PyNaCl 1.6.2 (PYSEC-2026-3002), invoke 3.0.3. Backend workflow YAML fixed.
+
 ### 0.2.0-dev.6 (2026-11-17)
 - **Fix: the wizard pre-selected shared storage** (owner report: `ha-zfs`, also present on pve04, pve05, pve2, pve3). The read-only calculation correctly refused it. Storage that also exists on nodes outside the selection is now never suggested and cannot be ticked. The picker says which other nodes it is on, and says so when no storage is confined to the selected node(s). The server-side refusal and its explicit high-risk override are unchanged.
 - **Neutral console palette**: cool greys, one steel-blue accent, system fonts, no gradients (replaces the copper / cream scheme). Wizard components use the shared colour tokens, so dark mode is consistent.
