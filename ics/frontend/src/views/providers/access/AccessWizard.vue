@@ -41,7 +41,8 @@ const guests = computed(() => inv.value?.guests ?? [])
 const errs = computed(() => (inv.value ? validate(sel, guests.value) : {}))
 const change = computed(() => (before.value ? diffSelection(before.value, sel) : null))
 const nodeStorages = computed(() => (inv.value?.storages ?? []).filter((s) => s.content.split(',').some((c) => c === 'images' || c === 'rootdir'))
-  .filter((s) => !sel.nodes.length || s.nodes.some((n) => sel.nodes.includes(n))))
+  .filter((s) => !sel.nodes.length || s.nodes.some((n) => sel.nodes.includes(n)))
+  .sort((a, b) => Number(outsideNodes(a, sel.nodes).length > 0) - Number(outsideNodes(b, sel.nodes).length > 0) || a.storage.localeCompare(b.storage)))
 const nodeNetworks = computed(() => (inv.value?.networks ?? []).filter((x) => !sel.nodes.length || x.nodes.some((n) => sel.nodes.includes(n))))
 const templates = computed(() => guests.value.filter((g) => g.template))
 // Deployment targets: Office Unbound fills empty choices itself (its own new pool, the roomiest disk storage, the shared bridge); everything stays editable.
@@ -255,8 +256,11 @@ function next() {
             <p v-if="w.m.errors.pools || errs.pools" class="err" role="alert">{{ w.m.errors.pools || errs.pools }}</p>
           </fieldset>
           <fieldset class="ax-set"><legend>Storage for disks</legend>
-            <label v-for="s in nodeStorages" :key="s.storage" class="row"><input v-model="sel.storages" type="checkbox" :value="s.storage" :disabled="!!outsideNodes(s, sel.nodes).length && !sel.storages.includes(s.storage)" /> {{ s.storage }} <span class="muted small">{{ s.type }}{{ s.shared ? ' · shared' : '' }} · {{ gib(s.total - s.used) }} free</span>
-              <span v-if="outsideNodes(s, sel.nodes).length" class="small ax-warn">Not offered: also on {{ outsideNodes(s, sel.nodes).join(', ') }}, so disks could end up outside the selected node(s).</span></label>
+            <label v-for="s in nodeStorages" :key="s.storage" class="ax-opt" :class="{ off: !!outsideNodes(s, sel.nodes).length }">
+              <input v-model="sel.storages" type="checkbox" :value="s.storage" :disabled="!!outsideNodes(s, sel.nodes).length && !sel.storages.includes(s.storage)" />
+              <span class="ax-opt-body"><span class="ax-opt-title">{{ s.storage }} <span class="muted small">{{ s.type }}{{ s.shared ? ' · shared' : '' }} · {{ gib(s.total - s.used) }} free</span></span>
+                <span v-if="outsideNodes(s, sel.nodes).length" class="small muted">Not offered: also on {{ [...outsideNodes(s, sel.nodes)].sort().join(', ') }}. The Proxmox permission covers this storage on every node, so disks could end up outside the selected node(s).</span></span>
+            </label>
             <p v-if="!nodeStorages.some((s) => !outsideNodes(s, sel.nodes).length)" class="err" role="alert">No storage is confined to the selected node(s). Add a storage local to {{ sel.nodes.join(', ') }} in Proxmox (for example a directory or LVM-thin on that node's disk), then Rescan.</p>
             <p v-if="w.m.errors.storages || errs.storages" class="err" role="alert">{{ w.m.errors.storages || errs.storages }}</p>
           </fieldset>
@@ -358,7 +362,11 @@ function next() {
 
 <style scoped>
 .ax-step { display: grid; gap: 14px; }
-.ax-warn { flex-basis: 100%; color: var(--warn-fg, var(--muted)); }
+.ax-opt { display: grid; grid-template-columns: auto 1fr; gap: 8px; align-items: start; padding: 4px 0; cursor: pointer; }
+.ax-opt input { margin: 3px 0 0; }
+.ax-opt-body { display: grid; gap: 2px; min-width: 0; }
+.ax-opt.off { cursor: default; }
+.ax-opt.off .ax-opt-title { color: var(--muted); }
 .ax-val h3 { display: flex; gap: 8px; align-items: center; margin: 0 0 6px; font-size: 1rem; }
 .ax-val-verbs { list-style: none; padding: 0; margin: 0 0 6px; display: grid; gap: 4px; }
 .ax-form { display: grid; gap: 12px; max-width: 560px; }
