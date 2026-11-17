@@ -868,9 +868,11 @@ uvicorn==0.54.0 \
     --hash=sha256:a2e33cbfaa0306f8e6b0c13e0cb89d7d7a2da3e62b90c66e18c33d9807b28620
     # via -r requirements.txt
 # ADR-0014 (hand-merged; regenerate with pip-compile when convenient)
-paramiko==3.5.1 \
-    --hash=sha256:43b9a0501fc2b5e70680388d9346cf252cfb7d00b0667c39e80eb43a408b8f61
+paramiko==5.0.0 \
+    --hash=sha256:b7044611c30140d9a75261653210e2002977b71a0497ff3ba0d98d7edbf62f7c
+invoke==3.0.3 \
+    --hash=sha256:f11327165e5cbb89b2ad1d88d3292b5113332c43b8553b494da435d6ec6f5053
 bcrypt==4.2.1 \
     --hash=sha256:687cf30e6681eeda39548a93ce9bfbb300e48b4d445a43db4298d2474d2a1e54
-pynacl==1.5.0 \
-    --hash=sha256:0c84947a22519e013607c9be43706dd42513f9e6ae5d39d3613ca1e142fba44d
+pynacl==1.6.2 \
+    --hash=sha256:c8a231e36ec2cab018c4ad4358c386e36eede0319a0c41fed24f840b1dac59f6

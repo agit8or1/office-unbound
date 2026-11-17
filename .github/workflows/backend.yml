@@ -46,7 +46,7 @@ jobs:
           cache: pip
           cache-dependency-path: ics/requirements.lock
 
-      - name: Python 3.11 syntax gate (3.11: byte-compile; 3.12: static check of 3.12-only syntax in ICS, agent, portal, migration, scripts)
+      - name: "Python 3.11 syntax gate (3.11: byte-compile; 3.12: static check of 3.12-only syntax in ICS, agent, portal, migration, scripts)"
         run: bash scripts/check_py311.sh
 
       - name: Install dependencies (hash-checked lock file)

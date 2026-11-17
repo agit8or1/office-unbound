@@ -421,17 +421,21 @@ class ProxmoxProvider:
             d.complete.add("clusters")
         except ProviderError as e:
             ips = {}
-            d.warnings.append(f"cluster status: {e.message}")
+            cl_denied = e.code == "permission"     # needs Sys.Audit on / (whole-cluster monitoring): not granted is a choice, not a fault
+            if not cl_denied:
+                d.warnings.append(f"cluster status: {e.message}")
+        else:
+            cl_denied = False
         nodes: list[dict] = []
         try:
             for n in self._get("/nodes"):
                 managed = self._node_audit(n["node"])
                 if managed is None:
                     managed = bool(n.get("maxcpu"))
-                if managed and self.scope.nodes and n["node"] not in self.scope.nodes:
+                outside = bool(self.scope.nodes) and n["node"] not in self.scope.nodes
+                if managed and outside:
                     managed = False  # visible but outside the endpoint's authorized nodes: no capacity is counted, nothing is mutated
-                    d.warnings.append(f"node {n['node']} is not in the endpoint's authorized nodes: shown as not managed")
-                if not managed:
+                if not managed and not outside:   # a node the administrator did not select is expected to be unmonitored: no warning
                     d.warnings.append(f"node {n['node']} is listed by the cluster but the token has no Sys.Audit on it: not managed "
                                       "(its capacity is unknown and is not counted)")
                 n["_managed"] = managed
@@ -443,6 +447,10 @@ class ProxmoxProvider:
                                 "disk_total": keep(n.get("maxdisk")), "disk_used": keep(n.get("disk")), "uptime": keep(n.get("uptime")),
                                 "ip": ips.get(n["node"]), "managed": managed})
             d.complete.add("nodes")
+            if cl_denied:   # cluster summary from what the token CAN see; quorum stays unknown (null), never assumed
+                d.clusters.append({"name": getattr(self, "cluster_label", None) or "cluster", "quorate": None, "nodes_total": len(nodes),
+                                   "nodes_online": sum(1 for x in nodes if x.get("status") == "online"), "version": ver})
+                d.complete.add("clusters")
         except ProviderError as e:
             d.warnings.append(f"nodes: {e.message}")
         online = [n["node"] for n in nodes if n.get("status") == "online" and n["_managed"]]

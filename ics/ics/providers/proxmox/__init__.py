@@ -65,9 +65,11 @@ def open_read_provider(rt: Runtime, ep, known: list[str] | None = None, *, with_
         ps = cred_service.endpoint_secret(rt, ep, "provision", actor="permission-probe")
         known.append(ps)
         prov = ProxmoxReadClient(ep.base_url, ep.provision_token_id, ps, **_kw(rt, ep))
-    return ProxmoxProvider(inv, scope=scope_of(ep), trust="fingerprint" if ep.fingerprint_sha256 else "ca_bundle",
-                           inventory_token_id=ep.token_id, provision_probe=prov, provision_token_id=ep.provision_token_id,
-                           allow_simulator=rt.settings.allow_loopback_endpoints)
+    p = ProxmoxProvider(inv, scope=scope_of(ep), trust="fingerprint" if ep.fingerprint_sha256 else "ca_bundle",
+                        inventory_token_id=ep.token_id, provision_probe=prov, provision_token_id=ep.provision_token_id,
+                        allow_simulator=rt.settings.allow_loopback_endpoints)
+    p.cluster_label = ((getattr(ep, "last_probe", None) or {}).get("cluster_name") or getattr(ep, "name", None))  # when /cluster/status is not visible
+    return p
 
 
 def open_mutations(rt: Runtime, ep, known: list[str] | None = None) -> ProxmoxMutations:
