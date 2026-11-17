@@ -27,6 +27,7 @@ GET_ALLOWED = (
     re.compile(r"^/nodes/[A-Za-z0-9][A-Za-z0-9.-]{0,62}/network$"),
     re.compile(r"^/cluster/firewall/options$"), re.compile(r"^/nodes/[A-Za-z0-9][A-Za-z0-9.-]{0,62}/firewall/(options|rules)$"),
     re.compile(r"^/access/users(\?full=1)?$"), re.compile(r"^/access/roles$"), re.compile(r"^/access/acl$"),
+    re.compile(r"^/pools/[A-Za-z0-9][A-Za-z0-9_.-]{0,39}$"),   # members of an Office Unbound pool (leftover cleanup: only an empty pool is offered)
 )
 _QUERY = {"type=vm": ["--type", "vm"], "full=1": ["--full", "1"]}
 

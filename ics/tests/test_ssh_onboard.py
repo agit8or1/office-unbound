@@ -634,7 +634,7 @@ def test_offboard_keeps_a_pool_that_still_has_guests(w, node, owner):
     owner.sim.add_vm(5000, "pve06", "guest", pool="officeunbound")
     sid3 = connected(w, node)
     p3, j3 = w.run("provider.ssh_offboard", {"ssh_session_id": sid3, "endpoint_id": eid, "confirm_name": "onb", "delete_pool": True})
-    assert j3["status"] == "succeeded" and any("not empty" in x for x in j3["result"]["not_removed"])
+    assert j3["status"] == "succeeded" and any("not empty" in x for x in j3["result"]["not_removed"]), j3.get("error")
     assert "officeunbound" in owner.sim.pools and not pve_state(owner)["users"]
 
 
