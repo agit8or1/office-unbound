@@ -267,6 +267,12 @@ def mount(app: FastAPI) -> None:
                 "networks": q(f"SELECT count(*) AS c FROM infra_networks WHERE {_active(db)}").c,
                 "new_resources": ledger.new_count(db, f"e.detached_at IS NULL AND {tscope.clause(db, 'e.customer_id')}")}
 
+    @app.get(f"{API}/infra/overview")
+    def infra_overview(request: Request, user: User = Depends(require("viewer")), db: Session = Depends(get_db)):
+        from .overview import overview
+        return {"clusters": overview(db, f"e.detached_at IS NULL AND {tscope.clause(db, 'e.customer_id')}", stale(request)),
+                "stale_after_seconds": stale(request)}
+
     @app.get(f"{API}/endpoints/{{endpoint_id}}/access")
     def endpoint_access(endpoint_id: UUID, user: User = Depends(require("viewer")), db: Session = Depends(get_db)):
         """Authorized vs discovered resources for one integration (inventory ledger + approved scope). Read-only."""

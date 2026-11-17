@@ -19,14 +19,21 @@ The monitoring pages were not exercised in a browser in the monitoring session; 
 `fail_threshold` / `recover_threshold` damp flapping. TLS checks require exactly one trust anchor (CA bundle or SHA-256 pin). Check passwords are vault-encrypted and
 never returned. All five kinds ran against the lab groupware node. States: `unknown -> ok | warning | critical`; results are kept 14 days.
 
-**Infrastructure alerts (`kind: infra`).** These are evaluated from the inventory and metrics the ICS already collects. They make no extra Proxmox calls and install nothing in guests. Config: `{"endpoint_id", "rule", "target", "warn_pct", "crit_pct", "stale_after_seconds"}`.
+**Infrastructure alerts (`kind: infra`).** These are evaluated from the inventory and metrics the ICS already collects. They make no extra Proxmox calls and install nothing in guests. Config: `{"endpoint_id", "rule", "target", "warn_pct", "crit_pct", "stale_after_seconds", "max_age_hours"}`.
 - **Rules:**
   - `node_offline`: a node is not online.
   - `guest_stopped`: a guest is not running. Set it on the guests you expect to run.
   - `node_cpu` and `node_memory`: usage at or above `warn_pct` / `crit_pct`.
   - `storage_used`: usage at or above the thresholds; an inactive storage is critical.
+  - `cluster_quorum`: the cluster has lost quorum.
+  - `ha_state`: an HA service is in `error`, `fence` or `recovery` (critical) or in transition (warning); an HA manager (LRM) reports dead.
+  - `backup_age`: a guest's newest backup is older than `max_age_hours` (default 26), or no backup is visible.
+  - `backup_failed`: a vzdump task ended with an error within the last `max_age_hours`.
+- **Visibility:** HA status needs *Monitoring scope: whole cluster, read-only* (Sys.Audit on `/` for the read token). Backups need read access (Datastore.Audit) to the backup storage. Without it the rule reports **no data**, never "no backup".
+- **Standard alerts:** *Monitoring › Infrastructure health › Add standard alerts* lists the rules it will create (node offline, quorum, CPU, memory, storage, HA, failed backups), then creates one approved `check.create` plan per rule. `backup_age` is left out because it fires for every guest without a backup; add it per guest.
 - **Target:** a node, VMID or storage name, or `*` for everything the read token sees. With *Monitoring scope: whole cluster, read-only*, that includes guests Office Unbound did not create.
 - **Stale data:** data older than `stale_after_seconds` (default 900) is reported as **stale** (warning), never as a reading. A metric Proxmox does not report is shown as missing, not estimated.
+- **Infrastructure health page:** every connected cluster on one page: quorum, nodes, guests, HA, backup coverage, storage with a capacity outlook, data age. The outlook is a linear trend of recorded storage usage. It needs at least 24 h of samples; otherwise it says "insufficient history". A flat or shrinking trend says "not growing", never a date.
 - **Alert handling:** results use the normal state machine, incidents, escalation, maintenance windows and alert channels.
 - **Not available from the Proxmox API without an agent:** in-guest disk usage, per-process data and application health. Use the service checks (`http`, `tcp_tls`, …) or the node agent for those.
 

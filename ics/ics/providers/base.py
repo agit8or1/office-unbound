@@ -199,6 +199,9 @@ class Discovery:
     networks: list[dict] = field(default_factory=list)
     guests: list[dict] = field(default_factory=list)
     templates: list[dict] = field(default_factory=list)
+    ha: list[dict] = field(default_factory=list)            # HA services + LRM state (needs Sys.Audit on /)
+    backups: list[dict] = field(default_factory=list)       # newest backup volume per VMID on readable backup storage
+    backup_tasks: list[dict] = field(default_factory=list)  # recent vzdump task results
     warnings: list[str] = field(default_factory=list)
     complete: set[str] = field(default_factory=set)        # entity kinds fetched without error (safe to prune stale rows for)
 

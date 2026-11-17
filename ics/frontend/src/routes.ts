@@ -50,6 +50,7 @@ export const routes: RouteRecordRaw[] = [
   { path: '/releases', name: 'releases', component: () => import('./views/Releases.vue'), meta: { title: 'Releases', section: 'Operations' } },
   { path: '/maintenance', name: 'maintenance', component: () => import('./views/Maintenance.vue'), meta: { title: 'Maintenance', section: 'Operations' } },
   { path: '/checks/:id?', name: 'checks', component: () => import('./views/Checks.vue'), meta: { title: 'Health checks', section: 'Monitoring' } },
+  { path: '/monitoring/infrastructure', name: 'infra-health', component: () => import('./views/infra/InfraHealth.vue'), meta: { title: 'Infrastructure health', section: 'Monitoring' } },
   { path: '/utilization', name: 'utilization', component: () => import('./views/Utilization.vue'), meta: { title: 'Utilization', section: 'Monitoring' } },
   { path: '/incidents/:id?', name: 'incidents', component: () => import('./views/Incidents.vue'), meta: { title: 'Incidents', section: 'Monitoring' } },
   { path: '/users/:rest(.*)*', name: 'users', component: () => import('./views/admin/users/UsersPage.vue'), meta: { title: 'Users & roles', section: 'Administration', min: 'viewer' } },

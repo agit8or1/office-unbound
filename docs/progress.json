@@ -5,8 +5,20 @@
   "repository": "https://github.com/agit8or1/office-unbound",
   "updated": "2026-11-17",
   "stage": "pre-alpha (lab)",
-  "current_version": "0.2.0-dev.4",
+  "current_version": "0.2.0-dev.5",
   "releases": [
+    {
+      "version": "0.2.0-dev.5",
+      "date": "2026-11-17",
+      "status": "prepared",
+      "codename": "Beacon",
+      "channel": "development",
+      "highlights": [
+        "Development build 5 of 0.2.0 \"Beacon\": multi-cluster Infrastructure health page with capacity outlook, HA and backup alerts, one-click standard alerts, wizard Validate step"
+      ],
+      "notes_url": "https://github.com/agit8or1/office-unbound/blob/main/CHANGELOG.md",
+      "changelog": "CHANGELOG.md"
+    },
     {
       "version": "0.2.0-dev.4",
       "date": "2026-11-17",

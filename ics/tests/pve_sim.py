@@ -88,6 +88,9 @@ class PveSim:
         self.fw_cluster: dict = {}            # GET /cluster/firewall/options
         self.fw_nodes: dict = {}              # node -> {"options": {...}, "rules": [...]}
         self.write_calls: list[tuple[str, str]] = []   # every non-GET request that reached a route
+        self.ha: list[dict] = []              # GET /cluster/ha/status/current entries (type service / lrm)
+        self.backup_vols: list[dict] = []     # {"storage", "vmid", "ctime", "size"}: backup volumes (content=backup)
+        self.vzdump_tasks: list[dict] = []    # GET /cluster/tasks entries of type vzdump
 
     # ---------------- setup helpers ----------------
     def add_role(self, name, privs):
@@ -379,6 +382,7 @@ class PveSim:
             R("GET", r"/version", self.r_version), R("GET", r"/cluster/status", self.r_cluster_status),
             R("GET", r"/cluster/resources", self.r_resources), R("GET", r"/cluster/nextid", self.r_nextid), R("GET", r"/cluster/log", self.r_cluster_log),
             R("GET", r"/cluster/firewall/options", lambda *a: dict(self.fw_cluster)),
+            R("GET", r"/cluster/ha/status/current", self.r_ha), R("GET", r"/cluster/tasks", self.r_cluster_tasks),
             R("GET", r"/nodes/([^/]+)/firewall/options", lambda tid, q, f, n: dict(self.fw_nodes.get(n, {}).get("options", {}))),
             R("GET", r"/nodes/([^/]+)/firewall/rules", lambda tid, q, f, n: list(self.fw_nodes.get(n, {}).get("rules", []))),
             R("GET", r"/nodes", self.r_nodes), R("GET", r"/pools/([^/]+)", self.r_pool), R("GET", r"/storage", self.r_storage_cfg),
@@ -492,10 +496,21 @@ class PveSim:
                 for s in self.storages.values() if node in s["nodes"]
                 and self.can(tid, "storage", s["storage"], "Datastore.Audit", "Datastore.AllocateSpace")]
 
+    def r_ha(self, tid, q, f):
+        self.need(tid, "root", None, "Sys.Audit")
+        return [{"id": "quorum", "type": "quorum", "status": "OK", "quorate": int(self.quorate)}] + [dict(x) for x in self.ha]
+
+    def r_cluster_tasks(self, tid, q, f):     # like PVE: only tasks on nodes the caller may audit
+        return [dict(t) for t in self.vzdump_tasks if self.can(tid, "node", t["node"], "Sys.Audit")]
+
     def r_content(self, tid, q, f, node, storage):
         if storage not in self.storages or node not in self.storages[storage]["nodes"]:
             raise HTTPErr(500, f"storage '{storage}' does not exist")
         self.need(tid, "storage", storage, "Datastore.Audit") if not self.can(tid, "storage", storage, "Datastore.AllocateSpace") else None
+        if q.get("content") == "backup":
+            return [{"volid": f"{storage}:backup/vzdump-qemu-{b['vmid']}-{b['ctime']}.vma.zst", "vmid": b["vmid"], "ctime": b["ctime"],
+                     "size": b.get("size", 1 << 30), "format": "vma.zst", "content": "backup"}
+                    for b in self.backup_vols if b["storage"] == storage and self.can(tid, "vm", b["vmid"], "VM.Audit")]
         out = []
         for vm in self.vms.values():
             for k, v in vm["cfg"].items():

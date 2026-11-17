@@ -30,6 +30,7 @@ export const NAV: NavGroup[] = [
     { label: 'Releases', to: '/releases', icon: 'refresh', min: 'viewer' },
   ] },
   { title: 'Monitoring', items: [
+    { label: 'Infrastructure health', to: '/monitoring/infrastructure', icon: 'server' },
     { label: 'Health checks', to: '/checks', icon: 'check' },
     { label: 'Utilization', to: '/utilization', icon: 'activity' },
     { label: 'Incidents', to: '/incidents', icon: 'bell', badge: 'incidents' },

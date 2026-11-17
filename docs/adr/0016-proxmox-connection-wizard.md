@@ -82,3 +82,10 @@ What was missing:
 5. Deployment target picker from authorized scope; docs; e2e.
 
 Every phase is simulator-tested first. Real-cluster evidence comes from pve06, once the owner connects it.
+
+## Amendment 2026-11-17: read-only cluster monitoring, HA and backups, Validate step
+
+- **Monitoring scope** is a separate choice from deployment: *selected nodes* or *whole cluster, read-only* (`policy.monitor_cluster`). The latter grants a role with exactly `Sys.Audit, VM.Audit, Datastore.Audit, Pool.Audit` at `/` to the **read (inventory) token only**. The write token keeps its pool / storage / network ACLs and never gets anything at `/`. Monitoring alone never creates a write token. Post-apply verification accepts exactly those read-only rights at `/` for the read token and still fails on anything more. Tests: `tests/test_manage_access.py` (3 cluster-monitoring tests).
+- **HA and backup visibility** (migration 0018h): discovery reads `/cluster/ha/status/current`, backup volumes (`content=backup`) on backup storage the read token can audit, and `/cluster/tasks` (vzdump). All are GET requests with the read token. A permission denial is recorded as "not visible", not as a warning, and `infra_collect_state.complete` lists what was fully read. The alert rules `cluster_quorum`, `ha_state`, `backup_age` and `backup_failed` therefore report **no data** instead of a false "no backup". Tests: `tests/test_infra_ha_backups.py`.
+- **Wizard steps:** Connect → Discover (hypervisor nodes) → Deployment targets → Permissions → Review (read-only dry run; Apply is separate and explicit) → **Validate** (what Proxmox reports each new token can do, missing / unexpected rights) → Done. The apply job itself fails and rolls back if validation fails. The Validate step shows the result; it does not replace that check.
+- **Enforcement labels:** the Permissions step separates *Can observe / Can modify / Never allowed*. Each line says whether Proxmox RBAC, Office Unbound or both enforce it. Two items are Office Unbound only: deleting its own guests (`VM.Allocate` on the pool also allows delete) and refusing guests moved into its pool.

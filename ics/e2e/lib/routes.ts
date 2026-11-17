@@ -15,6 +15,7 @@ export const ROUTES: R[] = [
   { id: 'releases', title: 'Releases', min: 'viewer', key: true },
   { id: 'maintenance', title: 'Maintenance', min: 'viewer' },
   { id: 'checks', title: 'Health checks', min: 'viewer', key: true },
+  { id: 'monitoring/infrastructure', title: 'Infrastructure health', min: 'viewer' },
   { id: 'utilization', title: 'Utilization', min: 'viewer' },
   { id: 'incidents', title: 'Incidents', min: 'viewer', key: true },
   { id: 'users', title: 'Users & roles', min: 'viewer', key: true },

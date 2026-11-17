@@ -8,6 +8,12 @@ Rules (target = a node name / VMID / storage name, or "*" for every one the read
   node_cpu         node CPU % >= warn_pct / crit_pct
   node_memory      node memory % >= warn_pct / crit_pct
   storage_used     storage used % >= warn_pct / crit_pct; an inactive storage is critical
+  cluster_quorum   the cluster has lost quorum
+  ha_state         an HA service is in error / fence / recovery (critical) or in transition (warning); an HA LRM reported dead
+  backup_age       newest backup of a guest is older than max_age_hours, or no backup is visible on the readable backup storage
+  backup_failed    a vzdump task finished with an error within the last max_age_hours
+HA and backup rules need the read token to see them (whole-cluster read-only monitoring, or Datastore.Audit on the backup storage):
+without that the rule reports "no data", never "no backup".
 Data older than `stale_after_seconds` is reported as STALE (warning), never as a reading: no value is ever estimated or fabricated.
 """
 from __future__ import annotations
@@ -20,24 +26,29 @@ from uuid import UUID
 from pydantic import BaseModel, ConfigDict, Field, model_validator
 from sqlalchemy import text
 
-RULES = ("node_offline", "guest_stopped", "node_cpu", "node_memory", "storage_used")
+RULES = ("node_offline", "guest_stopped", "node_cpu", "node_memory", "storage_used", "cluster_quorum", "ha_state", "backup_age", "backup_failed")
+_GUEST_RULES = ("guest_stopped", "backup_age", "backup_failed")
+_HA_CRIT, _HA_OK = {"error", "fence", "recovery"}, {"started", "stopped", "disabled", "ignored"}
+_COMPLETE_NEEDED = {"ha_state": "ha", "backup_age": "backups", "backup_failed": "backup_tasks"}
 
 
 class InfraCheckConfig(BaseModel):
     model_config = ConfigDict(extra="forbid")
     endpoint_id: UUID
-    rule: Literal["node_offline", "guest_stopped", "node_cpu", "node_memory", "storage_used"]
+    rule: Literal["node_offline", "guest_stopped", "node_cpu", "node_memory", "storage_used", "cluster_quorum", "ha_state", "backup_age",
+                  "backup_failed"]
     target: str = Field(default="*", max_length=64)
     warn_pct: int = Field(default=85, ge=1, le=100)
     crit_pct: int = Field(default=95, ge=1, le=100)
     stale_after_seconds: int = Field(default=900, ge=120, le=86400)
+    max_age_hours: int = Field(default=26, ge=1, le=2160)
 
     @model_validator(mode="after")
     def _v(self):
         if self.target != "*" and not re.fullmatch(r"[A-Za-z0-9][A-Za-z0-9_.-]{0,62}", self.target):
             raise ValueError("target is '*' or a node / VMID / storage name")
-        if self.rule == "guest_stopped" and self.target != "*" and not self.target.isdigit():
-            raise ValueError("guest_stopped targets a VMID or '*'")
+        if self.rule in _GUEST_RULES and self.target != "*" and not self.target.isdigit():
+            raise ValueError(f"{self.rule} targets a VMID or '*'")
         if self.warn_pct > self.crit_pct:
             raise ValueError("warn_pct must not exceed crit_pct")
         return self
@@ -53,7 +64,31 @@ def evaluate(rt, cfg: dict):
     now = datetime.now(timezone.utc)
     q = {"e": str(c.endpoint_id), "t": c.target}
     with rt.session() as db:
-        if c.rule in ("node_offline", "node_cpu", "node_memory"):
+        need = _COMPLETE_NEEDED.get(c.rule)
+        if need:
+            comp = db.execute(text("SELECT complete FROM infra_collect_state WHERE endpoint_id = :e"), q).scalar()
+            if need not in (comp or []):
+                return Outcome("warning", f"no {need.replace('_', ' ')} data: the read token cannot see it (enable whole-cluster read-only "
+                               "monitoring, or grant Datastore.Audit on the backup storage)", None, {"cause": "no_data", "rule": c.rule})
+        if c.rule == "cluster_quorum":
+            rows = db.execute(text("SELECT name AS key, quorate, observed_at FROM infra_clusters WHERE endpoint_id = :e"), q).all()
+        elif c.rule == "ha_state":
+            rows = db.execute(text("SELECT sid AS key, kind, node, state, observed_at FROM infra_ha WHERE endpoint_id = :e AND (:t = '*' OR sid = :t "
+                                   "OR sid LIKE '%:' || :t OR node = :t) ORDER BY sid"), q).all()
+            if not rows and c.target == "*":
+                return Outcome("ok", "no HA resources configured", None, {"rule": c.rule, "ok": 0})
+        elif c.rule == "backup_age":
+            rows = db.execute(text("SELECT g.vmid::text AS key, g.name, g.observed_at, b.last_at, b.storage FROM infra_guests g LEFT JOIN infra_backups b "
+                                   "ON b.endpoint_id = g.endpoint_id AND b.vmid = g.vmid WHERE g.endpoint_id = :e AND (:t = '*' OR g.vmid::text = :t) "
+                                   "ORDER BY g.vmid"), q).all()
+        elif c.rule == "backup_failed":
+            rows = db.execute(text("SELECT upid AS key, node, vmid, status, ended_at, observed_at FROM infra_backup_tasks WHERE endpoint_id = :e "
+                                   "AND (:t = '*' OR vmid = :t) AND ended_at > now() - make_interval(hours => :h) ORDER BY ended_at"),
+                              {**q, "h": c.max_age_hours}).all()
+            if not rows:
+                return Outcome("ok", f"no backup task finished in the last {c.max_age_hours} h", None,
+                               {"rule": c.rule, "ok": 0})
+        elif c.rule in ("node_offline", "node_cpu", "node_memory"):
             rows = db.execute(text("SELECT name AS key, status, cpu_pct, mem_used, mem_total, observed_at FROM infra_nodes WHERE endpoint_id = :e "
                                    "AND (:t = '*' OR name = :t) ORDER BY name"), q).all()
         elif c.rule == "guest_stopped":
@@ -72,7 +107,39 @@ def evaluate(rt, cfg: dict):
         if age is None or age > c.stale_after_seconds:
             stale.append(f"{label} (last data {int(age // 60) if age is not None else '?'} min ago)")
             continue
-        if c.rule == "node_offline":
+        if c.rule == "cluster_quorum":
+            if r.quorate is False:
+                crit.append(f"cluster {label} has lost quorum")
+            else:
+                ok += 1
+        elif c.rule == "ha_state":
+            st = (r.state or "").split(" ")[0].lower()
+            if r.kind == "lrm":
+                if "dead" in (r.state or "").lower() or "old timestamp" in (r.state or "").lower():
+                    crit.append(f"HA manager on {r.node} reports {r.state}")
+                else:
+                    ok += 1
+            elif st in _HA_CRIT:
+                crit.append(f"HA {label} on {r.node or '?'} is in state {st}")
+            elif st not in _HA_OK:
+                warn.append(f"HA {label} on {r.node or '?'} is {st}")
+            else:
+                ok += 1
+        elif c.rule == "backup_age":
+            if r.last_at is None:
+                crit.append(f"{label} {r.name or ''} has no visible backup".replace("  ", " "))
+            else:
+                h = (now - r.last_at).total_seconds() / 3600
+                if h > c.max_age_hours:
+                    crit.append(f"{label} {r.name or ''} last backup {int(h)} h ago (> {c.max_age_hours} h)".replace("  ", " "))
+                else:
+                    ok += 1
+        elif c.rule == "backup_failed":
+            if r.status is not None and r.status != "OK":
+                crit.append(f"backup of {r.vmid or 'job'} on {r.node} failed: {r.status[:80]}")
+            else:
+                ok += 1
+        elif c.rule == "node_offline":
             if r.status != "online":
                 crit.append(f"{label} is {r.status}")
             else:

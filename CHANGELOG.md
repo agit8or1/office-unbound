@@ -12,6 +12,12 @@ isolated lab; nothing is production supported ([ROADMAP.md](ROADMAP.md)).
 
 Target: 0.2.0 "Beacon" (alpha readiness: security hardening, production no-SSH deployment, full stack).
 
+### 0.2.0-dev.5 (2026-11-17)
+- **Infrastructure health page** (*Monitoring › Infrastructure health*, `GET /api/v1/infra/overview`): every connected cluster on one page with quorum, nodes, guests, HA, backup coverage, storage with a capacity outlook, data age and the alert rules configured. The outlook is a least-squares trend of recorded storage usage, only with at least 24 h of samples; otherwise it says "insufficient history". Nothing is estimated.
+- **HA and backup monitoring** (migration 0018h): read-only collection of HA service / LRM state, newest backup per guest on readable backup storage and recent vzdump results. New alert rules `cluster_quorum`, `ha_state`, `backup_age`, `backup_failed`; without visibility they report "no data", never "no backup". Evidence: `ics/tests/test_infra_ha_backups.py`.
+- **Add standard alerts**: one click per cluster creates a disclosed set of seven read-only alert rules, each as a normal approved `check.create` plan.
+- **Connection wizard Validate step**: after Apply, shows what Proxmox reports each new token can do (verbs, missing and unexpected rights). ADR-0016 amended.
+
 ### 0.2.0-dev.4 (2026-11-17)
 - **Infrastructure alert rules** (check kind `infra`, migration 0017i): node offline, guest stopped, node CPU / memory and storage-used thresholds (an inactive storage is critical), per node / VMID / storage or `*`. Evaluated from what the inventory and metrics collectors already recorded: no extra Proxmox polling, no agent, nothing installed or executed in guests. Data older than `stale_after_seconds` is reported as STALE, never as a reading; nothing is estimated. Feeds the existing check state machine (flap damping, incidents, escalation, maintenance windows, email / webhook). Evidence: `ics/tests/test_infra_checks.py`.
 

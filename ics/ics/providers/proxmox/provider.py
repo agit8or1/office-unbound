@@ -501,8 +501,71 @@ class ProxmoxProvider:
             d.complete |= {"guests", "templates"}
         except ProviderError as e:
             d.warnings.append(f"guests: {e.message}")
+        self._discover_ha_backups(d)
         d.observed_at = now  # type: ignore[attr-defined]
         return d
+
+    _HA_STATE_LEN = 120
+
+    def _discover_ha_backups(self, d: Discovery) -> None:
+        """Read-only: HA status, the newest backup per guest on backup storage the token can read, recent vzdump results. Each part
+        that cannot be read is a warning and is left out of `complete`, so the alert rules report "no data" instead of "no backup"."""
+        try:
+            for x in self._get("/cluster/ha/status/current") or []:
+                t = x.get("type")
+                if t == "service" and (x.get("sid") or x.get("id")):
+                    d.ha.append({"sid": str(x.get("sid") or x["id"]).removeprefix("service:")[:64], "kind": "service", "node": x.get("node") or "",
+                                 "state": str(x.get("state") or x.get("status") or "unknown")[:self._HA_STATE_LEN],
+                                 "request_state": x.get("request_state")})
+                elif t == "lrm" and x.get("node"):
+                    d.ha.append({"sid": f"lrm:{x['node']}"[:64], "kind": "lrm", "node": x["node"],
+                                 "state": str(x.get("status") or "unknown")[:self._HA_STATE_LEN], "request_state": None})
+            d.complete.add("ha")
+        except ProviderError as e:
+            if e.code != "permission":      # not granted (monitoring of selected nodes only) is a choice, not a fault: HA rules say "no data"
+                d.warnings.append(f"HA status: {e.message}")
+        newest: dict[int, dict] = {}
+        seen, ok = set(), "storage" in d.complete
+        for s in d.storage:
+            if "backup" not in s["content"] or not s["active"] or not s["enabled"]:
+                continue
+            key = s["name"] if s["shared"] else f"{s['name']}@{s['node']}"
+            if key in seen:
+                continue
+            seen.add(key)
+            try:
+                vols = self._get(f"/nodes/{_seg(s['node'])}/storage/{urllib.parse.quote(s['name'], safe='')}/content?content=backup") or []
+            except ProviderError as e:
+                ok = False
+                if e.code != "permission":
+                    d.warnings.append(f"backups on {key}: {e.message}")
+                continue
+            for v in vols:
+                vmid, ct = v.get("vmid"), v.get("ctime")
+                if not isinstance(vmid, int) or isinstance(vmid, bool) or not vmid or not isinstance(ct, (int, float)):
+                    continue
+                cur = newest.get(vmid)
+                if cur is None or ct > cur["_ct"]:
+                    newest[vmid] = {"_ct": ct, "vmid": vmid, "storage": s["name"], "size": v.get("size"),
+                                    "copies": (cur["copies"] if cur else 0) + 1}
+                else:
+                    cur["copies"] += 1
+        d.backups = [{"vmid": b["vmid"], "last_at": datetime.fromtimestamp(b["_ct"], timezone.utc), "storage": b["storage"],
+                      "size": b["size"] if isinstance(b["size"], int) else None, "copies": b["copies"]} for b in newest.values()]
+        if ok:
+            d.complete.add("backups")
+        try:
+            for t in self._get("/cluster/tasks") or []:
+                if t.get("type") != "vzdump" or not t.get("upid"):
+                    continue
+                ts = lambda k: datetime.fromtimestamp(t[k], timezone.utc) if isinstance(t.get(k), (int, float)) else None  # noqa: E731
+                d.backup_tasks.append({"upid": str(t["upid"])[:200], "node": str(t.get("node") or ""), "vmid": str(t.get("id") or "")[:32],
+                                       "status": None if t.get("status") is None else str(t["status"])[:200],
+                                       "started_at": ts("starttime"), "ended_at": ts("endtime")})
+            d.complete.add("backup_tasks")
+        except ProviderError as e:
+            if e.code != "permission":
+                d.warnings.append(f"backup tasks: {e.message}")
 
     def _provisioned(self, node: str, s: dict) -> int | None:
         """Sum of the sizes of the VISIBLE volumes on a storage (virtual size). Incomplete if the token cannot see every guest, so

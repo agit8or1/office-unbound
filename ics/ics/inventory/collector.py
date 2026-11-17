@@ -28,9 +28,13 @@ _UPSERT = {
     "infra_guests": (["vmid", "kind", "node", "name", "status", "tags", "pool", "ou_managed", "ou_deployment_id", "cpus", "mem_max",
                       "disk_max", "uptime", "cpu_pct", "mem_used"], ["endpoint_id", "vmid"]),
     "infra_templates": (["vmid", "kind", "node", "name", "pool", "tags", "disk_max"], ["endpoint_id", "vmid"]),
+    "infra_ha": (["sid", "kind", "node", "state", "request_state"], ["endpoint_id", "sid"]),
+    "infra_backups": (["vmid", "last_at", "storage", "size", "copies"], ["endpoint_id", "vmid"]),
+    "infra_backup_tasks": (["upid", "node", "vmid", "status", "started_at", "ended_at"], ["endpoint_id", "upid"]),
 }
 _KIND_TABLE = {"clusters": "infra_clusters", "nodes": "infra_nodes", "storage": "infra_storage", "networks": "infra_networks",
-               "guests": "infra_guests", "templates": "infra_templates"}
+               "guests": "infra_guests", "templates": "infra_templates",
+               "ha": "infra_ha", "backups": "infra_backups", "backup_tasks": "infra_backup_tasks"}
 
 
 def _upsert(db: Session, table: str, endpoint_id: str, rows: list[dict], now: datetime) -> None:
@@ -81,6 +85,7 @@ def collect_discovery(rt: Runtime, db: Session, endpoint_id, known: list[str] | 
     changes = ledger.reconcile(db, eid, set(disc.complete))     # new / missing / moved / renamed (never grants access)
     _storage_samples(db, eid, now)
     _state(db, eid, ok=True, error=None, warnings=disc.warnings, counts=counts)
+    db.execute(text("UPDATE infra_collect_state SET complete = :c WHERE endpoint_id = :e"), {"c": sorted(disc.complete), "e": eid})
     db.commit()
     return {"ok": True, "counts": counts, "warnings": disc.warnings, "changes": changes}
 

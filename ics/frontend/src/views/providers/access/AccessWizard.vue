@@ -65,6 +65,7 @@ const steps: StepDef<unknown>[] = [
   { id: 'targets', title: 'Deployment targets' },
   { id: 'permissions', title: 'Permissions', validate: () => { const e = { ...errs.value }; delete e.select; return sel.operate.length || sel.nodes.length ? e : { level: 'Select at least one node.' } } },
   { id: 'review', title: 'Review', validate: (): Errors => (st.ok ? {} : { review: 'Preview the change first.' }) },
+  { id: 'validate', title: 'Validate' },
   { id: 'done', title: 'Done' },
 ]
 const w = useWizard(steps, {})
@@ -147,6 +148,13 @@ async function apply() {
   const j = await applyRun.start(edit.value ? 'provider.scope.change' : 'provider.provision.apply', params)
   if (j?.status === 'succeeded') { done.value = j.result as Record<string, unknown>; w.next() }
 }
+type VerifRow = { ok: boolean; verbs: { verb: string; ok: boolean }[]; missing: { path: string; privileges: string[] }[]; unexpected: { path: string; privileges: string[] }[]; scope_reach?: unknown[] }
+const verification = computed(() => {
+  const v = (done.value?.verification ?? null) as Record<string, VerifRow | boolean> | null
+  if (!v) return null
+  const tokens = Object.entries(v).filter(([k]) => k !== 'ok').map(([k, r]) => ({ kind: k, label: k === 'inventory' ? 'Read token (monitoring)' : k === 'provision' ? 'Write token (deployment)' : k, r: r as VerifRow }))
+  return { ok: v.ok === true, tokens }
+})
 const scopeDiff = computed(() => (preview.value?.scope as { diff?: Record<string, unknown>; impact?: { notes?: string[] } } | undefined))
 const blockedList = computed<string[]>(() => (!preview.value ? [] : edit.value ? (preview.value.blocked as string[]) ?? [] : (preview.value.plan as { blocked: string[] })?.blocked ?? []))
 function next() {
@@ -160,7 +168,7 @@ function next() {
     <WizardShell :title="edit ? 'Manage access' : 'Connect a Proxmox cluster'"
       :subtitle="edit ? 'Add or remove resources and change what Office Unbound may do. Existing access is kept unless you change it.' : 'Sign in, pick exactly what Office Unbound may use, and it sets up its own restricted access. Nothing changes in Proxmox until approved.'"
       :steps="steps.map((s) => ({ id: s.id, title: s.title }))" :index="w.m.index" :reached="w.m.reached" :busy="busy || previewRun.busy.value || applyRun.busy.value"
-      :hide-next="cur === 'connect' || cur === 'review' || cur === 'done'" :next-label="cur === 'permissions' ? 'Review' : 'Next'" @next="next" @back="w.back()" @goto="w.goto($event)">
+      :hide-next="cur === 'connect' || cur === 'review' || cur === 'done'" :next-label="cur === 'permissions' ? 'Review' : cur === 'validate' ? 'Finish' : 'Next'" @next="next" @back="w.back()" @goto="w.goto($event)">
 
       <!-- 1. Connect / sign in -->
       <section v-if="cur === 'connect'" class="ax-step">
@@ -314,6 +322,23 @@ function next() {
       </section>
 
       <!-- 6. Done -->
+      <section v-else-if="cur === 'validate'" class="ax-step" aria-labelledby="ax-val-h">
+        <h2 id="ax-val-h">Validation</h2>
+        <p class="muted">After applying, Office Unbound signed in with each of its new tokens and asked Proxmox what they can actually do. The result below is what Proxmox reported, not what was intended.</p>
+        <Banner v-if="!verification" kind="warn" title="No validation result">The change finished but returned no validation result. Open Permissions to run the check again.</Banner>
+        <template v-else>
+          <Banner :kind="verification.ok ? 'ok' : 'bad'" :title="verification.ok ? 'Proxmox confirms the exact permissions' : 'Validation failed'">{{ verification.ok ? 'Every token can do what it needs and nothing more.' : 'A token has rights it should not have, or lacks one it needs. Review Permissions.' }}</Banner>
+          <div v-for="t in verification.tokens" :key="t.kind" class="card ax-val">
+            <h3>{{ t.label }} <span class="badge" :class="t.r.ok ? 'ok' : 'bad'">{{ t.r.ok ? 'Verified' : 'Problem' }}</span></h3>
+            <ul class="ax-val-verbs"><li v-for="vb in t.r.verbs" :key="vb.verb"><span class="badge" :class="vb.ok ? 'ok' : 'bad'">{{ vb.ok ? 'OK' : 'Missing' }}</span> {{ vb.verb }}</li></ul>
+            <p v-if="t.r.missing.length" class="small">Missing: <span v-for="m in t.r.missing" :key="m.path + m.privileges.join()" class="mono">{{ m.path }} {{ m.privileges.join(', ') }}; </span></p>
+            <p v-if="t.r.unexpected.length" class="small">Not expected: <span v-for="m in t.r.unexpected" :key="m.path + m.privileges.join()" class="mono">{{ m.path }} {{ m.privileges.join(', ') }}; </span></p>
+            <p v-if="!t.r.missing.length && !t.r.unexpected.length" class="muted small">No missing and no extra rights.</p>
+          </div>
+          <p class="muted small">Your Proxmox sign-in was used for this change only and has been discarded.</p>
+        </template>
+      </section>
+
       <section v-else-if="cur === 'done'" class="ax-step pv-done">
         <div class="pv-bigcheck" aria-hidden="true">&#10003;</div>
         <h2>{{ edit ? 'Access updated' : 'Connected' }}</h2>
@@ -330,6 +355,8 @@ function next() {
 
 <style scoped>
 .ax-step { display: grid; gap: 14px; }
+.ax-val h3 { display: flex; gap: 8px; align-items: center; margin: 0 0 6px; font-size: 1rem; }
+.ax-val-verbs { list-style: none; padding: 0; margin: 0 0 6px; display: grid; gap: 4px; }
 .ax-form { display: grid; gap: 12px; max-width: 560px; }
 .ax-row { display: flex; flex-wrap: wrap; gap: 12px; } .ax-row .fld { flex: 1 1 160px; }
 .fld { display: grid; gap: 4px; } .fld input, .fld select, .fld textarea { width: 100%; font: inherit; }

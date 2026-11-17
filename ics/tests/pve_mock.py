@@ -66,7 +66,11 @@ class Handler(http.server.BaseHTTPRequestHandler):
         routes = {"/version": "version", "/cluster/status": "cluster_status", "/nodes": "nodes"}
         if p in routes:
             return self._file(routes[p])
+        if p in ("/cluster/ha/status/current", "/cluster/tasks"):
+            return self._send(200, {"data": []})
         parts = p.strip("/").split("/")
+        if len(parts) == 5 and parts[0] == "nodes" and parts[2] == "storage" and parts[4] == "content":
+            return self._send(200, {"data": []})
         if len(parts) == 3 and parts[0] == "nodes" and parts[2] in ("qemu", "lxc", "storage", "network"):
             if parts[1] != "pve1":
                 return self._send(500, {"data": None})
