@@ -12,6 +12,9 @@ isolated lab; nothing is production supported ([ROADMAP.md](ROADMAP.md)).
 
 Target: 0.2.0 "Beacon" (alpha readiness: security hardening, production no-SSH deployment, full stack).
 
+### 0.2.0-dev.4 (2026-11-17)
+- **Infrastructure alert rules** (check kind `infra`, migration 0017i): node offline, guest stopped, node CPU / memory and storage-used thresholds (an inactive storage is critical), per node / VMID / storage or `*`. Evaluated from what the inventory and metrics collectors already recorded: no extra Proxmox polling, no agent, nothing installed or executed in guests. Data older than `stale_after_seconds` is reported as STALE, never as a reading; nothing is estimated. Feeds the existing check state machine (flap damping, incidents, escalation, maintenance windows, email / webhook). Evidence: `ics/tests/test_infra_checks.py`.
+
 ### 0.2.0-dev.3 (2026-11-16)
 - **Read-only cluster monitoring** (`monitor_cluster`): a separate choice ("only the selected nodes" / "the whole cluster, read-only"). It grants an audit-only role (Sys.Audit, VM.Audit, Datastore.Audit, Pool.Audit) at `/` to the READ token only; the write token stays confined to its pool, storage and network; monitoring alone never creates a write token; post-setup verification accepts exactly those read-only rights and still refuses anything more; node metrics then cover every online node. Can be switched on later through Manage access without touching deployment rights.
 - **Permissions screen**: "Can observe / Can modify / Never allowed", each line labelled with who enforces it (Proxmox RBAC, Office Unbound, or both) and the real node, pool, storage and network names; levels renamed "Monitoring (read-only)" and "Deployment + Monitoring"; the Review step shows the cluster, address, signed-in user and a compact summary, and states that Calculate is a dry run.

@@ -3,10 +3,22 @@
   "schema_doc": "docs/progress-schema.md",
   "project": "Office Unbound",
   "repository": "https://github.com/agit8or1/office-unbound",
-  "updated": "2026-11-16",
+  "updated": "2026-11-17",
   "stage": "pre-alpha (lab)",
-  "current_version": "0.2.0-dev.3",
+  "current_version": "0.2.0-dev.4",
   "releases": [
+    {
+      "version": "0.2.0-dev.4",
+      "date": "2026-11-17",
+      "status": "prepared",
+      "codename": "Beacon",
+      "channel": "development",
+      "highlights": [
+        "Development build 4 of 0.2.0 \"Beacon\": infrastructure alert rules (node offline, guest stopped, CPU / memory / storage) from recorded inventory, stale data flagged"
+      ],
+      "notes_url": "https://github.com/agit8or1/office-unbound/blob/main/CHANGELOG.md",
+      "changelog": "CHANGELOG.md"
+    },
     {
       "version": "0.2.0-dev.3",
       "date": "2026-11-16",
