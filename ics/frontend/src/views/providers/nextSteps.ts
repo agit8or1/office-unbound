@@ -73,7 +73,7 @@ function deployStep(x: NsInput, image: NextStep): NextStep {
   const s: NextStep = { id: 'deploy', title: 'Deploy the first service', state: 'unknown', reason: 'Could not read the deployments.', to: '/deployments/new', action: 'Start a deployment' }
   if (!x.deployments) return s
   const all = x.deployments.filter((d) => d.endpointId === x.ep.id)
-  const mine = all.filter((d) => !['failed', 'removed', 'deleted'].includes(d.status))
+  const mine = all.filter((d) => !['failed', 'destroyed', 'destroying'].includes(d.status))
   if (mine.length) return { ...s, state: 'done', reason: `${mine.length} deployment(s) on this cluster.`, to: '/deployments', action: 'Open deployments' }
   if (all.length) return { ...s, state: 'blocked', reason: `The deployment on this cluster ${all[0]!.status === 'failed' ? 'failed' : 'was removed'}. Open it to see why before starting another.`, to: '/deployments', action: 'Open deployments' }
   if (!x.canDeploy) return { ...s, state: 'blocked', reason: 'Starting a deployment needs the operator role.', to: '/deployments', action: 'Open deployments' }
