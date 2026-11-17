@@ -150,3 +150,51 @@ class Policy(BaseModel):
         if self.preset == "operations" and not s.managed_vmids:
             raise ValueError("the operations preset needs at least one existing guest to operate")
         return self
+
+
+# ---------------------------------------------------------------------------------------------------- conflict choices (ADR-0016 amendment)
+ChoiceAction = Literal["use_existing", "overwrite", "recreate", "create_new"]
+_CHOICE_TARGET = r"^[A-Za-z0-9][A-Za-z0-9_.@!-]{0,130}$"
+_CLEANUP_ID = r"^(role|user|token|pool|acl):[A-Za-z0-9/._:@!|+-]{1,300}$"
+
+
+class ConflictChoice(BaseModel):
+    """What to do with ONE pre-existing object that collides with the plan. The planner lists which actions are available for each
+    conflict (and why the others are not); the server re-checks the choice against the cluster at preview AND at apply."""
+    model_config = ConfigDict(extra="forbid")
+    kind: Literal["role", "user", "token"]
+    target: str = Field(pattern=_CHOICE_TARGET, description="role name, user id (name@pve) or full token id (name@pve!token) as listed by the planner")
+    action: ChoiceAction
+    acknowledge_shared: bool = Field(default=False, description="overwrite only: the role is also used by ACL entries Office Unbound did not create; "
+                                                                "their rights change too and you accept that")
+
+
+class ConflictChoices(BaseModel):
+    """Typed decisions for conflicting pre-existing objects and for leftovers of failed earlier attempts. Part of the preview request and
+    bound into the plan hash, so Apply executes exactly the disclosed choices."""
+    model_config = ConfigDict(extra="forbid")
+    items: list[ConflictChoice] = Field(default_factory=list, max_length=50)
+    cleanup: list[str] = Field(default_factory=list, max_length=200,
+                               description="ids of detected Office Unbound leftovers to remove ('role:<name>', 'user:<id>', 'token:<id>', 'pool:<id>', "
+                                           "'acl:<path>|<subject>|<role>') exactly as the planner listed them")
+
+    @field_validator("cleanup")
+    @classmethod
+    def _cl(cls, v):
+        if any(not re.match(_CLEANUP_ID, x) for x in v):
+            raise ValueError("cleanup entries must be leftover ids as listed by the planner")
+        return sorted(set(v))
+
+    @model_validator(mode="after")
+    def _uniq(self):
+        keys = [(c.kind, c.target) for c in self.items]
+        if len(keys) != len(set(keys)):
+            raise ValueError("one choice per conflicting object")
+        self.items = sorted(self.items, key=lambda c: (c.kind, c.target))
+        return self
+
+    def get(self, kind: str, target: str) -> ConflictChoice | None:
+        return next((c for c in self.items if c.kind == kind and c.target == target), None)
+
+    def empty(self) -> bool:
+        return not self.items and not self.cleanup
