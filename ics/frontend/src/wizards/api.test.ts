@@ -69,4 +69,22 @@ describe('DeployWizard component', () => {
     expect(calls.some((c) => c.method === 'POST')).toBe(false)
     app.unmount()
   })
+  it('live summary shows the API VM count and only dry-run sizing calls are made', async () => {
+    const vms = [1, 2, 3, 4].map((i) => ({ name: `d-${i}`, logical: `l${i}`, services: ['mail'], components: ['groupware'], cores: 2, memory_mb: 2048, disk_gb: 10, disks: [], node: 'pve1', depends_on: [] }))
+    const ep = { id: 'e1', name: 'lab', type: 'proxmox', base_url: 'https://x', enabled: true, credentials: { inventory: { present: true }, provision: { present: true } }, scope: { allowed_pools: ['ou'], allowed_nodes: ['pve1'], allowed_storage: [], allowed_networks: [] } }
+    const size = { deployment_type: 'production', services: ['mail'], components: [], service_catalog: [{ id: 'mail', components: ['groupware'] }], errors: [], writes: 'none',
+      architectures: [{ id: 'balanced', available: true, why_not: null, vms: 4, fits: true }, { id: 'ha', available: false, why_not: 'no replication' }],
+      recommended: { architecture: 'balanced', vms: 4, text: '' }, selected: 'balanced', vms, totals: { vms: 4, cores: 8, memory_mb: 8192, disk_gb: 40 }, fits: true,
+      capacity: { available: { vcpu: 32, memory_mb: 65536, storage_gb: 500 }, headroom: { vcpu: 24, memory_mb: 57344, storage_gb: 460, memory_pct: 87 }, nodes: [] } }
+    const calls = stubFetch({ 'GET /api/v1/endpoints': { body: [ep] }, 'POST /api/v1/deployments/size': { body: size } })
+    const el = document.createElement('div'); document.body.appendChild(el)
+    const app = createApp(DeployWizard); app.mount(el)
+    await new Promise((r) => setTimeout(r, 700)); await nextTick()
+    const stats = el.querySelector('.dw-stats')!.textContent!
+    expect(stats).toMatch(/VMs\s*4/)
+    expect(el.textContent).toContain('Recommended: 4 VMs based on your selected services and available infrastructure')
+    expect(calls.filter((c) => c.method === 'POST').map((c) => c.url)).toEqual(['/api/v1/deployments/size'])
+    expect(JSON.parse(calls.find((c) => c.method === 'POST')!.body!).services).toEqual(['calendar', 'contacts', 'files', 'mail', 'office'])
+    app.unmount()
+  })
 })
