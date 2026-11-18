@@ -3,8 +3,15 @@ version: 1.0.0
 title: Groupware (gromox stack, package-based)
 description: Mail/calendar/contacts (gromox + web + postfix + MariaDB), built by Office Unbound and installed from the OB apt repo (ADR-0003/0008).
 artifacts:
-  - {name: gromox, kind: package, package: ou-gromox, version: "2.40-ou1", repo: ob-apt-stable}
-  - {name: groupware-web, kind: package, package: ou-groupware-web, version: "1.0-ou1", repo: ob-apt-stable}
+  # Office Unbound packages from the DEV release channel (owner decision for the beta: dev signing key/channel), served by the ICS artifact service
+  # (ADR-0015). Versions = what the package pipeline built and the dev channel holds (blueprints/build, /var/lib/office-unbound/pkgbuild/repo).
+  # KNOWN GAP: these 3.13-ou2 builds are Debian 12 binaries (Depends libldap-2.5-0, libtinyxml2-9, phpapi-20220829 = PHP 8.2), which Ubuntu 24.04
+  # (noble) does not ship; groupware on an Ubuntu 24.04 guest needs a noble rebuild of gromox/php-mapi before it can install.
+  - {name: gromox, kind: package, package: ou-gromox, version: "3.13-ou2", repo: ob-apt-dev}
+  - {name: gromox-php-mapi, kind: package, package: ou-gromox-php-mapi, version: "3.13-ou2", repo: ob-apt-dev}
+  - {name: groupware-web, kind: package, package: ou-grommunio-web, version: "5.2-ou2", repo: ob-apt-dev}
+  - {name: groupware-dav, kind: package, package: ou-grommunio-dav, version: "1.9-ou1", repo: ob-apt-dev}
+  - {name: groupware-sync, kind: package, package: ou-grommunio-sync, version: "2.7-ou1", repo: ob-apt-dev}
   - {name: mariadb, kind: package, package: mariadb-server, version: "10.11.13", repo: ubuntu-noble}
   - {name: postfix, kind: package, package: postfix, version: "3.8.6", repo: ubuntu-noble}
 resources:

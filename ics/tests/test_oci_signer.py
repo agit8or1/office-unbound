@@ -219,6 +219,58 @@ def test_registry_checks_digest_must_exist_hash_must_match_blobs_present_tag_not
     assert box.sign(files).returncode == 0
 
 
+def _ca_and_cert(d, ip="127.0.0.1"):
+    """private CA + server certificate for `ip` (openssl), like the artifact service of ADR-0015"""
+    run = lambda *a: subprocess.run(["openssl", *a], check=True, capture_output=True)  # noqa: E731
+    run("req", "-x509", "-newkey", "ec", "-pkeyopt", "ec_paramgen_curve:prime256v1", "-nodes", "-days", "2", "-subj", "/CN=test CA",
+        "-addext", "basicConstraints=critical,CA:TRUE", "-addext", "keyUsage=critical,keyCertSign", "-keyout", str(d / "ca.key"), "-out", str(d / "ca.crt"))
+    run("req", "-newkey", "ec", "-pkeyopt", "ec_paramgen_curve:prime256v1", "-nodes", "-subj", "/CN=" + ip, "-keyout", str(d / "srv.key"), "-out", str(d / "srv.csr"))
+    (d / "ext").write_text("subjectAltName=IP:%s\nbasicConstraints=critical,CA:FALSE\nextendedKeyUsage=serverAuth\n" % ip)
+    run("x509", "-req", "-in", str(d / "srv.csr"), "-CA", str(d / "ca.crt"), "-CAkey", str(d / "ca.key"), "-CAcreateserial", "-days", "2",
+        "-extfile", str(d / "ext"), "-out", str(d / "srv.crt"))
+
+
+def test_https_registry_with_a_pinned_ca_names_that_registry_and_never_falls_back_to_http(box, tmp_path):
+    """ADR-0015: trust/registry-ca.pem makes the signer read trust/registry over verified HTTPS (the artifact service guests pull from), so the
+    signed identity is that host. A wrong CA or a plain-HTTP server is refused; there is no fallback to HTTP."""
+    import ssl
+    d = tmp_path / "tls"
+    d.mkdir()
+    _ca_and_cert(d)
+    tls = Registry()
+    ctx = ssl.SSLContext(ssl.PROTOCOL_TLS_SERVER)
+    ctx.load_cert_chain(str(d / "srv.crt"), str(d / "srv.key"))
+    tls.srv.socket = ctx.wrap_socket(tls.srv.socket, server_side=True)
+    try:
+        box.reg.srv.shutdown()
+        box.reg = tls                                        # attestation/sbom/request now describe the TLS registry's image
+        box.sbom = box.make_sbom(tls.digest)
+        env = dict(box.env)
+        env.pop("OU_OCISIGN_REGISTRY_URL")
+        t = box.state / "trust"
+        (t / "registry").write_text(tls.addr + "\n")
+        (t / "registry-ca.pem").write_text((d / "ca.crt").read_text())
+        os.chmod(t / "registry-ca.pem", 0o644)
+        os.chmod(t / "registry", 0o644)
+        files, _ = box.dev_files()
+        r = subprocess.run([sys.executable, "-I", SIGNER, "sign"], input=tar_of(files), env=env, capture_output=True)
+        assert r.returncode == 0, r.stderr
+        ok, payload = box.verifies(r.stdout, "dev")
+        assert ok and payload["critical"]["identity"]["docker-reference"] == tls.addr + "/" + REPO
+        _ca_and_cert(tmp_path)                               # another CA: verification fails -> refused, nothing signed
+        (t / "registry-ca.pem").write_text((tmp_path / "ca.crt").read_text())
+        r = subprocess.run([sys.executable, "-I", SIGNER, "sign"], input=tar_of(files), env=env, capture_output=True)
+        assert r.returncode == 4 and b"not reachable" in r.stderr and not r.stdout
+        plain = Registry()                                   # CA pinned but the registry speaks plain HTTP: no fallback
+        (t / "registry").write_text(plain.addr + "\n")
+        (t / "registry-ca.pem").write_text((d / "ca.crt").read_text())
+        r = subprocess.run([sys.executable, "-I", SIGNER, "sign"], input=tar_of(files), env=env, capture_output=True)
+        assert r.returncode == 4 and not r.stdout
+        plain.srv.shutdown()
+    finally:
+        tls.srv.shutdown()
+
+
 def test_sbom_must_describe_this_image_and_be_bound_by_hash(box):
     files, att = box.dev_files()
     refused(box.sign(dict(files, **{"sbom.cdx.json": box.sbom + b" "})), "hash mismatch")                         # not the SBOM the scan was made on

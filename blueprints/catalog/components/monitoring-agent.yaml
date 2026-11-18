@@ -4,7 +4,8 @@ title: Node agent (monitoring + runbooks)
 description: ICS node agent installed on every VM by cloud-init; required for enrollment, runbooks and checks (ADR-0002, ics/agent).
 placement: every_vm
 artifacts:
-  - {name: ou-agent, kind: package, package: ou-agent, version: "0.1.0-ou1", repo: ob-apt-stable}
+  # the node agent package as built and released (ou-node-agent 0.4.0-ou1, admitted to the dev ledger 2026-11-16, sha256 48131f2b...); dev channel (beta)
+  - {name: ou-agent, kind: package, package: ou-node-agent, version: "0.4.0-ou1", repo: ob-apt-dev}
 resources:
   cores:     {base: 0,  per_user: 0, source: "negligible"}
   memory_mb: {base: 64, per_user: 0, source: "Python stdlib HTTPS server (ics/agent)"}
