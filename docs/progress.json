@@ -5,8 +5,20 @@
   "repository": "https://github.com/agit8or1/office-unbound",
   "updated": "2026-11-18",
   "stage": "pre-alpha (lab)",
-  "current_version": "0.2.0-dev.8",
+  "current_version": "0.3.0",
   "releases": [
+    {
+      "version": "0.3.0",
+      "date": "2026-11-18",
+      "status": "prepared",
+      "codename": "Compass",
+      "channel": "pre-release",
+      "highlights": [
+        "0.3.0 \"Compass\": Proxmox connection wizard (dry run + separate Apply, conflict choices, cleanup, Validate), read-only cluster monitoring, infrastructure health with HA/backup alerts, single-admin approvals"
+      ],
+      "notes_url": "https://github.com/agit8or1/office-unbound/blob/main/CHANGELOG.md",
+      "changelog": "CHANGELOG.md"
+    },
     {
       "version": "0.2.0-dev.8",
       "date": "2026-11-18",

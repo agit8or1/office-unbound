@@ -10,7 +10,9 @@ isolated lab; nothing is production supported ([ROADMAP.md](ROADMAP.md)).
 
 ## [Unreleased]
 
-Target: 0.2.0 "Beacon" (alpha readiness: security hardening, production no-SSH deployment, full stack).
+## [0.3.0] - 2026-11-18
+
+**Office Unbound 0.3.0 "Compass"** (owner decision 2026-11-18: the 0.2 "Beacon" development line, builds 0.2.0-dev.1 to dev.8, is released as 0.3.0). Pre-alpha; deployed to the owner's ICS. Highlights: Proxmox connection wizard with sign-in, dry-run Calculate and separate Apply, conflict choices and cleanup, Validate step, read-only whole-cluster monitoring, permissions screen with enforcement labels, infrastructure health page with HA/backup alerts and capacity outlook, single-admin approvals (ADR-0017), first production golden-image release path, neutral console palette.
 
 ### 0.2.0-dev.8 (2026-11-18)
 - **Fix: oversized info icon on the dashboard** (the guest-visibility note). Icons now default to 1em, so an icon without explicit sizing can no longer fill the page.
@@ -166,5 +168,6 @@ editing, chat/meetings, telephony prototype, migration tooling and package pipel
 - **Review 4** (2 High, 11 Medium, 9 Low; gromox patches, lifecycle, SSO, telephony, migration engine, package pipeline, Collabora) reported. Findings are **open** on `main`; see Unreleased. [report](docs/status/security-review-4-2026-11-15.md)
 - `SECURITY.md` (private reporting) and `CONTRIBUTING.md` (DCO sign-off) added; AGPL-3.0 license. [SECURITY](SECURITY.md)
 
-[Unreleased]: https://github.com/agit8or1/office-unbound/compare/v0.1.0...HEAD
+[Unreleased]: https://github.com/agit8or1/office-unbound/compare/v0.3.0...HEAD
+[0.3.0]: https://github.com/agit8or1/office-unbound/releases/tag/v0.3.0
 [0.1.0]: https://github.com/agit8or1/office-unbound/releases/tag/v0.1.0

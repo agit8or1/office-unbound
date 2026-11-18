@@ -65,7 +65,9 @@ def test_public_version_is_minimal_and_authed_is_full(client, mk_user, login):
     d = c.get("/api/v1/version").json()
     assert d["version"] == ver.__version__ and d["api"] == "v1" and "components" in d and "database" in d["schema"]
     assert d["components"]["ics"] == ver.__version__
-    assert d["codename"] == ver.codename() == "Beacon"
+    vs = json.loads((ROOT / "VERSIONS.json").read_text())
+    line = ".".join(ver.__version__.split(".")[:2])
+    assert d["codename"] == ver.codename() == vs["release_names"][line]      # the current MINOR line's name (0.3 "Compass")
 
 
 def test_system_requires_auth_and_reports_updates(client, mk_user, login):
