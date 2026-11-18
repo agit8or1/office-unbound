@@ -1,8 +1,10 @@
 [Unit]
-Description=Office Unbound apt repository: re-sign all suites (Valid-Until must not lapse) and republish to the read-only repo machine
+Description=Office Unbound apt repository: re-sign all suites (Valid-Until must not lapse) and republish the dev channel to the ICS artifact service
 
 [Service]
 Type=oneshot
 User=administrator
 # the checkout path is the deployed one; the signer itself is reached through the fixed sudoers rule (sudo -u ou-release ou-release-sign)
-ExecStart=/bin/bash -c '/home/administrator/office-unbound/blueprints/build/repo/repo.sh resign-all && /home/administrator/office-unbound/blueprints/build/repo/repo.sh serve'
+ExecStart=/home/administrator/office-unbound/blueprints/build/repo/repo.sh resign-all
+# '+' = runs as root: the publisher is root-only (0750) and writes the artifact tree (ADR-0015); guests pull the dev channel (owner decision 2026-11-18)
+ExecStartPost=+/usr/local/sbin/ou-artifact-publish apt --src /var/lib/office-unbound/pkgbuild/repo --channels dev
