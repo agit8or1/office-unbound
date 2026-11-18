@@ -121,10 +121,16 @@ def test_a_failed_apply_restores_the_previous_content(w, owner, monkeypatch):  #
     assert owner.sim.storages["local"]["content"] == "iso,vztmpl,backup"                    # ... and put back exactly
 
 
-def test_import_storage_that_can_hold_disks_on_other_nodes_stays_blocked(w, owner):  # noqa: F811
+def test_import_storage_that_can_hold_disks_on_other_nodes_is_allowed_upload_only(w, owner):  # noqa: F811
+    """Real cluster (2026-11-18): `local` is a dir storage with images content on every node. As an IMPORT storage it is allowed: the grant has no
+    Datastore.AllocateSpace, so Proxmox refuses VM disks there on any node. As a DEPLOYMENT storage it stays blocked (disks could leave the selection)."""
     owner.sim.add_storage("dirdisks", type_="dir", content="images,import", shared=False, nodes=list(ALL))
     plan = _preview(w, owner, _pol(import_storages=["dirdisks"]))
-    assert any(b.startswith("storage dirdisks is also available on") for b in plan["blocked"]), plan["blocked"]
+    assert not any("dirdisks" in b for b in plan["blocked"]), plan["blocked"]
+    roles = {r["name"]: set(r["privileges"]) for r in plan["roles"]} if "roles" in plan else {}
+    assert not any("Datastore.AllocateSpace" in p and n.endswith("ImageImport") for n, p in roles.items()), roles
+    blocked = _preview(w, owner, _pol(storages=["PVE06-Storage", "dirdisks"]))["blocked"]
+    assert any(b.startswith("storage dirdisks is also available on") for b in blocked), blocked
 
 
 def test_import_storage_only_with_the_deploy_preset():

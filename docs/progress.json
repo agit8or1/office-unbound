@@ -5,8 +5,20 @@
   "repository": "https://github.com/agit8or1/office-unbound",
   "updated": "2026-11-18",
   "stage": "pre-alpha (lab)",
-  "current_version": "0.3.2",
+  "current_version": "0.3.3",
   "releases": [
+    {
+      "version": "0.3.3",
+      "date": "2026-11-18",
+      "status": "prepared",
+      "codename": "Compass",
+      "channel": "pre-release",
+      "highlights": [
+        "0.3.3: image import storage `local` offered and preselected (upload-only grant, never VM disks)"
+      ],
+      "notes_url": "https://github.com/agit8or1/office-unbound/blob/main/CHANGELOG.md",
+      "changelog": "CHANGELOG.md"
+    },
     {
       "version": "0.3.2",
       "date": "2026-11-18",

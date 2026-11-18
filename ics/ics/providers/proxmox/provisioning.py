@@ -450,7 +450,7 @@ def enforcement_matrix(policy: Policy) -> list[EnforcementNote]:
         out.append(E(f"Image import storage {x}", "proxmox",
                      f"Datastore.AllocateTemplate + Datastore.Audit on /storage/{x} for the write token only (upload of signed golden images, content type "
                      f"`import`). The permission covers {x} on every node: Office Unbound can upload import files there on any node; it cannot place VM disks "
-                     f"there (Datastore.AllocateSpace is not granted)."))
+                     f"there, even if {x} also holds disks for other workloads (Datastore.AllocateSpace is not granted, so Proxmox refuses it)."))
     return out + scope_enforcement(policy)
 
 
@@ -530,6 +530,8 @@ def _single_node_checks(plan: ProvisioningPlan, policy: Policy, facts: Facts) ->
         st = facts.storages.get(x)
         if st is None:
             continue
+        if x in s.import_storages and x not in s.storages and x not in s.backup_storages:
+            continue      # import-only: the grant is AllocateTemplate + Audit, never AllocateSpace, so Proxmox refuses any VM disk there on any node
         content = set((st.get("content") or "").split(","))
         if not content & _DISK_CONTENT:
             continue      # backup-only / ISO storage cannot hold VM disks, so it cannot place a guest on another node

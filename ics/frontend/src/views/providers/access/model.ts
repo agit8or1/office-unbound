@@ -78,10 +78,11 @@ export function importCandidates<T extends StorageLike>(storages: T[], nodes: st
     .sort((a, b) => Number(importBlocked(a, nodes)) - Number(importBlocked(b, nodes)) || Number(b.storage === 'local') - Number(a.storage === 'local')
       || Number(needsImportEnable(a)) - Number(needsImportEnable(b)) || Number(holdsDisks(a)) - Number(holdsDisks(b)) || a.storage.localeCompare(b.storage))
 }
-/** Not offered: the storage can hold disks AND exists on nodes outside the selection (same rule as the disk storage picker; the planner refuses it too).
- *  A storage WITHOUT images/rootdir is fine on every node: the upload permission cannot place a VM disk. */
-export function importBlocked(s: StorageLike, nodes: string[]): boolean {
-  return holdsDisks(s) && outsideNodes(s, nodes).length > 0
+/** Import storages are never blocked by the node rule: their grant is Datastore.AllocateTemplate + Audit (no AllocateSpace), so Proxmox refuses a
+ *  VM disk on them on every node, even when the storage also holds disks for other workloads (e.g. `local` with `images`). Kept as a function so
+ *  callers stay unchanged; the deployment-storage picker keeps its own node rule (outsideNodes). */
+export function importBlocked(_s: StorageLike, _nodes: string[]): boolean {
+  return false
 }
 
 export function suggestTargets(sel: Selection, inv: Pick<Inventory, 'storages' | 'networks'>): Partial<Pick<Selection, 'pools' | 'storages' | 'networks' | 'importStorages'>> {

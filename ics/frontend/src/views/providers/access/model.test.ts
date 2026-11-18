@@ -122,16 +122,16 @@ describe('image import storage', () => {
   const diskDir = st('dirdisks', 'images,import', ALL)
   const node06 = st('PVE06-Storage', 'images,rootdir', ['pve06'], 'lvmthin')
   const sel = { ...emptySelection(), nodes: ['pve06'] }
-  it('lists storages with the import content type or a type that supports it; a storage that can hold disks on other nodes is never offered', () => {
+  it('lists storages with the import content type or a type that supports it; a storage that can also hold disks on other nodes is still offered (the import grant cannot place disks)', () => {
     expect(importCandidates([local, node06, diskDir], ['pve06']).map((s) => s.storage)).toEqual(['local', 'dirdisks'])
     expect(importCandidates([st('nfs1', 'backup', ALL, 'nfs'), localNoImport, st('pbs', 'backup', ALL, 'pbs')], ['pve06']).map((s) => s.storage)).toEqual(['local', 'nfs1'])
     expect(importBlocked(local, ['pve06'])).toBe(false)              // on every node, but it cannot place a VM disk
-    expect(importBlocked(diskDir, ['pve06'])).toBe(true)             // images on other nodes: blocked (same rule as the disk storage picker)
+    expect(importBlocked(diskDir, ['pve06'])).toBe(false)            // images on other nodes: still fine as an IMPORT storage (no Datastore.AllocateSpace)
     expect(importBlocked(st('d6', 'images,import', ['pve06']), ['pve06'])).toBe(false)
   })
-  it('preselects the import storage when deploying, never one that could hold disks elsewhere, and never overrides a choice', () => {
+  it('preselects the import storage when deploying (local first, also when it holds disks) and never overrides a choice', () => {
     expect(suggestTargets(sel, { storages: [node06, local], networks: [] }).importStorages).toEqual(['local'])
-    expect(suggestTargets(sel, { storages: [node06, diskDir], networks: [] }).importStorages).toBeUndefined()
+    expect(suggestTargets(sel, { storages: [node06, diskDir], networks: [] }).importStorages).toEqual(['dirdisks'])
     expect(suggestTargets({ ...sel, importStorages: ['mine'] }, { storages: [local], networks: [] }).importStorages).toBeUndefined()
   })
   it('local without import is offered (Office Unbound enables import on it) and preselected; other types are not offered', () => {
