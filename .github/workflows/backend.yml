@@ -17,7 +17,7 @@ jobs:
     # Debian 12 ships Python 3.11 and is a supported platform: the whole suite runs on 3.11 and 3.12
     name: test (python ${{ matrix.python }})
     runs-on: ubuntu-24.04
-    timeout-minutes: 30
+    timeout-minutes: 60   # the suite takes ~25-32 min on hosted runners (3.11 is slower)
     strategy:
       fail-fast: false
       matrix:
