@@ -25,7 +25,8 @@ and REFUSES unless ALL hold:
 It prints a tar with payload.json and signature.b64 (the registry attachment is built from them by oci-publish-sig.py, which needs no trust).
   pubkey <dev|staging|stable>  prints that channel's public key PEM and its SPKI SHA-256 pin (one signing key per channel)
 State (default /var/lib/ou-ocisign, env OU_OCISIGN_STATE): key-<channel>.pem, passphrase-<channel>, records/<digest-hex>.json, used-nonces, trust/ (root-owned: test-runner.pub,
-ics-promotion.pub, registry = `host:port` of the image registry as it appears in image references).
+ics-promotion.pub, registry = `host:port` of the image registry as it appears in image references, optional registry-ca.pem = that registry is
+read over HTTPS verified against this CA, e.g. the artifact service of ADR-0015, so signatures name the host guests pull from).
 """
 import base64
 import hashlib
@@ -33,6 +34,7 @@ import io
 import json
 import os
 import re
+import ssl
 import subprocess
 import sys
 import tarfile
@@ -118,11 +120,23 @@ def registry():
     return r
 
 
+def registry_ctx():
+    """ADR-0015: when the signed identity is the artifact service (TLS, private CA), the root-owned trust/registry-ca.pem pins that CA and the
+    registry is read over HTTPS with full verification. Without the file the registry is read over plain HTTP (lab builder registry); there is
+    never a fallback from HTTPS to HTTP, and certificate verification is never disabled."""
+    if not os.path.exists(os.path.join(STATE, "trust", "registry-ca.pem")):
+        return None
+    ctx = ssl.create_default_context(cadata=trust_file("registry-ca.pem"))
+    ctx.minimum_version = ssl.TLSVersion.TLSv1_2
+    return ctx
+
+
 def http(url, method="GET", accept=None):
     base = os.environ.get("OU_OCISIGN_REGISTRY_URL") if SANDBOX and os.environ.get("OU_OCISIGN_REGISTRY_URL") else None
-    req = urllib.request.Request(base + url if base else "http://" + registry() + url, method=method, headers={"Accept": accept} if accept else {})
+    ctx = None if base else registry_ctx()
+    req = urllib.request.Request(base + url if base else ("https://" if ctx else "http://") + registry() + url, method=method, headers={"Accept": accept} if accept else {})
     try:
-        with urllib.request.urlopen(req, timeout=20) as r:
+        with urllib.request.urlopen(req, timeout=20, context=ctx) as r:
             return r.status, r.read(8 << 20 if method == "GET" else 0), r.headers
     except urllib.error.HTTPError as e:
         return e.code, b"", e.headers
