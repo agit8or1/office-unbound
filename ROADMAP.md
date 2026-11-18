@@ -170,7 +170,7 @@ Core platform components are integrated and tested in an isolated lab: own sourc
 
 | Version | Date | Status | Highlights |
 |---|---|---|---|
-| [0.3.0](https://github.com/agit8or1/office-unbound/blob/main/CHANGELOG.md) | 2026-11-18 | prepared | 0.3.0 "Compass": Proxmox connection wizard (dry run + separate Apply, conflict choices, cleanup, Validate), read-only cluster monitoring, infrastructure health with HA/backup alerts, single-admin approvals |
+| [0.3.0](https://github.com/agit8or1/office-unbound/blob/main/CHANGELOG.md) | 2026-11-18 | released | 0.3.0 "Compass": Proxmox connection wizard (dry run + separate Apply, conflict choices, cleanup, Validate), read-only cluster monitoring, infrastructure health with HA/backup alerts, single-admin approvals |
 | [0.2.0-dev.8](https://github.com/agit8or1/office-unbound/blob/main/CHANGELOG.md) | 2026-11-18 | prepared | Development build 8 of 0.2.0 "Beacon": dashboard icon fix, roadmap CI fix |
 | [0.2.0-dev.7](https://github.com/agit8or1/office-unbound/blob/main/CHANGELOG.md) | 2026-11-17 | prepared | Development build 7 of 0.2.0 "Beacon": conflict choices and leftover cleanup in the dry run, next-steps checklist, quieter discovery, dependency security fixes |
 | [0.2.0-dev.6](https://github.com/agit8or1/office-unbound/blob/main/CHANGELOG.md) | 2026-11-17 | prepared | Development build 6 of 0.2.0 "Beacon": wizard never suggests storage shared with other nodes; neutral console palette |
