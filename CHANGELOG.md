@@ -10,6 +10,10 @@ isolated lab; nothing is production supported ([ROADMAP.md](ROADMAP.md)).
 
 ## [Unreleased]
 
+## [0.3.2] - 2026-11-18
+
+- **New deployment wizard and sizing engine** (owner spec "Redesign Deployment Wizard and Sizing Engine"). Five steps: deployment type → workload and services → infrastructure and placement → backup and options → generated plan, with a live resource summary. Sizing comes from each component's catalog data (minimum/recommended, fixed overhead, per-user / per-concurrent-user / per-GB factors, consolidation and isolation rules, HA capability). Every number is marked measured (with its lab evidence) or estimate (with a safety margin). The recommended VM count comes from the engine and the generated plan, not from a profile. The plan is checked against the real approved Proxmox capacity: headroom, overcommit, failure domains, growth. HA is offered only when both the components and the infrastructure qualify (with the stock catalog no component has application replication yet, so HA is not offered). `POST /api/v1/deployments/size` is a dry run; provisioning still goes through `/deployments/plan`, the plan fingerprint and approval. "Re-run sizing" on a deployment (`/deployments/{id}/resize-plan`) proposes an approval-gated change and flags downtime and data migration. The contradictory profile VM counts were fixed at the source. Legacy profiles keep working. Evidence: `ics/tests/test_deploy_sizing.py` (21), `wizards/deploy/sizing.test.ts` (21), API in `docs/status/sizing-api.md`.
+
 ## [0.3.1] - 2026-11-18
 
 - **Image import from the UI.** Manage access → Deployment targets has an "Image import storage" choice (`local` preselected). If the storage lacks the `import` content type, the dry run includes a disclosed step that adds it with the administrator's sign-in (existing content kept exactly; restored if a later step fails). The write token gets only `Datastore.AllocateTemplate` + `Datastore.Audit` there, never disk placement. Evidence: `ics/tests/test_import_storage.py` (simulator).
@@ -176,7 +180,8 @@ editing, chat/meetings, telephony prototype, migration tooling and package pipel
 - **Review 4** (2 High, 11 Medium, 9 Low; gromox patches, lifecycle, SSO, telephony, migration engine, package pipeline, Collabora) reported. Findings are **open** on `main`; see Unreleased. [report](docs/status/security-review-4-2026-11-15.md)
 - `SECURITY.md` (private reporting) and `CONTRIBUTING.md` (DCO sign-off) added; AGPL-3.0 license. [SECURITY](SECURITY.md)
 
-[Unreleased]: https://github.com/agit8or1/office-unbound/compare/v0.3.1...HEAD
+[Unreleased]: https://github.com/agit8or1/office-unbound/compare/v0.3.2...HEAD
+[0.3.2]: https://github.com/agit8or1/office-unbound/releases/tag/v0.3.2
 [0.3.1]: https://github.com/agit8or1/office-unbound/releases/tag/v0.3.1
 [0.3.0]: https://github.com/agit8or1/office-unbound/releases/tag/v0.3.0
 [0.1.0]: https://github.com/agit8or1/office-unbound/releases/tag/v0.1.0

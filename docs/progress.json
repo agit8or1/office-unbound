@@ -5,8 +5,20 @@
   "repository": "https://github.com/agit8or1/office-unbound",
   "updated": "2026-11-18",
   "stage": "pre-alpha (lab)",
-  "current_version": "0.3.1",
+  "current_version": "0.3.2",
   "releases": [
+    {
+      "version": "0.3.2",
+      "date": "2026-11-18",
+      "status": "prepared",
+      "codename": "Compass",
+      "channel": "pre-release",
+      "highlights": [
+        "0.3.2: hardware-aware deployment wizard and sizing engine (measured vs estimated sizing, real capacity analysis, HA only when qualified, resize plans)"
+      ],
+      "notes_url": "https://github.com/agit8or1/office-unbound/blob/main/CHANGELOG.md",
+      "changelog": "CHANGELOG.md"
+    },
     {
       "version": "0.3.1",
       "date": "2026-11-18",
