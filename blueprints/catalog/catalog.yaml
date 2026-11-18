@@ -7,7 +7,7 @@ os_images:
     sha256: ""                            # placeholder: checksum pin is recorded when the template is approved; plan warns while empty
   - id: debian-12
     title: Debian 12 (bookworm) cloud image
-    template: ou-debian12-template        # real cluster template (VM 131, genericcloud); no snippets storage -> native cloud-init drive only
+    template: ou-tpl-debian-12            # golden image imported by `image.import` (default name ou-tpl-<os>); agent baked in, first-boot callback
     sha256: ""
 default_os_image: ubuntu-24.04
 vm_overhead:                              # added to every VM on top of the sum of its components
