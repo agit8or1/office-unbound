@@ -27,7 +27,8 @@ DBNAME_RE = re.compile(r"^[a-z][a-z0-9_]{0,30}$")
 RELPATH_RE = re.compile(r"^[A-Za-z0-9_][A-Za-z0-9_.-]{0,63}(/[A-Za-z0-9_][A-Za-z0-9_.-]{0,63}){0,3}$")
 PEM_RE = {"cert": re.compile(r"^-----BEGIN CERTIFICATE-----\n([A-Za-z0-9+/=]{1,76}\n){4,200}-----END CERTIFICATE-----\n$"),
           "key": re.compile(r"^-----BEGIN (EC |RSA )?PRIVATE KEY-----\n([A-Za-z0-9+/=]{1,76}\n){2,200}-----END (EC |RSA )?PRIVATE KEY-----\n$")}
-UPSTREAM_RE = re.compile(r"^http://(127\.0\.0\.1|(25[0-5]|2[0-4]\d|1?\d?\d)(\.(25[0-5]|2[0-4]\d|1?\d?\d)){3}):[0-9]{2,5}$")
+# plain HTTP only to this VM's loopback; anything on another host is HTTPS, verified against the deployment CA under `upstream_name`
+UPSTREAM_RE = re.compile(r"^(http://127\.0\.0\.1|https://(25[0-5]|2[0-4]\d|1?\d?\d)(\.(25[0-5]|2[0-4]\d|1?\d?\d)){3}):[0-9]{2,5}$")
 MAX_RULES = 64
 MAX_HOSTS, MAX_NAMES, MAX_GROUPS, MAX_FILES, MAX_FILE_BYTES, MAX_TOTAL_BYTES = 32, 16, 16, 16, 262144, 524288
 FILE_MODES = (0o600, 0o640, 0o644)
@@ -144,11 +145,16 @@ def check_volume_files(p, cfg):
 
 
 def check_nginx_site(p, cfg):
-    _exact(p, ("name", "server_names", "upstream", "tls_name", "max_body_mb"))
+    _exact(p, ("name", "server_names", "upstream", "upstream_name", "tls_name", "max_body_mb"), ("name", "server_names", "upstream", "tls_name", "max_body_mb"))
     names = [_s(n, FQDN_RE, "server name") for n in _list(p["server_names"], "server_names", MAX_NAMES)]
     if not names:
         raise Reject("bad_params", "server_names: at least one")
-    return {"name": _s(p["name"], NAME_RE, "name"), "server_names": names, "upstream": _s(p["upstream"], UPSTREAM_RE, "upstream"),
+    up = _s(p["upstream"], UPSTREAM_RE, "upstream (http://127.0.0.1:<port> or https://<ipv4>:<port>)")
+    upn = p.get("upstream_name")
+    if up.startswith("https://") != (upn is not None):
+        raise Reject("bad_params", "upstream_name (the name the upstream certificate must carry) is required for, and only for, an https upstream")
+    return {"name": _s(p["name"], NAME_RE, "name"), "server_names": names, "upstream": up,
+            "upstream_name": _s(upn, FQDN_RE, "upstream_name") if upn is not None else None,
             "tls_name": _s(p["tls_name"], NAME_RE, "tls_name"), "max_body_mb": _int(p["max_body_mb"], 0, 102400, "max_body_mb")}
 
 

@@ -33,6 +33,8 @@ SECRET_RE = re.compile(r"^[a-z][a-z0-9-]{1,40}$")
 USER_RE = re.compile(r"^[0-9]{1,5}(:[0-9]{1,5})?$")
 UNIT_TYPES = ("container", "container-hostnet")                  # host networking only when the spec says so explicitly
 MAX_ENV, MAX_PORTS, MAX_VOLUMES, MAX_SECRETS, MAX_PACKAGES = 32, 16, 8, 8, 8
+CMDWORD_RE = re.compile(r"^[a-z][a-z0-9-]{0,30}$")
+MAX_COMMAND = 4
 
 
 def _exact(p, keys, required=None):
@@ -82,7 +84,7 @@ def check_pull(p, cfg):
 
 
 def check_deploy(p, cfg):
-    _exact(p, ("component", "name", "type", "image", "env", "ports", "volumes", "secrets", "user", "read_only", "memory_mib"),
+    _exact(p, ("component", "name", "type", "image", "env", "ports", "volumes", "secrets", "user", "read_only", "memory_mib", "command"),
            ("component", "name", "type", "image"))
     out = {"component": _s(p["component"], NAME_RE, "component"), "name": _s(p["name"], NAME_RE, "name")}
     if len(unit_base(out["component"], out["name"])) > 60:
@@ -129,6 +131,11 @@ def check_deploy(p, cfg):
     out["user"] = _s(p["user"], USER_RE, "user") if p.get("user") is not None else None
     out["read_only"] = _bool(p.get("read_only", True), "read_only")
     out["memory_mib"] = _int(p.get("memory_mib", 512), 16, 65536, "memory_mib")
+    cmd = p.get("command", [])   # arguments to the image's entrypoint (e.g. OpenCloud's `collaboration server`): plain words only, no options/paths
+    if not isinstance(cmd, list) or len(cmd) > MAX_COMMAND:
+        raise Reject("bad_params", "command: list of at most %d words" % MAX_COMMAND)
+    if cmd:   # only when set: a spec without a command keeps its earlier spec_hash
+        out["command"] = [_s(w, CMDWORD_RE, "command word") for w in cmd]
     return out
 
 
@@ -216,6 +223,8 @@ def render(s):
         c.append(f"PublishPort={pt['bind']}:{pt['host']}:{pt['container']}/{pt['proto']}")
     for v in s["volumes"]:
         c.append(f"Volume={n['volumes'][v['name']]}.volume:{v['path']}" + (":ro" if v["read_only"] else ""))
+    if s.get("command"):
+        c.append("Exec=" + " ".join(s["command"]))
     c += ["", "[Service]", "Restart=always", "TimeoutStartSec=120", "", "[Install]", "WantedBy=default.target", ""]
     files[n["container_file"]] = "\n".join(c)
     return files
@@ -258,6 +267,7 @@ def render_service(s):
     for v in s["volumes"]:
         run.append(f"--volume={n['volumes'][v['name']]}:{v['path']}" + (":ro" if v["read_only"] else ""))
     run.append(s["image"])
+    run.extend(s.get("command") or [])
     pre = [f"ExecStartPre=-{PODMAN_BIN} rm --force --ignore {n['base']}"]
     for v in s["volumes"]:
         pre.append(f"ExecStartPre=-{PODMAN_BIN} volume create --label ou.component={s['component']} {n['volumes'][v['name']]}")

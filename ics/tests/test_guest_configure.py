@@ -44,6 +44,9 @@ def _ca_leaf(names=("auth.e2e.example", "ldap.e2e.example")):
     ("cfg.volume_files", {"component": "identity", "volume": "data", "image": IMG, "owner": "1:1", "files": [{"path": "a", "mode": 0o4755, "content": "x"}]}),
     ("cfg.volume_files", {"component": "identity", "volume": "data", "image": "keycloak:latest", "owner": "1:1", "files": [{"path": "a", "mode": 0o644, "content": "x"}]}),
     ("cfg.nginx_site", {"name": "auth", "server_names": ["auth.e2e.example"], "upstream": "http://evil.example:80", "tls_name": "deployment", "max_body_mb": 1}),
+    ("cfg.nginx_site", {"name": "cloud", "server_names": ["cloud.e2e.example"], "upstream": "http://10.0.0.7:9200", "tls_name": "deployment", "max_body_mb": 1}),
+    ("cfg.nginx_site", {"name": "cloud", "server_names": ["cloud.e2e.example"], "upstream": "https://10.0.0.7:9200", "tls_name": "deployment", "max_body_mb": 1}),
+    ("cfg.nginx_site", {"name": "auth", "server_names": ["auth.e2e.example"], "upstream": "http://127.0.0.1:8080", "upstream_name": "auth.e2e.example", "tls_name": "deployment", "max_body_mb": 1}),
     ("cfg.nginx_site", {"name": "auth", "server_names": ["auth.e2e.example;"], "upstream": "http://127.0.0.1:8080", "tls_name": "deployment", "max_body_mb": 1}),
     ("cfg.tls", {"name": "deployment", "ca_pem": "-----BEGIN CERTIFICATE-----\nAAAA\n-----END CERTIFICATE-----\nextra", "cert_pem": "x", "key_pem": "y"}),
     ("cfg.hosts", {"entries": [], "extra": 1}),
@@ -246,6 +249,12 @@ def test_nginx_site_is_rendered_from_the_fixed_template_and_rolled_back_when_ref
     site = (fake.path / "avail" / "ou-auth").read_text()
     assert "server_name auth.e2e.example;" in site and "proxy_pass http://127.0.0.1:8080;" in site and "client_max_body_size 16m;" in site
     assert os.path.islink(fake.path / "enabled" / "ou-auth") and not (fake.path / "enabled" / "default").exists()
+    assert "proxy_ssl" not in site
+    _run("cfg.nginx_site", {**p, "name": "cloud", "server_names": ["cloud.e2e.example"], "upstream": "https://10.0.0.7:9200", "upstream_name": "cloud.e2e.example"})
+    remote = (fake.path / "avail" / "ou-cloud").read_text()
+    assert "proxy_pass https://10.0.0.7:9200;" in remote and "proxy_ssl_verify on;" in remote and "proxy_ssl_name cloud.e2e.example;" in remote
+    os.unlink(fake.path / "enabled" / "ou-cloud")
+    os.unlink(fake.path / "avail" / "ou-cloud")
     fake.out("nginx", "nginx: [emerg] something", rc=1)
     with pytest.raises(h.Failed, match="nginx refused"):
         _run("cfg.nginx_site", {**p, "name": "cloud", "server_names": ["cloud.e2e.example"]})
@@ -332,3 +341,15 @@ def test_peer_rules_come_from_the_plan_with_exact_addresses():
                                                                          {"source": "10.0.0.8", "proto": "tcp", "port": 636}]
     with pytest.raises(configure.ConfigError):
         configure.firewall_runbook(ctx, "files")   # the id VM's address is unknown here: refused, never widened
+
+
+def test_a_unit_may_name_entrypoint_words_but_nothing_else():
+    from ou_agent import guestspec as g
+    base = {"component": "files", "name": "collaboration", "type": "container-hostnet", "image": IMG}
+    cfg = {"registries": ["artifacts.example:8446"]}
+    s = g.check_deploy({**base, "command": ["collaboration", "server"]}, cfg)
+    assert "Exec=collaboration server" in g.render(s)["ou-files-collaboration.container"] and g.render_service(s)["ou-files-collaboration.service"].count(" collaboration server") == 1
+    assert "command" not in g.check_deploy(base, cfg)                                   # unchanged spec (and spec hash) without a command
+    for bad in (["--privileged"], ["sh", "-c"], ["/bin/sh"], ["a;b"], ["x"] * 5, "server"):
+        with pytest.raises(Reject):
+            g.check_deploy({**base, "command": bad}, cfg)

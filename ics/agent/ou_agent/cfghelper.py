@@ -350,7 +350,7 @@ server {{
   proxy_buffer_size 16k;
   proxy_buffers 8 16k;
   location / {{
-    proxy_pass {upstream};
+    proxy_pass {upstream};{upstream_tls}
     proxy_http_version 1.1;
     proxy_set_header Host $host;
     proxy_set_header X-Real-IP $remote_addr;
@@ -373,7 +373,12 @@ def nginx_site(p, x):
     path, link = os.path.join(NGINX_AVAIL, "ou-" + p["name"]), os.path.join(NGINX_ENABLED, "ou-" + p["name"])
     old = read(path)
     body = f"{p['max_body_mb']}m" if p["max_body_mb"] else "0"
-    atomic_write(path, NGINX_SITE.format(names=" ".join(p["server_names"]), tls=TLS_DIR, cert=p["tls_name"], body=body, upstream=p["upstream"]), 0o644)
+    up_tls = ""
+    if p["upstream_name"]:   # another VM: TLS to it, its certificate verified against the deployment CA for exactly this name
+        up_tls = (f"\n    proxy_ssl_verify on;\n    proxy_ssl_verify_depth 2;\n    proxy_ssl_trusted_certificate {TLS_DIR}/ca.crt;\n"
+                  f"    proxy_ssl_name {p['upstream_name']};\n    proxy_ssl_server_name on;\n    proxy_ssl_protocols TLSv1.2 TLSv1.3;")
+    atomic_write(path, NGINX_SITE.format(names=" ".join(p["server_names"]), tls=TLS_DIR, cert=p["tls_name"], body=body, upstream=p["upstream"],
+                                         upstream_tls=up_tls), 0o644)
     if not os.path.islink(link):
         if os.path.lexists(link):
             os.unlink(link)
