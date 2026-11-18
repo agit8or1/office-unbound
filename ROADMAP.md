@@ -170,7 +170,7 @@ Core platform components are integrated and tested in an isolated lab: own sourc
 
 | Version | Date | Status | Highlights |
 |---|---|---|---|
-| [0.3.5](https://github.com/agit8or1/office-unbound/blob/main/CHANGELOG.md) | 2026-11-18 | prepared | 0.3.5: image import works when the cluster address forwards to another node; standard alerts without false warnings, failed backups on monitored nodes detected |
+| [0.3.5](https://github.com/agit8or1/office-unbound/blob/main/CHANGELOG.md) | 2026-11-18 | released | 0.3.5: image import works when the cluster address forwards to another node; standard alerts without false warnings, failed backups on monitored nodes detected |
 | [0.3.4](https://github.com/agit8or1/office-unbound/blob/main/CHANGELOG.md) | 2026-11-18 | released | 0.3.4: Manage access apply no longer refused by Proxmox's random content-type order; auto-recalculate on real drift |
 | [0.3.3](https://github.com/agit8or1/office-unbound/blob/main/CHANGELOG.md) | 2026-11-18 | released | 0.3.3: image import storage `local` offered and preselected (upload-only grant, never VM disks) |
 | [0.3.2](https://github.com/agit8or1/office-unbound/blob/main/CHANGELOG.md) | 2026-11-18 | released | 0.3.2: hardware-aware deployment wizard and sizing engine (measured vs estimated sizing, real capacity analysis, HA only when qualified, resize plans) |
