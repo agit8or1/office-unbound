@@ -1,6 +1,6 @@
 #!/bin/bash
 # Root-owned helper (installed by install-signer.sh; the only thing ou-testrunner may run as root). Usage: nspawn-smoke deb <file>
-# <file> must be /var/lib/ou-testrunner/work/run-*/artifact.deb, a regular file (no symlink) owned by ou-testrunner. The package is installed in a
+# <file> must be /var/lib/ou-testrunner/work/run-*/artifact.deb (base image: Debian 12, or Ubuntu 24.04 for a +noble<N> version), a regular file (no symlink) owned by ou-testrunner. The package is installed in a
 # throw-away copy of the base image (deleted afterwards), in a user namespace with dropped capabilities, WITHOUT network, and checked: no setuid/setgid/world-writable file shipped, dpkg state
 # "install ok installed", every listed file present, `dpkg --verify` clean, removal + purge succeed. Exit 0 pass, 1 test failed, 2 infrastructure problem.
 set -u
@@ -9,7 +9,11 @@ BASE=${OU_TESTRUNNER_BASE:-/var/lib/machines/ou-base-bookworm}
 f=${2:-}
 [[ "$f" =~ ^/var/lib/ou-testrunner/work/run-[A-Za-z0-9_]+/artifact\.deb$ ]] || { echo "bad path"; exit 2; }
 [ -f "$f" ] && [ ! -L "$f" ] && [ "$(stat -c %U "$f")" = ou-testrunner ] || { echo "bad file"; exit 2; }
+# per-target builds (build.sh OU_TARGET=noble, version suffix +noble<N>) are installed in the Ubuntu 24.04 base image, everything else in Debian 12
+V=$(dpkg-deb -f "$f" Version 2>/dev/null) || { echo "FAIL not a deb"; exit 1; }
+case "$V" in *+noble[0-9]*) BASE=${OU_TESTRUNNER_BASE_NOBLE:-/var/lib/machines/ou-base-noble};; esac
 [ -d "$BASE/usr" ] || { echo "base image $BASE missing"; exit 2; }
+echo "smoke base image: $(basename "$BASE") ($(sed -n "s/^PRETTY_NAME=//p" "$BASE/etc/os-release" 2>/dev/null))"
 T=$(mktemp -d /run/ou-smoke.XXXXXX)
 # review 8 H-1: a throw-away copy of the base image is chowned into a fresh user-namespace range (idmapped mounts are not available with an overlay here)
 W=$(mktemp -d /var/tmp/ou-smoke-root.XXXXXX)

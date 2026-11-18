@@ -23,5 +23,11 @@ Built and exercised for the groupware stack (libHX, wmime, Gromox, mapi-header-p
 
 Update 2026-11-16: The ICS itself ships as the signed `ou-ics` package through the same pipeline (recipe `blueprints/build/ics/`, upgrade preflight, backup-gated upgrade, restore-based rollback; proof in `docs/status/ics-package-results.md`).
 
+Update 2026-11-18: **per-target builds** (owner decision: every service VM runs Ubuntu 24.04). `OU_TARGET=noble build.sh <component>` builds the same recipe
+in an Ubuntu 24.04 builder (golden `ou-pkgn-golden`, ephemeral `ou-pkgn1`, state `targets/noble`); version `<upstream>-<ou_revision>+noble<N>` (sorts after the
+Debian 12 build of the same revision; `~` is refused by the catalog pin validator). `OU_TARGET=noble repo.sh publish` puts it in `pool/<suite>/<component>-noble`
+next to the Debian 12 files in the same channel; the deb-install-smoke runner installs `+noble<N>` packages in the Ubuntu 24.04 base image. Debian 12 guests
+must pin the OU library packages (`ou-libhx`, `ou-wmime`) explicitly, because the unpinned candidate in a shared channel is now the noble build.
+
 ## Not yet built
 Collabora recipe (script exists, not yet a recipe/.deb), offline signing key ceremony (the lab key is on the ICS host), dedicated builder host, ICS-driven approval/promotion, customer channel pinning and upgrade/rollback jobs, admin-web, libexmdbpp, grommunio-index.
