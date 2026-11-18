@@ -5,8 +5,20 @@
   "repository": "https://github.com/agit8or1/office-unbound",
   "updated": "2026-11-18",
   "stage": "pre-alpha (lab)",
-  "current_version": "0.3.0",
+  "current_version": "0.3.1",
   "releases": [
+    {
+      "version": "0.3.1",
+      "date": "2026-11-18",
+      "status": "prepared",
+      "codename": "Compass",
+      "channel": "pre-release",
+      "highlights": [
+        "0.3.1: image import enabled from the UI, Ubuntu 24.04 golden image, artifact service with all service images, groupware for Ubuntu 24.04"
+      ],
+      "notes_url": "https://github.com/agit8or1/office-unbound/blob/main/CHANGELOG.md",
+      "changelog": "CHANGELOG.md"
+    },
     {
       "version": "0.3.0",
       "date": "2026-11-18",

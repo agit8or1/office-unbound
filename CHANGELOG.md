@@ -10,6 +10,14 @@ isolated lab; nothing is production supported ([ROADMAP.md](ROADMAP.md)).
 
 ## [Unreleased]
 
+## [0.3.1] - 2026-11-18
+
+- **Image import from the UI.** Manage access → Deployment targets has an "Image import storage" choice (`local` preselected). If the storage lacks the `import` content type, the dry run includes a disclosed step that adds it with the administrator's sign-in (existing content kept exactly; restored if a later step fails). The write token gets only `Datastore.AllocateTemplate` + `Datastore.Audit` there, never disk placement. Evidence: `ics/tests/test_import_storage.py` (simulator).
+- **Ubuntu 24.04 golden image** (owner decision: all service VMs run Ubuntu 24.04): release `ubuntu-24.04-20261116` v1, two byte-identical builds, first-boot enrollment proof + hardening suite 97/97, signed with the production golden-image key.
+- **Artifact service on the ICS** (`https://192.168.22.167:8446`, LAN only): all 13 service images and the Office Unbound packages, dev-signed (owner decision for the beta); guests verify every image and package. Catalog pins now match the built artifacts (`ou-node-agent` 0.4.0-ou1, `ou-gromox` 3.13-ou3+noble1, grommunio web/dav/sync). Groupware rebuilt for Ubuntu 24.04.
+- Catalog: Debian 12 points at the golden template `ou-tpl-debian-12`.
+- Conflict choices (0.2.0-dev.7) also work through the SSH onboarding path (read-only pool member query allowed).
+
 ## [0.3.0] - 2026-11-18
 
 **Office Unbound 0.3.0 "Compass"** (owner decision 2026-11-18: the 0.2 "Beacon" development line, builds 0.2.0-dev.1 to dev.8, is released as 0.3.0). Pre-alpha; deployed to the owner's ICS. Highlights: Proxmox connection wizard with sign-in, dry-run Calculate and separate Apply, conflict choices and cleanup, Validate step, read-only whole-cluster monitoring, permissions screen with enforcement labels, infrastructure health page with HA/backup alerts and capacity outlook, single-admin approvals (ADR-0017), first production golden-image release path, neutral console palette.
@@ -168,6 +176,7 @@ editing, chat/meetings, telephony prototype, migration tooling and package pipel
 - **Review 4** (2 High, 11 Medium, 9 Low; gromox patches, lifecycle, SSO, telephony, migration engine, package pipeline, Collabora) reported. Findings are **open** on `main`; see Unreleased. [report](docs/status/security-review-4-2026-11-15.md)
 - `SECURITY.md` (private reporting) and `CONTRIBUTING.md` (DCO sign-off) added; AGPL-3.0 license. [SECURITY](SECURITY.md)
 
-[Unreleased]: https://github.com/agit8or1/office-unbound/compare/v0.3.0...HEAD
+[Unreleased]: https://github.com/agit8or1/office-unbound/compare/v0.3.1...HEAD
+[0.3.1]: https://github.com/agit8or1/office-unbound/releases/tag/v0.3.1
 [0.3.0]: https://github.com/agit8or1/office-unbound/releases/tag/v0.3.0
 [0.1.0]: https://github.com/agit8or1/office-unbound/releases/tag/v0.1.0
