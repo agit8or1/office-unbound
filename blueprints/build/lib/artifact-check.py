@@ -5,7 +5,7 @@
         paths) with O_CREAT|O_EXCL|O_NOFOLLOW mode 0644, then runs `verify`. Anything else aborts and removes <dest-dir>.
   artifact-check.py verify <dir> <component> <build-root>
         lstat every entry (regular file, link count 1, allowed name); every .deb is parsed with `dpkg-deb -f`: Package must be one of the recipe's
-        packages (or its -dbgsym), Version must equal <upstream>-<ou_revision>, Architecture amd64/all; every .dsc must carry Source + Version of the
+        packages (or its -dbgsym), Version must equal <upstream>-<ou_revision>[<target suffix, env OU_DEB_SUFFIX, e.g. +noble1>], Architecture amd64/all; every .dsc must carry Source + Version of the
         same component and list only files that are present with matching sha256.
 Exit 0 = acceptable, 1 = rejected (reason on stderr).
 """
@@ -39,7 +39,10 @@ def recipe_expect(comp, root, adir=None):
         for ln in open(os.path.join(root, "tools.env")):
             if ln.startswith("OU_REVISION="):
                 rev = ln.split("=", 1)[1].strip()
-    ver = "%s-%s" % (r["source"]["upstream_version"], rev)
+    suf = os.environ.get("OU_DEB_SUFFIX", "")   # per-target build (build.sh/repo.sh OU_TARGET=noble -> +noble<N>)
+    if suf and not re.fullmatch(r"\+[a-z]+[0-9]+", suf):
+        reject("OU_DEB_SUFFIX %r is not +<target><N>" % suf)
+    ver = "%s-%s%s" % (r["source"]["upstream_version"], rev, suf)
     pk = set(r["packages"])
     return r["src_name"], ver, pk | {p + "-dbgsym" for p in pk}
 

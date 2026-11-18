@@ -12,12 +12,21 @@
 #   repo.sh index <suite>                   regenerate metadata of a suite and have it signed (Valid-Until set by the signer)
 #   repo.sh resign-all                      re-index + re-sign every suite (run from the timer: Valid-Until must never lapse)
 #   repo.sh serve|unserve                   push the public tree to the DEDICATED read-only repo machine (not the builder) on the oulab zone
+#   OU_TARGET=noble repo.sh publish|retain|keep|record-test <component> ...   the Ubuntu 24.04 build of a component (build.sh OU_TARGET=noble): artifacts
+#                                           from $OU_PKG_STATE/targets/noble, pool directory pool/<suite>/<component>-noble, so the Debian 12 files stay
 # Channels are separate suites with separate pools; the same .deb (same sha256) may exist in several channels.
 set -euo pipefail
 HERE=$(cd "$(dirname "$0")" && pwd)
 BUILD=$(cd "$HERE/.." && pwd)
 STATE=${OU_PKG_STATE:-/var/lib/office-unbound/pkgbuild}
 REPO=${OU_REPO_DIR:-$STATE/repo}             # served tree (public)
+OU_TARGET=${OU_TARGET:-bookworm}; PSUF=""
+case "$OU_TARGET" in
+  bookworm) ;;
+  noble) STATE=$STATE/targets/noble; PSUF=-noble
+         OU_DEB_SUFFIX=$(sed -n 's/^NOBLE_SUFFIX=\([^ #]*\).*/\1/p' "$BUILD/tools.env"); export OU_DEB_SUFFIX ;;
+  *) echo "OU_TARGET must be bookworm or noble"; exit 2 ;;
+esac
 SIGN=${OU_RELEASE_CMD:-sudo -n -u ou-release /usr/local/sbin/ou-release-sign}   # tests point this at a sandbox signer
 ATTEST=${OU_ATTEST_CMD:-sudo -n -u ou-testrunner /usr/local/sbin/ou-test-attest}   # the pipeline's test runner identity (review 5 H2)
 SUITES="dev staging stable"
@@ -64,7 +73,7 @@ index() {
 }
 
 publish() {
-  c=$1; d="$REPO/pool/dev/$c"
+  c=$1; d="$REPO/pool/dev/$c$PSUF"
   python3 -I "$BUILD/lib/artifact-check.py" verify "$STATE/out/$c/artifacts" "$c" "$BUILD" >/dev/null   # names, regular files, dpkg-deb control fields
   # a rebuilt component replaces its previous dev files, EXCEPT release-tag components (recipe `keep_versions: true`, ou-ics): older versions stay
   # installable so a rollback can `apt-get install ou-ics=<previous>`. The same version rebuilt overwrites its own files only.
@@ -88,7 +97,7 @@ attest_record() {  # <deb file> <name> <res> <log>
 
 retain() {  # <component> <from-suite>: put the older versions of a component that are in another channel's pool back into dev (publish replaces dev with the
   # current build only, so a pinned-downgrade target would vanish from dev); only files the signer already knows are re-admitted by hash, nothing is rebuilt
-  c=$1; from=$2; strict_dir "$REPO/pool/$from/$c"; strict_dir "$REPO/pool/dev/$c"; d="$REPO/pool/dev/$c"   # strict_dir overwrites $d
+  c=$1$PSUF; from=$2; strict_dir "$REPO/pool/$from/$c"; strict_dir "$REPO/pool/dev/$c"; d="$REPO/pool/dev/$c"   # strict_dir overwrites $d
   for f in "$REPO/pool/$from/$c"/*; do [ -e "$d/$(basename "$f")" ] || cp --no-dereference -p "$f" "$d/"; done
   tar_dir "$d" | $SIGN admit dev
   index dev
@@ -96,7 +105,7 @@ retain() {  # <component> <from-suite>: put the older versions of a component th
 
 keep() {  # <component> <dir>: like retain, but the older versions come from a directory the operator saved before `publish` replaced dev (a rollback target
   # that is in no other channel, e.g. ou2 while ou3 is only in dev). The signer still admits ONLY files whose hash it already knows (earlier admissions).
-  c=$1; src=$2; strict_dir "$src"; strict_dir "$REPO/pool/dev/$c"; d="$REPO/pool/dev/$c"   # strict_dir overwrites $d
+  c=$1$PSUF; src=$2; strict_dir "$src"; strict_dir "$REPO/pool/dev/$c"; d="$REPO/pool/dev/$c"   # strict_dir overwrites $d
   for f in "$src"/*.deb; do [ -e "$d/$(basename "$f")" ] || cp --no-dereference -p "$f" "$d/"; done
   tar_dir "$d" | $SIGN admit dev
   index dev
@@ -104,7 +113,7 @@ keep() {  # <component> <dir>: like retain, but the older versions come from a d
 
 record_test() {
   c=$1; name=${2:-}; res=${3:-}; log=${4:-}   # name/res/log ignored (review 7 H-3): the runner decides
-  for f in "$REPO/pool/dev/$c"/*.deb; do attest_record "$f" "$name" "$res" "$log"; done
+  for f in "$REPO/pool/dev/$c$PSUF"/*.deb; do attest_record "$f" "$name" "$res" "$log"; done
   echo "requested test runs for $c (results are the runner's)"
 }
 

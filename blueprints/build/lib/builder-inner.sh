@@ -1,5 +1,5 @@
 #!/bin/bash
-# Runs INSIDE the builder machine (ou-pkg1, Debian 12) as root. Driven by build.sh; not for manual use.
+# Runs INSIDE the builder machine (ou-pkg1 Debian 12, or ou-pkgn1 Ubuntu 24.04 for OU_TARGET=noble) as root. Driven by build.sh; not for manual use.
 #   builder-inner.sh prepare            one-time/idempotent builder preparation
 #   builder-inner.sh build <component>  build one component from /build/in/<component>/
 # Inputs in /build/in/<component>/: build.env, orig.tar.xz, debian/, patches/ (optional)
@@ -10,11 +10,22 @@ umask 022
 BUILD=/build
 
 prepare() {
+  if grep -qx 'VERSION_CODENAME=noble' /etc/os-release; then   # Ubuntu 24.04 target: the distro archive only (signed by the Ubuntu archive key)
+    : > /etc/apt/sources.list
+    cat > /etc/apt/sources.list.d/ubuntu.sources <<'EOF'
+Types: deb
+URIs: http://archive.ubuntu.com/ubuntu
+Suites: noble noble-updates noble-security
+Components: main universe
+Signed-By: /usr/share/keyrings/ubuntu-archive-keyring.gpg
+EOF
+  else
   cat > /etc/apt/sources.list <<'EOF'
 deb http://deb.debian.org/debian bookworm main
 deb http://deb.debian.org/debian bookworm-updates main
 deb http://deb.debian.org/debian-security bookworm-security main
 EOF
+  fi
   apt-get update -q
   apt-get install -y -q --no-install-recommends build-essential debhelper dpkg-dev fakeroot quilt devscripts equivs \
     git xz-utils ca-certificates curl gnupg lintian autoconf automake libtool pkg-config python3 composer >/dev/null
@@ -46,8 +57,11 @@ refresh_localrepo() {
 build() {
   c=$1; IN=$BUILD/in/$c; OUT=$BUILD/out/$c
   # shellcheck disable=SC1091
-  . "$IN/build.env"    # COMPONENT SRC_NAME DEB_VERSION UPSTREAM_VERSION SOURCE_DATE_EPOCH JOBS PREFETCH(optional)
+  . "$IN/build.env"    # COMPONENT SRC_NAME DEB_VERSION UPSTREAM_VERSION SOURCE_DATE_EPOCH JOBS DIST PREFETCH(optional)
   export SOURCE_DATE_EPOCH
+  DIST=${DIST:-bookworm}
+  # Ubuntu's dpkg-deb defaults to zstd members; keep xz (as the Debian 12 builds) so every dpkg that handles our pool can read the packages
+  [ "$DIST" = bookworm ] || export DPKG_DEB_COMPRESSOR_TYPE=xz
   rm -rf "$OUT" "$BUILD/work/$c"; mkdir -p "$OUT" "$BUILD/work/$c"
   # fixed build path => no path-dependent differences between builds
   W=$BUILD/work/$c; D=$W/$SRC_NAME-$UPSTREAM_VERSION
@@ -59,7 +73,7 @@ build() {
     for p in "$IN"/patches/*.patch; do cp "$p" "$D/debian/patches/"; basename "$p" >> "$D/debian/patches/series"; done
   fi
   cat > "$D/debian/changelog" <<EOF
-$SRC_NAME ($DEB_VERSION) bookworm; urgency=medium
+$SRC_NAME ($DEB_VERSION) $DIST; urgency=medium
 
   * Office Unbound build of upstream $UPSTREAM_VERSION (see blueprints/build/$COMPONENT/recipe.yaml).
 

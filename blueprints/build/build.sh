@@ -3,12 +3,21 @@
 #   build.sh <component|all>        fetch+verify -> licence check -> build in the clean builder -> SBOM -> vuln scan
 #   build.sh prepare                create/refresh the builder machine (ou-pkg1)
 #   build.sh fetch|license|compile|sbom|scan <component>   single stages
+#   OU_TARGET=noble build.sh ...   the same for the Ubuntu 24.04 target (own golden image/builder, version suffix $NOBLE_SUFFIX, state targets/noble)
 # State: $OU_PKG_STATE (default /var/lib/office-unbound/pkgbuild): src/ (clones), in/ (orig tarballs), out/<component>/ (results)
 set -euo pipefail
 HERE=$(cd "$(dirname "$0")" && pwd)
 # shellcheck disable=SC1091
 . "$HERE/tools.env"
 STATE=${OU_PKG_STATE:-/var/lib/office-unbound/pkgbuild}
+OU_TARGET=${OU_TARGET:-bookworm}; DEB_SUFFIX=""; DIST=bookworm
+case "$OU_TARGET" in
+  bookworm) ;;
+  noble) BUILDER=$NOBLE_BUILDER; BUILDER_BASE=$NOBLE_BUILDER_BASE; BUILDER_GOLDEN=$NOBLE_BUILDER_GOLDEN; DEB_SUFFIX=$NOBLE_SUFFIX; DIST=noble
+         STATE=$STATE/targets/noble ;;   # own src/in/out: the builder's local build-dep repo must only ever hold noble builds
+  *) echo "OU_TARGET must be bookworm or noble"; exit 2 ;;
+esac
+export OU_DEB_SUFFIX=$DEB_SUFFIX   # lib/artifact-check.py expects <upstream>-<ou_revision><suffix>
 ORDER="libhx wmime gromox libexmdbpp mapi-header-php grommunio-sync grommunio-dav grommunio-web admin-api admin-web"   # collabora (prebuilt-stage) is separate: build.sh collabora; the ICS itself is built from a release tag: OU_ICS_TAG=vX.Y.Z build.sh ics
 mkdir -p "$STATE"/{src,in,out,tools}
 
@@ -102,12 +111,12 @@ compile() {
   # the builder machine is a singleton: serialise concurrent compile runs (a second one would destroy the first one's machine)
   exec 9> "$STATE/builder.lock"; flock 9
   SDE=$(sed -n 's/^source_date_epoch=//p' "$STATE/out/$c/source.info")
-  DEBV="$UPSTREAM_VERSION-${OU_REVISION_C:-$OU_REVISION}"   # per-recipe ou_revision overrides tools.env
+  DEBV="$UPSTREAM_VERSION-${OU_REVISION_C:-$OU_REVISION}$DEB_SUFFIX"   # per-recipe ou_revision overrides tools.env; suffix per target
   stage=$STATE/in/$c; rm -rf "$stage/debian" "$stage/patches"
   cp -a "$HERE/$c/debian" "$stage/debian"; [ -d "$HERE/$c/patches" ] && cp -a "$HERE/$c/patches" "$stage/patches" || true
   {
     echo "COMPONENT=$c"; echo "SRC_NAME=$SRC_NAME"; echo "DEB_VERSION=$DEBV"; echo "UPSTREAM_VERSION=$UPSTREAM_VERSION"
-    echo "SOURCE_DATE_EPOCH=$SDE"; echo "JOBS=$BUILDER_JOBS"; printf 'PREFETCH=%q\n' "$PREFETCH"
+    echo "SOURCE_DATE_EPOCH=$SDE"; echo "JOBS=$BUILDER_JOBS"; printf 'PREFETCH=%q\n' "$PREFETCH"; echo "DIST=$DIST"
   } > "$stage/build.env"
   ensure_builder
   tar -C "$HERE/lib" -c builder-inner.sh | sudo systemd-run -M "$BUILDER" --wait --pipe -q /bin/bash -c 'mkdir -p /build && tar -C /build -x'
