@@ -81,10 +81,18 @@ def test_selected_nodes_only_reports_no_data_not_no_backup(w, owner, rt):  # noq
     _, eid = _connect_policy(w, owner, POOLED)
     r = _discover(rt, eid)
     assert not [x for x in r["warnings"] if "HA" in x], r["warnings"]     # not granted is a choice, not a fault: no warning noise
-    for rule in ("ha_state", "backup_age"):                               # no Sys.Audit on / and no read access to the backup storage
+    o = ev(rt, eid, rule="backup_age")                                    # no read access to the backup storage
+    assert o.status == "warning" and o.details["cause"] == "no_data", o
+    o = ev(rt, eid, rule="ha_state")                                      # HA is cluster-wide: outside a node-scoped token by the admin's choice
+    assert o.status == "ok" and o.details["cause"] == "not_monitored" and "not monitored" in o.message, o
+    for rule in ("node_cpu", "node_memory"):                              # nodes outside the scope are not monitored, never STALE
         o = ev(rt, eid, rule=rule)
-        assert o.status == "warning" and o.details["cause"] == "no_data", (rule, o)
+        assert o.status == "ok" and "STALE" not in o.message, (rule, o)
     assert ev(rt, eid, rule="backup_failed").status == "critical"          # tasks on the monitored node ARE visible (Sys.Audit on /nodes/pve06)
+    owner.sim.cluster_tasks_hidden = True                                 # the real cluster: /cluster/tasks is empty for this token
+    _discover(rt, eid)
+    o = ev(rt, eid, rule="backup_failed")
+    assert o.status == "critical", o                                      # still found through the node's own task list
     c = [x for x in w.ad.get(f"{H}/infra/overview", headers=w.adh).json()["clusters"] if x["endpoint_id"] == eid][0]
     assert c["ha"] is None
 

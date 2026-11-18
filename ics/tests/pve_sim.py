@@ -92,6 +92,7 @@ class PveSim:
         self.ha: list[dict] = []              # GET /cluster/ha/status/current entries (type service / lrm)
         self.upload_task_node: str | None = None
         self.backup_vols: list[dict] = []     # {"storage", "vmid", "ctime", "size"}: backup volumes (content=backup)
+        self.cluster_tasks_hidden = False
         self.vzdump_tasks: list[dict] = []    # GET /cluster/tasks entries of type vzdump
 
     # ---------------- setup helpers ----------------
@@ -420,6 +421,7 @@ class PveSim:
             R("POST", r"/nodes/([^/]+)/" + g + r"/(\d+)/snapshot/([^/]+)/rollback", self.r_rollback),
             R("POST", r"/nodes/([^/]+)/" + g + r"/(\d+)/migrate", self.r_migrate),
             R("DELETE", r"/nodes/([^/]+)/" + g + r"/(\d+)", self.r_destroy),
+            R("GET", r"/nodes/([^/]+)/tasks", self.r_node_tasks),
             R("GET", r"/nodes/([^/]+)/tasks/([^/]+)/status", self.r_task_status),
             R("GET", r"/nodes/([^/]+)/tasks/([^/]+)/log", self.r_task_log),
         ]
@@ -525,7 +527,13 @@ class PveSim:
         return [{"id": "quorum", "type": "quorum", "status": "OK", "quorate": int(self.quorate)}] + [dict(x) for x in self.ha]
 
     def r_cluster_tasks(self, tid, q, f):     # like PVE: only tasks on nodes the caller may audit
+        if self.cluster_tasks_hidden:          # the real cluster (2026-11-18): a node-scoped token gets an empty cluster task list
+            return []
         return [dict(t) for t in self.vzdump_tasks if self.can(tid, "node", t["node"], "Sys.Audit")]
+
+    def r_node_tasks(self, tid, q, f, node):
+        self.need(tid, "node", node, "Sys.Audit")
+        return [dict(t) for t in self.vzdump_tasks if t["node"] == node and (not q.get("typefilter") or t.get("type") == q["typefilter"])]
 
     def r_content(self, tid, q, f, node, storage):
         if storage not in self.storages or node not in self.storages[storage]["nodes"]:

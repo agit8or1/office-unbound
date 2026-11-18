@@ -574,18 +574,31 @@ class ProxmoxProvider:
                       "size": b["size"] if isinstance(b["size"], int) else None, "copies": b["copies"]} for b in newest.values()]
         if ok:
             d.complete.add("backups")
-        try:
-            for t in self._get("/cluster/tasks") or []:
+        # /cluster/tasks only lists what the token may see cluster-wide (often nothing for a node-scoped token); every monitored node's own
+        # task list is read as well, so a failed backup on a node Office Unbound watches is never reported as "no backup task"
+        tasks: dict[str, dict] = {}
+        tasks_ok = True
+        sources = [("/cluster/tasks", None)] + [(f"/nodes/{_seg(n['name'])}/tasks?typefilter=vzdump&limit=100", n["name"])
+                                                for n in d.nodes if n.get("managed") and n.get("status") == "online"]
+        for path, node in sources:
+            try:
+                rows = self._get(path) or []
+            except ProviderError as e:
+                if node is not None:
+                    tasks_ok = False
+                if e.code != "permission":
+                    d.warnings.append(f"backup tasks{' on ' + node if node else ''}: {e.message}")
+                continue
+            for t in rows:
                 if t.get("type") != "vzdump" or not t.get("upid"):
                     continue
                 ts = lambda k: datetime.fromtimestamp(t[k], timezone.utc) if isinstance(t.get(k), (int, float)) else None  # noqa: E731
-                d.backup_tasks.append({"upid": str(t["upid"])[:200], "node": str(t.get("node") or ""), "vmid": str(t.get("id") or "")[:32],
-                                       "status": None if t.get("status") is None else str(t["status"])[:200],
-                                       "started_at": ts("starttime"), "ended_at": ts("endtime")})
+                tasks[str(t["upid"])[:200]] = {"upid": str(t["upid"])[:200], "node": str(t.get("node") or node or ""), "vmid": str(t.get("id") or "")[:32],
+                                               "status": None if t.get("status") is None else str(t["status"])[:200],
+                                               "started_at": ts("starttime"), "ended_at": ts("endtime")}
+        d.backup_tasks.extend(tasks.values())
+        if tasks_ok:
             d.complete.add("backup_tasks")
-        except ProviderError as e:
-            if e.code != "permission":
-                d.warnings.append(f"backup tasks: {e.message}")
 
     def _provisioned(self, node: str, s: dict) -> int | None:
         """Sum of the sizes of the VISIBLE volumes on a storage (virtual size). Incomplete if the token cannot see every guest, so

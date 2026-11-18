@@ -68,6 +68,9 @@ def evaluate(rt, cfg: dict):
         if need:
             comp = db.execute(text("SELECT complete FROM infra_collect_state WHERE endpoint_id = :e"), q).scalar()
             if need not in (comp or []):
+                if need == "ha":   # HA status is cluster-wide; a token scoped to selected nodes is not allowed to read it (the administrator's choice)
+                    return Outcome("ok", "not monitored: HA status is outside Office Unbound's read access (Manage access > enable whole-cluster "
+                                   "read-only monitoring to watch it)", None, {"cause": "not_monitored", "rule": c.rule, "ok": 0})
                 return Outcome("warning", f"no {need.replace('_', ' ')} data: the read token cannot see it (enable whole-cluster read-only "
                                "monitoring, or grant Datastore.Audit on the backup storage)", None, {"cause": "no_data", "rule": c.rule})
         if c.rule == "cluster_quorum":
@@ -89,8 +92,14 @@ def evaluate(rt, cfg: dict):
                 return Outcome("ok", f"no backup task finished in the last {c.max_age_hours} h", None,
                                {"rule": c.rule, "ok": 0})
         elif c.rule in ("node_offline", "node_cpu", "node_memory"):
-            rows = db.execute(text("SELECT name AS key, status, cpu_pct, mem_used, mem_total, observed_at FROM infra_nodes WHERE endpoint_id = :e "
+            rows = db.execute(text("SELECT name AS key, status, cpu_pct, mem_used, mem_total, observed_at, managed FROM infra_nodes WHERE endpoint_id = :e "
                                    "AND (:t = '*' OR name = :t) ORDER BY name"), q).all()
+            if c.rule != "node_offline":
+                unmonitored = sorted(r.key for r in rows if r.managed is False)
+                rows = [r for r in rows if r.managed is not False]
+                if not rows and unmonitored:
+                    return Outcome("ok", f"not monitored: {', '.join(unmonitored)} outside Office Unbound's read access", None,
+                                   {"cause": "not_monitored", "rule": c.rule, "ok": 0, "not_monitored": unmonitored})
         elif c.rule == "guest_stopped":
             rows = db.execute(text("SELECT vmid::text AS key, name, node, status, observed_at FROM infra_guests WHERE endpoint_id = :e "
                                    "AND (:t = '*' OR vmid::text = :t) ORDER BY vmid"), q).all()
