@@ -18,7 +18,7 @@ def projection(db: Session, endpoint_id: str, storage_row_id: str, used, total) 
     if not total or used is None:
         return {"days_to_full": None, "note": "size not reported"}
     for res, window in (("1h", "30 days"), ("5m", "7 days")):
-        r = db.execute(text(f"SELECT regr_slope(value, extract(epoch FROM ts)) AS slope, count(*) AS n, "
+        r = db.execute(text(f"SELECT regr_slope(value, extract(epoch FROM ts - now())) AS slope, count(*) AS n, "
                             f"extract(epoch FROM max(ts) - min(ts)) AS span FROM metric_samples WHERE endpoint_id = :e AND scope_type = 'storage' "
                             f"AND scope_id = :s AND metric = 'used_bytes' AND resolution = '{res}' AND ts > now() - interval '{window}'"),
                        {"e": endpoint_id, "s": storage_row_id}).first()

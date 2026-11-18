@@ -13,6 +13,7 @@ isolated lab; nothing is production supported ([ROADMAP.md](ROADMAP.md)).
 ## [0.3.7] - 2026-11-18
 
 - **Fix: every production deployment stopped at agent enrollment** with "the reporting address could not be tied to the VM's network card (no neighbour entry)". The guest had booted and called back correctly; the ICS service's systemd sandbox (`ProcSubset=pid`) hid the host neighbour table `/proc/net/arp`, so the MAC binding check (review 5 M2) never saw any entry. `ics.service` no longer sets `ProcSubset=pid` (the rest of the /proc hardening stays), and an unreadable table is now reported as such instead of blaming the network. The binding check itself is unchanged and still fails closed. Evidence: `test_review5_bootstrap.py` (unit-file check, unreadable-table case; fail without the fix).
+- **Fix: storage growth trend lost precision.** The days-to-full regression used raw Unix timestamps (~1.8e9 s with microseconds) as x, so the growth rate came out a byte off in about 6% of cases (seen as an intermittent gate failure). Time is now measured relative to now; 0 of 2000 sub-second offsets wrong (124 of 2000 before). Evidence: `test_infra_ha_backups.py::test_projection_needs_history_and_never_invents_a_date`.
 
 ## [0.3.6] - 2026-11-18
 
