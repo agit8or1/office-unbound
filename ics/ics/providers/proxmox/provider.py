@@ -13,6 +13,7 @@ import hmac
 import ipaddress
 import os
 import re
+import secrets
 import time
 import urllib.parse
 from dataclasses import dataclass, field
@@ -1123,6 +1124,24 @@ class ProxmoxMutations(ProxmoxProvider):
         up = self._do("delete", f"/nodes/{_seg(ref.node)}/{_KIND_PATH[ref.kind]}/{int(ref.vmid)}?purge=1&destroy-unreferenced-disks=1")
         return self._task(ref.node, up, ref.vmid, "destroy", ref.deployment_id)
 
+    def _import_volumes(self, node: str, storage: str) -> dict[str, int]:
+        """volid -> size of the `import` content on one node's storage (Datastore.Audit)."""
+        rows = self._get(f"/nodes/{_seg(node)}/storage/{_seg(storage)}/content?content=import", self._w) or []
+        return {str(r.get("volid")): int(r.get("size") or 0) for r in rows if isinstance(r, dict)}
+
+    def _wait_import_volume(self, node: str, storage: str, volid: str, size: int, timeout: float) -> None:
+        """Done when the volume has the exact uploaded size on two consecutive reads (the copy to the target node has finished)."""
+        end, seen = time.monotonic() + timeout, -1
+        while True:
+            cur = self._import_volumes(node, storage).get(volid, -1)
+            if cur == size and seen == size:
+                return
+            seen = cur
+            if time.monotonic() >= end:
+                raise ProviderTimeout(f"the uploaded image did not appear as {volid} on {node} within {timeout:g}s (Proxmox ran the upload on another "
+                                      "node; check its task log). Nothing else was created.")
+            self._sleep(min(2.0, max(0.0, end - time.monotonic())))
+
     def import_image(self, spec: ImageImportSpec) -> ImageImportResult:
         """`image.import` (bootstrap v2, ADR-0008 output): upload the signed golden image to an `import` directory storage and make a template from it.
         The caller has ALREADY verified the release signature of the file; this verb re-hashes it (a swapped file is refused) and Proxmox verifies the
@@ -1172,13 +1191,24 @@ class ProxmoxMutations(ProxmoxProvider):
                 raise ScopeViolation(f"bridge {spec.bridge!r} is not in the endpoint's allowed networks")
             net = f"virtio,bridge={spec.bridge}"
         vmid = int(self._get("/cluster/nextid", self._w))
+        existing = self._import_volumes(spec.node, spec.import_storage)
+        if f"{spec.import_storage}:import/{fname}" in existing:
+            # an earlier attempt left the file (the token cannot delete it: that needs Datastore.Allocate). Never reuse a file this job did not
+            # upload and Proxmox did not checksum for it: upload under a fresh name instead.
+            fname = f"{fname[:-len('.qcow2')]}-{secrets.token_hex(4)}.qcow2"
         try:
             up = self._w.upload(f"/nodes/{_seg(spec.node)}/storage/{_seg(spec.import_storage)}/upload",
                                 {"content": "import", "checksum-algorithm": "sha256", "checksum": spec.sha256}, spec.file_path, fname)
         except ProxmoxError as e:
             raise map_error(e, "image upload") from None
-        self.wait(self._task(spec.node, up, None, "imgcopy"), timeout=3600.0, interval=2.0)
         volid = f"{spec.import_storage}:import/{fname}"
+        m = _UPID.match(up) if isinstance(up, str) else None
+        if m and m.group(1) != spec.node:
+            # Proxmox ran the upload on the node that received the request (e.g. the cluster's public address) and copies the file to the target
+            # node after verifying the checksum there. That node is outside this token's audit scope, so watch the target storage instead.
+            self._wait_import_volume(spec.node, spec.import_storage, volid, size, timeout=3600.0)
+        else:
+            self.wait(self._task(spec.node, up, None, "imgcopy"), timeout=3600.0, interval=2.0)
         data = {"vmid": vmid, "name": spec.name, "pool": spec.pool, "cores": spec.cores, "memory": spec.memory_mb, "ostype": "l26", "scsihw": "virtio-scsi-single",
                 "scsi0": f"{spec.target_storage}:0,import-from={volid}", "boot": "order=scsi0", "serial0": "socket", "agent": "0",
                 "tags": f"{OWNED_TAG};ou-image;{rel_tag}", "description": "Office Unbound golden guest image (ADR-0008 pipeline output)"}

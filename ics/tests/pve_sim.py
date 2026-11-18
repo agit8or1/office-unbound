@@ -90,6 +90,7 @@ class PveSim:
         self.fw_nodes: dict = {}              # node -> {"options": {...}, "rules": [...]}
         self.write_calls: list[tuple[str, str]] = []   # every non-GET request that reached a route
         self.ha: list[dict] = []              # GET /cluster/ha/status/current entries (type service / lrm)
+        self.upload_task_node: str | None = None
         self.backup_vols: list[dict] = []     # {"storage", "vmid", "ctime", "size"}: backup volumes (content=backup)
         self.vzdump_tasks: list[dict] = []    # GET /cluster/tasks entries of type vzdump
 
@@ -530,6 +531,9 @@ class PveSim:
         if storage not in self.storages or node not in self.storages[storage]["nodes"]:
             raise HTTPErr(500, f"storage '{storage}' does not exist")
         self.need(tid, "storage", storage, "Datastore.Audit") if not self.can(tid, "storage", storage, "Datastore.AllocateSpace") else None
+        if q.get("content") == "import":
+            return [{"volid": f"{storage}:{k}", "size": v, "format": k.rsplit(".", 1)[-1], "content": "import"}
+                    for k, v in sorted(self.storages[storage].get("files", {}).items()) if k.startswith("import/")]
         if q.get("content") == "backup":
             return [{"volid": f"{storage}:backup/vzdump-qemu-{b['vmid']}-{b['ctime']}.vma.zst", "vmid": b["vmid"], "ctime": b["ctime"],
                      "size": b.get("size", 1 << 30), "format": "vma.zst", "content": "backup"}
@@ -1091,7 +1095,9 @@ class PveSim:
 
         def done():
             self.storages[storage].setdefault("files", {})[f"{content}/{fname}"] = len(data)
-        return self._task(node, "imgcopy", "", tid, done)
+        # a real cluster runs the upload task on the node that RECEIVED the request (e.g. behind a public address) and copies the file to the
+        # target node with scp; that task's UPID then names a node the scoped token cannot audit
+        return self._task(self.upload_task_node or node, "imgcopy", "", tid, done)
 
     def r_create(self, tid, q, f, node):
         self._node_up(node)

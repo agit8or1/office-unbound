@@ -1,6 +1,7 @@
 """`image.import` provider verb (bootstrap v2): upload a signed golden image to an `import` directory storage and turn it into a template. Against the
 simulator, which models PVE 9's upload API (multipart, content=import, checksum, Datastore.AllocateTemplate) and `import-from` disk creation."""
 import hashlib
+import re
 import os
 
 import pytest
@@ -211,3 +212,23 @@ def test_a_release_dated_before_the_accepted_one_is_refused(sim, job, tmp_path):
     old = release(tmp_path, "20261001", version=7)
     with pytest.raises(ProviderError, match="before the accepted release date"):
         mutations(sim, scope=SCOPE).import_image(spec(old, floor=golden.Floor(6, "ab" * 32, "20261115")))
+
+
+def test_upload_received_by_another_node_is_followed_on_the_target_storage(sim, job, image):
+    """Real cluster (2026-11-18): the public address forwards to a different node, which runs the imgcopy task and scp's the file to the target
+    node. That UPID names a node outside the token's scope ("malformed task reference"); the verb now waits for the file on the target storage."""
+    enable_import(sim)
+    sim.sim.upload_task_node = "pve-elsewhere"
+    r = mutations(sim, scope=SCOPE).import_image(spec(image))
+    assert r.volid == "local:import/ou-golden-debian-12-20261115.qcow2"
+    assert sim.sim.vms[r.vmid]["cfg"]["template"] == 1
+    assert not any("pve-elsewhere" in p for _, p in sim.sim.seen)                          # never asks the out-of-scope node
+
+
+def test_a_file_left_by_an_earlier_attempt_is_never_reused(sim, job, image):
+    enable_import(sim)
+    sim.sim.storages["local"].setdefault("files", {})["import/ou-golden-debian-12-20261115.qcow2"] = len(BLOB)
+    r = mutations(sim, scope=SCOPE).import_image(spec(image))
+    assert re.fullmatch(r"local:import/ou-golden-debian-12-20261115-[0-9a-f]{8}\.qcow2", r.volid), r.volid
+    assert sim.sim.uploaded_bytes == len(BLOB)                                              # uploaded and checksummed again
+    assert set(sim.sim.storages["local"]["files"]) == {"import/ou-golden-debian-12-20261115.qcow2", r.volid.split(":", 1)[1]}

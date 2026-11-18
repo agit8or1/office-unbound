@@ -10,6 +10,11 @@ isolated lab; nothing is production supported ([ROADMAP.md](ROADMAP.md)).
 
 ## [Unreleased]
 
+## [0.3.5] - 2026-11-18
+
+- **Fix: image import failed with "malformed task reference"** on the real cluster although the upload succeeded. The cluster's public address forwards to another node; Proxmox runs the upload task on the node that received the request, verifies the checksum there and copies the file to the target node. That task's ID names a node outside Office Unbound's scope, so the job gave up. The import now waits for the file on the target node's import storage (exact size, two consecutive reads) and never queries the out-of-scope node. Evidence: `test_image_import.py::test_upload_received_by_another_node_is_followed_on_the_target_storage`.
+- A file left on the import storage by an earlier attempt is never reused (the token cannot delete it and Proxmox did not checksum it for this job): the image is uploaded again under a fresh name. Evidence: `test_image_import.py::test_a_file_left_by_an_earlier_attempt_is_never_reused`.
+
 ## [0.3.4] - 2026-11-18
 
 - **Fix: Manage access Apply was refused with "the cluster or the managed guests changed since the scope change was previewed"** although nothing had changed (real cluster, apply 6 s after Calculate). Proxmox lists a storage's content types in a random order on each read; that order went into the plan, so the same change hashed differently at preview and at apply. Content types and storage node lists are now sorted when read. Evidence: `test_import_storage.py::test_scope_hash_ignores_the_order_proxmox_lists_content_types_in` (fails without the fix).
@@ -189,7 +194,8 @@ editing, chat/meetings, telephony prototype, migration tooling and package pipel
 - **Review 4** (2 High, 11 Medium, 9 Low; gromox patches, lifecycle, SSO, telephony, migration engine, package pipeline, Collabora) reported. Findings are **open** on `main`; see Unreleased. [report](docs/status/security-review-4-2026-11-15.md)
 - `SECURITY.md` (private reporting) and `CONTRIBUTING.md` (DCO sign-off) added; AGPL-3.0 license. [SECURITY](SECURITY.md)
 
-[Unreleased]: https://github.com/agit8or1/office-unbound/compare/v0.3.4...HEAD
+[Unreleased]: https://github.com/agit8or1/office-unbound/compare/v0.3.5...HEAD
+[0.3.5]: https://github.com/agit8or1/office-unbound/releases/tag/v0.3.5
 [0.3.4]: https://github.com/agit8or1/office-unbound/releases/tag/v0.3.4
 [0.3.3]: https://github.com/agit8or1/office-unbound/releases/tag/v0.3.3
 [0.3.2]: https://github.com/agit8or1/office-unbound/releases/tag/v0.3.2

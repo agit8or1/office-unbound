@@ -1,6 +1,6 @@
 # Office Unbound roadmap & progress
 
-> Generated from [`docs/progress.json`](docs/progress.json) by `scripts/render_roadmap.py` — edit the JSON, not this file. Last updated **2026-11-18** · stage: **pre-alpha (lab)** · current version: **0.3.4**.
+> Generated from [`docs/progress.json`](docs/progress.json) by `scripts/render_roadmap.py` — edit the JSON, not this file. Last updated **2026-11-18** · stage: **pre-alpha (lab)** · current version: **0.3.5**.
 
 Core platform components are integrated and tested in an isolated lab: own source build of Exchange-compatible groupware with single sign-on webmail, Keycloak SSO, file sync and browser document editing, backup/restore drills, chat and video meetings, and an infrastructure control server with monitoring, self-healing and a real Proxmox integration (VM lifecycle verified on a live cluster). Guided deployment wizards, provisioning automation and the credential vault are being integrated.
 
@@ -170,6 +170,7 @@ Core platform components are integrated and tested in an isolated lab: own sourc
 
 | Version | Date | Status | Highlights |
 |---|---|---|---|
+| [0.3.5](https://github.com/agit8or1/office-unbound/blob/main/CHANGELOG.md) | 2026-11-18 | prepared | 0.3.5: image import works when the cluster address forwards to another node; stale import files never reused |
 | [0.3.4](https://github.com/agit8or1/office-unbound/blob/main/CHANGELOG.md) | 2026-11-18 | released | 0.3.4: Manage access apply no longer refused by Proxmox's random content-type order; auto-recalculate on real drift |
 | [0.3.3](https://github.com/agit8or1/office-unbound/blob/main/CHANGELOG.md) | 2026-11-18 | released | 0.3.3: image import storage `local` offered and preselected (upload-only grant, never VM disks) |
 | [0.3.2](https://github.com/agit8or1/office-unbound/blob/main/CHANGELOG.md) | 2026-11-18 | released | 0.3.2: hardware-aware deployment wizard and sizing engine (measured vs estimated sizing, real capacity analysis, HA only when qualified, resize plans) |
