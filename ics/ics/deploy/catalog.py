@@ -177,6 +177,93 @@ class Upgrade(_M):
     downtime_seconds: int = Field(ge=0, le=86400)
 
 
+# ---- sizing model (sizing engine, docs/status/sizing-api.md) -----------------------------------------------------------
+# Every number carries its evidence: `measured` (a lab measurement, cited in `source`) or `estimate` (a planning value; the engine
+# adds the component's safety margin to it and labels it). Workload drivers are derived from the wizard's workload input.
+Driver = Literal["total_user", "concurrent_user", "office_editor", "meeting_participant", "concurrent_call", "mailbox_gb", "file_gb"]
+Evidence = Literal["measured", "estimate"]
+
+
+class Factor(_M):
+    per: Driver
+    value: float = Field(ge=0)
+    evidence: Evidence
+    source: str = Field(min_length=3, max_length=400)
+
+
+class ResourceModel(_M):
+    """value = base + sum(factor.value * driver); estimate parts are multiplied by (1 + safety_margin_pct/100)."""
+    base: float = Field(ge=0, description="fixed overhead")
+    base_evidence: Evidence
+    source: str = Field(min_length=3, max_length=400)
+    factors: list[Factor] = []
+
+
+class VolumeModel(ResourceModel):
+    volume: str = Field(pattern=NAME, description="name of a volume declared by the component")
+
+
+class ResAmount(_M):
+    cores: int = Field(ge=0, le=256)
+    memory_mb: int = Field(ge=0, le=1048576)
+    disk_gb: int = Field(ge=0, le=65536)
+
+
+class Consolidation(_M):
+    group: str = Field(pattern=NAME, description="components with the same group share a VM in the 'balanced' architecture")
+    isolation: Literal["none", "preferred", "required"] = Field(default="none", description="required = never shares a VM with another component")
+    never_with: list[str] = Field(default=[], description="components that must not share a VM with this one")
+    reason: str = Field(default="", max_length=300)
+
+
+class HaStrategy(_M):
+    id: Literal["stateless_active_active", "primary_replica", "multi_primary", "independent_instances", "vm_restart_shared_storage"]
+    status: Literal["implemented", "designed", "not_supported"]
+    note: str = Field(max_length=300)
+
+
+class HaCapability(_M):
+    min_replicas: int = Field(default=2, ge=2, le=5)
+    strategies: list[HaStrategy] = []
+    note: str = Field(max_length=400)
+
+    @property
+    def capable(self) -> bool:
+        """Application-level HA exists only with an IMPLEMENTED replication strategy; VM restart/replicas alone are not application HA."""
+        return any(s.status == "implemented" and s.id != "vm_restart_shared_storage" for s in self.strategies)
+
+
+class Validated(_M):
+    """What was actually exercised in a lab (never extrapolated): the engine reports workloads above this as unvalidated."""
+    total_users: int | None = Field(default=None, ge=0)
+    concurrent: int | None = Field(default=None, ge=0, description="concurrent units of `concurrent_metric`")
+    concurrent_metric: Driver | None = None
+    reference: str = Field(min_length=3, max_length=300)
+
+
+class Sizing(_M):
+    services: list[Annotated[str, Field(pattern=NAME)]] = Field(default=[], description="wizard service ids this component provides")
+    core: bool = Field(default=False, description="always deployed (not selectable)")
+    minimum: ResAmount = Field(description="floor for evaluation deployments")
+    recommended: ResAmount = Field(description="floor for production deployments")
+    cores: ResourceModel
+    memory_mb: ResourceModel
+    disk_gb: ResourceModel
+    volumes: list[VolumeModel] = []
+    safety_margin_pct: int = Field(default=30, ge=0, le=200, description="added to every ESTIMATE part")
+    consolidation: Consolidation
+    ha: HaCapability
+    limitations: list[str] = []
+    validated: Validated
+
+    @model_validator(mode="after")
+    def _floors(self) -> Self:
+        m, r = self.minimum, self.recommended
+        if r.cores < m.cores or r.memory_mb < m.memory_mb or r.disk_gb < m.disk_gb:
+            raise ValueError("recommended must be >= minimum")
+        return self
+
+
 class Component(_M):
     name: str = Field(pattern=NAME)
     version: str = Field(pattern=SEMVER)
@@ -196,6 +283,7 @@ class Component(_M):
     notices: list[str] = Field(default=[], description="plain-language caveats; every plan containing the component lists them as warnings")
     ha_note: str | None = Field(default=None, max_length=300, description="what replication/HA means (or does not mean) for this component")
     os_images: list[str] = Field(default=[], description="OS images the artifacts were built/validated for; empty = no restriction")
+    sizing: Sizing | None = Field(default=None, description="sizing-engine model (resources, consolidation, HA, evidence)")
 
     @model_validator(mode="after")
     def _uniq(self) -> Self:
@@ -203,6 +291,10 @@ class Component(_M):
                             ("ports", [p.name for p in self.ports]), ("health_checks", [h.name for h in self.health_checks])):
             if len(set(items)) != len(items):
                 raise ValueError(f"duplicate names in {what}")
+        if self.sizing:
+            vols = {v.name for v in self.volumes}
+            if {v.volume for v in self.sizing.volumes} != vols:
+                raise ValueError("sizing.volumes must model exactly the component's volumes")
         ports = {p.port for p in self.ports}
         for h in self.health_checks:
             if h.port not in ports:
@@ -229,6 +321,12 @@ class BackupPolicy(_M):
     offsite: bool = False
 
 
+class SizingPreset(_M):
+    """How a legacy profile maps onto the sizing engine (the profile itself stays a fixed, legacy layout)."""
+    deployment_type: Literal["evaluation", "production", "msp", "custom"]
+    architecture: Literal["consolidated", "balanced", "isolated", "ha", "dedicated"] | None = None
+
+
 class Profile(_M):
     name: str = Field(pattern=NAME)
     version: str = Field(pattern=SEMVER)
@@ -245,6 +343,7 @@ class Profile(_M):
     optional_components: list[str] = []
     default_optional: list[str] = []
     backup: BackupPolicy
+    sizing_preset: SizingPreset | None = None
 
     @model_validator(mode="after")
     def _chk(self) -> Self:
@@ -358,6 +457,10 @@ def build_catalog(meta_raw: dict, comp_raws: list[dict], prof_raws: list[dict], 
                 raise CatalogError(f"component {c.name}: unknown dependency {d!r}")
         if set(c.depends_on) & set(c.after):
             raise CatalogError(f"component {c.name}: a dependency cannot be in both depends_on and after")
+        if c.sizing:
+            for o in c.sizing.consolidation.never_with:
+                if o not in comps:
+                    raise CatalogError(f"component {c.name}: sizing.consolidation.never_with names unknown component {o!r}")
     try:
         tuple(graphlib.TopologicalSorter({c.name: set(c.depends_on) | set(c.after) for c in comps.values()}).static_order())
     except graphlib.CycleError:
@@ -410,8 +513,17 @@ def get_catalog() -> Catalog:
     return _default()
 
 
+def profile_vm_counts(p: Profile) -> dict:
+    """VM counts DERIVED from the layout (never hand-written in a title): default optional set, and everything enabled.
+    For per-tenant layouts the counts are per tenant plus the shared VMs."""
+    def count(enabled: set[str]) -> int:
+        return sum(v.replicas for v in p.vms if [c for c in v.components if c not in set(p.optional_components) - enabled])
+    return {"default": count(set(p.default_optional)), "all_optional": count(set(p.optional_components)),
+            "minimum": count(set()), "per_tenant": p.tenancy == "multi"}
+
+
 def describe_profile(p: Profile) -> dict:
-    return p.model_dump(mode="json")
+    return {**p.model_dump(mode="json"), "vm_counts": profile_vm_counts(p)}
 
 
 def describe_component(c: Component) -> dict:

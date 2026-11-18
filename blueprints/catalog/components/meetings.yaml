@@ -36,3 +36,28 @@ notices:
   - "Token service is a lab spike (in-memory sessions, shared HS256 secret); production hardening is open (RS256 key, persistent sessions, role check)."
 ha_note: "A replica is a complete, independent Jitsi stack on another node (anti-affinity keeps them apart); videobridge scale-out behind one Prosody and shard routing are not implemented or validated."
 os_images: [ubuntu-24.04]
+sizing:
+  services: [meetings]
+  minimum: {cores: 2, memory_mb: 2048, disk_gb: 8}
+  recommended: {cores: 4, memory_mb: 4096, disk_gb: 8}
+  cores:
+    base: 2
+    base_evidence: estimate
+    source: "ESTIMATE: JVB is CPU/bandwidth bound; lab ran 2 video participants only"
+    factors:
+      - {per: meeting_participant, value: 0.1, evidence: estimate, source: "ESTIMATE: 1 core per 10 simultaneous video participants (no load test)"}
+  memory_mb:
+    base: 1024
+    base_evidence: measured
+    source: "collaboration-lab-results.md section 4: ou-meet1 idle 0.94 GiB (JVB 472 MB, Jicofo 311 MB, token service 55 MB)"
+    factors:
+      - {per: meeting_participant, value: 30, evidence: estimate, source: "ESTIMATE: per-participant JVB buffers"}
+  disk_gb: {base: 8, base_evidence: estimate, source: "ESTIMATE: OS + images; stateless"}
+  volumes: []
+  consolidation: {group: meet, isolation: preferred, reason: "binds tcp/443 and udp/10000 (port conflict with edge/chat/telephony); media load is latency sensitive"}
+  ha:
+    note: "A replica is an independent Jitsi stack; videobridge scale-out / shard routing is not implemented."
+    strategies:
+      - {id: independent_instances, status: designed, note: "two independent stacks; users must be routed to one; not built"}
+  limitations: ["No TURN relay packaged: users behind UDP-blocking networks cannot join.", "Bandwidth, not CPU, is often the limit; not modelled."]
+  validated: {concurrent: 2, concurrent_metric: meeting_participant, reference: "collaboration-lab-results.md (2 video participants, fake media)"}

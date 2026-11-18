@@ -41,3 +41,29 @@ backup:
   rpo_hours: 24
   evidence: "docs/status/restore-drill-results.md (ou-files1 drill: 143 xattr entries restored)"
 upgrade: {downtime_seconds: 60}
+sizing:
+  services: [files]
+  minimum: {cores: 1, memory_mb: 1024, disk_gb: 4}
+  recommended: {cores: 2, memory_mb: 2048, disk_gb: 8}
+  cores:
+    base: 1
+    base_evidence: estimate
+    source: "ESTIMATE: identity-files-lab-results.md ou-files1 light load; not measured"
+    factors:
+      - {per: concurrent_user, value: 0.02, evidence: estimate, source: "ESTIMATE: 1 core per 50 concurrent sync clients"}
+  memory_mb:
+    base: 640
+    base_evidence: measured
+    source: "identity-files-lab-results.md: ou-files1 0.23 GB idle, 0.57 GB peak under MemoryMax 2G (5 test users)"
+    factors:
+      - {per: concurrent_user, value: 8, evidence: estimate, source: "ESTIMATE: per active sync/web session"}
+  disk_gb: {base: 4, base_evidence: estimate, source: "ESTIMATE: OS + container image"}
+  volumes:
+    - {volume: files-data, base: 10, base_evidence: estimate, source: "ESTIMATE: lab data tree ~17 MB", factors: [{per: file_gb, value: 1.1, evidence: estimate, source: "operator file quota + 10% ESTIMATED versions/trash/metadata"}]}
+  consolidation: {group: files, isolation: none, reason: "shares a VM with the document engine in the balanced layout (proven same-VM topology)"}
+  ha:
+    note: "No application HA: OpenCloud storage replication is not implemented or validated."
+    strategies:
+      - {id: vm_restart_shared_storage, status: implemented, note: "Proxmox HA restart (shared storage); recovery, not HA"}
+  limitations: []
+  validated: {total_users: 5, reference: "identity-files-lab-results.md (5 test users, functional sync/edit tests)"}

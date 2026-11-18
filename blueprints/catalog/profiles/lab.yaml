@@ -1,6 +1,6 @@
 name: lab
 version: 1.0.0
-title: Lab (single VM, all components)
+title: Lab (single VM, all core components)
 description: Everything on one VM for evaluation. No redundancy; not for customer data.
 maturity: lab-validated
 max_users: 25
@@ -12,3 +12,4 @@ vms:
 optional_components: [office]
 default_optional: [office]
 backup: {schedule: daily, retention_days: 7, snapshot_before_change: true, offsite: false}
+sizing_preset: {deployment_type: evaluation, architecture: consolidated}  # mapping onto the sizing engine

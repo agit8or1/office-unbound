@@ -11,6 +11,8 @@ import Button from '../ui/Button.vue'
 import Skeleton from '../ui/Skeleton.vue'
 import ErrorBox from '../components/ErrorBox.vue'
 import BootstrapPanel from '../components/BootstrapPanel.vue'
+import ResizePanel from '../wizards/deploy/ResizePanel.vue'
+import { hasRole } from '../store'
 
 const props = defineProps<{ id: string }>()
 const enc = encodeURIComponent(props.id)
@@ -18,6 +20,7 @@ const dep = useLoad(async () => { const r = await tryGet<Record<string, unknown>
 const resources = useLoad(async () => asList((await tryGet<unknown>(`deployments/${enc}/resources`, [])).data), 10000)
 const events = useLoad(async () => asList((await tryGet<unknown>(`deployments/${enc}/events`, [])).data), 10000)
 watchEffect(() => { crumbLabel.value = dep.data.value?.name ?? '' })
+const canResize = () => hasRole('operator')
 const s = (v: unknown) => (v === undefined || v === null ? '-' : String(v))
 </script>
 <template>
@@ -39,6 +42,7 @@ const s = (v: unknown) => (v === undefined || v === null ? '-' : String(v))
           <ul v-else class="feed feedpad"><li v-for="(e, i) in events.data.value.slice(0, 20)" :key="i"><span class="t">{{ s(e.message ?? e.event ?? e.type) }}</span><span class="w">{{ ago(e.at as string ?? e.created_at as string) }}</span></li></ul>
         </Card>
       </div>
+      <ResizePanel v-if="canResize()" :slug="props.id" />
     </template>
   </div>
 </template>

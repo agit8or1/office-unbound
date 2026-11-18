@@ -20,6 +20,7 @@ from .envs import real_env_factory
 from .netmodel import load_network_model
 from .plan import PlanInput, VmLayout, canon, capacity_from_inventory, generate_plan, plan_hash
 from .ports import STOP_EVENTS, Cancelled, DeployError, ExecEnv, Fenced, StepFailed
+from .sizing import SizingSpec
 
 log = logging.getLogger("ics.deploy.ops")
 
@@ -46,6 +47,7 @@ class ChangeSet(BaseModel):
     backup_retention_days: int | None = Field(default=None, ge=1, le=3650)
     allowed_nodes: list[str] | None = Field(default=None, max_length=64)
     tenants: int | None = Field(default=None, ge=1, le=50)
+    sizing: SizingSpec | None = Field(default=None, description="replaces the deployment's sizing parameters/overrides (resize-plan output)")
 
     def apply(self, spec: PlanInput) -> PlanInput:
         new = self.model_dump(exclude_none=True)
@@ -114,11 +116,21 @@ def _scope_networks(db, endpoint_name: str):
     return tuple(ep.allowed_networks or ()) if ep else None
 
 
+def plan_context(db, endpoint: str, deployment_id: str) -> tuple[dict, Callable[..., dict]]:
+    """(inventory data, plan function) with EXACTLY the inputs build_plan uses, so a caller that plans many candidates (the sizing engine)
+    reads the inventory once and still produces the same plan_hash as POST /deployments/plan."""
+    _, data = _latest_inventory(db, endpoint)
+    cap, cat = capacity_from_inventory(data, deployment_id), get_catalog()
+    nets, scope, arts = load_network_model(), _scope_networks(db, endpoint), artmod.load_map()
+
+    def fn(spec: PlanInput, existing: dict | None = None) -> dict:
+        return generate_plan(spec, cap, cat, existing, networks=nets, scope_networks=scope, artifacts=arts)
+    fn.capacity, fn.catalog = cap, cat  # type: ignore[attr-defined]
+    return data, fn
+
+
 def build_plan(db, spec: PlanInput, existing: dict | None = None) -> dict:
-    _, data = _latest_inventory(db, spec.endpoint)
-    return generate_plan(spec, capacity_from_inventory(data, spec.deployment_id), get_catalog(), existing,
-                         networks=load_network_model(), scope_networks=_scope_networks(db, spec.endpoint),
-                         artifacts=artmod.load_map())
+    return plan_context(db, spec.endpoint, spec.deployment_id)[1](spec, existing)
 
 
 def _dep(db, slug: str):

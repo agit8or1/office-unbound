@@ -1,6 +1,6 @@
 name: medium
 version: 1.0.0
-title: Medium (up to 250 users, 5 VMs)
+title: Medium (up to 250 users)
 description: One VM per component group; edge separated from identity.
 maturity: lab-validated
 max_users: 250
@@ -19,3 +19,4 @@ vms:
 optional_components: [office, chat, meetings, telephony]
 default_optional: [office, chat, meetings]
 backup: {schedule: daily, retention_days: 30, snapshot_before_change: true, offsite: true}
+sizing_preset: {deployment_type: production, architecture: isolated}  # mapping onto the sizing engine

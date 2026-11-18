@@ -45,3 +45,31 @@ backup:
   rpo_hours: 24
   evidence: "docs/status/groupware-lab-results.md GW07 (in place); separate-machine drill still open"
 upgrade: {downtime_seconds: 300}
+sizing:
+  services: [mail, calendar, contacts]
+  minimum: {cores: 2, memory_mb: 2048, disk_gb: 8}
+  recommended: {cores: 2, memory_mb: 4096, disk_gb: 12}
+  cores:
+    base: 1
+    base_evidence: estimate
+    source: "ESTIMATE: groupware-lab-results.md had light load only; no CPU measurement"
+    factors:
+      - {per: concurrent_user, value: 0.02, evidence: estimate, source: "ESTIMATE: 1 core per 50 concurrent IMAP/EWS/web sessions; no load test"}
+  memory_mb:
+    base: 1536
+    base_evidence: measured
+    source: "groupware-lab-results.md: idle stack ~1.3 GB incl page cache (gromox-imap 123 MB, mariadb 112 MB, gromox-http 85 MB, php-fpm ~35 MB/worker)"
+    factors:
+      - {per: total_user, value: 2, evidence: estimate, source: "ESTIMATE: per-mailbox caches"}
+      - {per: concurrent_user, value: 10, evidence: estimate, source: "ESTIMATE: php-fpm/gromox-http worker memory per active session"}
+  disk_gb: {base: 8, base_evidence: measured, source: "groupware-lab-results.md: machine image 3.5 GB + web 105 MB (sources deletable)"}
+  volumes:
+    - {volume: mailstore, base: 10, base_evidence: estimate, source: "ESTIMATE: lab measured 26 MB for 8 mailboxes", factors: [{per: mailbox_gb, value: 1.15, evidence: estimate, source: "operator mailbox quota + 15% ESTIMATED index/metadata overhead"}]}
+    - {volume: mariadb-data, base: 2, base_evidence: measured, source: "groupware-lab-results.md: MariaDB 128 MB for 8 users incl. schema", factors: [{per: total_user, value: 0.01, evidence: estimate, source: "ESTIMATE: 10 MB/user"}]}
+  consolidation: {group: groupware, isolation: none, reason: "stateful mail store; its own VM in balanced/isolated layouts"}
+  ha:
+    note: "No application HA: gromox has no multi-server/replication setup here (groupware-lab-results.md: multi-server not tested)."
+    strategies:
+      - {id: vm_restart_shared_storage, status: implemented, note: "Proxmox HA restart (shared storage); recovery, not HA"}
+  limitations: ["No concurrency/load test exists; all user scaling is estimated.", "ACLs are not part of the logical export backup."]
+  validated: {total_users: 8, reference: "groupware-lab-results.md (8 mailboxes, 7 IMAP logins; no load test)"}

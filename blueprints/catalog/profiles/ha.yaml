@@ -19,3 +19,4 @@ vms:
 optional_components: [office, chat, meetings, telephony]
 default_optional: [office, chat, meetings]
 backup: {schedule: hourly, retention_days: 30, snapshot_before_change: true, offsite: true}
+sizing_preset: {deployment_type: production, architecture: ha}  # mapping onto the sizing engine

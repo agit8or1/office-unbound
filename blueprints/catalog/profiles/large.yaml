@@ -1,6 +1,6 @@
 name: large
 version: 1.0.0
-title: Large (up to 1000 users, 6 VMs)
+title: Large (up to 1000 users)
 description: Medium layout with two office (document engine) workers, spread across nodes when possible.
 maturity: experimental
 max_users: 1000
@@ -19,3 +19,4 @@ vms:
 optional_components: [office, chat, meetings, telephony]
 default_optional: [office, chat, meetings]
 backup: {schedule: daily, retention_days: 30, snapshot_before_change: true, offsite: true}
+sizing_preset: {deployment_type: production, architecture: isolated}  # mapping onto the sizing engine

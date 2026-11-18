@@ -20,6 +20,7 @@ from pydantic import BaseModel, ConfigDict, Field
 from .netmodel import NetworkModel, resolve as resolve_network
 from ..artifacts import SENTINEL_REGISTRY, ArtifactMap, placeholder_images
 from .catalog import Catalog, Component, Profile, VmLayout, get_catalog
+from .sizing import SizingSpec, ceil as _dceil, component_size, drivers
 
 PLAN_VERSION = 1
 SLUG = r"^[a-z0-9][a-z0-9-]{1,30}$"
@@ -48,6 +49,22 @@ class PlanInput(_M):
     enabled_ports: list[str] = Field(default_factory=list, max_length=20, description="opt-in ports that are closed by default, as 'component:port-name' (e.g. chat:federation)")
     custom_layout: list[VmLayout] | None = Field(default=None, max_length=30)
     backup_retention_days: int | None = Field(default=None, ge=1, le=3650)
+    sizing: SizingSpec | None = Field(default=None, description="sizing-engine parameters (POST /deployments/size output); None = legacy profile formulas")
+
+
+def input_dump(inp: "PlanInput") -> dict:
+    """The plan's `input` section. `sizing` is omitted when unset so legacy plans keep their exact hash."""
+    d = inp.model_dump(mode="json")
+    if d.get("sizing") is None:
+        d.pop("sizing", None)
+    return d
+
+
+def tenancy_of(inp: "PlanInput", prof: Profile) -> str:
+    """Effective tenancy: the profile's, except that the custom profile may be made multi-tenant by the sizing engine."""
+    if prof.custom and inp.sizing is not None and inp.sizing.tenancy == "multi":
+        return "multi"
+    return prof.tenancy
 
 
 @dataclass
@@ -69,6 +86,7 @@ class StorageCap:
     total_gb: int = 0
     thin: bool = False
     provisioned_gb: int | None = None   # already-provisioned virtual size (thin pools); unknown = None
+    type: str = ""                      # provider storage type (lvmthin, zfspool, rbd, nfs, dir, ...); "" = unknown
 
     @property
     def key(self) -> str:
@@ -123,7 +141,7 @@ class _Vm:
 
 
 def _tenant_ids(inp: PlanInput, prof: Profile) -> list[str | None]:
-    if prof.tenancy == "multi":
+    if tenancy_of(inp, prof) == "multi":
         return [f"t{i:02d}" for i in range(1, inp.tenants + 1)]
     return [None]
 
@@ -166,7 +184,7 @@ def _expand(inp: PlanInput, prof: Profile, cat: Catalog, errors: list[dict]) -> 
         if not comps and not only_every:
             continue
         for t in (tenants if lay.per_tenant else [None]):
-            users = inp.users * (len(tenants) if (prof.tenancy == "multi" and t is None) else 1)
+            users = inp.users * (len(tenants) if (tenancy_of(inp, prof) == "multi" and t is None) else 1)
             for r in range(1, lay.replicas + 1):
                 name = "-".join(p for p in (base, t, lay.name, f"r{r}" if lay.replicas > 1 else None) if p)
                 if len(name) > 63:
@@ -197,24 +215,89 @@ def _expand(inp: PlanInput, prof: Profile, cat: Catalog, errors: list[dict]) -> 
         for d in cat.components[c].depends_on:
             if d not in present:
                 errors.append(_err("missing_dependency", f"component {c!r} needs {d!r}, which is not in the layout (or was disabled)"))
-    if prof.tenancy == "single" and inp.tenants != 1:
+    if inp.sizing is not None and inp.sizing.tenancy == "multi" and not prof.custom:
+        errors.append(_err("sizing_tenancy_not_allowed", "sizing.tenancy 'multi' needs the custom profile"))
+    if tenancy_of(inp, prof) == "single" and inp.tenants != 1:
         errors.append(_err("tenants_not_supported", f"profile {prof.name!r} is single-tenant; use msp-multi for {inp.tenants} tenants"))
     return vms, present
 
 
-def _size(vms: list[_Vm], cat: Catalog) -> None:
+def _size(vms: list[_Vm], cat: Catalog, inp: "PlanInput | None" = None, errors: list[dict] | None = None,
+          warnings: list[dict] | None = None) -> dict:
+    """Legacy: per-user formulas. With `inp.sizing.workload`: the sizing-engine models (sizing.py). Overrides apply in both modes.
+    Returns the plan's `sizing` section ({} for plans without `sizing`)."""
     ov = cat.meta.vm_overhead
     every = [c for c in cat.components.values() if c.placement == "every_vm"]
+    spec = inp.sizing if inp is not None else None
+    wl = spec.workload if spec is not None else None
+    detail: dict = {}
     for v in vms:
         comps = [cat.components[c] for c in v.components] + every
-        v.cores = max(1, ov.cores + sum(c.resources.cores.at(v.users) for c in comps))
-        v.memory_mb = ov.memory_mb + sum(c.resources.memory_mb.at(v.users) for c in comps)
-        root = ov.disk_gb + sum(c.resources.disk_gb.at(v.users) for c in comps)
-        v.disks = [{"name": "root", "size_gb": root, "purpose": "os+software"}]
-        for c in comps:
-            for vol in c.volumes:
-                v.disks.append({"name": f"{c.name}-{vol.name}", "size_gb": max(1, vol.size_gb.at(v.users)), "purpose": f"volume:{vol.path}",
-                                "backup": vol.backup})
+        floor = None
+        if wl is None:
+            v.cores = max(1, ov.cores + sum(c.resources.cores.at(v.users) for c in comps))
+            v.memory_mb = ov.memory_mb + sum(c.resources.memory_mb.at(v.users) for c in comps)
+            root = ov.disk_gb + sum(c.resources.disk_gb.at(v.users) for c in comps)
+            v.disks = [{"name": "root", "size_gb": root, "purpose": "os+software"}]
+            for c in comps:
+                for vol in c.volumes:
+                    v.disks.append({"name": f"{c.name}-{vol.name}", "size_gb": max(1, vol.size_gb.at(v.users)), "purpose": f"volume:{vol.path}",
+                                    "backup": vol.backup})
+        else:
+            d = drivers(v.users, inp.users, wl)
+            sz = {c.name: component_size(c, d, spec, v.users) for c in comps}
+            v.cores = max(1, ov.cores + sum(x["cores"] for x in sz.values()))
+            v.memory_mb = ov.memory_mb + sum(x["memory_mb"] for x in sz.values())
+            v.disks = [{"name": "root", "size_gb": ov.disk_gb + sum(x["disk_gb"] for x in sz.values()), "purpose": "os+software"}]
+            for c in comps:
+                for vol in c.volumes:
+                    v.disks.append({"name": f"{c.name}-{vol.name}", "size_gb": sz[c.name]["volumes"].get(vol.name, max(1, vol.size_gb.at(v.users))),
+                                    "purpose": f"volume:{vol.path}", "backup": vol.backup})
+            floor = {"cores": max(1, ov.cores + sum(c.sizing.minimum.cores if c.sizing else 0 for c in comps)),
+                     "memory_mb": ov.memory_mb + sum(c.sizing.minimum.memory_mb if c.sizing else 0 for c in comps)}
+            detail[v.name] = {"drivers": {k: _dceil(x) for k, x in sorted(d.items())},
+                              "components": {k: {"cores": x["cores"], "memory_mb": x["memory_mb"], "disk_gb": x["disk_gb"],
+                                                 "volumes": dict(sorted(x["volumes"].items())), "estimated": x["estimated"],
+                                                 "floor_applied": x["floor_applied"]} for k, x in sorted(sz.items())}}
+        ovr = (spec.vm_overrides.get(v.name) or spec.vm_overrides.get(v.logical)) if spec is not None else None
+        if ovr is None:
+            continue
+        computed = {"cores": v.cores, "memory_mb": v.memory_mb, "disks": {x["name"]: x["size_gb"] for x in v.disks}}
+        if ovr.cores is not None:
+            v.cores = ovr.cores
+        if ovr.memory_mb is not None:
+            v.memory_mb = ovr.memory_mb
+        for dn, gb in sorted(ovr.disks.items()):
+            if dn not in computed["disks"]:
+                if errors is not None:
+                    errors.append(_err("override_unknown_disk", f"{v.name}: override names unknown disk {dn!r}", vm=v.name))
+                continue
+            if gb < computed["disks"][dn]:
+                if errors is not None:
+                    errors.append(_err("override_below_minimum", f"{v.name}: disk {dn} override {gb} GB is below the sized {computed['disks'][dn]} GB "
+                                                                 "(volumes are never under-provisioned)", vm=v.name))
+                continue
+            for x in v.disks:
+                if x["name"] == dn:
+                    x["size_gb"] = gb
+        if floor is not None and errors is not None:
+            for k in ("cores", "memory_mb"):
+                if getattr(v, k) < floor[k]:
+                    errors.append(_err("override_below_minimum", f"{v.name}: {k} override {getattr(v, k)} is below the components' documented minimum "
+                                                                 f"{floor[k]}", vm=v.name))
+        if warnings is not None and (v.cores < computed["cores"] or v.memory_mb < computed["memory_mb"]):
+            warnings.append(_err("override_below_sizing", f"{v.name}: operator override is below the sized value "
+                                                          f"({computed['cores']} vCPU, {computed['memory_mb']} MB)", vm=v.name))
+        if v.name in detail:
+            detail[v.name]["override"] = {"computed": {"cores": computed["cores"], "memory_mb": computed["memory_mb"]},
+                                          "applied": ovr.model_dump(mode="json", exclude_none=True)}
+    if spec is None:
+        return {}
+    unused = sorted(k for k in spec.vm_overrides if k not in {v.name for v in vms} | {v.logical for v in vms})
+    if unused and errors is not None:
+        errors.append(_err("override_unknown_vm", "vm_overrides name VMs that are not in the layout: " + ", ".join(unused), items=unused))
+    return {"model": "engine" if wl is not None else "legacy+overrides", "tier": spec.tier,
+            **({"workload": wl.model_dump(mode="json")} if wl is not None else {}), "vms": detail}
 
 
 # ---- placement ----------------------------------------------------------------------------------------------
@@ -246,8 +329,9 @@ def _place(vms: list[_Vm], inp: PlanInput, prof: Profile, cat: Catalog, cap: Cap
         ks = keys_for(node, real)
         return ks[0] if ks else None
     node_load: dict[str, int] = {k: 0 for k in usable}
-    foreign_ok = {k for k, n in usable.items() if not (prof.dedicated_nodes and n.foreign_guests > 0)}
-    if prof.dedicated_nodes:
+    dedicated = prof.dedicated_nodes or (inp.sizing is not None and inp.sizing.dedicated_nodes)
+    foreign_ok = {k for k, n in usable.items() if not (dedicated and n.foreign_guests > 0)}
+    if dedicated:
         for k in sorted(usable):
             if k not in foreign_ok:
                 warnings.append(_err("node_not_dedicated", f"node {k!r} hosts {usable[k].foreign_guests} guest(s) outside this deployment and is excluded (dedicated profile)"))
@@ -574,7 +658,7 @@ def generate_plan(inp: PlanInput, cap: Capacity, cat: Catalog | None = None, exi
     warnings: list[dict] = []
     prof = cat.profiles.get(inp.profile)
     base = {"plan_version": PLAN_VERSION, "catalog": {"version": cat.version, "digest": cat.digest},
-            "input": inp.model_dump(mode="json")}
+            "input": input_dump(inp)}
     if prof is None:
         errors.append(_err("unknown_profile", f"profile {inp.profile!r} is not in the catalog", available=sorted(cat.profiles)))
         plan = {**base, "profile": None, "vms": [], "containers": [], "services": [], "firewall": [], "dns": [], "backups": [],
@@ -582,7 +666,10 @@ def generate_plan(inp: PlanInput, cap: Capacity, cat: Catalog | None = None, exi
                 "capacity": {"nodes": [], "storage": []}, "warnings": warnings, "errors": errors, "executable": False}
         plan["plan_hash"] = plan_hash(plan)
         return plan
-    if inp.users > prof.max_users:
+    engine = inp.sizing is not None and inp.sizing.workload is not None
+    if engine:
+        pass   # the sizing engine bounds the workload by capacity and reports unvalidated workloads itself (no fixed profile limit)
+    elif inp.users > prof.max_users:
         errors.append(_err("users_exceed_profile", f"{inp.users} users exceed profile {prof.name!r} (max {prof.max_users}); pick a larger profile",
                            max_users=prof.max_users))
     elif inp.users * 10 > prof.max_users * 9:
@@ -632,9 +719,16 @@ def generate_plan(inp: PlanInput, cap: Capacity, cat: Catalog | None = None, exi
     assumed = sorted({f"{cn}.{k}" for cn in present for k in ("cores", "memory_mb", "disk_gb")
                       if "assum" in getattr(cat.components[cn].resources, k).source.lower()}
                      | {f"{cn}.volume.{x.name}" for cn in present for x in cat.components[cn].volumes if "assum" in x.size_gb.source.lower()})
+    if engine:
+        assumed = []   # engine plans label estimates by evidence (sizing_estimates) instead of parsing source strings
     if assumed:
         warnings.append(_err("sizing_assumptions", "some sizing inputs are planning assumptions, not lab measurements: " + ", ".join(assumed), items=assumed))
-    _size(vms, cat)
+    sizing_out = _size(vms, cat, inp, errors, warnings)
+    if engine:
+        est = sorted({f"{cn}.{k}" for d in sizing_out["vms"].values() for cn, x in d["components"].items() for k in x["estimated"]})
+        if est:
+            warnings.append(_err("sizing_estimates", "these sizing values are ESTIMATES (safety margin applied), not lab measurements: "
+                                 + ", ".join(est), items=est))
     capacity = _place(vms, inp, prof, cat, cap, existing, errors, warnings)
     derived = _derive(vms, inp, prof, cat, warnings)
     net = None
@@ -662,7 +756,7 @@ def generate_plan(inp: PlanInput, cap: Capacity, cat: Catalog | None = None, exi
         steps = []
     total_disk = sum(d["size_gb"] for v in vm_out for d in v["disks"])
     plan = {**base, "profile": {"name": prof.name, "version": prof.version, "maturity": prof.maturity},
-            "vms": vm_out, **derived, **({"network": net} if net else {}),
+            "vms": vm_out, **derived, **({"sizing": sizing_out} if sizing_out else {}), **({"network": net} if net else {}),
             **({"artifacts": artifacts.describe()} if artifacts is not None else {}), "steps": steps,
             "consumption": {"vms": len(vm_out), "cores": sum(v["cores"] for v in vm_out), "memory_mb": sum(v["memory_mb"] for v in vm_out),
                             "disk_gb": total_disk, "est_seconds": sum(s["est_seconds"] for s in steps)},
@@ -705,9 +799,9 @@ def capacity_from_inventory(data: dict, deployment_id: str | None = None) -> Cap
             prov = int(prov) // (1024 ** 3) if isinstance(prov, (int, float)) else None
             if s.get("shared"):
                 cur = storages.get(nm)
-                storages[nm] = StorageCap(nm, avail if cur is None else min(cur.avail_gb, avail), [], total, thin, prov)
+                storages[nm] = StorageCap(nm, avail if cur is None else min(cur.avail_gb, avail), [], total, thin, prov, str(s.get("type", "")))
             else:
-                storages[f"{nm}@{name}"] = StorageCap(nm, avail, [name], total, thin, prov)
+                storages[f"{nm}@{name}"] = StorageCap(nm, avail, [name], total, thin, prov, str(s.get("type", "")))
         for b in n.get("network", []):
             if isinstance(b, dict) and b.get("type") in ("bridge", "OVSBridge") and isinstance(b.get("iface"), str):
                 bridges = (bridges or set()) | {b["iface"]}
