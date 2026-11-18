@@ -1,6 +1,6 @@
 # Office Unbound roadmap & progress
 
-> Generated from [`docs/progress.json`](docs/progress.json) by `scripts/render_roadmap.py` — edit the JSON, not this file. Last updated **2026-11-18** · stage: **pre-alpha (lab)** · current version: **0.3.6**.
+> Generated from [`docs/progress.json`](docs/progress.json) by `scripts/render_roadmap.py` — edit the JSON, not this file. Last updated **2026-11-18** · stage: **pre-alpha (lab)** · current version: **0.3.7**.
 
 Core platform components are integrated and tested in an isolated lab: own source build of Exchange-compatible groupware with single sign-on webmail, Keycloak SSO, file sync and browser document editing, backup/restore drills, chat and video meetings, and an infrastructure control server with monitoring, self-healing and a real Proxmox integration (VM lifecycle verified on a live cluster). Guided deployment wizards, provisioning automation and the credential vault are being integrated.
 
@@ -170,6 +170,7 @@ Core platform components are integrated and tested in an isolated lab: own sourc
 
 | Version | Date | Status | Highlights |
 |---|---|---|---|
+| [0.3.7](https://github.com/agit8or1/office-unbound/blob/main/CHANGELOG.md) | 2026-11-18 | prepared | 0.3.7: deployments get past agent enrollment (ICS service can read the host neighbour table again) |
 | [0.3.6](https://github.com/agit8or1/office-unbound/blob/main/CHANGELOG.md) | 2026-11-18 | released | 0.3.6: golden template creation works with pool-scoped rights; failed-backup alert uses the latest result per guest |
 | [0.3.5](https://github.com/agit8or1/office-unbound/blob/main/CHANGELOG.md) | 2026-11-18 | released | 0.3.5: image import works when the cluster address forwards to another node; standard alerts without false warnings, failed backups on monitored nodes detected |
 | [0.3.4](https://github.com/agit8or1/office-unbound/blob/main/CHANGELOG.md) | 2026-11-18 | released | 0.3.4: Manage access apply no longer refused by Proxmox's random content-type order; auto-recalculate on real drift |

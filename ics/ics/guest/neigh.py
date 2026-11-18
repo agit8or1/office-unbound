@@ -20,6 +20,17 @@ def _lookup(addr: str, path: str = ARP) -> str | None:
     return None
 
 
+def readable(path: str = ARP) -> bool:
+    """False when this process cannot see the neighbour table at all (e.g. a systemd sandbox with ProcSubset=pid hides /proc/net): then a
+    missing entry says nothing about the guest, and the caller must report the real cause instead of blaming the network."""
+    try:
+        with open(path) as f:
+            f.readline()
+        return True
+    except OSError:
+        return False
+
+
 def mac_of(addr: str, port: int = 8443, path: str = ARP) -> str | None:
     """MAC the kernel has for `addr` on a directly attached segment, or None (routed / unknown)."""
     m = _lookup(addr, path)

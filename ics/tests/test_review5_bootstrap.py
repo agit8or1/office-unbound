@@ -117,9 +117,40 @@ def test_m2_no_neighbour_entry_fails_closed(rt, client, tmp_path, monkeypatch):
     rec = bootsecrets.find(rt, port.dep["id"], "vm1", 140, "callback")
     assert post(client, report(rec)).status_code == 200
     monkeypatch.setattr(agentport, "neighbour_mac", lambda a: None)
-    with pytest.raises(StepFailed, match="neighbour"):
+    monkeypatch.setattr(agentport, "neighbour_table_readable", lambda: True)
+    with pytest.raises(StepFailed, match="no neighbour entry"):
         port.wait_enrollment("vm1", 600)
     assert "guest.bootstrap_nic_unverified" in _audit_actions(rt)
+
+
+def test_m2_an_unreadable_neighbour_table_is_reported_as_such(rt, client, tmp_path, monkeypatch):
+    """Production 2026-11-18: the service sandbox (ProcSubset=pid) hid /proc/net/arp, and the failure blamed the network. Still fail closed,
+    but name the real cause."""
+    port = _port(rt, tmp_path, monkeypatch)
+    port.bootstrap_config("vm1")
+    rec = bootsecrets.find(rt, port.dep["id"], "vm1", 140, "callback")
+    assert post(client, report(rec)).status_code == 200
+    monkeypatch.setattr(agentport, "neighbour_mac", lambda a: None)
+    monkeypatch.setattr(agentport, "neighbour_table_readable", lambda: False)
+    with pytest.raises(StepFailed, match="cannot read this host's neighbour table"):
+        port.wait_enrollment("vm1", 600)
+    assert "guest.bootstrap_nic_unverified" in _audit_actions(rt) and port.provider.status == "stopped"
+
+
+def test_m2_the_service_sandbox_lets_the_ics_read_the_neighbour_table():
+    """ics.service runs guest enrollment; ProcSubset=pid would hide /proc/net/arp and break every production deployment."""
+    import pathlib
+    unit = (pathlib.Path(__file__).resolve().parents[1] / "deploy" / "ics.service").read_text()
+    active = [l.strip() for l in unit.splitlines() if l.strip() and not l.strip().startswith("#")]
+    assert not any(l.startswith("ProcSubset=") and l != "ProcSubset=all" for l in active)
+    assert "ProtectProc=invisible" in active   # the rest of the /proc hardening stays
+
+
+def test_m2_neighbour_table_readable(tmp_path):
+    from ics.guest import neigh
+    f = tmp_path / "arp"
+    f.write_text("IP address       HW type     Flags       HW address            Mask     Device\n")
+    assert neigh.readable(str(f)) and not neigh.readable(str(tmp_path / "missing"))
 
 
 def test_m2_neighbour_table_parser(tmp_path):

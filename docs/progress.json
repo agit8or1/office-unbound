@@ -5,8 +5,20 @@
   "repository": "https://github.com/agit8or1/office-unbound",
   "updated": "2026-11-18",
   "stage": "pre-alpha (lab)",
-  "current_version": "0.3.6",
+  "current_version": "0.3.7",
   "releases": [
+    {
+      "version": "0.3.7",
+      "date": "2026-11-18",
+      "status": "prepared",
+      "codename": "Compass",
+      "channel": "pre-release",
+      "highlights": [
+        "0.3.7: deployments get past agent enrollment (ICS service can read the host neighbour table again)"
+      ],
+      "notes_url": "https://github.com/agit8or1/office-unbound/blob/main/CHANGELOG.md",
+      "changelog": "CHANGELOG.md"
+    },
     {
       "version": "0.3.6",
       "date": "2026-11-18",

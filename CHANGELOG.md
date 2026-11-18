@@ -10,6 +10,10 @@ isolated lab; nothing is production supported ([ROADMAP.md](ROADMAP.md)).
 
 ## [Unreleased]
 
+## [0.3.7] - 2026-11-18
+
+- **Fix: every production deployment stopped at agent enrollment** with "the reporting address could not be tied to the VM's network card (no neighbour entry)". The guest had booted and called back correctly; the ICS service's systemd sandbox (`ProcSubset=pid`) hid the host neighbour table `/proc/net/arp`, so the MAC binding check (review 5 M2) never saw any entry. `ics.service` no longer sets `ProcSubset=pid` (the rest of the /proc hardening stays), and an unreadable table is now reported as such instead of blaming the network. The binding check itself is unchanged and still fails closed. Evidence: `test_review5_bootstrap.py` (unit-file check, unreadable-table case; fail without the fix).
+
 ## [0.3.6] - 2026-11-18
 
 - **Fix: image import failed at template creation** with "403 Permission check failed (/vms/136, VM.Config.Options)". Proxmox checks tag rights on the new VM without its pool while creating it, and Office Unbound's rights come through the pool. Tags are now set right after creation, once the VM is in the pool (as clones already did). The simulator now models this check. Evidence: `test_image_import.py`, `test_import_storage.py` (fail without the fix with the same error as the real cluster).
@@ -201,6 +205,7 @@ editing, chat/meetings, telephony prototype, migration tooling and package pipel
 - `SECURITY.md` (private reporting) and `CONTRIBUTING.md` (DCO sign-off) added; AGPL-3.0 license. [SECURITY](SECURITY.md)
 
 [Unreleased]: https://github.com/agit8or1/office-unbound/compare/v0.3.6...HEAD
+[0.3.7]: https://github.com/agit8or1/office-unbound/releases/tag/v0.3.7
 [0.3.6]: https://github.com/agit8or1/office-unbound/releases/tag/v0.3.6
 [0.3.5]: https://github.com/agit8or1/office-unbound/releases/tag/v0.3.5
 [0.3.4]: https://github.com/agit8or1/office-unbound/releases/tag/v0.3.4

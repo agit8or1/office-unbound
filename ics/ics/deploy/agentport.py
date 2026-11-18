@@ -33,6 +33,7 @@ from .ports import Fenced, StepFailed
 log = logging.getLogger("ics.deploy.agentport")
 AGENT_PORT = 8443
 neighbour_mac = neigh.mac_of     # replaced by tests
+neighbour_table_readable = neigh.readable
 
 
 def _agent_dir(rt) -> str:
@@ -212,6 +213,11 @@ class GuestAgentPort:
             return
         want = self.provider.guest_mac(ref).lower()
         got = neighbour_mac(address)
+        if got is None and not neighbour_table_readable():
+            self._audit("guest.bootstrap_nic_unverified", vm, address=address, cause="neighbour_table_unreadable")
+            raise StepFailed("the ICS cannot read this host's neighbour table (/proc/net/arp), so the reporting address could not be tied to the VM",
+                             "The ics service sandbox hides /proc/net (ProcSubset=pid). Reinstall with the current ics.service; nothing is wrong with the VM.",
+                             retryable=False)
         if got is None:
             self._audit("guest.bootstrap_nic_unverified", vm, address=address)
             raise StepFailed("the reporting address could not be tied to the VM's network card (no neighbour entry)",
