@@ -238,6 +238,10 @@ class ProxmoxAdminClient(ProxmoxWriteClient):
             d["delete"] = "1"
         return self.put("/access/acl", d)
 
+    def storage_content_set(self, storage: str, content: list[str]):
+        """PUT /storage/<id> content=... (Datastore.Allocate on /storage/<id>). Only the content list is sent; nothing else of the definition changes."""
+        return self.put(f"/storage/{seg(storage)}", {"content": ",".join(content)})
+
     def pool_add(self, pool: str, comment: str = ""):
         return self.post("/pools", {"poolid": pool, "comment": comment})
 

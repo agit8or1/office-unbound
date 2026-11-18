@@ -16,7 +16,7 @@ import PermissionSummary from './PermissionSummary.vue'
 import NextSteps from '../NextSteps.vue'
 import Button from '../../../ui/Button.vue'
 import { accessApi, type Inventory, type PveSession, type TlsLookup } from './api'
-import { DEFAULT_POOL, LEVELS, apiUrl, suggestTargets, outsideNodes, diffSelection, emptySelection, fromApproved, gib, pctOf, toPolicy, toScopeTarget, validate, visibleNodes, type Selection } from './model'
+import { DEFAULT_POOL, LEVELS, apiUrl, suggestTargets, outsideNodes, importCandidates, importBlocked, needsImportEnable, holdsDisks, diffSelection, emptySelection, fromApproved, gib, pctOf, toPolicy, toScopeTarget, validate, visibleNodes, type Selection } from './model'
 import '../providers.css'
 
 const props = defineProps<{ id?: string }>()
@@ -54,6 +54,7 @@ const choicesStale = computed(() => !edit.value && !!preview.value && !choicesMa
 const nodeStorages = computed(() => (inv.value?.storages ?? []).filter((s) => s.content.split(',').some((c) => c === 'images' || c === 'rootdir'))
   .filter((s) => !sel.nodes.length || s.nodes.some((n) => sel.nodes.includes(n)))
   .sort((a, b) => Number(outsideNodes(a, sel.nodes).length > 0) - Number(outsideNodes(b, sel.nodes).length > 0) || a.storage.localeCompare(b.storage)))
+const importStorages = computed(() => importCandidates(inv.value?.storages ?? [], sel.nodes))
 const nodeNetworks = computed(() => (inv.value?.networks ?? []).filter((x) => !sel.nodes.length || x.nodes.some((n) => sel.nodes.includes(n))))
 const templates = computed(() => guests.value.filter((g) => g.template))
 // Deployment targets: Office Unbound fills empty choices itself (its own new pool, the roomiest disk storage, the shared bridge); everything stays editable.
@@ -278,6 +279,19 @@ function next() {
             <p v-if="!nodeStorages.some((s) => !outsideNodes(s, sel.nodes).length)" class="err" role="alert">No storage is confined to the selected node(s). Add a storage local to {{ sel.nodes.join(', ') }} in Proxmox (for example a directory or LVM-thin on that node's disk), then Rescan.</p>
             <p v-if="w.m.errors.storages || errs.storages" class="err" role="alert">{{ w.m.errors.storages || errs.storages }}</p>
           </fieldset>
+          <fieldset class="ax-set"><legend>Image import storage</legend>
+            <p class="muted small">Where Office Unbound uploads its signed golden images before turning them into templates (content type <code>import</code>). It may only upload files there; it never places VM disks on it.</p>
+            <label v-for="s in importStorages" :key="s.storage" class="ax-opt" :class="{ off: importBlocked(s, sel.nodes) }">
+              <input v-model="sel.importStorages" type="checkbox" :value="s.storage" :disabled="importBlocked(s, sel.nodes) && !sel.importStorages.includes(s.storage)"
+                :aria-describedby="`imp-note-${s.storage} imp-en-${s.storage}`" />
+              <span class="ax-opt-body"><span class="ax-opt-title">{{ s.storage }} <span class="muted small">{{ s.type }}{{ s.shared ? ' · shared' : '' }} · {{ gib(s.total - s.used) }} free</span></span>
+                <span v-if="importBlocked(s, sel.nodes)" :id="`imp-note-${s.storage}`" class="small muted">Not offered: it can also hold VM disks and exists on {{ [...outsideNodes(s, sel.nodes)].sort().join(', ') }}. Choose a storage without disk content, or one confined to the selected node(s).</span>
+                <span v-else-if="outsideNodes(s, sel.nodes).length && !holdsDisks(s)" :id="`imp-note-${s.storage}`" class="small muted">The permission covers {{ s.storage }} on every node: Office Unbound can upload import files there on any node; it cannot place VM disks there.</span>
+                <span v-else :id="`imp-note-${s.storage}`" class="small muted">Upload only; no right to put VM disks here.</span>
+                <span v-if="needsImportEnable(s) && !importBlocked(s, sel.nodes)" :id="`imp-en-${s.storage}`" class="small ax-enable">Office Unbound will enable image import on it (adds the content type <code>import</code>; its other content types stay as they are).</span></span>
+            </label>
+            <p v-if="!importStorages.length" class="small muted" role="note">No directory-based storage (dir, NFS, CIFS, CephFS) on {{ sel.nodes.join(', ') }} can hold golden images, so they cannot be imported yet. Deployment still works with existing templates. Add a directory storage in Proxmox (Datacenter › Storage), then Rescan.</p>
+          </fieldset>
           <fieldset class="ax-set"><legend>Network new guests connect to</legend>
             <label v-for="x in nodeNetworks" :key="x.name" class="row"><input v-model="sel.networks" type="checkbox" :value="x.name" /> {{ x.name }} <span class="muted small">{{ x.kind }}{{ x.comment ? ' · ' + x.comment : '' }}</span></label>
             <p class="muted small">Office Unbound uses an existing bridge and never creates or changes bridges or VLANs: a wrong host network change can cut a node off. To give it its own network, create a bridge or SDN VNet in Proxmox, then Rescan.</p>
@@ -391,6 +405,7 @@ function next() {
 .ax-opt-body { display: grid; gap: 2px; min-width: 0; }
 .ax-opt.off { cursor: default; }
 .ax-opt.off .ax-opt-title { color: var(--muted); }
+.ax-enable { color: var(--warn); }
 .ax-val h3 { display: flex; gap: 8px; align-items: center; margin: 0 0 6px; font-size: 1rem; }
 .ax-val-verbs { list-style: none; padding: 0; margin: 0 0 6px; display: grid; gap: 4px; }
 .ax-form { display: grid; gap: 12px; max-width: 560px; }

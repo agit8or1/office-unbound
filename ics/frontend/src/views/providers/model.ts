@@ -402,7 +402,7 @@ export function registerParams(m: WizardModel, s: SecretBag) {
 
 // ---------------------------------------------------------------------------------------------------- plan display
 export const OP_LABEL: Record<string, string> = { create: 'Create', modify: 'Change', noop: 'Already in place', remove: 'Remove', conflict: 'Conflict' }
-export const KIND_LABEL: Record<string, string> = { pool: 'Pool', role: 'Role', user: 'Service account', token: 'API token', acl: 'Permission (ACL)' }
+export const KIND_LABEL: Record<string, string> = { pool: 'Pool', role: 'Role', user: 'Service account', token: 'API token', acl: 'Permission (ACL)', storage: 'Storage definition' }
 export interface StepRow { kind: string; kindLabel: string; op: PlanStep['op']; opLabel: string; target: string; what: string; reason: string; high: boolean; tone: Tone }
 export function describeStep(s: PlanStep): string {
   const d = s.detail ?? {}
@@ -410,6 +410,8 @@ export function describeStep(s: PlanStep): string {
   if (s.kind === 'role' && s.op === 'modify' && (list(d.added).length || list(d.removed).length))
     return [list(d.added).length ? `Adds ${list(d.added).join(', ')}` : '', list(d.removed).length ? `Removes ${list(d.removed).join(', ')}` : ''].filter(Boolean).join('. ')
       + (list(d.affects).length ? `. Also changes the rights of: ${list(d.affects).join('; ')}` : '')
+  if (s.kind === 'storage' && d.change === 'content_add')
+    return `Adds the content type import on every node where it is defined. Content types: ${list(d.before).join(', ') || 'none'} → ${list(d.after).join(', ')} (nothing removed)`
   if (s.kind === 'role' && s.op === 'remove') return `Pre-existing role with ${list(d.privileges).join(', ') || 'no privileges'} is deleted`
   if (s.kind === 'role') return `Privileges: ${list(d.privileges).join(', ') || 'none listed'}` + (list(d.withheld).length ? `. Used as is: Office Unbound will not have ${list(d.withheld).join(', ')}` : '')
   if (s.kind === 'acl') {

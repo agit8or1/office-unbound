@@ -15,6 +15,7 @@ class ScopeTarget(BaseModel):
     mode: Literal["single_node", "whole_cluster"]
     nodes: list[str] = Field(default_factory=list, max_length=50, description="single_node: the complete list of selected nodes (normally one); ignored for whole_cluster")
     storages: list[str] | None = Field(default=None, max_length=50, description="complete storage list; omitted = unchanged")
+    import_storages: list[str] | None = Field(default=None, max_length=10, description="complete image import storage list (deploy preset); omitted = unchanged")
     template_vmids: list[int] | None = Field(default=None, max_length=50, description="complete template list; omitted = unchanged")
     pools: list[str] | None = Field(default=None, max_length=20, description="complete pool list; omitted = unchanged")
     networks: list[str] | None = Field(default=None, max_length=50, description="complete bridge/vnet list; omitted = unchanged")
@@ -32,7 +33,7 @@ class ScopeTarget(BaseModel):
             raise ValueError("invalid node name")
         return sorted(set(v))
 
-    @field_validator("storages", "pools", "networks")
+    @field_validator("storages", "pools", "networks", "import_storages")
     @classmethod
     def _s(cls, v):
         if v is not None and any(not re.match(_NAME, x) for x in v):

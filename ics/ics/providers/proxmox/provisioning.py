@@ -70,7 +70,7 @@ PRIV_MATRIX: dict[str, tuple[int | None, int | None, str, str]] = {
     "Sys.Incoming": (None, None, "incoming data (full_admin only)", "pveum: privileges"),
     "Sys.Modify": (None, None, "ELEVATED: node/cluster configuration; needed for cicustom snippets", "api-viewer: .../qemu/{vmid}/config cicustom"),
     "Datastore.Allocate": (None, None, "create/remove storages (full_admin only)", "pveum: privileges"),
-    "Datastore.AllocateTemplate": (None, None, "upload ISOs/templates (full_admin only)", "pveum: privileges"),
+    "Datastore.AllocateTemplate": (None, None, "upload ISOs/templates/import images (full_admin; deploy only on an approved image import storage)", "api-viewer: /nodes/{node}/storage/{storage}/upload"),
     "Pool.Allocate": (None, None, "create/delete pools (full_admin only)", "pveum: privileges"),
     "SDN.Allocate": (None, None, "change SDN configuration (full_admin only)", "pveum: privileges"),
     "SDN.Audit": (None, None, "read SDN configuration", "pveum: privileges"),
@@ -111,7 +111,22 @@ READ_ONLY_AUDIT = frozenset({"Sys.Audit", "VM.Audit", "Datastore.Audit", "Pool.A
 
 # ---------------------------------------------------------------------------------------------------- design
 CAP_ROLE_SUFFIX = {"monitor_cluster": "ClusterMonitor", "monitor": "Monitor", "operate": "Operate", "deploy": "Deploy", "storage": "Storage", "template_clone": "TemplateClone", "network": "Network",
-                   "backup": "Backup", "custom": "Custom", "full_admin": "FullAdmin", "node_audit": "NodeAudit"}
+                   "backup": "Backup", "custom": "Custom", "full_admin": "FullAdmin", "node_audit": "NodeAudit",
+                   "import_storage": "ImageImport"}
+# image.import (provider.import_image): POST /nodes/<n>/storage/<s>/upload needs Datastore.AllocateTemplate on /storage/<s>; the `import-from=<s>:import/<f>`
+# volume of the template VM is checked like an ISO/vztmpl volume (Datastore.Audit OR AllocateSpace on /storage/<s>); listing the storage on the node needs
+# Datastore.Audit too. Datastore.AllocateSpace (VM disks) is deliberately NOT part of it: an import storage can never receive a VM disk through this grant.
+IMPORT_STORAGE_PRIVS = frozenset({"Datastore.AllocateTemplate", "Datastore.Audit"})
+# Storage types whose Proxmox plugin accepts the `import` content type (file-based storage; PVE 8.4+ / 9). Office Unbound adds `import` to such a
+# storage with the administrator's sign-in when it is missing (a disclosed plan step); any other type is refused.
+IMPORT_CONTENT_TYPES = ("dir", "nfs", "cifs", "cephfs")
+_DISK_CONTENT = {"images", "rootdir"}
+
+
+def scope_storages(policy: Policy) -> set[str]:
+    """Every storage the ICS broker allowlists for this policy (deployment, backup and image import storages)."""
+    s = policy.scope
+    return set(s.storages) | set(s.backup_storages) | set(s.import_storages)
 
 
 def capabilities(policy: Policy) -> list[str]:
@@ -135,6 +150,8 @@ def _base_capabilities(policy: Policy) -> list[str]:
             caps.append("template_clone")
         if policy.scope.networks:
             caps.append("network")
+        if policy.scope.import_storages:
+            caps.append("import_storage")
         return caps
     if policy.preset == "full_admin":
         return ["monitor", "full_admin"]
@@ -165,6 +182,8 @@ def role_privileges(cap: str, policy: Policy, major: int) -> set[str]:
         p = {"VM.Clone", "VM.Audit"}
     elif cap == "network":
         p = {"SDN.Use"}
+    elif cap == "import_storage":
+        p = set(IMPORT_STORAGE_PRIVS)          # upload + import-from only; never Datastore.AllocateSpace (no VM disks)
     elif cap == "backup":
         p = {"VM.Backup", "Datastore.AllocateSpace", "Datastore.Audit"}
     elif cap == "custom":
@@ -265,6 +284,8 @@ def design(policy: Policy, major: int, final_names: dict[str, str] | None = None
             acl += [AclSpec(f"/storage/{x}", "storage", 1, prov) for x in s.storages]
         if "template_clone" in caps:
             acl += [AclSpec(f"/vms/{t}", "template_clone", 0, prov) for t in s.template_vmids]
+        if "import_storage" in caps:
+            acl += [AclSpec(f"/storage/{x}", "import_storage", 1, prov) for x in s.import_storages]
         if "network" in caps:
             acl += [AclSpec(f"/sdn/zones/{zones.get(n, 'localnetwork')}/{n}", "network", 1, prov) for n in s.networks]
         if "backup" in caps:
@@ -425,6 +446,11 @@ def enforcement_matrix(policy: Policy) -> list[EnforcementNote]:
               "A selected guest may be migrated inside the cluster and stays authorized (Proxmox ACLs follow the VMID). Inventory sync flags a VMID whose "
               "name or type changed so a reused VMID never silently inherits access."),
         ]
+    for x in s.import_storages:
+        out.append(E(f"Image import storage {x}", "proxmox",
+                     f"Datastore.AllocateTemplate + Datastore.Audit on /storage/{x} for the write token only (upload of signed golden images, content type "
+                     f"`import`). The permission covers {x} on every node: Office Unbound can upload import files there on any node; it cannot place VM disks "
+                     f"there (Datastore.AllocateSpace is not granted)."))
     return out + scope_enforcement(policy)
 
 
@@ -490,18 +516,22 @@ def scope_reach(actual: dict[str, set[str]], policy: Policy, storages_allowed: s
     return out
 
 
+def _content_list(v) -> list[str]:
+    return [c.strip() for c in str(v or "").split(",") if c.strip()]
+
+
 def _single_node_checks(plan: ProvisioningPlan, policy: Policy, facts: Facts) -> set[str]:
     """Extra validation for scope_mode=single_node against the discovered cluster. Returns ACL paths whose grant is a high-risk override."""
     s = policy.scope
     sel = set(s.nodes)
     ov = set(policy.scope_risk_overrides)
     risky: set[str] = set()
-    for x in sorted(set(s.storages) | set(s.backup_storages)):
+    for x in sorted(scope_storages(policy)):
         st = facts.storages.get(x)
         if st is None:
             continue
         content = set((st.get("content") or "").split(","))
-        if not content & {"images", "rootdir"}:
+        if not content & _DISK_CONTENT:
             continue      # backup-only / ISO storage cannot hold VM disks, so it cannot place a guest on another node
         if (not st["shared"]) and set(st["nodes"]) <= sel:
             continue
@@ -694,6 +724,27 @@ def plan_for(policy: Policy, facts: Facts | None, *, pve_major: int | None = Non
                     plan.warnings.append(f"storage {x} is not available on any authorised node")
                 if st["shared"]:
                     plan.warnings.append(f"storage {x} is shared: it is reachable from nodes outside the node allowlist")
+        for x in s.import_storages:
+            st = facts.storages.get(x)
+            if st is None:
+                if x not in s.storages + s.backup_storages:
+                    plan.blocked.append(f"storage {x} does not exist")
+                continue
+            content = _content_list(st.get("content"))
+            if "import" not in content:
+                if st.get("type") not in IMPORT_CONTENT_TYPES:
+                    plan.blocked.append(f"storage {x} is of type {st.get('type')}, which cannot hold the `import` content type (Proxmox supports it on "
+                                        f"{', '.join(IMPORT_CONTENT_TYPES)} storage only). Choose a directory-based storage as the image import storage")
+                else:
+                    after = [c for c in content if c != "none"] + ["import"]
+                    plan.steps.append(Step("storage", "modify", x, {"change": "content_add", "add": "import", "before": content, "after": after,
+                                                                    "storage_type": st.get("type")},
+                                           "the image import storage needs the `import` content type; the existing content types are kept exactly"))
+                    plan.consequences.append(f"Adds the 'import' content type to storage {x} on every node where it is defined; existing content is "
+                                             f"unchanged ({','.join(content) or 'none'} -> {','.join(after)}). This changes the cluster-wide storage "
+                                             f"definition with your sign-in; it is put back to the previous list if a later step fails.")
+            if s.nodes and not set(st["nodes"]) & set(s.nodes):
+                plan.blocked.append(f"image import storage {x} is not available on any authorised node ({', '.join(s.nodes)})")
         for n in s.networks:
             if n not in facts.networks:
                 plan.blocked.append(f"network {n} was not found as a bridge or SDN vnet")
@@ -714,7 +765,7 @@ def plan_for(policy: Policy, facts: Facts | None, *, pve_major: int | None = Non
         unauthorised = sorted(set(facts.nodes) - set(s.nodes)) if s.nodes else []
         if unauthorised:
             plan.facts["unauthorized_nodes"] = unauthorised
-        unauth_st = sorted(set(facts.storages) - set(s.storages) - set(s.backup_storages))
+        unauth_st = sorted(set(facts.storages) - scope_storages(policy))
         if unauth_st:
             plan.facts["unauthorized_storages"] = unauth_st
         if not facts.acl_readable:
@@ -727,6 +778,8 @@ def plan_for(policy: Policy, facts: Facts | None, *, pve_major: int | None = Non
                 if _path_reach(g.path, set(policy.scope.nodes)):
                     plan.blocked.append(f"custom grant on {g.path} would reach beyond the selected node(s): not allowed in single_node scope")
             plan.warnings.append("offline plan: node-local storage could not be verified; preview the plan against the cluster before applying it")
+        if policy.scope.import_storages:
+            plan.warnings.append("offline plan: the `import` content type of the image import storage could not be checked; the script adds it if missing")
         plan.warnings.append("offline plan: nothing was discovered; the script checks conflicts on the node at run time")
         for pname in policy.scope.pools:
             plan.steps.append(Step("pool", "create", pname, {}, "created only if it does not exist"))
@@ -1041,6 +1094,7 @@ class ApplyResult:
     log: list[str] = field(default_factory=list)
     removed: list[str] = field(default_factory=list)                  # pre-existing objects removed by choice (not restorable)
     modified_roles: list[list] = field(default_factory=list)          # [name, previous privileges]: put back on rollback
+    storage_content: list[list] = field(default_factory=list)         # [storage, previous content list]: put back on rollback
 
 
 def apply_plan(admin: ProxmoxAdminClient, plan: ProvisioningPlan, d: Design) -> ApplyResult:
@@ -1048,7 +1102,7 @@ def apply_plan(admin: ProxmoxAdminClient, plan: ProvisioningPlan, d: Design) -> 
     (never touches pre-existing objects) and the original error is raised. Permissions are never widened to make a step pass."""
     res = ApplyResult()
     steps = [s for s in plan.steps if s.op in ("create", "modify", "remove")]
-    order = {"pool": 0, "role": 1, "user": 2, "token": 3, "acl": 4}
+    order = {"pool": 0, "role": 1, "user": 2, "token": 3, "acl": 4, "storage": 5}
     first = {"acl": 0, "token": 1, "user": 2, "role": 3, "pool": 4}       # removals chosen by the approver run first, dependants before owners
 
     def key(s):
@@ -1069,6 +1123,8 @@ def apply_plan(admin: ProxmoxAdminClient, plan: ProvisioningPlan, d: Design) -> 
                     uid, _, name = s.target.partition("!")
                     admin.token_delete(uid, name)
                 res.removed.append(f"{s.kind} {s.target}")
+            elif s.kind == "storage":
+                _storage_content_add(admin, s, res)
             elif s.kind == "pool":
                 admin.pool_add(s.target, MARK)
                 res.created["pools"].append(s.target)
@@ -1105,9 +1161,45 @@ def apply_plan(admin: ProxmoxAdminClient, plan: ProvisioningPlan, d: Design) -> 
     return res
 
 
-def rollback_created(admin: ProxmoxAdminClient, res: ApplyResult) -> list[str]:
-    """Delete exactly what this run created (best effort, reverse order). Returns what could not be removed."""
+def _storage_cfg(admin, name: str) -> dict | None:
+    return next((x for x in admin.get("/storage") if x.get("storage") == name), None)
+
+
+def _storage_content_add(admin, s: Step, res: ApplyResult) -> None:
+    """Add exactly the `import` content type to one storage definition (PUT /storage/<s>, needs Datastore.Allocate there: the administrator's
+    sign-in). Every existing content type is kept; the result is read back and verified."""
+    cur = _storage_cfg(admin, s.target)
+    if cur is None:
+        raise ProxmoxError(f"storage {s.target} no longer exists")
+    have = _content_list(cur.get("content"))
+    if "import" in have:
+        res.log.append(f"storage {s.target}: import content already present")
+        return
+    if set(have) != set(s.detail["before"]):
+        raise ProxmoxError(f"the content types of storage {s.target} changed since the plan was approved ({','.join(have)}); preview again")
+    after = [c for c in have if c != "none"] + ["import"]
+    admin.storage_content_set(s.target, after)
+    res.storage_content.append([s.target, have])
+    now = _content_list((_storage_cfg(admin, s.target) or {}).get("content"))
+    if set(now) != set(after):
+        raise ProxmoxError(f"storage {s.target} reports content {','.join(now)} after the change, expected {','.join(after)}")
+
+
+def rollback_storage_content(admin, res: ApplyResult) -> list[str]:
+    """Put back the previous content list of every storage this run changed."""
     left = []
+    for name, was in reversed(res.storage_content):
+        try:
+            admin.storage_content_set(name, was or ["none"])
+        except Exception:  # noqa: BLE001
+            left.append(f"storage {name} (previous content {','.join(was)})")
+    res.storage_content = []
+    return left
+
+
+def rollback_created(admin: ProxmoxAdminClient, res: ApplyResult) -> list[str]:
+    """Delete exactly what this run created (best effort, reverse order) and restore changed storage content. Returns what could not be undone."""
+    left = rollback_storage_content(admin, res)
     c = res.created
     for path, subj, role in reversed(c["acl"]):
         try:
@@ -1156,7 +1248,7 @@ def verify_token(reader, d: Design, policy: Policy, kind: str, facts_nodes: list
     rep = compare_permissions(exp, actual, FORBIDDEN | {"Sys.Modify"} - set(policy.approve_elevated))
     s = policy.scope
     probes = [f"/nodes/{n}" for n in facts_nodes if s.nodes and n not in s.nodes]
-    probes += [f"/storage/{x}" for x in facts_storages if x not in s.storages and x not in s.backup_storages]
+    probes += [f"/storage/{x}" for x in facts_storages if x not in scope_storages(policy)]
     if "full_admin" not in capabilities(policy):
         probes.append("/")
         if policy.mode() == "single_node":
@@ -1187,11 +1279,13 @@ def verify_token(reader, d: Design, policy: Policy, kind: str, facts_nodes: list
         for verb in VERBS_BY_CAP["deploy"] if "deploy" in caps or "full_admin" in caps else []:
             reqs = priv.required(verb, s.pools, s.storages, s.networks, zones)
             verbs.append(priv.evaluate(verb, reqs, perms_at))
+        if "import_storage" in caps:
+            verbs.append(priv.evaluate("image_import", [(f"/storage/{x}", sorted(IMPORT_STORAGE_PRIVS)) for x in s.import_storages], perms_at))
         if "template_clone" in caps:
             verbs.append(priv.evaluate("clone_template", [(f"/vms/{t}", ["VM.Clone", "VM.Audit"]) for t in s.template_vmids], perms_at))
     # a verb that fails ONLY for privileges the approver chose to withhold (an existing role used as is) is disclosed, not a failure
     bad = [v for v in verbs if not v.ok and not (d.withheld and all(set(m["privileges"]) <= d.withheld for m in v.missing))]
-    reach = scope_reach(actual, policy, set(s.storages) | set(s.backup_storages))
+    reach = scope_reach(actual, policy, scope_storages(policy))
     seen = {r["path"] for r in reach}
     reach += [{**e, "reaches": _path_reach(e["path"], set(s.nodes)) or "outside the approved scope", "enforced_by": "proxmox"}
               for e in exposure if policy.mode() == "single_node" and e["path"] not in seen]
@@ -1235,7 +1329,7 @@ def drift_check(reader, policy: Policy, plan_facts: dict, d: Design, kind: str) 
     rep.acl = {"checked": False, "note": "the token cannot read /access/acl; ACL-level comparison needs a provisioning identity (run a reconcile preview)"}
     out = rep.to_dict()
     out["node_reach"] = node_reach(reader, policy, exp)
-    reach = scope_reach(actual, policy, set(policy.scope.storages) | set(policy.scope.backup_storages))
+    reach = scope_reach(actual, policy, scope_storages(policy))
     out["scope_reach"] = reach
     if reach:
         out["ok"] = False
@@ -1311,6 +1405,13 @@ def generate_script(plan: ProvisioningPlan, d: Design, meta: dict) -> str:
          '  if [ "$4" = token ]; then pveum acl delete "$1" --roles "$3" --tokens "$2"; else pveum acl delete "$1" --roles "$3" --users "$2"; fi',
          '  CHANGES=$((CHANGES+1)); log "acl $1 $2 $3: removed"',
          "}",
+         "ensure_import_content() {  # storage: adds the `import` content type, keeping every existing content type",
+         '  local cur',
+         '  cur=$(pvesh get "/storage/$1" --output-format json | grep -o \'"content" *: *"[^"]*"\' | sed \'s/.*: *"\\(.*\\)"/\\1/\')',
+         '  case ",$cur," in *,import,*) log "storage $1: import content ok"; return;; esac',
+         '  if [ -z "$cur" ] || [ "$cur" = none ]; then pvesm set "$1" --content import; else pvesm set "$1" --content "$cur,import"; fi',
+         '  CHANGES=$((CHANGES+1)); log "storage $1: import content added (was: ${cur:-none})"',
+         "}",
          "update_role() {  # name, old privileges, new privileges (scope change): only a role that still has exactly the old privileges is changed",
          '  local want have new',
          '  new=$(printf "%s\\n" $3 | sort | tr "\\n" " ")',
@@ -1338,6 +1439,9 @@ def generate_script(plan: ProvisioningPlan, d: Design, meta: dict) -> str:
         L.append(f"ensure_acl {_sh(path)} {_sh(subj)} {_sh(role)} {prop} {'token' if '!' in subj else 'user'}")
     for path, subj, role, prop in sc.get("remove_acl") or []:
         L.append(f"remove_acl {_sh(path)} {_sh(subj)} {_sh(role)} {'token' if '!' in subj else 'user'}")
+    for s in plan.steps:
+        if s.kind == "storage" and s.detail.get("change") == "content_add":
+            L.append(f"ensure_import_content {_sh(s.target)}")
     L += ["", 'log "changes made: $CHANGES"',
           'if [ -n "$ISSUED" ]; then',
           '  printf "\\n==================== NEW API TOKEN SECRET(S) - SHOWN ONCE ====================\\n"',
@@ -1364,6 +1468,7 @@ def generate_scope_rollback(plan: ProvisioningPlan, meta: dict) -> str:
         L.append(f'if acl_has {_sh(path)} {_sh(subj)} {_sh(role)}; then pveum acl delete {_sh(path)} --roles {_sh(role)} {flag} {_sh(subj)}; log "acl removed: {path} {subj} {role}"; fi')
     for name, ru in (sc.get("role_updates") or {}).items():
         L.append(f'pveum role modify {_sh(name)} --privs {_sh(" ".join(ru["old"]))}   # restores the previous privileges')
+    L += _storage_rollback_lines(plan)
     L += ['log "scope rollback complete"', ""]
     return "\n".join(L)
 
@@ -1394,8 +1499,14 @@ def generate_rollback(plan: ProvisioningPlan, d: Design) -> str:
         L.append("# 5. pools created by the package (only if empty; Proxmox refuses to delete a non-empty pool)")
         for pl in pools:
             L.append(f'if exists "/pools/{pl}"; then pveum pool delete {_sh(pl)} || log "pool {pl} not removed (not empty)"; fi')
+    L += _storage_rollback_lines(plan)
     L += ['log "rollback complete"', ""]
     return "\n".join(L)
+
+
+def _storage_rollback_lines(plan: ProvisioningPlan) -> list[str]:
+    return [f"pvesm set {_sh(s.target)} --content {_sh(','.join(s.detail['before']) or 'none')}   # restores the previous content types"
+            for s in plan.steps if s.kind == "storage" and s.detail.get("change") == "content_add"]
 
 
 def command_list(plan: ProvisioningPlan, d: Design, meta: dict | None = None) -> str:
@@ -1418,6 +1529,9 @@ def command_list(plan: ProvisioningPlan, d: Design, meta: dict | None = None) ->
         L.append(f"pveum acl delete {_sh(path)} --roles {_sh(role)} {'--tokens' if '!' in subj else '--users'} {_sh(subj)}")
     for name, ru in (sc.get("role_updates") or {}).items():
         L.append(f"pveum role modify {_sh(name)} --privs {_sh(' '.join(ru['new']))}")
+    for s in plan.steps:
+        if s.kind == "storage" and s.detail.get("change") == "content_add":
+            L.append(f"pvesm set {_sh(s.target)} --content {_sh(','.join(s.detail['after']))}   # adds `import`; existing content types unchanged")
     return "\n".join(L) + "\n"
 
 

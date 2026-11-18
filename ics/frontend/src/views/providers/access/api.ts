@@ -20,7 +20,7 @@ export interface Inventory {
   account: { ok: boolean; missing: { path: string; privilege: string }[]; remediation: string | null }
   notes: string[]
   missing?: { kind: string; key: string }[]
-  approved_scope?: { nodes: string[]; pools: string[]; storages: string[]; networks: string[]; templates: number[]; managed_vmids: number[]; protected_vmids: number[]; preset?: string | null; allow_migrate?: boolean; monitor_cluster?: boolean }
+  approved_scope?: { nodes: string[]; pools: string[]; storages: string[]; import_storages?: string[]; networks: string[]; templates: number[]; managed_vmids: number[]; protected_vmids: number[]; preset?: string | null; allow_migrate?: boolean; monitor_cluster?: boolean }
 }
 export interface AccessRow { kind: 'node' | 'guest' | 'storage' | 'network'; key: string; name: string | null; node: string | null; type: string | null; pool: string | null; authorization: Authz; state: 'new' | 'known' | 'missing' | 'renamed' | 'moved' | 'identity_changed'; change: unknown; first_seen: string; last_seen: string; missing_since: string | null }
 export interface AccessView { endpoint_id: string; counts: { new: number; changed: number; missing: number; authorized: number }; resources: AccessRow[]; visibility: string }

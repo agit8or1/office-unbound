@@ -29,7 +29,7 @@ VERB_PRIVS: dict[str, dict[str, list[str]]] = {
     "import_image": {"pool": ["VM.Allocate", "VM.Audit", "VM.Config.Disk", "VM.Config.CPU", "VM.Config.Memory", "VM.Config.Network", "VM.Config.Options"],
                      "storage": ["Datastore.AllocateSpace"]},
 }
-IMPORT_STORAGE_PRIVS = ["Datastore.AllocateTemplate", "Datastore.AllocateSpace", "Datastore.Audit"]   # on the `import` directory storage
+IMPORT_STORAGE_PRIVS = ["Datastore.AllocateTemplate", "Datastore.Audit"]   # on the `import` directory storage (upload; import-from needs Audit; never AllocateSpace)
 CICUSTOM_PRIVS = {"root": ["Sys.Modify"]}   # PVE restricts `cicustom` to highly privileged users
 UNNECESSARY = ("VM.Console", "VM.Backup", "Sys.Console", "Sys.Modify", "Sys.PowerMgmt", "Permissions.Modify")  # flagged as more than ICS needs
 

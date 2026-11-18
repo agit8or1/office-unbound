@@ -269,6 +269,7 @@ class ProxmoxProvider:
     def _verbs(self, client, verbs, token_id) -> list[VerbCheck]:
         at = self._perms_fn(client)
         zones = self._vnet_zones(client)
+        disk_st = self._disk_storages(client)
         out = []
         for verb in verbs:
             if verb in priv.PROVISION_VERBS and not self.scope.pools:
@@ -278,9 +279,19 @@ class ProxmoxProvider:
                 out.append(VerbCheck(verb, False, note="no allowed storage configured"))
                 continue
             nets = tuple(sorted({n.partition("/")[0] for n in self.scope.networks}))
-            reqs = priv.required(verb, self.scope.pools, self.scope.storage, nets, zones, self.scope.allow_cicustom)
+            reqs = priv.required(verb, self.scope.pools, disk_st, nets, zones, self.scope.allow_cicustom)
             out.append(priv.evaluate(verb, reqs, at, token_id))
         return out
+
+    def _disk_storages(self, client) -> tuple[str, ...]:
+        """Allowed storages that can hold guest disks. An image import storage (content without images/rootdir) is allowlisted for image.import
+        only and never carries Datastore.AllocateSpace, so the disk verbs are not checked against it. Unreadable config: every allowed storage."""
+        try:
+            cfg = {x.get("storage"): x for x in client._get("/storage")}
+        except ProxmoxError:
+            return tuple(self.scope.storage)
+        return tuple(x for x in self.scope.storage
+                     if x not in cfg or set(str(cfg[x].get("content") or "").split(",")) & {"images", "rootdir"})
 
     def _inventory_verbs(self, client, token_id, res: ProbeResult) -> list[VerbCheck]:
         """Inventory credentials may be scoped (Sys.Audit per node, VM.Audit per pool): require *some* visibility, report coverage."""
@@ -1115,8 +1126,8 @@ class ProxmoxMutations(ProxmoxProvider):
     def import_image(self, spec: ImageImportSpec) -> ImageImportResult:
         """`image.import` (bootstrap v2, ADR-0008 output): upload the signed golden image to an `import` directory storage and make a template from it.
         The caller has ALREADY verified the release signature of the file; this verb re-hashes it (a swapped file is refused) and Proxmox verifies the
-        same SHA-256 on receipt. Needs, on the import storage, Datastore.AllocateTemplate + AllocateSpace + Audit (the owner grants it; see
-        docs/status/bootstrap-v2.md); on the pool the usual VM.* rights. Synchronous: three tasks (upload, create, template), each waited for."""
+        same SHA-256 on receipt. Needs, on the import storage, Datastore.AllocateTemplate + Datastore.Audit (granted by the access wizard's
+        "Image import storage", provisioning.IMPORT_STORAGE_PRIVS); on the pool and the target storage the usual VM.* / AllocateSpace rights. Synchronous: three tasks (upload, create, template), each waited for."""
         require_job_execution()
         if not self.scope.node_ok(spec.node):
             raise ScopeViolation(f"node {spec.node!r} is not an authorized node of this endpoint")
@@ -1152,7 +1163,7 @@ class ProxmoxMutations(ProxmoxProvider):
         have_imp, have_img = stor.get(spec.import_storage), stor.get(spec.target_storage)
         if have_imp is None or "import" not in str(have_imp.get("content", "")).split(","):
             raise ProviderError("capability", f"storage {spec.import_storage!r} does not accept `import` content (owner action: pvesm set {spec.import_storage} "
-                                f"--content <existing>,import) or is not visible to the provision token (needs Datastore.AllocateTemplate/AllocateSpace/Audit)")
+                                f"--content <existing>,import) or is not visible to the provision token (needs Datastore.AllocateTemplate + Datastore.Audit)")
         if have_img is None or "images" not in str(have_img.get("content", "")).split(","):
             raise ProviderError("capability", f"storage {spec.target_storage!r} does not hold `images`")
         net = ""

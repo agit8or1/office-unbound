@@ -36,7 +36,7 @@ def target_policy(old: Policy, t: ScopeTarget, stored_roles: dict | None = None)
         sc["storages"] = list(t.storages)
     if t.template_vmids is not None:
         sc["template_vmids"] = list(t.template_vmids)
-    for k in ("pools", "networks", "managed_vmids"):
+    for k in ("pools", "networks", "managed_vmids", "import_storages"):
         if getattr(t, k) is not None:
             sc[k] = list(getattr(t, k))
     if t.preset is not None and t.preset != d["preset"]:
@@ -56,7 +56,7 @@ def target_policy(old: Policy, t: ScopeTarget, stored_roles: dict | None = None)
 
 def _reach(p: Policy, all_nodes: set[str]) -> dict:
     nodes = set(p.scope.nodes) if p.mode() != "whole_cluster" else (set(p.scope.nodes) | all_nodes)
-    return {"nodes": nodes, "storages": set(p.scope.storages) | set(p.scope.backup_storages), "migrate": bool(p.allow_migrate),
+    return {"nodes": nodes, "storages": pp.scope_storages(p), "migrate": bool(p.allow_migrate),
             "overrides": set(p.scope_risk_overrides), "whole": p.mode() == "whole_cluster", "templates": set(p.scope.template_vmids)}
 
 
@@ -119,7 +119,7 @@ class ScopeChange:
 
 
 def scope_summary(p: Policy) -> dict:
-    return {"mode": p.mode(), "nodes": list(p.scope.nodes), "storages": sorted(set(p.scope.storages) | set(p.scope.backup_storages)),
+    return {"mode": p.mode(), "nodes": list(p.scope.nodes), "storages": sorted(pp.scope_storages(p)),
             "migrate": bool(p.allow_migrate), "overrides": list(p.scope_risk_overrides), "templates": sorted(p.scope.template_vmids)}
 
 
@@ -212,6 +212,10 @@ def build_from(old: Policy, stored_design: dict, new: Policy, facts: pp.Facts | 
     if token_change:
         blocked.append("this permission level needs a different set of Proxmox tokens (" + ", ".join(token_change) + "); a scope change only edits the existing "
                        "ones. Use 'Change permission level' (re-provisioning with a new restricted token) instead.")
+    st_steps = [st for st in plan.steps if st.kind == "storage"]
+    if st_steps:
+        diff["storage_content"] = [{"storage": st.target, **st.detail} for st in st_steps]
+        impact["notes"] += [c for c in plan.consequences if c.startswith("Adds the 'import' content type")]
     if diff["operated_removed"]:
         impact["notes"].append(f"Office Unbound stops operating guest(s) {', '.join(map(str, diff['operated_removed']))}. They keep running in Proxmox untouched; "
                                "only Office Unbound's access to them is removed.")
@@ -236,6 +240,8 @@ def scope_hash(sc: ScopeChange, e_new: set, e_old: set) -> str:
     body = {"new": sc.new.model_dump(mode="json"), "old": sc.old.model_dump(mode="json"), "direction": sc.direction, "detach": sorted(sc.detach),
             "add": sorted(map(list, e_new - e_old)), "remove": sorted(map(list, e_old - e_new)), "roles": sc.diff["roles"],
             "role_names": {c: n for c, (n, _) in pp.design_from_plan(sc.plan, sc.new).roles.items()}}
+    if sc.diff.get("storage_content"):
+        body["storage_content"] = sc.diff["storage_content"]      # only when present: existing approvals keep their hash
     return hashlib.sha256(json.dumps(body, sort_keys=True, separators=(",", ":"), default=str).encode()).hexdigest()
 
 
