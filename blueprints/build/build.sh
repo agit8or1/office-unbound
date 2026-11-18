@@ -13,7 +13,7 @@ STATE=${OU_PKG_STATE:-/var/lib/office-unbound/pkgbuild}
 OU_TARGET=${OU_TARGET:-bookworm}; DEB_SUFFIX=""; DIST=bookworm
 case "$OU_TARGET" in
   bookworm) ;;
-  noble) BUILDER=$NOBLE_BUILDER; BUILDER_BASE=$NOBLE_BUILDER_BASE; BUILDER_GOLDEN=$NOBLE_BUILDER_GOLDEN; DEB_SUFFIX=$NOBLE_SUFFIX; DIST=noble
+  noble) BUILDER=$NOBLE_BUILDER; BUILDER_BASE=$NOBLE_BUILDER_BASE; BUILDER_GOLDEN=$NOBLE_BUILDER_GOLDEN; BUILDER_MEM=$NOBLE_BUILDER_MEM; DEB_SUFFIX=$NOBLE_SUFFIX; DIST=noble
          STATE=$STATE/targets/noble ;;   # own src/in/out: the builder's local build-dep repo must only ever hold noble builds
   *) echo "OU_TARGET must be bookworm or noble"; exit 2 ;;
 esac

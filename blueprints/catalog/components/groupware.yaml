@@ -5,10 +5,12 @@ description: Mail/calendar/contacts (gromox + web + postfix + MariaDB), built by
 artifacts:
   # Office Unbound packages from the DEV release channel (owner decision for the beta: dev signing key/channel), served by the ICS artifact service
   # (ADR-0015). Versions = what the package pipeline built and the dev channel holds (blueprints/build, /var/lib/office-unbound/pkgbuild/repo).
-  # KNOWN GAP: these 3.13-ou2 builds are Debian 12 binaries (Depends libldap-2.5-0, libtinyxml2-9, phpapi-20220829 = PHP 8.2), which Ubuntu 24.04
-  # (noble) does not ship; groupware on an Ubuntu 24.04 guest needs a noble rebuild of gromox/php-mapi before it can install.
-  - {name: gromox, kind: package, package: ou-gromox, version: "3.13-ou2", repo: ob-apt-dev}
-  - {name: gromox-php-mapi, kind: package, package: ou-gromox-php-mapi, version: "3.13-ou2", repo: ob-apt-dev}
+  # Ubuntu 24.04 (noble) builds (owner: every service VM runs noble): gromox/php-mapi 3.13-ou3+noble1 = recipe ou3 (patches 0001-0005) built with
+  # `OU_TARGET=noble build.sh` (PHP 8.3 phpapi-20230831, libldap2, libtinyxml2-10), pool dev/gromox-noble; their OU library deps ou-libhx 4.28-ou1+noble1
+  # and ou-wmime 1.2.0-ou1+noble1 sort above the Debian 12 builds and resolve unpinned. web/dav/sync (and ou-mapi-header-php) are Architecture: all with
+  # distro-neutral php-* deps: the existing builds install unchanged on noble (verified 2026-11-18). The Debian 12 3.13-ou2 builds stay in the channel.
+  - {name: gromox, kind: package, package: ou-gromox, version: "3.13-ou3+noble1", repo: ob-apt-dev}
+  - {name: gromox-php-mapi, kind: package, package: ou-gromox-php-mapi, version: "3.13-ou3+noble1", repo: ob-apt-dev}
   - {name: groupware-web, kind: package, package: ou-grommunio-web, version: "5.2-ou2", repo: ob-apt-dev}
   - {name: groupware-dav, kind: package, package: ou-grommunio-dav, version: "1.9-ou1", repo: ob-apt-dev}
   - {name: groupware-sync, kind: package, package: ou-grommunio-sync, version: "2.7-ou1", repo: ob-apt-dev}
