@@ -371,8 +371,8 @@ def collect_facts(c) -> Facts:
     for n in c.get("/nodes"):
         f.nodes[n["node"]] = n.get("status", "unknown")
     for s in c.get("/storage"):
-        f.storages[s["storage"]] = {"type": s.get("type"), "shared": bool(s.get("shared")), "content": s.get("content", ""),
-                                    "nodes": [x for x in (s.get("nodes") or "").split(",") if x] or sorted(f.nodes),
+        f.storages[s["storage"]] = {"type": s.get("type"), "shared": bool(s.get("shared")), "content": ",".join(_content_list(s.get("content"))),
+                                    "nodes": sorted({x for x in (s.get("nodes") or "").split(",") if x}) or sorted(f.nodes),
                                     "node_restricted": bool(s.get("nodes"))}
     for p in _opt(c, "/pools", f, "pools") or []:
         f.pools.add(p["poolid"])
@@ -517,7 +517,9 @@ def scope_reach(actual: dict[str, set[str]], policy: Policy, storages_allowed: s
 
 
 def _content_list(v) -> list[str]:
-    return [c.strip() for c in str(v or "").split(",") if c.strip()]
+    # sorted: Proxmox returns the content types in a random order on each read (Perl hash order); an unsorted list made the same
+    # cluster produce a different plan hash between preview and apply ("the cluster changed since ... previewed")
+    return sorted({c.strip() for c in str(v or "").split(",") if c.strip()})
 
 
 def _single_node_checks(plan: ProvisioningPlan, policy: Policy, facts: Facts) -> set[str]:

@@ -25,7 +25,7 @@ def _pol(**scope):
     return {"preset": "deploy", "scope_mode": "single_node", "scope": {**SCOPE, **scope}}
 
 
-def _local(owner, content="iso,vztmpl,backup,import"):  # noqa: F811
+def _local(owner, content="backup,iso,vztmpl,import"):  # noqa: F811
     owner.sim.add_storage("local", type_="dir", content=content, shared=False, nodes=list(ALL))
 
 
@@ -73,17 +73,17 @@ def _storage_steps(plan):
 
 
 def test_missing_import_content_is_added_with_the_sign_in_and_existing_content_is_kept_exactly(w, owner, rt):  # noqa: F811
-    _local(owner, content="iso,vztmpl,backup,snippets")
+    _local(owner, content="backup,iso,snippets,vztmpl")
     pv, eid = _connect_policy(w, owner, _pol(import_storages=["local"]))
     plan = pv["plan"]
     assert not plan["blocked"]
-    assert _storage_steps(plan) == [["storage", "modify", "local", {"change": "content_add", "add": "import", "before": ["iso", "vztmpl", "backup", "snippets"],
-                                                                     "after": ["iso", "vztmpl", "backup", "snippets", "import"], "storage_type": "dir"}]]
+    assert _storage_steps(plan) == [["storage", "modify", "local", {"change": "content_add", "add": "import", "before": ["backup", "iso", "snippets", "vztmpl"],
+                                                                     "after": ["backup", "iso", "snippets", "vztmpl", "import"], "storage_type": "dir"}]]
     assert any(c.startswith("Adds the 'import' content type to storage local on every node where it is defined; existing content is unchanged")
                for c in plan["consequences"]), plan["consequences"]
-    assert owner.sim.storages["local"]["content"].split(",") == ["iso", "vztmpl", "backup", "snippets", "import"]   # nothing dropped, nothing else added
+    assert owner.sim.storages["local"]["content"].split(",") == ["backup", "iso", "snippets", "vztmpl", "import"]   # nothing dropped, nothing else added
     assert _allowed_storage(rt, eid) == ["PVE06-Storage", "local"]
-    assert [c for c in owner.sim.changes if c.startswith("storage~")] == ["storage~local:iso,vztmpl,backup,snippets,import"]
+    assert [c for c in owner.sim.changes if c.startswith("storage~")] == ["storage~local:backup,iso,snippets,vztmpl,import"]
 
 
 def test_import_content_is_not_touched_when_present(w, owner):  # noqa: F811
@@ -91,7 +91,7 @@ def test_import_content_is_not_touched_when_present(w, owner):  # noqa: F811
     pv, _ = _connect_policy(w, owner, _pol(import_storages=["local"]))
     assert _storage_steps(pv["plan"]) == [] and not any("content type" in c for c in pv["plan"]["consequences"])
     assert not any(c.startswith("storage~") for c in owner.sim.changes)
-    assert owner.sim.storages["local"]["content"] == "iso,vztmpl,backup,import"
+    assert owner.sim.storages["local"]["content"] == "backup,iso,vztmpl,import"
 
 
 def test_a_storage_type_without_import_support_is_refused(w, owner):  # noqa: F811
@@ -109,7 +109,7 @@ def _failing_verification(monkeypatch):
 
 
 def test_a_failed_apply_restores_the_previous_content(w, owner, monkeypatch):  # noqa: F811
-    _local(owner, content="iso,vztmpl,backup")
+    _local(owner, content="backup,iso,vztmpl")
     s = sign_in(w, owner)
     base_ = {"name": "owner", "base_url": owner.url, "fingerprint_sha256": owner.fingerprint, "admin_session": s["id"]}
     _, j = run_as_admin(w, "provider.provision.plan_preview", {**base_, "policy": _pol(import_storages=["local"])})
@@ -117,8 +117,8 @@ def test_a_failed_apply_restores_the_previous_content(w, owner, monkeypatch):  #
     _failing_verification(monkeypatch)
     _, j2 = run_as_admin(w, "provider.provision.apply", {**base_, "preview_id": j["result"]["preview_id"], "plan_hash": j["result"]["plan_hash"]})
     assert j2["status"] == "failed", j2
-    assert "storage~local:iso,vztmpl,backup,import" in owner.sim.changes                   # it was added ...
-    assert owner.sim.storages["local"]["content"] == "iso,vztmpl,backup"                    # ... and put back exactly
+    assert "storage~local:backup,iso,vztmpl,import" in owner.sim.changes                   # it was added ...
+    assert owner.sim.storages["local"]["content"] == "backup,iso,vztmpl"                    # ... and put back exactly
 
 
 def test_import_storage_that_can_hold_disks_on_other_nodes_is_allowed_upload_only(w, owner):  # noqa: F811
@@ -141,7 +141,7 @@ def test_import_storage_only_with_the_deploy_preset():
 
 
 def test_scope_change_adds_the_import_storage_later_and_image_import_uses_it(w, owner, rt, tmp_path, floor, monkeypatch):  # noqa: F811
-    _local(owner, content="iso,vztmpl,backup")              # the real cluster: local has no `import` yet; the change enables it from the UI
+    _local(owner, content="backup,iso,vztmpl")              # the real cluster: local has no `import` yet; the change enables it from the UI
     _, eid = _connect_policy(w, owner, _pol())
     before = _acl_by_token(owner)
     assert not any(p == "/storage/local" for p, _ in before["ics-prov"])
@@ -156,7 +156,7 @@ def test_scope_change_adds_the_import_storage_later_and_image_import_uses_it(w, 
     assert pv["direction"] == "widen" and j["status"] == "succeeded", j
     assert [x["storage"] for x in pv["scope"]["diff"]["storage_content"]] == ["local"]
     assert any(n.startswith("Adds the 'import' content type to storage local") for n in pv["scope"]["impact"]["notes"])
-    assert owner.sim.storages["local"]["content"] == "iso,vztmpl,backup,import"
+    assert owner.sim.storages["local"]["content"] == "backup,iso,vztmpl,import"
     after = _acl_by_token(owner)
     assert after["ics-prov"] - before["ics-prov"] == {("/storage/local", "OfficeUnboundImageImport")}
     assert after["ics-inv"] == before["ics-inv"]
@@ -172,26 +172,51 @@ def test_scope_change_adds_the_import_storage_later_and_image_import_uses_it(w, 
 
 
 def test_a_failed_scope_change_restores_the_previous_content(w, owner, rt, monkeypatch):  # noqa: F811
-    _local(owner, content="iso,vztmpl,backup")
+    _local(owner, content="backup,iso,vztmpl")
     _, eid = _connect_policy(w, owner, _pol())
     before = _acl_by_token(owner)
     _failing_verification(monkeypatch)
     pv, p, j = change(w, owner, eid, {"mode": "single_node", "nodes": ["pve06"], "import_storages": ["local"]})
     assert j["status"] == "failed", j
-    assert "storage~local:iso,vztmpl,backup,import" in owner.sim.changes
-    assert owner.sim.storages["local"]["content"] == "iso,vztmpl,backup"
+    assert "storage~local:backup,iso,vztmpl,import" in owner.sim.changes
+    assert owner.sim.storages["local"]["content"] == "backup,iso,vztmpl"
     assert _acl_by_token(owner) == before and _allowed_storage(rt, eid) == ["PVE06-Storage"]
 
 
 def test_mode_b_package_adds_import_content_and_its_rollback_restores_it():
     pol = Policy.model_validate(_pol(import_storages=["local"]))
     facts = pp.Facts(version="9.2.21", major=9, nodes={n: "online" for n in ALL},
-                     storages={"local": {"type": "dir", "shared": False, "content": "iso,vztmpl,backup", "nodes": list(ALL), "node_restricted": False},
+                     storages={"local": {"type": "dir", "shared": False, "content": "backup,iso,vztmpl", "nodes": list(ALL), "node_restricted": False},
                                "PVE06-Storage": {"type": "lvmthin", "shared": False, "content": "images,rootdir", "nodes": ["pve06"], "node_restricted": True}},
                      pools={"office-unbound"}, networks={"vmbr0": "localnetwork"}, bridge_nodes={"vmbr0": {"pve06"}})
     plan = pp.plan_for(pol, facts)
     assert not plan.blocked, plan.blocked
     d = pp.design_from_plan(plan, Policy.model_validate(plan.policy))
     assert "ensure_import_content local" in pp.generate_script(plan, d, {})
-    assert "pvesm set local --content iso,vztmpl,backup   # restores the previous content types" in pp.generate_rollback(plan, d)
-    assert "pvesm set local --content iso,vztmpl,backup,import" in pp.command_list(plan, d)
+    assert "pvesm set local --content backup,iso,vztmpl   # restores the previous content types" in pp.generate_rollback(plan, d)
+    assert "pvesm set local --content backup,iso,vztmpl,import" in pp.command_list(plan, d)
+
+
+def test_scope_hash_ignores_the_order_proxmox_lists_content_types_in():
+    """Regression (real cluster, 2026-11-18): Proxmox returns a storage's content types in a random order per read, so the preview and the
+    apply of the same change saw 'images,backup,iso,vztmpl' vs another order and the apply refused ("the cluster changed since ... previewed")."""
+    from ics.providers.proxmox import scope_change as sc_mod
+
+    class R:
+        def __init__(self, content):
+            self.content = content
+
+        def get(self, path):
+            return {"/version": {"version": "9.1.1"}, "/nodes": [{"node": n, "status": "online"} for n in ALL],
+                    "/storage": [{"storage": "local", "type": "dir", "content": self.content},
+                                 {"storage": "PVE06-Storage", "type": "lvmthin", "content": "rootdir,images", "nodes": "pve06"}]}.get(path, [])
+
+    a, b = pp.collect_facts(R("images,backup,iso,vztmpl")), pp.collect_facts(R("vztmpl,iso,backup,images"))
+    assert a.storages == b.storages
+    old = Policy.model_validate(_pol())
+    plan = pp.plan_for(old, a)
+    design = {"pve_major": 9, "tokens": {k: {"id": f"officeunbound@pve!{k}"} for k in pp.design_from_plan(plan, Policy.model_validate(plan.policy)).tokens},
+              "roles": {c: n for c, (n, _) in pp.design_from_plan(plan, Policy.model_validate(plan.policy)).roles.items()}}
+    new = Policy.model_validate(_pol(import_storages=["local"]))
+    h = {sc_mod.build_from(old, design, new, f, {}).hash for f in (a, b)}
+    assert len(h) == 1

@@ -10,6 +10,11 @@ isolated lab; nothing is production supported ([ROADMAP.md](ROADMAP.md)).
 
 ## [Unreleased]
 
+## [0.3.4] - 2026-11-18
+
+- **Fix: Manage access Apply was refused with "the cluster or the managed guests changed since the scope change was previewed"** although nothing had changed (real cluster, apply 6 s after Calculate). Proxmox lists a storage's content types in a random order on each read; that order went into the plan, so the same change hashed differently at preview and at apply. Content types and storage node lists are now sorted when read. Evidence: `test_import_storage.py::test_scope_hash_ignores_the_order_proxmox_lists_content_types_in` (fails without the fix).
+- If Proxmox really did change between Calculate and Apply, the access wizard now recalculates automatically and asks you to check and apply again (never re-applied silently).
+
 ## [0.3.3] - 2026-11-18
 
 - **Fix: `local` was not offered as the image import storage** on the real cluster: it is a directory storage that also holds VM disks on every node, and the node rule for disk storages was applied to it. An import storage only receives `Datastore.AllocateTemplate` + `Datastore.Audit` (never `Datastore.AllocateSpace`), so Proxmox refuses a VM disk on it on every node. It is now offered and preselected (also in Manage access); as a deployment disk storage it stays blocked. Evidence: `test_import_storage.py::test_import_storage_that_can_hold_disks_on_other_nodes_is_allowed_upload_only`.
@@ -184,7 +189,8 @@ editing, chat/meetings, telephony prototype, migration tooling and package pipel
 - **Review 4** (2 High, 11 Medium, 9 Low; gromox patches, lifecycle, SSO, telephony, migration engine, package pipeline, Collabora) reported. Findings are **open** on `main`; see Unreleased. [report](docs/status/security-review-4-2026-11-15.md)
 - `SECURITY.md` (private reporting) and `CONTRIBUTING.md` (DCO sign-off) added; AGPL-3.0 license. [SECURITY](SECURITY.md)
 
-[Unreleased]: https://github.com/agit8or1/office-unbound/compare/v0.3.3...HEAD
+[Unreleased]: https://github.com/agit8or1/office-unbound/compare/v0.3.4...HEAD
+[0.3.4]: https://github.com/agit8or1/office-unbound/releases/tag/v0.3.4
 [0.3.3]: https://github.com/agit8or1/office-unbound/releases/tag/v0.3.3
 [0.3.2]: https://github.com/agit8or1/office-unbound/releases/tag/v0.3.2
 [0.3.1]: https://github.com/agit8or1/office-unbound/releases/tag/v0.3.1

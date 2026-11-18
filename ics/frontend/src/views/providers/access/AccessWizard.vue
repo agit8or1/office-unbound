@@ -139,6 +139,7 @@ async function rescan() { busy.value = true; try { await discover0() } catch (e)
 async function discover0() { if (session.value) inv.value = await accessApi.inventory(session.value.id, props.id) }
 
 const policy = computed(() => toPolicy(sel, guests.value))
+const drifted = ref(false)
 async function runPreview() {
   if (!session.value) return
   const ch = edit.value ? null : wantedChoices.value
@@ -160,8 +161,12 @@ async function apply() {
   const params: Record<string, unknown> = edit.value
     ? { endpoint_id: props.id, preview_id: pv.preview_id, plan_hash: pv.plan_hash, direction: pv.direction, detach: !!(pv.scope as { detach?: unknown[] })?.detach?.length, admin_session: session.value.id }
     : { name: f.name, base_url: session.value.base_url, preview_id: pv.preview_id, plan_hash: pv.plan_hash, admin_session: session.value.id }
+  drifted.value = false
   const j = await applyRun.start(edit.value ? 'provider.scope.change' : 'provider.provision.apply', params)
-  if (j?.status === 'succeeded') { done.value = j.result as Record<string, unknown>; w.next() }
+  if (j?.status === 'succeeded') { done.value = j.result as Record<string, unknown>; w.next(); return }
+  // Proxmox changed between Calculate and Apply: nothing was applied. Recalculate automatically so the admin only has to review and apply again
+  // (never re-applied silently: an approval is bound to the exact plan that was shown).
+  if (j?.status === 'failed' && /changed since|no longer matches/.test(JSON.stringify(j.error ?? ''))) { drifted.value = true; await runPreview() }
 }
 type VerifRow = { ok: boolean; verbs: { verb: string; ok: boolean }[]; missing: { path: string; privileges: string[] }[]; unexpected: { path: string; privileges: string[] }[]; scope_reach?: unknown[] }
 const verification = computed(() => {
@@ -352,11 +357,12 @@ function next() {
             <p v-if="choicesStale" class="cp-stale" role="status">Your choices changed. Recalculate to see the exact plan with them; Apply uses only a calculated plan.</p>
             <div class="row"><button type="button" class="wz-btn" :class="{ primary: choicesStale }" :disabled="previewRun.busy.value || applyRun.busy.value" @click="runPreview">{{ previewRun.busy.value ? 'Calculating…' : 'Recalculate with these choices' }}</button></div>
           </template>
+          <p v-if="drifted && preview" class="cp-stale" role="status">Proxmox changed between Calculate and Apply, so nothing was applied. The plan below was recalculated just now; check it and apply again.</p>
           <div v-if="st.ok && !choicesStale" class="row mt">
             <button type="button" class="wz-btn primary" :disabled="applyRun.busy.value" @click="apply">{{ edit ? 'Request approval and apply' : 'Request approval and connect' }}</button>
             <button type="button" class="wz-btn" :disabled="applyRun.busy.value" @click="preview = null; st.ok = false">Recalculate</button>
           </div>
-          <RunPanel v-if="applyRun.created.value || applyRun.error.value" :run="applyRun" :what="edit ? 'Access change' : 'Connection'" />
+          <RunPanel v-if="!drifted && (applyRun.created.value || applyRun.error.value)" :run="applyRun" :what="edit ? 'Access change' : 'Connection'" />
         </template>
         <p v-if="w.m.errors.review" class="err" role="alert">{{ w.m.errors.review }}</p>
       </section>
