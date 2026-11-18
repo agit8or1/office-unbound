@@ -13,7 +13,8 @@ import re
 from .guestspec import DIGEST_RE, IPV4_RE, NAME_RE, REGISTRY_RE, REPO_RE, SECRET_RE, USER_RE, VOLNAME_RE, _exact, _int, _s
 from .proto import Reject
 
-CFG_RUNBOOKS = ("cfg.hosts", "cfg.tls", "cfg.ldap_init", "cfg.ldap_user", "cfg.pg_db", "cfg.podman_secret", "cfg.volume_files", "cfg.nginx_site")
+CFG_RUNBOOKS = ("cfg.hosts", "cfg.tls", "cfg.ldap_init", "cfg.ldap_user", "cfg.pg_db", "cfg.podman_secret", "cfg.volume_files", "cfg.nginx_site",
+                "cfg.firewall")
 FAMILY = "cfg"
 
 FQDN_RE = re.compile(r"^(?=.{4,200}$)([a-z0-9]([a-z0-9-]{0,61}[a-z0-9])?\.)+[a-z]{2,24}$")
@@ -27,6 +28,7 @@ RELPATH_RE = re.compile(r"^[A-Za-z0-9_][A-Za-z0-9_.-]{0,63}(/[A-Za-z0-9_][A-Za-z
 PEM_RE = {"cert": re.compile(r"^-----BEGIN CERTIFICATE-----\n([A-Za-z0-9+/=]{1,76}\n){4,200}-----END CERTIFICATE-----\n$"),
           "key": re.compile(r"^-----BEGIN (EC |RSA )?PRIVATE KEY-----\n([A-Za-z0-9+/=]{1,76}\n){2,200}-----END (EC |RSA )?PRIVATE KEY-----\n$")}
 UPSTREAM_RE = re.compile(r"^http://(127\.0\.0\.1|(25[0-5]|2[0-4]\d|1?\d?\d)(\.(25[0-5]|2[0-4]\d|1?\d?\d)){3}):[0-9]{2,5}$")
+MAX_RULES = 64
 MAX_HOSTS, MAX_NAMES, MAX_GROUPS, MAX_FILES, MAX_FILE_BYTES, MAX_TOTAL_BYTES = 32, 16, 16, 16, 262144, 524288
 FILE_MODES = (0o600, 0o640, 0o644)
 
@@ -150,7 +152,21 @@ def check_nginx_site(p, cfg):
             "tls_name": _s(p["tls_name"], NAME_RE, "tls_name"), "max_body_mb": _int(p["max_body_mb"], 0, 102400, "max_body_mb")}
 
 
-CHECKS = {"cfg.hosts": check_hosts, "cfg.tls": check_tls, "cfg.ldap_init": check_ldap_init, "cfg.ldap_user": check_ldap_user,
+def check_firewall(p, cfg):
+    """Peer allowances: exact (source address, protocol, port) triples; replaces the previous set (an empty list closes them all)."""
+    _exact(p, ("rules",))
+    out = []
+    for r in _list(p["rules"], "rules", MAX_RULES):
+        _exact(r, ("source", "proto", "port"))
+        if r["proto"] not in ("tcp", "udp"):
+            raise Reject("bad_params", "proto must be tcp or udp")
+        out.append({"source": _s(r["source"], IPV4_RE, "source address"), "proto": r["proto"], "port": _int(r["port"], 1, 65535, "port")})
+    if len({(r["source"], r["proto"], r["port"]) for r in out}) != len(out):
+        raise Reject("bad_params", "duplicate rule")
+    return {"rules": sorted(out, key=lambda r: (r["source"], r["proto"], r["port"]))}
+
+
+CHECKS = {"cfg.firewall": check_firewall, "cfg.hosts": check_hosts, "cfg.tls": check_tls, "cfg.ldap_init": check_ldap_init, "cfg.ldap_user": check_ldap_user,
           "cfg.pg_db": check_pg_db, "cfg.podman_secret": check_podman_secret, "cfg.volume_files": check_volume_files,
           "cfg.nginx_site": check_nginx_site}
 

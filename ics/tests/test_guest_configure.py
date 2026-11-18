@@ -296,3 +296,39 @@ def test_audit_redaction_keeps_no_secret_and_no_file_content():
     s = json.dumps([red, red2, red3])
     assert "PRIVATE KEY" not in s and PW not in s and PW2 not in s and red2["files"][0]["bytes"] == len("secret " + PW)
     assert configure.redact("podman.status", {"component": "x"}) == {"component": "x"}
+
+
+def test_firewall_allowances_are_exact_triples_written_for_the_boot_include(fake):
+    with pytest.raises(Reject):
+        c.check_firewall({"rules": [{"source": "10.0.0.0/8", "proto": "tcp", "port": 9200}]}, {})
+    with pytest.raises(Reject):
+        c.check_firewall({"rules": [{"source": "10.0.0.1", "proto": "icmp", "port": 1}]}, {})
+    import ou_agent.cfghelper as hh
+    hh.NFT_ALLOW = str(fake.path / "nft-allow.d" / "ou-peers.nft")
+    assert _run("cfg.firewall", {"rules": [{"source": "10.0.0.7", "proto": "tcp", "port": 9200}, {"source": "10.0.0.6", "proto": "tcp", "port": 636}]}) == {"rules": 2}
+    text = (fake.path / "nft-allow.d" / "ou-peers.nft").read_text()
+    assert "flush set inet ou_guest cfg_allow4" in text and "{ 10.0.0.6 . tcp . 636, 10.0.0.7 . tcp . 9200 }" in text
+    assert [x[1][0] for x in fake.calls("nft")][-2:] == ["-c", "-f"]
+    _run("cfg.firewall", {"rules": []})
+    assert "add element" not in (fake.path / "nft-allow.d" / "ou-peers.nft").read_text()
+
+
+def test_first_boot_ruleset_has_the_empty_peer_set_and_its_include():
+    r = firstboot.nft_ruleset({"agent_port": 8443, "mgmt_sources": ["192.0.2.1/32"], "ports": []})
+    assert "set cfg_allow4 {\n    type ipv4_addr . inet_proto . inet_service\n  }" in r and "elements" not in r
+    assert "ip saddr . meta l4proto . th dport @cfg_allow4 accept" in r and r.endswith('include "/etc/ou-agent/nft-allow.d/*.nft"\n')
+    assert "policy drop" in r
+
+
+def test_peer_rules_come_from_the_plan_with_exact_addresses():
+    class A:
+        def address(self, vm):
+            return {"files": "10.0.0.7", "gw": "10.0.0.8"}[vm]
+    ctx = type("C", (), {"plan": {"vms": [{"name": "id"}, {"name": "files"}, {"name": "gw"}],
+                                  "firewall": [{"vm": "id", "port": 636, "proto": "tcp", "from": "files"}, {"vm": "id", "port": 636, "proto": "tcp", "from": "gw"},
+                                               {"vm": "id", "port": 443, "proto": "tcp", "from": "any"}, {"vm": "files", "port": 9200, "proto": "tcp", "from": "id"}]},
+                         "env": type("E", (), {"agent": A()})()})()
+    assert configure.firewall_runbook(ctx, "id")["params"]["rules"] == [{"source": "10.0.0.7", "proto": "tcp", "port": 636},
+                                                                         {"source": "10.0.0.8", "proto": "tcp", "port": 636}]
+    with pytest.raises(configure.ConfigError):
+        configure.firewall_runbook(ctx, "files")   # the id VM's address is unknown here: refused, never widened

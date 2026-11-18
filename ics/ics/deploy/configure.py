@@ -143,6 +143,22 @@ def hosts_entries(ctx, names: dict[str, list[str]]) -> list[dict]:
     return [{"ip": ip, "names": sorted(set(ns))} for ip, ns in sorted(by_ip.items())]
 
 
+def firewall_runbook(ctx, vm: str) -> dict:
+    """The plan's VM-to-VM firewall rules for `vm` (from = another VM of the deployment) as exact source addresses. Every peer is enrolled by now
+    (each install step depends on all enrollments); a missing address is an error, never a wider rule."""
+    names = {v["name"] for v in ctx.plan.get("vms", [])}
+    rules = []
+    for f in ctx.plan.get("firewall", []):
+        if f["vm"] == vm and f["from"] in names:
+            try:
+                src = ctx.env.agent.address(f["from"])
+            except Exception as e:  # noqa: BLE001
+                raise ConfigError(f"the address of {f['from']} is unknown (not enrolled): {e}") from None
+            rules.append({"source": src, "proto": f["proto"], "port": f["port"]})
+    uniq = {(r["source"], r["proto"], r["port"]): r for r in rules}
+    return {"runbook": "cfg.firewall", "params": {"rules": [uniq[k] for k in sorted(uniq)]}}
+
+
 def _tls(ctx, vm: str, domain: str, names: dict) -> dict:
     ca_ = ca(ctx.rt, ctx.deployment_id, ctx.plan["input"]["domain"], ctx.slug)
     mine = names.get(vm) or [f"{vm}.{domain}"]
@@ -183,6 +199,7 @@ def identity_runbooks(ctx, vm: str) -> list[dict]:
     ca_pem = ca(rt, dep, ctx.plan["input"]["domain"], ctx.slug)["cert"]
     return [
         {"runbook": "cfg.hosts", "params": {"entries": hosts_entries(ctx, names)}},
+        firewall_runbook(ctx, vm),
         _tls(ctx, vm, domain, names),
         {"runbook": "cfg.ldap_init", "params": {"domain": domain, "organization": "Office Unbound", "admin_password": secret(rt, dep, "ldap-admin-password"),
                                                 "bind_password": bind_pw, "tls_name": "deployment", "groups": list(LDAP_GROUPS)}},

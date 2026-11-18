@@ -623,7 +623,8 @@ def create_steps(vms: list[dict], inp: PlanInput, cat: Catalog, extra_nic: bool 
             c = cat.components[cname]
             if c.placement == "every_vm":   # the node agent: installed by the guest bootstrap (cloud-init bundle), enrolled by agent.enroll
                 continue
-            deps = [f"agent.enroll:{n}"]
+            # every VM of the deployment first: configuration needs the peers' addresses (name resolution, cfg.firewall peer allowances)
+            deps = [f"agent.enroll:{n}"] + [f"agent.enroll:{o['name']}" for o in vms if o["name"] != n]
             for d in (*c.depends_on, *c.after):
                 for (vn, vt) in inst.get(d, []):
                     if _scope_match(vt, v["tenant"]):

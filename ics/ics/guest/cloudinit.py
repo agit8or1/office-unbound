@@ -18,7 +18,8 @@ import yaml
 from cryptography.hazmat.primitives import serialization
 from pydantic import BaseModel, ConfigDict, Field, field_validator, model_validator
 
-CFG_RUNBOOKS = ("cfg.hosts", "cfg.tls", "cfg.ldap_init", "cfg.ldap_user", "cfg.pg_db", "cfg.podman_secret", "cfg.volume_files", "cfg.nginx_site")
+CFG_RUNBOOKS = ("cfg.hosts", "cfg.tls", "cfg.ldap_init", "cfg.ldap_user", "cfg.pg_db", "cfg.podman_secret", "cfg.volume_files", "cfg.nginx_site",
+                "cfg.firewall")
 
 SERVICE_USER = "ou-svc"
 SERVICE_HOME = "/var/lib/ou-svc"
