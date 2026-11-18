@@ -39,3 +39,31 @@ notices:
   - "Asterisk 22.12.0-ou1 was built and tested only on Debian 12 (ou-pbx2); lab validation covered 2 simultaneous calls, no load test."
 ha_note: "No PBX failover: a replica would be a second independent PBX with its own registrations; shared voicemail and SIP failover are not designed."
 os_images: [debian-12]
+sizing:
+  services: [telephony]
+  minimum: {cores: 1, memory_mb: 768, disk_gb: 4}
+  recommended: {cores: 1, memory_mb: 1024, disk_gb: 6}
+  cores:
+    base: 1
+    base_evidence: estimate
+    source: "ESTIMATE: no concurrent-call load test; G.711 passthrough only"
+    factors:
+      - {per: concurrent_call, value: 0.02, evidence: estimate, source: "ESTIMATE: 1 core per 50 passthrough calls (no transcoding)"}
+  memory_mb:
+    base: 256
+    base_evidence: measured
+    source: "telephony-lab-results.md: ou-pbx1 idle 0.21-0.29 GiB (asterisk 78 MB RSS, softphone 65 MB) under MemoryMax 768M"
+    factors:
+      - {per: total_user, value: 0.5, evidence: estimate, source: "ESTIMATE: registrations/config per extension"}
+      - {per: concurrent_call, value: 2, evidence: estimate, source: "ESTIMATE: per channel"}
+  disk_gb: {base: 4, base_evidence: estimate, source: "ESTIMATE: ou-asterisk 12.4 MB installed + OS and helpers"}
+  volumes:
+    - {volume: spool, base: 2, base_evidence: estimate, source: "ESTIMATE", factors: [{per: total_user, value: 0.05, evidence: estimate, source: "ESTIMATE: voicemail 50 MB/user"}]}
+    - {volume: site-config, base: 1, base_evidence: estimate, source: "site config, TLS key", factors: []}
+  consolidation: {group: pbx, isolation: preferred, reason: "binds tcp/443 and udp/10000-10200 (conflicts with edge/chat/meetings); real-time media"}
+  ha:
+    note: "No PBX failover: a replica is a second independent PBX; shared voicemail and SIP failover are not designed."
+    strategies:
+      - {id: vm_restart_shared_storage, status: implemented, note: "Proxmox HA restart (shared storage); calls drop, recovery only"}
+  limitations: ["No PSTN trunk; must not be relied on for emergency calling.", "Validated with 2 simultaneous calls only."]
+  validated: {concurrent: 2, concurrent_metric: concurrent_call, reference: "telephony-lab-results.md (2 simultaneous calls)"}

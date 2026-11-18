@@ -17,3 +17,4 @@ vms:
 optional_components: [office]
 default_optional: [office]
 backup: {schedule: daily, retention_days: 30, snapshot_before_change: true, offsite: true}
+sizing_preset: {deployment_type: production, architecture: dedicated}  # mapping onto the sizing engine

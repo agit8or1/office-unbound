@@ -31,3 +31,28 @@ backup:
   rpo_hours: 0
   evidence: "stateless by design"
 upgrade: {downtime_seconds: 60}
+sizing:
+  services: [office]
+  minimum: {cores: 2, memory_mb: 2048, disk_gb: 6}
+  recommended: {cores: 2, memory_mb: 4096, disk_gb: 8}
+  cores:
+    base: 1
+    base_evidence: estimate
+    source: "ESTIMATE: no CPU measurement for document load/conversion bursts"
+    factors:
+      - {per: office_editor, value: 0.1, evidence: estimate, source: "ESTIMATE: 1 core per 10 concurrently open documents"}
+  memory_mb:
+    base: 320
+    base_evidence: measured
+    source: "identity-files-lab-results.md: ou-office1 0.29 GB idle"
+    factors:
+      - {per: office_editor, value: 85, evidence: measured, source: "docs-reliability-results.md: 30 concurrent documents peaked at 2.77 GB on a 3 GB machine (0.29 GB idle) = ~83 MB per open document"}
+  disk_gb: {base: 6, base_evidence: estimate, source: "ESTIMATE: packages + fonts (lab estimate)"}
+  volumes: []
+  consolidation: {group: files, isolation: none, reason: "stateless document engine next to files (WOPI)"}
+  ha:
+    note: "Stateless; a second instance needs WOPI routing by document (not implemented). Replicas are independent engines."
+    strategies:
+      - {id: stateless_active_active, status: designed, note: "document-affine routing of WOPI sessions; not built"}
+  limitations: ["Validated at 30 concurrent documents only (docs-reliability-results.md); production nodes should get >= 4 GB."]
+  validated: {concurrent: 30, concurrent_metric: office_editor, reference: "docs-reliability-results.md (30 concurrent documents)"}

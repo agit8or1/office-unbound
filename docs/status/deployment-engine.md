@@ -59,3 +59,6 @@ tampered stored plan refused, unconfigured provider fails cleanly, no secret lea
 - `deployment.destroy` needs the `plan_hash` from `POST /deployments/{slug}/destroy/preview`; it is built from the applied revision plus owned VMs and marked destroyed only after every VM is verified gone.
 - Step carry-over is keyed by (deployment, revision, plan_hash); change plans carry `base_revision` and refuse to run against a newer applied revision; maintenance windows must be independently approved to lower a disruptive change's tier; VM ownership is VMID + tags + name; deployment checks are owned by the deployment (`checks.deployment_id`).
 See "Remediation" in `security-review-3-2026-11-15.md`.
+
+## Sizing engine (2026-11-18)
+Hardware-aware sizing replaces hand-sized profiles for new deployments: `POST /deployments/size` (dry run) -> `plan_input` (custom layout + `PlanInput.sizing`) -> unchanged plan/approval/job path; `POST /deployments/{slug}/resize-plan` proposes approval-gated changes from `metric_samples`. Profiles remain the legacy path. Details, API shapes and evidence: `sizing-api.md`.

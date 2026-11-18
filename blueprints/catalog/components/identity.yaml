@@ -51,3 +51,34 @@ backup:
   rpo_hours: 24
   evidence: "docs/status/restore-drill-results.md (ou-id1 drill, online, no downtime)"
 upgrade: {downtime_seconds: 120}
+sizing:   # sizing engine (docs/status/sizing-api.md); evidence: measured = lab figure cited in source, estimate = planning value (+ safety margin)
+  services: []
+  core: true
+  minimum: {cores: 1, memory_mb: 2048, disk_gb: 6}
+  recommended: {cores: 2, memory_mb: 3072, disk_gb: 10}
+  cores:
+    base: 1
+    base_evidence: estimate
+    source: "ESTIMATE: no CPU measurement (identity-files-lab-results.md recorded memory only)"
+    factors:
+      - {per: concurrent_user, value: 0.01, evidence: estimate, source: "ESTIMATE: 1 core per 100 concurrent logins/token refreshes; no load test"}
+  memory_mb:
+    base: 1024
+    base_evidence: measured
+    source: "identity-files-lab-results.md: ou-id1 machine total 0.87 GB idle (Keycloak java 0.65-0.87 GB RSS) under MemoryMax 2G, 5 test users"
+    factors:
+      - {per: total_user, value: 2, evidence: estimate, source: "ESTIMATE: JVM/LDAP cache growth per directory entry; not measured"}
+      - {per: concurrent_user, value: 4, evidence: estimate, source: "ESTIMATE: Keycloak session memory per active session; not measured"}
+  disk_gb: {base: 6, base_evidence: estimate, source: "ESTIMATE: OS packages + Keycloak distribution (lab estimate)"}
+  volumes:
+    - {volume: ldap-data, base: 2, base_evidence: estimate, source: "ESTIMATE: 19 lab entries were negligible", factors: [{per: total_user, value: 0.002, evidence: estimate, source: "ESTIMATE: 2 MB per entry, generous"}]}
+    - {volume: pgdata, base: 5, base_evidence: estimate, source: "ESTIMATE: Keycloak DB tiny in lab", factors: [{per: total_user, value: 0.005, evidence: estimate, source: "ESTIMATE: sessions/events"}]}
+  consolidation: {group: front, isolation: none, reason: "light; shares a VM with the edge proxy in the balanced layout (ADR-0006 lightweight layout)"}
+  ha:
+    note: "No application HA: OpenLDAP multi-provider and PostgreSQL streaming replication are not implemented or validated. A VM replica would be an independent, divergent directory."
+    strategies:
+      - {id: multi_primary, status: designed, note: "OpenLDAP mirror mode / multi-provider; not built"}
+      - {id: primary_replica, status: designed, note: "PostgreSQL streaming replication for Keycloak; not built"}
+      - {id: vm_restart_shared_storage, status: implemented, note: "Proxmox HA restart on another node (needs shared storage); recovery after downtime, not HA"}
+  limitations: ["Every other component depends on identity: its VM is a single point of failure for logins."]
+  validated: {total_users: 5, reference: "identity-files-lab-results.md (5 LDAP test users, functional tests only)"}

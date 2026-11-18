@@ -26,3 +26,31 @@ backup:
   rpo_hours: 24
   evidence: "planned: not drilled"
 upgrade: {downtime_seconds: 15}
+sizing:
+  services: []
+  core: true
+  minimum: {cores: 1, memory_mb: 256, disk_gb: 2}
+  recommended: {cores: 1, memory_mb: 512, disk_gb: 4}
+  cores:
+    base: 1
+    base_evidence: estimate
+    source: "ESTIMATE: lab nginx fronted office/files with negligible load (not measured)"
+    factors:
+      - {per: concurrent_user, value: 0.004, evidence: estimate, source: "ESTIMATE: TLS termination, 1 core per 250 concurrent users"}
+  memory_mb:
+    base: 256
+    base_evidence: estimate
+    source: "ESTIMATE: nginx + certificates"
+    factors:
+      - {per: concurrent_user, value: 0.5, evidence: estimate, source: "ESTIMATE: proxy buffers per active connection set"}
+  disk_gb: {base: 2, base_evidence: estimate, source: "ESTIMATE"}
+  volumes:
+    - {volume: certs, base: 1, base_evidence: estimate, source: "certificates and ACME state", factors: []}
+  consolidation: {group: front, isolation: none, reason: "binds tcp/443 and tcp/80: cannot share a VM with chat, meetings or telephony (port conflict)"}
+  ha:
+    note: "Stateless proxy, but no floating IP / DNS failover is implemented; a second edge would need clients to reach it."
+    strategies:
+      - {id: stateless_active_active, status: designed, note: "two proxies behind a VIP (keepalived) or DNS; not built"}
+      - {id: vm_restart_shared_storage, status: implemented, note: "Proxmox HA restart (shared storage); recovery, not HA"}
+  limitations: []
+  validated: {reference: "identity-files-lab-results.md (functional only; no load measured)"}

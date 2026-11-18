@@ -42,3 +42,32 @@ notices:
   - "Uses its own PostgreSQL (databases synapse and mas); it is not the identity database."
 ha_note: "Synapse/MAS/PostgreSQL replication (workers, streaming replication) is not implemented or validated; a second replica is a separate, independent server."
 os_images: [ubuntu-24.04]
+sizing:
+  services: [chat]
+  minimum: {cores: 1, memory_mb: 1536, disk_gb: 8}
+  recommended: {cores: 2, memory_mb: 2048, disk_gb: 10}
+  cores:
+    base: 1
+    base_evidence: estimate
+    source: "ESTIMATE: collaboration-lab-results.md section 4 had no load test"
+    factors:
+      - {per: concurrent_user, value: 0.01, evidence: estimate, source: "ESTIMATE: 1 core per 100 concurrent chat users"}
+  memory_mb:
+    base: 1024
+    base_evidence: measured
+    source: "collaboration-lab-results.md section 4: ou-chat1 idle 0.49 GiB, peak 1.27 GiB incl. install under MemoryMax 1.5G"
+    factors:
+      - {per: total_user, value: 3, evidence: estimate, source: "ESTIMATE: Synapse cache growth per user"}
+      - {per: concurrent_user, value: 2, evidence: estimate, source: "ESTIMATE: sync connections"}
+  disk_gb: {base: 8, base_evidence: estimate, source: "ESTIMATE: OS + Synapse/MAS images + Element tarball"}
+  volumes:
+    - {volume: pgdata, base: 5, base_evidence: estimate, source: "ESTIMATE", factors: [{per: total_user, value: 0.02, evidence: estimate, source: "ESTIMATE: 20 MB/user events/state"}]}
+    - {volume: media, base: 10, base_evidence: estimate, source: "ESTIMATE", factors: [{per: total_user, value: 0.5, evidence: estimate, source: "ESTIMATE: 500 MB media per user"}]}
+    - {volume: config, base: 1, base_evidence: estimate, source: "signing key and config", factors: []}
+  consolidation: {group: chat, isolation: none, reason: "binds tcp/443: own VM unless the edge proxy fronts it (not implemented)"}
+  ha:
+    note: "No application HA: Synapse workers / PostgreSQL replication not implemented; a replica is an independent server."
+    strategies:
+      - {id: vm_restart_shared_storage, status: implemented, note: "Proxmox HA restart (shared storage); recovery, not HA"}
+  limitations: ["Federation off by default; E2E key backup not evaluated."]
+  validated: {total_users: 2, reference: "collaboration-lab-results.md (functional tests; no load test)"}

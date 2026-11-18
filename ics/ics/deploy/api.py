@@ -1,15 +1,16 @@
 """Read-only deployment API (ADR-0009 section 7). Previews have no side effects; every mutation is a typed plan via POST /plans."""
 from datetime import datetime
+from typing import Literal
 from uuid import UUID
 
 from fastapi import Depends, FastAPI, HTTPException
-from pydantic import BaseModel, ValidationError
+from pydantic import BaseModel, ConfigDict, ValidationError
 from sqlalchemy import text
 from sqlalchemy.orm import Session
 
 from ..auth import User, get_db, require
 from ..tenancy import scope as tscope
-from . import ops, state
+from . import ops, sizeops, sizer, state
 from .catalog import describe_component, describe_profile, get_catalog
 from .plan import PlanInput
 
@@ -18,6 +19,11 @@ API = "/api/v1"
 
 class ChangePreviewIn(BaseModel):
     changes: ops.ChangeSet
+
+
+class ResizeIn(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+    window: Literal["24h", "7d", "30d"] = "7d"
 
 
 def _iso(v):
@@ -50,6 +56,31 @@ def register_routes(app: FastAPI, rt) -> None:
             return ops.build_plan(db, spec)
         except KeyError:
             raise HTTPException(404, "endpoint not found")
+
+    @app.post(f"{API}/deployments/size")
+    def size_preview(req: sizer.SizeRequest, user: User = Depends(require("operator")), db: Session = Depends(get_db)):
+        """Sizing engine dry run (docs/status/sizing-api.md). Writes nothing; `plan_input` goes to POST /deployments/plan and deployment.create."""
+        ep = db.execute(text("SELECT id FROM endpoints WHERE name = :n"), {"n": req.endpoint}).first()
+        if ep is None:
+            raise HTTPException(404, "endpoint not found")
+        tscope.assert_endpoint(db, user, ep.id)
+        try:
+            return sizeops.size_request(db, req)
+        except KeyError:
+            raise HTTPException(404, "endpoint not found")
+
+    @app.post(f"{API}/deployments/{{slug}}/resize-plan")
+    def resize_plan(slug: str, body: ResizeIn | None = None, user: User = Depends(require("operator")), db: Session = Depends(get_db)):
+        """Rerun sizing against actual usage (metric_samples); proposes an approval-gated ChangeSet. Writes nothing."""
+        _get(db, slug)
+        try:
+            return sizeops.resize_plan(db, slug, (body or ResizeIn()).window)
+        except KeyError:
+            raise HTTPException(404, "deployment not found")
+        except LookupError as e:
+            raise HTTPException(409, str(e))
+        except (ValueError, ValidationError) as e:
+            raise HTTPException(422, str(e)[:500])
 
     @app.get(f"{API}/deployments")
     def list_deployments(user: User = Depends(require("viewer")), db: Session = Depends(get_db)):

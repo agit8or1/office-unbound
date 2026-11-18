@@ -23,3 +23,17 @@ backup:
   rpo_hours: 0
   evidence: "stateless"
 upgrade: {downtime_seconds: 5}
+sizing:
+  services: []
+  core: true
+  minimum: {cores: 0, memory_mb: 64, disk_gb: 1}
+  recommended: {cores: 0, memory_mb: 64, disk_gb: 1}
+  cores: {base: 0, base_evidence: estimate, source: "negligible"}
+  memory_mb: {base: 64, base_evidence: estimate, source: "ESTIMATE: Python stdlib HTTPS server (ics/agent)"}
+  disk_gb: {base: 1, base_evidence: estimate, source: "ESTIMATE"}
+  volumes: []
+  safety_margin_pct: 0
+  consolidation: {group: agent, isolation: none, reason: "installed on every VM by the guest bootstrap"}
+  ha: {note: "per-VM agent; not applicable", strategies: []}
+  limitations: []
+  validated: {reference: "first-real-deployment.md (agent enrolled on a real VM)"}
