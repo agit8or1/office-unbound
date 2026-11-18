@@ -710,3 +710,23 @@ def test_the_newest_imported_golden_template_wins_when_names_repeat():
     assert executor.pick_template(t, "ou-tpl-ubuntu-2404")["vmid"] == 120
     assert executor.pick_template(t[:1] + [{**t[0], "vmid": 140}], "ou-tpl-ubuntu-2404")["vmid"] == 140   # same release date: the later import
     assert executor.pick_template(t, "ou-tpl-none") is None
+
+
+def test_deployed_service_checks_are_agent_probes_on_real_guests(client, actors, rt, env, monkeypatch):
+    """With an agent that probes its own loopback (the real GuestAgentPort), http/tcp_tls checks are registered as agent_probe checks with the
+    name the deployment certificate carries; nothing asks for TLS trust discovery any more."""
+    ids = {}
+
+    def enroll(vm, timeout_s):
+        ids[vm] = str(uuid.uuid5(uuid.NAMESPACE_DNS, vm))
+        return ids[vm]
+    env.agent.local_probes = True
+    env.agent.wait_enrollment = enroll
+    env.agent.tls_trust = lambda node, port: pytest.fail("no TLS trust discovery for probed checks")
+    p = _active(actors, rt)
+    with rt.session() as db:
+        rows = db.execute(text("SELECT name, kind, config FROM checks WHERE deployment_id = (SELECT id FROM deployments WHERE slug = 'prod')")).fetchall()
+    probes = {r.name: r.config for r in rows if r.kind == "agent_probe"}
+    assert probes and all(r.kind in ("agent_probe", "smtp_banner", "imap_login", "ews_getfolder") for r in rows), [(r.name, r.kind) for r in rows]
+    ld = next(v for k, v in probes.items() if v["probe"].get("port") == 636)
+    assert ld["probe"]["server_name"] == "ldap.acme.example" and ld["node_id"] == ids[next(v["name"] for v in p["vms"] if v["name"].endswith("-id"))]

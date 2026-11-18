@@ -289,7 +289,7 @@ def agent_config(s: GuestSpec) -> dict:
     if s.pkg_allowlist:
         rb["pkg.install_pinned"] = {"packages": sorted(s.pkg_allowlist)}
     if s.configure:   # node-local configuration runbooks (agent >= 0.5.0, ou_agent/cfgspec.py): fixed code, values from the deployment engine
-        rb.update({r: {"enabled": True} for r in CFG_RUNBOOKS})
+        rb.update({r: {"enabled": True} for r in (*CFG_RUNBOOKS, "guest.probe")})
     return {"listen": {"address": "0.0.0.0", "port": s.agent_port}, "runbooks": dict(sorted(rb.items()))}
 
 

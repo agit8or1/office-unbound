@@ -423,6 +423,9 @@ def _run_one(rt: Runtime, row, password: str | None) -> checks.Outcome:
     if row.kind == "infra":    # infrastructure rules: evaluated from the inventory/metrics the collectors already recorded, no network
         from .inventory import infra_checks
         return infra_checks.evaluate(rt, row.config)
+    if row.kind == "agent_probe":   # a deployment service probed by its node's agent on loopback (guest.probe)
+        from .guest import probe
+        return probe.evaluate(rt, row.config)
     return checks.run_check(row.kind, row.config, password, rt.settings.allow_loopback_endpoints)
 
 

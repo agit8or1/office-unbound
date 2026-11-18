@@ -27,12 +27,12 @@ import sys
 import time
 import urllib.parse
 
-from . import cfgspec, guestspec
+from . import cfgspec, guestspec, probespec
 
 SMBIOS_DIR = "/sys/class/dmi/id"
 STATE_DIR = "/var/lib/ou-bootstrap"
 PATH = "/api/v1/guest-bootstrap/report"
-RUNBOOKS = {"disk.usage", "guest.facts", "podman.status", "podman.remove_unit", "podman.pull_verified", "podman.deploy_unit", "pkg.install_pinned", *cfgspec.CFG_RUNBOOKS}
+RUNBOOKS = {"disk.usage", "guest.facts", "podman.status", "podman.remove_unit", "podman.pull_verified", "podman.deploy_unit", "pkg.install_pinned", *cfgspec.CFG_RUNBOOKS, probespec.PROBE_RUNBOOK}
 CFG_ALLOW_DIR = "/etc/ou-agent/nft-allow.d"   # cfg.firewall writes ou-peers.nft here (root); included by /etc/nftables.conf
 CIDR_RE = re.compile(r"^[0-9a-f:.]{2,45}/\d{1,3}$")
 HOST_RE = re.compile(r"^[A-Za-z0-9.\[\]:-]{1,100}$")
@@ -166,7 +166,7 @@ def validate_config(c: dict) -> dict:
             if name == "disk.usage":
                 if not isinstance(rc, dict) or set(rc) != {"paths"} or not all(isinstance(x, str) and re.fullmatch(r"/[A-Za-z0-9_./-]{0,100}", x) for x in rc["paths"]):
                     raise ValueError
-            elif name in cfgspec.CFG_RUNBOOKS:
+            elif name in cfgspec.CFG_RUNBOOKS or name == probespec.PROBE_RUNBOOK:
                 cfgspec.validate_runbook_config(name, rc)
             else:
                 guestspec.validate_runbook_config(name, rc)

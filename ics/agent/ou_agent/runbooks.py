@@ -7,7 +7,7 @@ import secrets
 import subprocess
 import time
 
-from . import cfgspec, guestspec, mbxspec
+from . import cfgspec, guestspec, mbxspec, probespec
 from .proto import Reject
 
 SYSTEMCTL = "/usr/bin/systemctl"
@@ -48,10 +48,10 @@ _ENV = {"PATH": "/usr/bin:/bin", "LANG": "C"}
 def validate_config(cfg: dict) -> dict:
     """Shape of /etc/ou-agent/agent.json: {"listen": {"address","port"}, "runbooks": {name: {"units":[...]} | {"paths":[...]}}}"""
     rb = cfg.get("runbooks")
-    known = RUNBOOKS + tuple(USER_RUNBOOKS) + guestspec.GUEST_RUNBOOKS + BACKUP_RUNBOOKS + mbxspec.MBX_RUNBOOKS + cfgspec.CFG_RUNBOOKS
+    known = RUNBOOKS + tuple(USER_RUNBOOKS) + guestspec.GUEST_RUNBOOKS + BACKUP_RUNBOOKS + mbxspec.MBX_RUNBOOKS + cfgspec.CFG_RUNBOOKS + (probespec.PROBE_RUNBOOK,)
     if not isinstance(rb, dict) or set(rb) - set(known):
         raise ValueError("runbooks must be a subset of " + ", ".join(known))
-    for name in cfgspec.CFG_RUNBOOKS:
+    for name in (*cfgspec.CFG_RUNBOOKS, probespec.PROBE_RUNBOOK):
         if name in rb:
             cfgspec.validate_runbook_config(name, rb[name])
     for name in BACKUP_RUNBOOKS:
@@ -80,7 +80,7 @@ def capabilities(cfg: dict) -> dict:
     rb = cfg["runbooks"]
     out = {}
     for k, v in rb.items():
-        if k in USER_RUNBOOKS or k in mbxspec.MBX_RUNBOOKS or k in cfgspec.CFG_RUNBOOKS:
+        if k in USER_RUNBOOKS or k in mbxspec.MBX_RUNBOOKS or k in cfgspec.CFG_RUNBOOKS or k == probespec.PROBE_RUNBOOK:
             out[k] = {"enabled": True}
         elif k in BACKUP_RUNBOOKS:
             out[k] = {"tiers": sorted(v["tiers"]), **({"customers": sorted(v["customers"])} if v.get("customers") else {})}
@@ -102,6 +102,8 @@ def check_allowed(cfg: dict, action: str, params: dict) -> dict:
         return guestspec.CHECKS[action](params, spec)   # typed, closed-shape validation; nothing is spooled before this passes
     if action in cfgspec.CFG_RUNBOOKS:
         return cfgspec.CHECKS[action](params, spec)
+    if action == probespec.PROBE_RUNBOOK:
+        return probespec.check(params, spec)
     if action in BACKUP_RUNBOOKS:
         return check_backup(action, params, spec)
     if action == "pbx.issue_credential":
@@ -320,6 +322,8 @@ def execute(action: str, params: dict) -> dict:
         return _backup_runbook(action, params)
     if action in cfgspec.CFG_RUNBOOKS:
         return _cfg_runbook(action, params)
+    if action == probespec.PROBE_RUNBOOK:
+        return probespec.execute(params)   # in-process, unprivileged, loopback only
     if action in guestspec.GUEST_RUNBOOKS or action in mbxspec.MBX_RUNBOOKS:
         return _guest_runbook(action, params)
     if action == "pbx.issue_credential":

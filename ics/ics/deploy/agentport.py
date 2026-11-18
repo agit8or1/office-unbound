@@ -510,6 +510,8 @@ class GuestAgentPort:
             db.commit()
         return str(nid)
 
+    local_probes = True   # health checks of deployed services run as guest.probe on the node (ics/guest/probe.py)
+
     def run_runbook(self, node_id: str, runbook: str, params: dict) -> dict:
         try:
             resp = agentcall.execute(self.rt, node_id, runbook, params, deadline=900.0)

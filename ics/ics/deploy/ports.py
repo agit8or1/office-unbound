@@ -84,7 +84,9 @@ class DbChecks:
     def register(self, rt, check: dict, host: str, trust: dict | None, created_by: str, deployment_id: str | None = None) -> str:
         from .. import checks as checkmod  # local import: keeps this module light for the pure planner tests
         kind = check["kind"]
-        if kind == "http":
+        if kind == "agent_probe":
+            cfg = check["config"]
+        elif kind == "http":
             cfg = {"url": f"https://{host}:{check['port']}{check.get('path') or '/'}", "expect_status": check["expect_status"], **(trust or {})}
             if check.get("body_contains"):
                 cfg["body_contains"] = check["body_contains"]

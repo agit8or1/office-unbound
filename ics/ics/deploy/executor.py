@@ -17,6 +17,7 @@ from dataclasses import dataclass, field
 from sqlalchemy import text
 
 from ..providers.base import IpConfig, NicSpec, ProviderError, ProviderTimeout, ScopeViolation, TaskRef, VmCloneSpec, VmConfigSpec, VmRef
+from ..guest import probe as guestprobe
 from . import configure, state
 from .ports import Cancelled, DeployError, ExecEnv, Fenced, StepFailed
 
@@ -398,11 +399,17 @@ def h_register_checks(ctx: StepCtx) -> dict:
     node = _node_for(ctx, vm)
     host = ctx.env.agent.address(vm)
     names = []
+    probes = getattr(ctx.env.agent, "local_probes", False)   # the node agent probes its own services on loopback (guest.probe, agent >= 0.5.0)
+    vm_names = configure.names_by_vm(ctx.plan, configure.domain_of(ctx.plan, vm)).get(vm, []) if probes else []
     for c in ctx.plan["checks"]:
         if c["vm"] != vm or c["component"] != comp:
             continue
         trust = None
-        if c["kind"] in ("http", "tcp_tls", "sip_options_tls", "jitsi_jwt"):
+        if probes and c["kind"] in ("http", "tcp_tls"):
+            # service ports are loopback-only or open to the deployment's own VMs: probed by the agent, TLS verified against the deployment CA
+            sn = next((n for n in vm_names if n.startswith("ldap.")), None) if c["port"] == 636 else None
+            c = {**c, "kind": "agent_probe", "config": guestprobe.from_plan_check(c, node, sn or (vm_names[0] if vm_names else None))}
+        elif c["kind"] in ("http", "tcp_tls", "sip_options_tls", "jitsi_jwt"):
             trust = ctx.env.agent.tls_trust(node, c["port"])
         ctx.env.checks.register(ctx.rt, c, host, trust, ctx.created_by, ctx.deployment_id)
         ctx.resource("check", c["name"], state="present")

@@ -353,3 +353,81 @@ def test_a_unit_may_name_entrypoint_words_but_nothing_else():
     for bad in (["--privileged"], ["sh", "-c"], ["/bin/sh"], ["a;b"], ["x"] * 5, "server"):
         with pytest.raises(Reject):
             g.check_deploy({**base, "command": bad}, cfg)
+
+
+# ---------------------------------------------------------------- guest.probe (agent) and agent_probe checks (ICS)
+def test_probe_schema_is_closed():
+    from ou_agent import probespec as ps
+    ok = ps.check({"probes": [{"name": "kc", "kind": "http", "port": 9000, "path": "/health/ready", "expect_status": 200, "body_contains": '"UP"'}]})
+    assert ok["probes"][0]["path"] == "/health/ready"
+    for bad in ({"name": "x", "kind": "tls", "port": 636},                                        # tls needs the name the cert must carry
+                {"name": "x", "kind": "http", "port": 80, "server_name": "a.example.org", "path": "/"},
+                {"name": "x", "kind": "tcp", "port": 80, "path": "/"}, {"name": "x", "kind": "udp", "port": 53},
+                {"name": "x", "kind": "http", "port": 80, "path": "http://evil/"}, {"name": "x", "kind": "http", "port": 80, "host": "10.0.0.1"}):
+        with pytest.raises(Reject):
+            ps.check({"probes": [bad]})
+
+
+def test_probes_hit_loopback_and_verify_tls_against_the_deployment_ca(tmp_path, monkeypatch):
+    import http.server
+    import socket as so
+    import ssl as sl
+    import threading
+    from ou_agent import probespec as ps
+    ca, cert, key = _ca_leaf(("ldap.e2e.example",))
+    (tmp_path / "ca.crt").write_text(ca["cert"])
+    (tmp_path / "s.crt").write_text(cert)
+    (tmp_path / "s.key").write_text(key)
+    monkeypatch.setattr(ps, "CA_FILE", str(tmp_path / "ca.crt"))
+
+    class H(http.server.BaseHTTPRequestHandler):
+        def do_GET(self):
+            self.send_response(200 if self.path == "/health/ready" else 404)
+            self.end_headers()
+            self.wfile.write(b'{"status": "UP"}')
+
+        def log_message(self, *a):
+            pass
+    hs = http.server.HTTPServer(("127.0.0.1", 0), H)
+    threading.Thread(target=hs.serve_forever, daemon=True).start()
+    ctx = sl.SSLContext(sl.PROTOCOL_TLS_SERVER)
+    ctx.load_cert_chain(str(tmp_path / "s.crt"), str(tmp_path / "s.key"))
+    ls = so.socket()
+    ls.bind(("127.0.0.1", 0))
+    ls.listen(4)
+
+    def tls_serve():
+        for _ in range(2):
+            c, _ = ls.accept()
+            try:
+                ctx.wrap_socket(c, server_side=True).close()
+            except (sl.SSLError, OSError):
+                c.close()
+    threading.Thread(target=tls_serve, daemon=True).start()
+    hp, tp = hs.server_address[1], ls.getsockname()[1]
+    r = ps.execute(ps.check({"probes": [
+        {"name": "ready", "kind": "http", "port": hp, "path": "/health/ready", "body_contains": '"UP"'},
+        {"name": "missing", "kind": "http", "port": hp, "path": "/nope"},
+        {"name": "ldaps", "kind": "tls", "port": tp, "server_name": "ldap.e2e.example"},
+        {"name": "wrong-name", "kind": "tls", "port": tp, "server_name": "auth.e2e.example"},
+        {"name": "closed", "kind": "tcp", "port": 1}]}))["probes"]
+    got = {x["name"]: x["ok"] for x in r}
+    assert got == {"ready": True, "missing": False, "ldaps": True, "wrong-name": False, "closed": False}, r
+    hs.shutdown()
+
+
+def test_agent_probe_checks_carry_the_service_name_and_report_the_agent_verdict(rt, monkeypatch):
+    from ics import checks as checkmod
+    from ics.guest import agentcall, probe
+    nid = "11111111-2222-3333-4444-555555555555"
+    cfg = probe.from_plan_check({"name": "ldaps-tls", "kind": "tcp_tls", "port": 636}, nid, "ldap.e2e.example")
+    assert cfg == {"node_id": nid, "probe": {"name": "ldaps-tls", "kind": "tls", "port": 636, "server_name": "ldap.e2e.example"}}
+    assert checkmod.validate_config("agent_probe", cfg) == cfg and checkmod.config_host("agent_probe", cfg) is None
+    calls = []
+
+    def fake_exec(rt_, node, action, params, deadline=0):
+        calls.append((node, action, params))
+        return {"status": "ok", "result": {"probes": [{"name": "ldaps-tls", "ok": False, "message": "TLS certificate not valid"}]}}
+    monkeypatch.setattr(agentcall, "execute", fake_exec)
+    o = probe.evaluate(rt, cfg)
+    assert o.status == "critical" and "not valid" in o.message and calls[0][1] == "guest.probe" and calls[0][2]["probes"][0]["server_name"] == "ldap.e2e.example"
