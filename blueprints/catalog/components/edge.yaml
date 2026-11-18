@@ -3,7 +3,8 @@ version: 1.0.0
 title: Edge (reverse proxy + TLS)
 description: Public HTTPS entry, TLS termination and routing to the backends of the deployment.
 artifacts:
-  - {name: nginx, kind: package, package: nginx, version: "1.24.0", repo: ubuntu-noble}
+  # exact apt version (pkg.install_pinned refuses an upstream-only version): the noble-updates build installed and checked in the lab 2026-11-18
+  - {name: nginx, kind: package, package: nginx, version: "1.24.0-2ubuntu7.19", repo: ubuntu-noble}
 resources:
   cores:     {base: 1,   per_user: 0,    source: "lab: nginx fronted office/files with negligible load"}
   memory_mb: {base: 512, per_user: 0.25, source: "assumption (TLS + proxy buffers)"}

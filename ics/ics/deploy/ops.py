@@ -12,7 +12,7 @@ from pydantic import BaseModel, ConfigDict, Field, model_validator
 from sqlalchemy import text
 
 from .. import audit
-from . import executor, state
+from . import configure, executor, state
 from .lease import Lease, guard_env
 from .. import artifacts as artmod
 from .catalog import get_catalog as _raw_catalog
@@ -497,6 +497,9 @@ def exec_destroy(rt, db, m: DeploymentDestroy, plan_row, known) -> dict:
             d2.execute(text("UPDATE checks SET enabled = false WHERE name = :n AND deployment_id = :d"), {"n": c["name"], "d": did})
         d2.commit()
     _set_status(rt, did, "destroyed", rev.id, "applied", res["job_id"], current_revision=rev.revision)
+    with rt.session() as d2:   # the deployment's passwords and CA key die with it
+        configure.wipe(d2, did)
+        d2.commit()
     _event(rt, did, "destroyed", "deployment destroyed", res["job_id"])
     audit.append(db, "deployment.destroyed", actor_name="worker", resource="deployment", resource_id=did,
                  details={"slug": dep.slug, "vms": names, "plan_hash": rev.plan_hash})

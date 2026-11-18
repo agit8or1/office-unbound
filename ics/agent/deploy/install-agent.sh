@@ -19,10 +19,11 @@ import json, sys
 c = json.load(open(sys.argv[1])); c["listen"]["address"] = sys.argv[2]; print(json.dumps(c, indent=2))
 PY
 chown root:root /etc/ou-agent/agent.json; chmod 0644 /etc/ou-agent/agent.json
-GUEST=0; grep -q '"podman\.\|"guest\.\|"pkg\.' /etc/ou-agent/agent.json && GUEST=1
+GUEST=0; grep -q '"podman\.\|"guest\.\|"pkg\.\|"cfg\.' /etc/ou-agent/agent.json && GUEST=1
 if [ "$GUEST" = 1 ]; then
   # guest runbooks (ADR-0009 s5): podman family runs as the rootless service user ou-svc (created by cloud-init), pkg as root
   grep -q '"pkg\.' /etc/ou-agent/agent.json && install -m 0644 "$D/runbooks/ou-rb-pkg@.service" /etc/systemd/system/
+  grep -q '"cfg\.' /etc/ou-agent/agent.json && install -m 0644 "$D/runbooks/ou-rb-cfg@.service" /etc/systemd/system/
   if grep -q '"podman\.\|"guest\.' /etc/ou-agent/agent.json; then
     getent passwd ou-svc >/dev/null || { echo "user ou-svc missing (cloud-init creates it)" >&2; exit 1; }
     install -m 0644 "$D/runbooks/ou-rb-podman@.service" /etc/systemd/system/

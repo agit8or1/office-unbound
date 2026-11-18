@@ -4,9 +4,11 @@ The engine's executor steps call `execute()`; nothing here builds a command line
 from sqlalchemy import text
 
 from .. import agentclient, audit
+from ..deploy.configure import redact
 from ..agentclient import AgentError
 
-GUEST_RUNBOOKS = ("podman.pull_verified", "podman.deploy_unit", "podman.remove_unit", "podman.status", "guest.facts", "pkg.install_pinned")
+GUEST_RUNBOOKS = ("podman.pull_verified", "podman.deploy_unit", "podman.remove_unit", "podman.status", "guest.facts", "pkg.install_pinned",
+                  "cfg.hosts", "cfg.tls", "cfg.ldap_init", "cfg.ldap_user", "cfg.pg_db", "cfg.podman_secret", "cfg.volume_files", "cfg.nginx_site")
 
 
 def execute(rt, node_id: str, action: str, params: dict, job_id: str | None = None, deadline: float = 600.0) -> dict:
@@ -38,7 +40,7 @@ def execute(rt, node_id: str, action: str, params: dict, job_id: str | None = No
             d2.execute(text("UPDATE agent_requests SET status = :s, response_code = :c, finished_at = now() WHERE job_id = :j"),
                        {"s": "done" if code == "ok" else "failed", "c": code, "j": jid})
             audit.append(d2, "guest.runbook", actor_name="worker", resource="node", resource_id=str(node.id),
-                         details={"runbook": action, "params": params, "agent_status": resp.get("status", "error"), "agent_code": code, "job_id": jid})
+                         details={"runbook": action, "params": redact(action, params), "agent_status": resp.get("status", "error"), "agent_code": code, "job_id": jid})
             d2.commit()
     return resp
 

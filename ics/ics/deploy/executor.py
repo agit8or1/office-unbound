@@ -17,7 +17,7 @@ from dataclasses import dataclass, field
 from sqlalchemy import text
 
 from ..providers.base import IpConfig, NicSpec, ProviderError, ProviderTimeout, ScopeViolation, TaskRef, VmCloneSpec, VmConfigSpec, VmRef
-from . import state
+from . import configure, state
 from .ports import Cancelled, DeployError, ExecEnv, Fenced, StepFailed
 
 log = logging.getLogger("ics.deploy.executor")
@@ -208,7 +208,7 @@ def h_provider_task(ctx: StepCtx) -> dict:
             ctx.log(f"adopted existing tagged guest vmid {g['vmid']} left by an interrupted attempt")
             return {"node": g["node"], "vmid": g["vmid"], "adopted": True}
         d = prov.discover()
-        tpl = next((t for t in d.templates if t["name"] == p["template"]), None)
+        tpl = pick_template(d.templates, p["template"])
         stray = next((x for x in d.guests if x["name"] == vm), None)
         if stray is not None:
             # crash window between the clone and the ownership tag: the clone intent (with the VM ids that existed before) was recorded
@@ -360,11 +360,25 @@ def _node_for(ctx: StepCtx, vm: str) -> str:
     return r["node_id"]
 
 
+def pick_template(templates: list[dict], name: str) -> dict | None:
+    """Several templates may carry the catalog name after a newer golden image was imported (image.import never deletes the previous one): take
+    the Office Unbound image (tag ou-image) with the newest release tag (ou-rel-<os>-<YYYYMMDD>), then the highest VM id. Deterministic."""
+    def key(t):
+        tags = t.get("tags") or []
+        rel = max((x.rsplit("-", 1)[-1] for x in tags if x.startswith("ou-rel-")), default="")
+        return ("ou-image" in tags, rel, int(t.get("vmid") or 0))
+    cands = [t for t in templates if t.get("name") == name]
+    return max(cands, key=key) if cands else None
+
+
 def h_agent_runbook(ctx: StepCtx) -> dict:
     vm, p = ctx.step["target"], ctx.step["params"]
     node = _node_for(ctx, vm)
     results = []
-    rbs = p["runbooks"]
+    try:
+        rbs = configure.expand(ctx, vm, p["component"], p["runbooks"])   # node-local configuration, built now (secrets/addresses never in the plan)
+    except configure.ConfigError as e:
+        raise StepFailed(f"configuration of {p['component']} on {vm}: {e}", "Re-run the deployment once the cause is fixed.", retryable=True) from None
     for i, rb in enumerate(rbs):
         ctx.checkpoint()
         ctx.log(f"runbook {rb['runbook']}", progress=int(100 * i / max(1, len(rbs))))

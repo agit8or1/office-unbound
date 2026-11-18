@@ -18,6 +18,8 @@ import yaml
 from cryptography.hazmat.primitives import serialization
 from pydantic import BaseModel, ConfigDict, Field, field_validator, model_validator
 
+CFG_RUNBOOKS = ("cfg.hosts", "cfg.tls", "cfg.ldap_init", "cfg.ldap_user", "cfg.pg_db", "cfg.podman_secret", "cfg.volume_files", "cfg.nginx_site")
+
 SERVICE_USER = "ou-svc"
 SERVICE_HOME = "/var/lib/ou-svc"
 BREAK_GLASS_USER = "ou-admin"
@@ -112,6 +114,7 @@ class GuestSpec(BaseModel):
     image_signing_pubkey_pem: str | None = None
     image_signing_key_sha256: str | None = None  # pin: sha256 of the DER SubjectPublicKeyInfo, checked here at render time
     pkg_allowlist: list[str] = []
+    configure: bool = False   # enable the cfg.* runbooks (golden image agent >= 0.5.0; an older image refuses the unknown names and fails closed)
     enroll_token_sha256: str
     enroll_ttl_seconds: int = Field(86400, ge=300, le=7 * 86400)
     subid_start: int = Field(100000, ge=1000, le=4_000_000_000)
@@ -263,7 +266,7 @@ def build_agent_bundle(agent_dir: str) -> bytes:
     for f in ("install-agent.sh", "ou-agent.service", "render_polkit.py", "render_image_policy.py"):
         entries.append((f, os.path.join(dep, f)))
     for f in os.listdir(os.path.join(dep, "runbooks")):
-        if f.startswith("ou-rb-podman@") or f.startswith("ou-rb-pkg@"):
+        if f.startswith("ou-rb-podman@") or f.startswith("ou-rb-pkg@") or f.startswith("ou-rb-cfg@"):
             entries.append(("runbooks/" + f, os.path.join(dep, "runbooks", f)))
     raw = io.BytesIO()
     with tarfile.open(fileobj=raw, mode="w", format=tarfile.PAX_FORMAT) as t:
@@ -284,6 +287,8 @@ def agent_config(s: GuestSpec) -> dict:
         rb["podman.deploy_unit"] = {"registries": sorted(s.image_registries)}
     if s.pkg_allowlist:
         rb["pkg.install_pinned"] = {"packages": sorted(s.pkg_allowlist)}
+    if s.configure:   # node-local configuration runbooks (agent >= 0.5.0, ou_agent/cfgspec.py): fixed code, values from the deployment engine
+        rb.update({r: {"enabled": True} for r in CFG_RUNBOOKS})
     return {"listen": {"address": "0.0.0.0", "port": s.agent_port}, "runbooks": dict(sorted(rb.items()))}
 
 

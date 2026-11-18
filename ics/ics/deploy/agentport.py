@@ -27,7 +27,7 @@ from ..agentclient import AgentError
 from ..guest import agentcall, bootsecrets, cloudinit, neigh, sshboot
 from ..proxmox import normalize_fingerprint
 from ..providers.base import ProviderError, VmConfigSpec, VmRef
-from . import state
+from . import configure, state
 from .ports import Fenced, StepFailed
 
 log = logging.getLogger("ics.deploy.agentport")
@@ -414,6 +414,7 @@ class GuestAgentPort:
                 insecure_registries=list(s.guest_insecure_registries) if pub else [], **extra,
                 image_signing_pubkey_pem=pub, image_signing_key_sha256=key_sha, bootstrap_user=sshboot.BOOT_USER if lab else None,
                 enroll_token_sha256=token_sha256, enroll_ttl_seconds=3600,
+                configure=any(c in configure.CONFIGURED for v in self.plan.get("vms", []) if v["name"] == vm for c in (v.get("components") or [])),
                 agent_bundle_b64=base64.b64encode(raw).decode(), agent_bundle_sha256=hashlib.sha256(raw).hexdigest(),
                 subid_start=100000, subid_count=65536)
         except ValueError as e:

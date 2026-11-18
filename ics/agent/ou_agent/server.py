@@ -19,7 +19,7 @@ from . import __version__, proto, runbooks
 from .proto import Reject
 from .state import Journal
 
-MAX_BODY = 16 * 1024
+MAX_BODY = 768 * 1024   # cfg.volume_files carries rendered configuration (a Keycloak realm import is ~30 KB); bounded, read before verification
 ENROLL_SOURCE_MAX_FAILURES = 5      # wrong guesses per source address within ENROLL_THROTTLE_SECONDS before that source is throttled
 ENROLL_GLOBAL_MAX_FAILURES = 60     # same, summed over all sources
 ENROLL_THROTTLE_SECONDS = 600

@@ -7,7 +7,7 @@ import secrets
 import subprocess
 import time
 
-from . import guestspec, mbxspec
+from . import cfgspec, guestspec, mbxspec
 from .proto import Reject
 
 SYSTEMCTL = "/usr/bin/systemctl"
@@ -48,8 +48,12 @@ _ENV = {"PATH": "/usr/bin:/bin", "LANG": "C"}
 def validate_config(cfg: dict) -> dict:
     """Shape of /etc/ou-agent/agent.json: {"listen": {"address","port"}, "runbooks": {name: {"units":[...]} | {"paths":[...]}}}"""
     rb = cfg.get("runbooks")
-    if not isinstance(rb, dict) or set(rb) - set(RUNBOOKS) - set(USER_RUNBOOKS) - set(guestspec.GUEST_RUNBOOKS) - set(BACKUP_RUNBOOKS) - set(mbxspec.MBX_RUNBOOKS):
-        raise ValueError("runbooks must be a subset of " + ", ".join(RUNBOOKS + tuple(USER_RUNBOOKS) + guestspec.GUEST_RUNBOOKS + BACKUP_RUNBOOKS + mbxspec.MBX_RUNBOOKS))
+    known = RUNBOOKS + tuple(USER_RUNBOOKS) + guestspec.GUEST_RUNBOOKS + BACKUP_RUNBOOKS + mbxspec.MBX_RUNBOOKS + cfgspec.CFG_RUNBOOKS
+    if not isinstance(rb, dict) or set(rb) - set(known):
+        raise ValueError("runbooks must be a subset of " + ", ".join(known))
+    for name in cfgspec.CFG_RUNBOOKS:
+        if name in rb:
+            cfgspec.validate_runbook_config(name, rb[name])
     for name in BACKUP_RUNBOOKS:
         if name in rb and (not {"tiers"} <= set(rb[name]) <= {"tiers", "customers"} or not isinstance(rb[name]["tiers"], list) or not rb[name]["tiers"]
                            or not set(rb[name]["tiers"]) <= set(BACKUP_TIERS)
@@ -76,7 +80,7 @@ def capabilities(cfg: dict) -> dict:
     rb = cfg["runbooks"]
     out = {}
     for k, v in rb.items():
-        if k in USER_RUNBOOKS or k in mbxspec.MBX_RUNBOOKS:
+        if k in USER_RUNBOOKS or k in mbxspec.MBX_RUNBOOKS or k in cfgspec.CFG_RUNBOOKS:
             out[k] = {"enabled": True}
         elif k in BACKUP_RUNBOOKS:
             out[k] = {"tiers": sorted(v["tiers"]), **({"customers": sorted(v["customers"])} if v.get("customers") else {})}
@@ -96,6 +100,8 @@ def check_allowed(cfg: dict, action: str, params: dict) -> dict:
         raise Reject("not_allowed", "action is not an allowlisted runbook")
     if action in guestspec.GUEST_RUNBOOKS:
         return guestspec.CHECKS[action](params, spec)   # typed, closed-shape validation; nothing is spooled before this passes
+    if action in cfgspec.CFG_RUNBOOKS:
+        return cfgspec.CHECKS[action](params, spec)
     if action in BACKUP_RUNBOOKS:
         return check_backup(action, params, spec)
     if action == "pbx.issue_credential":
@@ -246,6 +252,37 @@ def _guest_runbook(action: str, params: dict) -> dict:
             pass
 
 
+def _cfg_runbook(action: str, params: dict) -> dict:
+    """Configuration runbooks carry SECRET values (passwords, the TLS key): spooled 0600 (the root helper reads it, nobody else), never the
+    world-readable spool of the other families. Starts ou-rb-cfg@<rid>.service (polkit allows exactly that template) and reads its result."""
+    rid = "r" + secrets.token_hex(8)
+    spool = os.path.join(SPOOL_DIR, rid + ".json")
+    fd = os.open(spool, os.O_WRONLY | os.O_CREAT | os.O_EXCL, 0o600)
+    os.fchmod(fd, 0o600)
+    try:
+        with os.fdopen(fd, "w") as f:
+            json.dump({"action": action, "params": params}, f)
+        r = _systemctl("start", "--wait", f"ou-rb-cfg@{rid}.service", timeout=1000)
+        path = os.path.join(RESULT_ROOT, "ou-rb-cfg", rid + ".json")
+        try:
+            if os.stat(path).st_size > MAX_RESULT:
+                raise ValueError("result too large")
+            with open(path) as f:
+                data = json.load(f)
+            if data.get("rid") != rid:
+                raise ValueError("foreign result")
+        except (OSError, ValueError):
+            raise RuntimeError("helper produced no result") from None
+        out = {"returncode": r.returncode}
+        out.update({k: data[k] for k in ("result", "rejected", "error") if k in data})
+        return out
+    finally:
+        try:
+            os.unlink(spool)
+        except OSError:
+            pass
+
+
 def _backup_runbook(action: str, params: dict) -> dict:
     """Spool the validated params, start ou-rb-backup@<rid>.service (polkit allows exactly that template), read the helper's result file.
     The result is data from the root helper (counts, durations, canary comparison): never a credential."""
@@ -281,6 +318,8 @@ def execute(action: str, params: dict) -> dict:
     """Run an already allowlisted runbook. Returns a small JSON-safe dict."""
     if action in BACKUP_RUNBOOKS:
         return _backup_runbook(action, params)
+    if action in cfgspec.CFG_RUNBOOKS:
+        return _cfg_runbook(action, params)
     if action in guestspec.GUEST_RUNBOOKS or action in mbxspec.MBX_RUNBOOKS:
         return _guest_runbook(action, params)
     if action == "pbx.issue_credential":

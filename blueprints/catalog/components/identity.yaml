@@ -6,6 +6,8 @@ artifacts:
   # exact apt versions (pkg.install_pinned refuses ranges and bare upstream versions), proven with the agent runbook in docs/status/artifacts-core-results.md
   - {name: openldap, kind: package, package: slapd, version: "2.6.10+dfsg-0ubuntu0.24.04.1", repo: ubuntu-noble}
   - {name: postgresql, kind: package, package: postgresql-16, version: "16.15-0ubuntu0.24.04.1", repo: ubuntu-noble}
+  # client tools the configuration runbook (cfg.ldap_init, ou_agent/cfghelper.py) uses over ldapi:/// as root (same source package as slapd)
+  - {name: ldap-utils, kind: package, package: ldap-utils, version: "2.6.10+dfsg-0ubuntu0.24.04.1", repo: ubuntu-noble}
   # Keycloak 26.8.2: upstream tarball (Maven Central sha256 + sha1 and GitHub release digest + sha1 agree; the release .asc is present but its key could not be
   # checked from an authorized source) wrapped, not rebuilt, in a non-root image (blueprints/build/oci/idfiles); signed with the DEV channel key of the hardened
   # signer (ou-oci-sign). The registry host stays the .invalid placeholder (the digest is registry-independent); the lab copy is 192.168.186.235:5000/ou/keycloak.
@@ -37,8 +39,7 @@ ports:
   - {name: keycloak-management, port: 9000, proto: tcp, exposure: local}
   - {name: postgres, port: 5432, proto: tcp, exposure: local}
 depends_on: []
-notices:
-  - "Node-local state the Keycloak unit reads is not yet created by the deployment engine: the podman secrets kc-db-password and kc-admin-password, the rendered realm import in volume data and the lab CA in volume tls (docs/status/artifacts-core-results.md, gaps)."
+notices: []
 dns: []
 health_checks:
   - {name: keycloak-ready, kind: http, port: 9000, path: /health/ready, expect_status: 200, body_contains: '"UP"'}

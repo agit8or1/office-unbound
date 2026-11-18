@@ -1,12 +1,13 @@
 """Deployment engine on a real DB: preview API, deployment.create/change/destroy through plan -> approvals -> job -> step executor with a
 fake provider + fake agent, resume after crash, retries, cancellation, drift, change wizard backend."""
+import json
 import uuid
 
 import pytest
 from sqlalchemy import text
 
 from ics import worker
-from ics.deploy import executor, ops
+from ics.deploy import configure, executor, ops
 from ics.deploy.ports import DbChecks, ExecEnv, StepFailed
 from ics.providers.base import Discovery, TaskRef, TaskStatus
 
@@ -660,3 +661,52 @@ def test_step_failed_text_never_leaks_unexpected_exceptions(client, actors, rt, 
     blob = str(job(actors[0], jid)) + str(steps(actors[0], jid))
     assert "secret-token-123" not in blob and "internal error" in blob
     assert StepFailed  # imported for typing parity
+
+
+# ---- node-local configuration (cfg.* runbooks, ics/deploy/configure.py) ----------------------------------------------------
+
+def test_identity_and_edge_are_configured_before_their_units_and_no_secret_is_stored_in_clear(client, actors, rt, env):
+    p = _active(actors, rt)
+    did = None
+    with rt.session() as db:
+        did = str(db.execute(text("SELECT id FROM deployments WHERE slug = 'prod'")).scalar())
+        rows = db.execute(text("SELECT name, value_enc FROM deployment_secrets WHERE deployment_id = :d"), {"d": did}).fetchall()
+    names = {r.name for r in rows}
+    assert {"ldap-bind-password", "ldap-admin-password", "admin-password", "kc-db-password", "kc-admin-password", "deployment-ca"} <= names
+    values = {r.name: configure.secret(rt, did, r.name) for r in rows}
+    assert all(values[r.name].encode() not in bytes(r.value_enc) for r in rows)        # vault-encrypted at rest
+    idvm = next(v["name"] for v in p["vms"] if v["name"].endswith("-id"))
+    rb = [(r[1], r[2]) for r in env.agent.runbooks if r[0] == f"node-{idvm}"]
+    seq = [x[0] for x in rb]
+    kc_deploy = next(i for i, (n, prm) in enumerate(rb) if n == "podman.deploy_unit" and prm["component"] == "identity")
+    for name in ("cfg.hosts", "cfg.tls", "cfg.ldap_init", "cfg.ldap_user", "cfg.pg_db", "cfg.podman_secret", "cfg.volume_files"):
+        assert seq.index(name) < kc_deploy, name
+    assert seq.index("pkg.install_pinned") < seq.index("cfg.ldap_init")                   # slapd and ldap-utils are installed first
+    vf = [prm for n, prm in rb if n == "cfg.volume_files"]
+    assert {(x["component"], x["volume"]) for x in vf} == {("identity", "tls"), ("identity", "data")}
+    assert all(x["image"] == next(f"{c['image']}@{c['digest']}" for c in p["containers"] if c["component"] == "identity") for x in vf)
+    site = next(prm for n, prm in rb if n == "cfg.nginx_site")
+    assert site["server_names"] == ["auth.acme.example"] and site["upstream"] == "http://127.0.0.1:8080"
+    hosts = next(prm for n, prm in rb if n == "cfg.hosts")["entries"]
+    assert any("ldap.acme.example" in e["names"] and e["ip"] == env.agent.address(idvm) for e in hosts)
+    secrets_ = [v for k, v in values.items() if k != "deployment-ca"] + [json.loads(values["deployment-ca"])["key"].split("\n")[1]]
+    with rt.session() as db:
+        stored = json.dumps([list(r) for r in db.execute(text("SELECT params::text, coalesce(log_excerpt,''), coalesce(result::text,'') FROM job_steps"))])
+        audited = json.dumps([r[0] for r in db.execute(text("SELECT details::text FROM audit_events"))])
+    assert not any(s in stored or s in audited for s in secrets_)                          # neither in the durable steps nor in the audit trail
+    # destroy: the deployment's secrets and CA key go with it
+    dh = actors[0][0].post(f"{H}/deployments/prod/destroy/preview", headers=actors[0][1]).json()["plan_hash"]
+    r, jid = submit(actors, rt, "deployment.destroy", {"deployment_id": "prod", "confirm": "prod", "plan_hash": dh})
+    assert job(actors[0], jid)["status"] == "succeeded"
+    with rt.session() as db:
+        assert db.execute(text("SELECT count(*) FROM deployment_secrets WHERE deployment_id = :d"), {"d": did}).scalar() == 0
+
+
+def test_the_newest_imported_golden_template_wins_when_names_repeat():
+    t = [{"vmid": 136, "name": "ou-tpl-ubuntu-2404", "tags": ["ou-managed", "ou-image", "ou-rel-ubuntu-24.04-20261116"]},
+         {"vmid": 120, "name": "ou-tpl-ubuntu-2404", "tags": ["ou-managed", "ou-image", "ou-rel-ubuntu-24.04-20261118"]},
+         {"vmid": 300, "name": "ou-tpl-ubuntu-2404", "tags": []},                       # someone's hand-made template of the same name
+         {"vmid": 999, "name": "ou-tpl-debian-12", "tags": ["ou-image", "ou-rel-debian-12-20261120"]}]
+    assert executor.pick_template(t, "ou-tpl-ubuntu-2404")["vmid"] == 120
+    assert executor.pick_template(t[:1] + [{**t[0], "vmid": 140}], "ou-tpl-ubuntu-2404")["vmid"] == 140   # same release date: the later import
+    assert executor.pick_template(t, "ou-tpl-none") is None

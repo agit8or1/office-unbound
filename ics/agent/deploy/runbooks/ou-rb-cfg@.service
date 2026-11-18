@@ -1,0 +1,22 @@
+[Unit]
+Description=Office Unbound guest configuration runbook (cfg.*) request %i
+
+[Service]
+Type=oneshot
+User=root
+Environment=PYTHONPATH=/opt/ou-agent PYTHONDONTWRITEBYTECODE=1
+ExecStart=/usr/bin/python3 -m ou_agent.cfghelper %i
+RuntimeDirectory=ou-rb-cfg
+RuntimeDirectoryMode=0755
+RuntimeDirectoryPreserve=yes
+UMask=0022
+TimeoutStartSec=1000
+# Root: writes /etc/hosts, the deployment TLS files, slapd/nginx configuration, and runs psql/podman as their own users through runuser.
+# NoNewPrivileges is not set: dpkg-reconfigure runs maintainer scripts and runuser switches users. The helper is fixed code; every value is
+# validated (ou_agent/cfgspec.py) and secrets reach programs on stdin only.
+PrivateTmp=true
+# no ProtectHome: podman (cfg.podman_secret, cfg.volume_files) runs as ou-svc and needs /run/user/<uid>
+ProtectKernelModules=true
+ProtectKernelTunables=true
+ProtectControlGroups=true
+LockPersonality=true
