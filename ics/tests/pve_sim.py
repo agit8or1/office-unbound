@@ -220,7 +220,7 @@ class PveSim:
         if kind == "root":
             return ["/"]
         if kind == "vm":
-            vm = self.vms[ident]
+            vm = self.vms.get(ident) or {"pool": None}      # a VM being created is not a pool member yet
             return [f"/vms/{ident}"] + ([f"/pool/{vm['pool']}"] if vm["pool"] else []) + ["/"]
         if kind == "pool":
             return [f"/pool/{ident}", "/"]
@@ -1119,6 +1119,8 @@ class PveSim:
             self.need(tid, "pool", pool, "VM.Allocate")
         else:
             self.need(tid, "root", None, "VM.Allocate")
+        if f.get("tags"):   # like PVE 9 (assert_tag_permissions): checked on /vms/<id> without the pool, before the VM is a pool member
+            self.need(tid, "vm", vmid, "VM.Config.Options")
         cfg = {"name": f.get("name"), "cores": int(f.get("cores", 1)), "memory": int(f.get("memory", 512)), "tags": f.get("tags", "")}
         for k, v in f.items():
             if re.fullmatch(r"scsi\d+", k):

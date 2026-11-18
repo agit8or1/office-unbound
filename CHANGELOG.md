@@ -10,6 +10,11 @@ isolated lab; nothing is production supported ([ROADMAP.md](ROADMAP.md)).
 
 ## [Unreleased]
 
+## [0.3.6] - 2026-11-18
+
+- **Fix: image import failed at template creation** with "403 Permission check failed (/vms/136, VM.Config.Options)". Proxmox checks tag rights on the new VM without its pool while creating it, and Office Unbound's rights come through the pool. Tags are now set right after creation, once the VM is in the pool (as clones already did). The simulator now models this check. Evidence: `test_image_import.py`, `test_import_storage.py` (fail without the fix with the same error as the real cluster).
+- **Failed-backup alert: only the latest result per guest counts.** A later successful backup of the same guest clears an earlier failure (VM 113 on pve06 failed three times on PBS1, then backed up OK). Evidence: `test_infra_ha_backups.py::test_a_later_successful_backup_clears_an_earlier_failure_of_the_same_guest`.
+
 ## [0.3.5] - 2026-11-18
 
 - **Fix: image import failed with "malformed task reference"** on the real cluster although the upload succeeded. The cluster's public address forwards to another node; Proxmox runs the upload task on the node that received the request, verifies the checksum there and copies the file to the target node. That task's ID names a node outside Office Unbound's scope, so the job gave up. The import now waits for the file on the target node's import storage (exact size, two consecutive reads) and never queries the out-of-scope node. Evidence: `test_image_import.py::test_upload_received_by_another_node_is_followed_on_the_target_storage`.
@@ -195,7 +200,8 @@ editing, chat/meetings, telephony prototype, migration tooling and package pipel
 - **Review 4** (2 High, 11 Medium, 9 Low; gromox patches, lifecycle, SSO, telephony, migration engine, package pipeline, Collabora) reported. Findings are **open** on `main`; see Unreleased. [report](docs/status/security-review-4-2026-11-15.md)
 - `SECURITY.md` (private reporting) and `CONTRIBUTING.md` (DCO sign-off) added; AGPL-3.0 license. [SECURITY](SECURITY.md)
 
-[Unreleased]: https://github.com/agit8or1/office-unbound/compare/v0.3.5...HEAD
+[Unreleased]: https://github.com/agit8or1/office-unbound/compare/v0.3.6...HEAD
+[0.3.6]: https://github.com/agit8or1/office-unbound/releases/tag/v0.3.6
 [0.3.5]: https://github.com/agit8or1/office-unbound/releases/tag/v0.3.5
 [0.3.4]: https://github.com/agit8or1/office-unbound/releases/tag/v0.3.4
 [0.3.3]: https://github.com/agit8or1/office-unbound/releases/tag/v0.3.3

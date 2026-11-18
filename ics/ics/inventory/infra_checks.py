@@ -91,6 +91,10 @@ def evaluate(rt, cfg: dict):
             if not rows:
                 return Outcome("ok", f"no backup task finished in the last {c.max_age_hours} h", None,
                                {"rule": c.rule, "ok": 0})
+            latest: dict = {}
+            for r in rows:                   # ordered by ended_at: a later successful backup of the same guest supersedes an earlier failure
+                latest[(r.node, r.vmid or r.key)] = r
+            rows = list(latest.values())
         elif c.rule in ("node_offline", "node_cpu", "node_memory"):
             rows = db.execute(text("SELECT name AS key, status, cpu_pct, mem_used, mem_total, observed_at, managed FROM infra_nodes WHERE endpoint_id = :e "
                                    "AND (:t = '*' OR name = :t) ORDER BY name"), q).all()

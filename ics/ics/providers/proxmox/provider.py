@@ -1224,12 +1224,16 @@ class ProxmoxMutations(ProxmoxProvider):
             self.wait(self._task(spec.node, up, None, "imgcopy"), timeout=3600.0, interval=2.0)
         data = {"vmid": vmid, "name": spec.name, "pool": spec.pool, "cores": spec.cores, "memory": spec.memory_mb, "ostype": "l26", "scsihw": "virtio-scsi-single",
                 "scsi0": f"{spec.target_storage}:0,import-from={volid}", "boot": "order=scsi0", "serial0": "socket", "agent": "0",
-                "tags": f"{OWNED_TAG};ou-image;{rel_tag}", "description": "Office Unbound golden guest image (ADR-0008 pipeline output)"}
+                "description": "Office Unbound golden guest image (ADR-0008 pipeline output)"}
+        tags = f"{OWNED_TAG};ou-image;{rel_tag}"
         if net:
             data["net0"] = net
         try:
             up = self._do("post", f"/nodes/{_seg(spec.node)}/qemu", data)
             self.wait(self._task(spec.node, up, vmid, "qmcreate"), timeout=1800.0, interval=2.0)
+            # tags only once the VM is in the pool: Proxmox checks tag rights on /vms/<id> WITHOUT the pool during create, so a pool-scoped
+            # token is refused there (real cluster 2026-11-18: "403 Permission check failed (/vms/136, VM.Config.Options)")
+            self._do("put", f"/nodes/{_seg(spec.node)}/qemu/{vmid}/config", {"tags": tags})
             up = self._do("post", f"/nodes/{_seg(spec.node)}/qemu/{vmid}/template", {})
             self.wait(self._task(spec.node, up, vmid, "qmtemplate"), timeout=600.0, interval=2.0)
         except ProviderError:

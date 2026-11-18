@@ -130,3 +130,17 @@ def test_summary_reports_guest_visibility_from_the_approved_policy(w, owner, rt)
         db.execute(text("DELETE FROM endpoint_policy WHERE endpoint_id = :e"), {"e": eid})
         db.commit()
     assert w.v.get(f"{H}/infra/summary").json()["guest_visibility"] == "unknown"
+
+
+def test_a_later_successful_backup_clears_an_earlier_failure_of_the_same_guest(w, owner, rt):  # noqa: F811
+    """Real cluster (2026-11-18): VM 113 failed three times (PBS1 fingerprint), then backed up OK; only the latest result per guest counts."""
+    _seed(owner.sim)
+    _, eid = _connect_policy(w, owner, POOLED)
+    _discover(rt, eid)
+    assert ev(rt, eid, rule="backup_failed").status == "critical"          # 106's only task failed
+    now = int(time.time())
+    owner.sim.vzdump_tasks.append({"upid": "UPID:pve06:3:3:3:vzdump:106:root@pam:", "type": "vzdump", "node": "pve06", "id": "106", "status": "OK",
+                                   "starttime": now - 600, "endtime": now - 500})
+    _discover(rt, eid)
+    o = ev(rt, eid, rule="backup_failed")
+    assert o.status == "ok", o
