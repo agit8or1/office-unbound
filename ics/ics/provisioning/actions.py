@@ -618,7 +618,7 @@ def _problem(v: dict) -> str:
 
 def _scope_kwargs(policy: Policy) -> dict:
     s = policy.scope
-    return dict(allowed_pools=s.pools or None, allowed_storage=sorted(set(s.storages + s.backup_storages)) or None,
+    return dict(allowed_pools=s.pools or None, allowed_storage=sorted(set(s.storages + s.backup_storages + s.import_storages)) or None,
                 allowed_nodes=s.nodes or None, allowed_networks=s.networks or None, allowed_templates=s.template_vmids or None, allow_cicustom=policy.allow_cicustom,
                 protected_vmids=s.protected_vmids or None, managed_vmids=s.managed_vmids or None)
 
@@ -748,7 +748,7 @@ def _commit_scope(rt: Runtime, db: Session, plan, ep, stored, sc, pl, res, verif
     """One transaction (the job's): the ICS allowlists and the stored policy change together, after Proxmox is verified."""
     new = sc.new
     s = new.scope
-    upd = ea.EndpointUpdate(endpoint_id=ep.id, allowed_nodes=s.nodes or None, allowed_storage=sorted(set(s.storages + s.backup_storages)) or None,
+    upd = ea.EndpointUpdate(endpoint_id=ep.id, allowed_nodes=s.nodes or None, allowed_storage=sorted(set(s.storages + s.backup_storages + s.import_storages)) or None,
                             allowed_templates=s.template_vmids or None, allowed_pools=list(s.pools), allowed_networks=list(s.networks),
                             managed_vmids=list(s.managed_vmids))
     ea.exec_update(rt, db, upd, plan, known)      # re-probes with the new scope and the stored tokens; nothing is persisted if that fails
@@ -835,6 +835,9 @@ def exec_scope_change(rt: Runtime, db: Session, m: ScopeChange, plan, known: lis
         return {"endpoint_id": str(ep.id), "direction": sc.direction, "mode": "A", "scope": sc_mod.scope_summary(sc.new), "applied": res.log,
                 "verification": _verif_public(verification), "temporary_credentials": "discarded"}
     except BaseException:
+        if res is not None and res.storage_content:
+            left_st = pp.rollback_storage_content(admin, res)     # storage content added by this change (image import storage)
+            audit.append(db, "provider.scope.storage_restored", actor_name="worker", resource="endpoint", resource_id=str(ep.id), details={"undone_failed": left_st})
         if restore_needed:
             try:   # put the previous permissions back: the stored policy is still the old one, so a reconcile-style plan restores exactly it
                 f2 = pp.collect_facts(admin)

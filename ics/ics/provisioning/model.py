@@ -7,7 +7,7 @@ from typing import Literal
 from pydantic import BaseModel, ConfigDict, Field, field_validator, model_validator
 
 PRESETS = ("monitoring", "operations", "deploy", "custom", "full_admin")
-CAPABILITIES = ("monitor", "operate", "deploy", "storage", "template_clone", "network", "backup", "custom", "node_audit")
+CAPABILITIES = ("monitor", "operate", "deploy", "storage", "template_clone", "network", "backup", "custom", "node_audit", "import_storage")
 _NAME = r"^[A-Za-z0-9][A-Za-z0-9_.-]{0,62}$"
 _NODE = r"^[A-Za-z0-9][A-Za-z0-9.-]{0,62}$"
 _PATH = r"^/[A-Za-z0-9/._:@+-]{0,200}$"
@@ -33,6 +33,9 @@ class AccessScope(BaseModel):
     vmid_ranges: list[tuple[int, int]] = Field(default_factory=list, max_length=20)
     guest_types: list[Literal["qemu", "lxc"]] = Field(default_factory=lambda: ["qemu"])
     backup_storages: list[str] = Field(default_factory=list, max_length=20)
+    import_storages: list[str] = Field(default_factory=list, max_length=10,
+                                       description="deploy preset only: directory storages with the `import` content type where the write token may upload "
+                                                   "signed golden images (image.import). Datastore.AllocateTemplate + Datastore.Audit only: never VM disks")
     protected_vmids: list[int] = Field(default_factory=list, max_length=100)
     managed_vmids: list[int] = Field(default_factory=list, max_length=500,
                                      description="EXISTING guests (VMs and containers) authorized individually: ACL on /vms/<vmid>; monitored, and "
@@ -48,7 +51,7 @@ class AccessScope(BaseModel):
             raise ValueError("invalid node name")
         return sorted(set(v))
 
-    @field_validator("storages", "pools", "networks", "backup_storages")
+    @field_validator("storages", "pools", "networks", "backup_storages", "import_storages")
     @classmethod
     def _names(cls, v):
         if any(not re.match(_NAME, x) for x in v):
@@ -147,6 +150,8 @@ class Policy(BaseModel):
             raise ValueError("a protected guest cannot also be an operated guest")
         if set(s.managed_vmids) & set(s.template_vmids):
             raise ValueError("a template is authorized as a template, not as an operated guest")
+        if s.import_storages and self.preset != "deploy":
+            raise ValueError("an image import storage only applies to the deploy preset (golden images become templates in the deployment pool)")
         if self.preset == "operations" and not s.managed_vmids:
             raise ValueError("the operations preset needs at least one existing guest to operate")
         return self

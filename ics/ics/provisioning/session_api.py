@@ -185,6 +185,11 @@ def mount(app: FastAPI) -> None:
             out["approved_scope"]["preset"] = (pol or {}).get("preset")
             out["approved_scope"]["allow_migrate"] = bool((pol or {}).get("allow_migrate"))
             out["approved_scope"]["monitor_cluster"] = bool((pol or {}).get("monitor_cluster"))
+            # the endpoint allowlist also holds the image import storages (image.import); they are a separate choice, never deployment storage
+            psc = (pol or {}).get("scope") or {}
+            imp = list(psc.get("import_storages") or [])
+            out["approved_scope"]["import_storages"] = imp
+            out["approved_scope"]["storages"] = [x for x in out["approved_scope"]["storages"] if x not in imp or x in (psc.get("storages") or [])]
         audit.append(db, "pve.session.discovered", actor_id=user.id, actor_name=user.username, ip=client_ip(request), resource="pve_session",
                      resource_id=str(sid), details={"nodes": out["cluster"]["nodes_total"], "guests": out["cluster"]["guests"],
                                                     "can_setup": out["account"]["ok"]})

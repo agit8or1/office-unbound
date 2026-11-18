@@ -55,11 +55,11 @@ pveum user delete 'officeunbound@pam'
 ```
 Then tell the controller, so it can delete `/etc/office-unbound/bootstrap/pve06-ics.token` from the ICS host.
 
-### 5. Golden-image import storage
-Only needed if the SSH wizard's "Import images" preset reports that `local` lacks the `import` content type. Run once on pve06:
-```sh
-pvesm set local --content "$(pvesm config local | sed -n 's/^\tcontent //p'),import"
-```
+### 5. Golden-image import storage (UI only, no commands)
+`image.import` uploads the signed golden image to a directory storage with the `import` content type (on this cluster: `local`), then imports it into the deployment storage.
+1. Open the cluster › **Manage access** › *Deployment targets*. Under **Image import storage**, `local` is preselected. If it does not have the `import` content type yet, it is labelled *Office Unbound will enable image import on it*.
+2. *Calculate the exact Proxmox changes*. The dry run lists the step "Storage definition local: adds the content type import" with the content list before and after (existing types are kept exactly) and the consequence that the cluster-wide storage definition changes. Apply it with your Proxmox sign-in (the change needs `Datastore.Allocate`, which your administrator account has; the service account never gets it).
+3. Result: `local` gets the `import` content type; the write token gets the role `OfficeUnboundImageImport` (`Datastore.AllocateTemplate`, `Datastore.Audit`) on `/storage/local` only; `local` is added to the integration's allowed storage. If any later step fails, the previous content list is put back. `local` exists on every node, so the permission covers it on every node; it cannot place VM disks there (no `Datastore.AllocateSpace`).
 
 ## Stage 2–3 (Nov 23–Dec 6)
 

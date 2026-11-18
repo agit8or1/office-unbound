@@ -9,6 +9,7 @@ export interface Selection {
   nodes: string[]          // nodes where new guests may be deployed
   pools: string[]
   storages: string[]
+  importStorages: string[] // directory storage(s) with content `import` where signed golden images are uploaded (deploy level only; never VM disks)
   networks: string[]
   templates: number[]
   level: Level
@@ -27,7 +28,7 @@ export const NEVER = ['Never delete VMs or disks that Office Unbound did not cre
   'Never change Proxmox users or permissions (except its own service account, during approved setup)', 'Never open consoles or run commands in your guests']
 
 export function emptySelection(): Selection {
-  return { operate: [], watch: [], nodes: [], pools: [], storages: [], networks: [], templates: [], level: 'monitoring', allowMigrate: false, monitorCluster: false, protected: [] }
+  return { operate: [], watch: [], nodes: [], pools: [], storages: [], importStorages: [], networks: [], templates: [], level: 'monitoring', allowMigrate: false, monitorCluster: false, protected: [] }
 }
 
 export function fromApproved(inv: Inventory): Selection {
@@ -38,7 +39,7 @@ export function fromApproved(inv: Inventory): Selection {
   const guestNodes = new Set((inv.guests ?? []).filter((g) => a.managed_vmids.includes(g.vmid)).map((g) => g.node))
   // the chosen hypervisors are `nodes` at every level (owner decision: nodes only); nodes that are visible only because an operated guest runs there are not
   return { operate: [...a.managed_vmids], watch: [], nodes: a.nodes.filter((n) => level === 'deploy' || !guestNodes.has(n)), pools: [...a.pools], storages: [...a.storages],
-           networks: a.networks.map((n) => n.split('/')[0]), templates: [...a.templates], level, allowMigrate: !!a.allow_migrate, monitorCluster: !!a.monitor_cluster, protected: [...a.protected_vmids] }
+           importStorages: [...(a.import_storages ?? [])], networks: a.networks.map((n) => n.split('/')[0]), templates: [...a.templates], level, allowMigrate: !!a.allow_migrate, monitorCluster: !!a.monitor_cluster, protected: [...a.protected_vmids] }
 }
 
 /** Nodes that become visible (Sys.Audit only): monitored nodes, deployment nodes and the nodes the operated guests run on. Never their guests. */
@@ -60,10 +61,33 @@ export function outsideNodes(s: { nodes: string[] }, nodes: string[]): string[] 
   return s.nodes.filter((n) => !nodes.includes(n))
 }
 
-export function suggestTargets(sel: Selection, inv: Pick<Inventory, 'storages' | 'networks'>): Partial<Pick<Selection, 'pools' | 'storages' | 'networks'>> {
+type StorageLike = { storage: string; type: string; content: string; nodes: string[] }
+const contentOf = (s: { content: string }) => s.content.split(',').map((c) => c.trim()).filter(Boolean)
+/** The storage can hold VM or container disks (content images / rootdir). */
+export const holdsDisks = (s: { content: string }) => contentOf(s).some((c) => c === 'images' || c === 'rootdir')
+
+/** Storage types whose Proxmox plugin accepts the `import` content type (mirrors provisioning.IMPORT_CONTENT_TYPES). */
+export const IMPORT_TYPES = ['dir', 'nfs', 'cifs', 'cephfs']
+/** The storage does not have `import` yet: the plan adds it (disclosed step, with the administrator's sign-in; existing content kept). */
+export const needsImportEnable = (s: { content: string }) => !contentOf(s).includes('import')
+
+/** Image import storage candidates on the selected node(s): storages that have `import`, or a type that supports it (Office Unbound enables it).
+ *  `local` first, then storages that already have it, then storages that cannot hold disks. */
+export function importCandidates<T extends StorageLike>(storages: T[], nodes: string[]): T[] {
+  return storages.filter((s) => (contentOf(s).includes('import') || IMPORT_TYPES.includes(s.type)) && (!nodes.length || s.nodes.some((n) => nodes.includes(n))))
+    .sort((a, b) => Number(importBlocked(a, nodes)) - Number(importBlocked(b, nodes)) || Number(b.storage === 'local') - Number(a.storage === 'local')
+      || Number(needsImportEnable(a)) - Number(needsImportEnable(b)) || Number(holdsDisks(a)) - Number(holdsDisks(b)) || a.storage.localeCompare(b.storage))
+}
+/** Not offered: the storage can hold disks AND exists on nodes outside the selection (same rule as the disk storage picker; the planner refuses it too).
+ *  A storage WITHOUT images/rootdir is fine on every node: the upload permission cannot place a VM disk. */
+export function importBlocked(s: StorageLike, nodes: string[]): boolean {
+  return holdsDisks(s) && outsideNodes(s, nodes).length > 0
+}
+
+export function suggestTargets(sel: Selection, inv: Pick<Inventory, 'storages' | 'networks'>): Partial<Pick<Selection, 'pools' | 'storages' | 'networks' | 'importStorages'>> {
   if (!sel.nodes.length) return {}
   const onAll = (nodes: string[]) => sel.nodes.every((n) => nodes.includes(n))
-  const out: Partial<Pick<Selection, 'pools' | 'storages' | 'networks'>> = {}
+  const out: Partial<Pick<Selection, 'pools' | 'storages' | 'networks' | 'importStorages'>> = {}
   if (!sel.pools.length) out.pools = [DEFAULT_POOL]
   if (!sel.storages.length) {
     // Only storage confined to the selected node(s): a storage that also exists on other nodes (shared / HA) could receive disks
@@ -71,6 +95,12 @@ export function suggestTargets(sel: Selection, inv: Pick<Inventory, 'storages' |
     const st = inv.storages.filter((s) => s.content.split(',').includes('images') && onAll(s.nodes) && !outsideNodes(s, sel.nodes).length)
       .sort((a, b) => Number(a.shared) - Number(b.shared) || (b.total - b.used) - (a.total - a.used))[0]
     if (st) out.storages = [st.storage]
+  }
+  if (!sel.importStorages.length) {
+    // `local` when present, else the first candidate on every chosen node; one that can hold disks only when it is confined to the selection
+    // (never one that could place a disk on another node)
+    const imp = importCandidates(inv.storages, sel.nodes).find((s) => onAll(s.nodes) && !importBlocked(s, sel.nodes))
+    if (imp) out.importStorages = [imp.storage]
   }
   if (!sel.networks.length) {
     const br = inv.networks.filter((x) => onAll(x.nodes)).sort((a, b) => Number(b.name === 'vmbr0') - Number(a.name === 'vmbr0') || Number(a.kind !== 'bridge') - Number(b.kind !== 'bridge') || a.name.localeCompare(b.name))[0]
@@ -103,7 +133,7 @@ export function toPolicy(sel: Selection, guests: InvGuest[]): Record<string, unk
     preset: sel.level, scope_mode: 'single_node', allow_migrate: deploy && sel.allowMigrate, monitor_cluster: sel.monitorCluster,
     scope: {
       nodes: visibleNodes(sel, guests), managed_vmids: [...sel.operate].sort((a, b) => a - b), protected_vmids: [...sel.protected],
-      pools: deploy ? [...sel.pools] : [], storages: deploy ? [...sel.storages] : [], networks: deploy ? [...sel.networks] : [],
+      pools: deploy ? [...sel.pools] : [], storages: deploy ? [...sel.storages] : [], import_storages: deploy ? [...sel.importStorages].sort() : [], networks: deploy ? [...sel.networks] : [],
       template_vmids: deploy ? [...sel.templates] : [], guest_types: ['qemu', 'lxc'],
     },
   }
@@ -112,14 +142,14 @@ export function toPolicy(sel: Selection, guests: InvGuest[]): Record<string, unk
 export function toScopeTarget(sel: Selection, guests: InvGuest[]): Record<string, unknown> {
   const p = toPolicy(sel, guests) as { scope: Record<string, unknown>; preset: Level; allow_migrate: boolean; monitor_cluster: boolean }
   const s = p.scope
-  return { mode: 'single_node', nodes: s.nodes, storages: s.storages, template_vmids: s.template_vmids, pools: s.pools, networks: s.networks,
+  return { mode: 'single_node', nodes: s.nodes, storages: s.storages, import_storages: s.import_storages, template_vmids: s.template_vmids, pools: s.pools, networks: s.networks,
            managed_vmids: s.managed_vmids, preset: p.preset, allow_migrate: p.allow_migrate, monitor_cluster: p.monitor_cluster }
 }
 
 export interface Diff { added: string[]; removed: string[] }
 export function diffSelection(before: Selection, after: Selection): Diff {
   const lab = (s: Selection) => new Set([...s.operate.map((v) => `Guest ${v}`), ...s.watch.map((n) => `Monitor node ${n}`), ...s.nodes.map((n) => `Node ${n}`), ...s.pools.map((n) => `Pool ${n}`),
-    ...s.storages.map((n) => `Storage ${n}`), ...s.networks.map((n) => `Network ${n}`), ...s.templates.map((n) => `Template ${n}`)])
+    ...s.storages.map((n) => `Storage ${n}`), ...s.importStorages.map((n) => `Image import storage ${n}`), ...s.networks.map((n) => `Network ${n}`), ...s.templates.map((n) => `Template ${n}`)])
   const a = lab(before), b = lab(after)
   return { added: [...b].filter((x) => !a.has(x)), removed: [...a].filter((x) => !b.has(x)) }
 }
@@ -162,6 +192,9 @@ export function permissionSummary(sel: Selection): PermSummary {
     { text: 'Start, stop, restart, resize and snapshot its own guests', by: 'both', detail: 'rights only inside its pool; resizes and rollbacks are approved plans' },
     { text: 'Delete its own guests, only after your explicit approval', by: 'ou', detail: 'Proxmox cannot separate "create" from "delete" inside a pool: Office Unbound checks the deployment record and the current VM identity, shows exactly what is removed, and needs approval' },
   ]
+  for (const x of deploy ? sel.importStorages : []) {
+    modify.push({ text: `Upload signed golden images to ${x}`, by: 'proxmox', detail: `Datastore.AllocateTemplate and Datastore.Audit on ${x} only (on every node that has it); no Datastore.AllocateSpace, so it can never place VM disks there` })
+  }
   if (deploy && sel.allowMigrate) modify.push({ text: 'Move its own guests between the selected nodes', by: 'both', detail: 'VM.Migrate on its pool' })
   const never: PermItem[] = [
     { text: 'Delete or change VMs, containers or disks outside its pool', by: 'both', detail: 'no rights outside its pool; a VM someone moves INTO the pool is still refused by Office Unbound unless it has a deployment record' },

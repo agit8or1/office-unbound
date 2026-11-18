@@ -80,7 +80,7 @@ def check_endpoint(rt: Runtime, db: Session, ep, st) -> dict:
 def ics_scope_check(ep, policy: Policy) -> dict:
     """The ICS-side allowlists (what the broker enforces) must equal the approved policy. A difference is drift in the ICS, not in Proxmox."""
     want_n = sorted(policy.scope.nodes)
-    want_s = sorted(set(policy.scope.storages) | set(policy.scope.backup_storages))
+    want_s = sorted(pp.scope_storages(policy))
     have_n, have_s = sorted(ep.allowed_nodes or []), sorted(ep.allowed_storage or [])
     ok = want_n == have_n and want_s == have_s
     return {"ok": ok, "enforced_by": "ics", "nodes": {"policy": want_n, "endpoint": have_n}, "storages": {"policy": want_s, "endpoint": have_s},

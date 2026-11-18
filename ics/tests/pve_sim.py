@@ -386,7 +386,7 @@ class PveSim:
             R("GET", r"/cluster/ha/status/current", self.r_ha), R("GET", r"/cluster/tasks", self.r_cluster_tasks),
             R("GET", r"/nodes/([^/]+)/firewall/options", lambda tid, q, f, n: dict(self.fw_nodes.get(n, {}).get("options", {}))),
             R("GET", r"/nodes/([^/]+)/firewall/rules", lambda tid, q, f, n: list(self.fw_nodes.get(n, {}).get("rules", []))),
-            R("GET", r"/nodes", self.r_nodes), R("GET", r"/pools/([^/]+)", self.r_pool), R("GET", r"/storage", self.r_storage_cfg),
+            R("GET", r"/nodes", self.r_nodes), R("GET", r"/pools/([^/]+)", self.r_pool), R("GET", r"/storage", self.r_storage_cfg), R("PUT", r"/storage/([^/]+)", self.r_storage_set),
             R("GET", r"/cluster/sdn/zones", self.r_zones), R("GET", r"/cluster/sdn/vnets", self.r_vnets),
             R("GET", r"/access/permissions", self.r_permissions),
             R("GET", r"/access/users", self.r_users), R("POST", r"/access/users", self.r_user_add),
@@ -477,6 +477,28 @@ class PveSim:
     def r_pool(self, tid, q, f, pool):
         self.need(tid, "pool", pool, "Pool.Audit")
         return {"poolid": pool, "comment": self.pool_comments.get(pool, ""), "members": [{"vmid": v["vmid"], "node": v["node"], "type": v["kind"]} for v in self.vms.values() if v["pool"] == pool]}
+
+    # content types each storage plugin accepts (PVE 8.4+/9; `import` only on file-based storage)
+    PLUGIN_CONTENT = {"dir": {"images", "rootdir", "vztmpl", "iso", "backup", "snippets", "import", "none"},
+                      "nfs": {"images", "rootdir", "vztmpl", "iso", "backup", "snippets", "import", "none"},
+                      "cifs": {"images", "rootdir", "vztmpl", "iso", "backup", "snippets", "import", "none"},
+                      "cephfs": {"vztmpl", "iso", "backup", "snippets", "import"},
+                      "lvmthin": {"images", "rootdir"}, "lvm": {"images", "rootdir"}, "zfspool": {"images", "rootdir"}, "rbd": {"images", "rootdir"},
+                      "pbs": {"backup"}}
+
+    def r_storage_set(self, tid, q, f, storage):
+        """PUT /storage/<id> (pvesm set): needs Datastore.Allocate on /storage/<id>. Only `content` is modelled; it REPLACES the list."""
+        if storage not in self.storages:
+            raise HTTPErr(500, f"storage '{storage}' does not exist")
+        self.need(tid, "storage", storage, "Datastore.Allocate")
+        if "content" in f:
+            want = [c for c in str(f["content"]).split(",") if c]
+            bad = set(want) - self.PLUGIN_CONTENT.get(self.storages[storage]["type"], set())
+            if bad:
+                raise HTTPErr(400, f"Parameter verification failed. content: invalid content type(s) {','.join(sorted(bad))} for storage type "
+                                   f"'{self.storages[storage]['type']}'")
+            self.storages[storage]["content"] = ",".join(want)
+            self._log(f"storage~{storage}:{','.join(want)}")
 
     def r_nextid(self, tid, q, f):
         n = 100

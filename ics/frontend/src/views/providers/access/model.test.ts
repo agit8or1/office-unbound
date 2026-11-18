@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest'
 import type { InvGuest } from './api'
-import { apiUrl, diffSelection, emptySelection, filterGuests, outsideNodes, permissionSummary, suggestTargets, toPolicy, toScopeTarget, validate, visibleNodes } from './model'
+import { apiUrl, diffSelection, emptySelection, filterGuests, fromApproved, importBlocked, importCandidates, needsImportEnable, outsideNodes, permissionSummary, suggestTargets, toPolicy, toScopeTarget, validate, visibleNodes } from './model'
 
 const g = (vmid: number, node: string, extra: Partial<InvGuest> = {}): InvGuest => ({ vmid, type: 'qemu', name: `vm${vmid}`, node, status: 'running', cpus: 2, cpu: 0, mem: 0,
   maxmem: 2 ** 31, maxdisk: 2 ** 33, pool: null, template: false, tags: '', ...extra })
@@ -111,5 +111,50 @@ describe('permission summary', () => {
     const s = { ...emptySelection(), nodes: ['pve06'], monitorCluster: true }
     expect((toPolicy(s, GUESTS) as { monitor_cluster: boolean }).monitor_cluster).toBe(true)
     expect(toScopeTarget(s, GUESTS)).toMatchObject({ monitor_cluster: true })
+  })
+})
+
+describe('image import storage', () => {
+  const ALL = ['pve01', 'pve2', 'pve3', 'pve04', 'pve05', 'pve06']
+  const st = (storage: string, content: string, nodes: string[], type = 'dir') => ({ storage, type, content, shared: false, nodes, used: 0, total: 1e12 })
+  const local = st('local', 'iso,vztmpl,backup,import', ALL)
+  const localNoImport = st('local', 'iso,vztmpl,backup', ALL)
+  const diskDir = st('dirdisks', 'images,import', ALL)
+  const node06 = st('PVE06-Storage', 'images,rootdir', ['pve06'], 'lvmthin')
+  const sel = { ...emptySelection(), nodes: ['pve06'] }
+  it('lists storages with the import content type or a type that supports it; a storage that can hold disks on other nodes is never offered', () => {
+    expect(importCandidates([local, node06, diskDir], ['pve06']).map((s) => s.storage)).toEqual(['local', 'dirdisks'])
+    expect(importCandidates([st('nfs1', 'backup', ALL, 'nfs'), localNoImport, st('pbs', 'backup', ALL, 'pbs')], ['pve06']).map((s) => s.storage)).toEqual(['local', 'nfs1'])
+    expect(importBlocked(local, ['pve06'])).toBe(false)              // on every node, but it cannot place a VM disk
+    expect(importBlocked(diskDir, ['pve06'])).toBe(true)             // images on other nodes: blocked (same rule as the disk storage picker)
+    expect(importBlocked(st('d6', 'images,import', ['pve06']), ['pve06'])).toBe(false)
+  })
+  it('preselects the import storage when deploying, never one that could hold disks elsewhere, and never overrides a choice', () => {
+    expect(suggestTargets(sel, { storages: [node06, local], networks: [] }).importStorages).toEqual(['local'])
+    expect(suggestTargets(sel, { storages: [node06, diskDir], networks: [] }).importStorages).toBeUndefined()
+    expect(suggestTargets({ ...sel, importStorages: ['mine'] }, { storages: [local], networks: [] }).importStorages).toBeUndefined()
+  })
+  it('local without import is offered (Office Unbound enables import on it) and preselected; other types are not offered', () => {
+    expect(importCandidates([localNoImport, node06], ['pve06']).map((s) => s.storage)).toEqual(['local'])
+    expect(needsImportEnable(localNoImport)).toBe(true)
+    expect(needsImportEnable(local)).toBe(false)
+    expect(suggestTargets(sel, { storages: [st('aaa', 'iso,import', ALL), localNoImport, node06], networks: [] }).importStorages).toEqual(['local'])
+    expect(importCandidates([node06, st('pbs', 'backup', ALL, 'pbs')], ['pve06'])).toEqual([])
+  })
+  it('reaches the policy, the scope target and the permission summary only with the deployment level', () => {
+    const dep = { ...sel, level: 'deploy' as const, pools: ['office-unbound'], storages: ['PVE06-Storage'], networks: ['vmbr0'], importStorages: ['local'] }
+    expect((toPolicy(dep, GUESTS) as { scope: { import_storages: string[]; storages: string[] } }).scope).toMatchObject({ import_storages: ['local'], storages: ['PVE06-Storage'] })
+    expect(toScopeTarget(dep, GUESTS)).toMatchObject({ import_storages: ['local'], storages: ['PVE06-Storage'] })
+    expect((toPolicy({ ...dep, level: 'monitoring' }, GUESTS) as { scope: { import_storages: string[] } }).scope.import_storages).toEqual([])
+    const m = permissionSummary(dep).modify.find((x) => x.text === 'Upload signed golden images to local')
+    expect(m?.by).toBe('proxmox')
+    expect(permissionSummary({ ...dep, level: 'monitoring' }).modify).toEqual([])
+    expect(diffSelection(sel, dep).added).toContain('Image import storage local')
+  })
+  it('edit mode keeps the import storage apart from the disk storages', () => {
+    const inv = { approved_scope: { nodes: ['pve06'], pools: ['office-unbound'], storages: ['PVE06-Storage'], import_storages: ['local'], networks: ['vmbr0'], templates: [], managed_vmids: [], protected_vmids: [], preset: 'deploy' } }
+    const s = fromApproved(inv as never)
+    expect(s.importStorages).toEqual(['local'])
+    expect(s.storages).toEqual(['PVE06-Storage'])
   })
 })
