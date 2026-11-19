@@ -65,6 +65,7 @@ class OciUnit(_M):
     read_only: bool = True
     user: str | None = Field(default=None, pattern=r"^[0-9]{1,5}(:[0-9]{1,5})?$")
     command: list[Annotated[str, Field(pattern=r"^[a-z][a-z0-9-]{0,30}$")]] = Field(default=[], max_length=4)   # entrypoint words (agent >= 0.5.0)
+    capabilities: list[Literal["SYS_CHROOT"]] = Field(default=[], max_length=1)   # given back after DropCapability=ALL (agent >= 0.5.0-ou9)
 
 
 class OciArtifact(_M):

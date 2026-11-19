@@ -34,3 +34,18 @@ def test_every_catalog_unit_uses_host_networking():
     from ics.deploy.catalog import get_catalog
     units = [(c.name, a.name, a.unit.type) for c in get_catalog().components.values() for a in c.artifacts if getattr(a, "unit", None)]
     assert units and all(t == "container-hostnet" for _, _, t in units), [u for u in units if u[2] != "container-hostnet"]
+
+
+def test_only_the_document_engine_gets_sys_chroot_and_the_plan_carries_it():
+    # real VM e2e-fo6 (2026-11-19): Collabora under DropCapability=ALL cannot chroot its document processes (EPERM), so coolwsd never answers
+    # /hosting/discovery; SYS_CHROOT is the one capability it gets back (lab: answered with exactly that). Nothing else gets one.
+    from ics.deploy.catalog import get_catalog
+    from ics.deploy.plan import _install_params
+    cat = get_catalog()
+    caps = {(c.name, a.name): list(a.unit.capabilities) for c in cat.components.values() for a in c.artifacts if getattr(a, "unit", None)}
+    assert caps[("office", "collabora")] == ["SYS_CHROOT"]
+    assert all(v == [] for k, v in caps.items() if k != ("office", "collabora")), caps
+    unit = [r for r in _install_params(cat.components["office"], "e.example") if r["runbook"] == "podman.deploy_unit"]
+    assert len(unit) == 1 and unit[0]["params"]["capabilities"] == ["SYS_CHROOT"]
+    files = [r for r in _install_params(cat.components["files"], "e.example") if r["runbook"] == "podman.deploy_unit"]
+    assert files and all("capabilities" not in r["params"] for r in files)

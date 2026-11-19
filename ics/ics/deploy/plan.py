@@ -560,6 +560,8 @@ def _install_params(c: Component, domain: str = "") -> list[dict]:
                     params["user"] = u.user
                 if u.command:   # only when set: plans of units without a command keep their hash
                     params["command"] = list(u.command)
+                if u.capabilities:   # only when set, same reason
+                    params["capabilities"] = sorted(u.capabilities)
                 if u.type == "container-hostnet":
                     params["ports"] = []   # host networking carries no published ports (the agent refuses both)
             out.append({"runbook": "podman.deploy_unit", "params": params})

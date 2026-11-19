@@ -17,6 +17,10 @@ artifacts:
       # "failed to mount runtime directory for rootless netns: no such file or directory"; cause not yet determined, docs/status/STATUS.md open item)
       # and would not see the VM's /etc/hosts, which the engine fills with the deployment's names (WOPI to cloud.<domain>).
       type: container-hostnet
+      # SYS_CHROOT is given back after DropCapability=ALL (NoNewPrivileges stays): coolwsd chroots every document process into its jail, and with an
+      # empty bounding set that chroot fails with EPERM even in its own user namespace. Real VM e2e-fo6: no document process started, coolwsd held
+      # :9980 without answering (it serves HTTP only after the first one), discovery timed out; lab run with exactly this capability answered.
+      capabilities: [SYS_CHROOT]
       memory_mib: 2048
       env: {OU_WOPI_HOST: "https://cloud.{domain}:443", OU_SERVER_NAME: "office.{domain}", OU_CA_FILE: /opt/ou-tls/ca.crt}
       volumes: [{name: work, path: /opt/ou-docs/work}, {name: tls, path: /opt/ou-tls, read_only: true}]

@@ -36,6 +36,10 @@ UNIT_TYPES = ("container", "container-hostnet")                  # host networki
 MAX_ENV, MAX_PORTS, MAX_VOLUMES, MAX_SECRETS, MAX_PACKAGES = 32, 16, 8, 8, 8
 CMDWORD_RE = re.compile(r"^[a-z][a-z0-9-]{0,30}$")
 MAX_COMMAND = 4
+# capabilities a unit may get back after DropCapability=ALL. Only SYS_CHROOT: the document engine (Collabora coolforkit-ns) chroots every document
+# process into its jail; with an empty bounding set that chroot fails with EPERM even inside its own user namespace (the bounding set survives
+# CLONE_NEWUSER + execve), no document process ever starts and coolwsd never answers HTTP (real VM e2e-fo6; reproduced in the lab, 2026-11-19).
+UNIT_CAPS = ("SYS_CHROOT",)
 
 
 def _exact(p, keys, required=None):
@@ -85,7 +89,8 @@ def check_pull(p, cfg):
 
 
 def check_deploy(p, cfg):
-    _exact(p, ("component", "name", "type", "image", "env", "ports", "volumes", "secrets", "user", "read_only", "memory_mib", "command"),
+    _exact(p, ("component", "name", "type", "image", "env", "ports", "volumes", "secrets", "user", "read_only", "memory_mib", "command",
+                  "capabilities"),
            ("component", "name", "type", "image"))
     out = {"component": _s(p["component"], NAME_RE, "component"), "name": _s(p["name"], NAME_RE, "name")}
     if len(unit_base(out["component"], out["name"])) > 60:
@@ -137,6 +142,11 @@ def check_deploy(p, cfg):
         raise Reject("bad_params", "command: list of at most %d words" % MAX_COMMAND)
     if cmd:   # only when set: a spec without a command keeps its earlier spec_hash
         out["command"] = [_s(w, CMDWORD_RE, "command word") for w in cmd]
+    caps = p.get("capabilities", [])
+    if not isinstance(caps, list) or any(c not in UNIT_CAPS for c in caps) or len(set(caps)) != len(caps):
+        raise Reject("bad_params", "capabilities: distinct values from " + ", ".join(UNIT_CAPS))
+    if caps:   # only when set: a spec without capabilities keeps its earlier spec_hash
+        out["capabilities"] = sorted(caps)
     return out
 
 
@@ -218,6 +228,7 @@ def render(s):
     c += ["", "[Container]", f"Image={s['image']}", "Pull=never", f"ContainerName={n['base']}", "NoNewPrivileges=true", "DropCapability=ALL",
           f"ReadOnly={'true' if s['read_only'] else 'false'}", f"Label=ou.component={s['component']}", f"Label=ou.unit={s['name']}",
           f"PodmanArgs=--memory={s['memory_mib']}m"]
+    c += [f"AddCapability={x}" for x in s.get("capabilities", [])]
     c.append("Network=host" if s["type"] == "container-hostnet" else f"Network={n['network']}.network")
     if s["user"]:
         c.append(f"User={s['user']}")
@@ -257,6 +268,7 @@ def render_service(s):
     run = [PODMAN_BIN, "--cgroup-manager=cgroupfs", "run", "--rm", "--name", n["base"], "--cap-drop=ALL", "--security-opt=no-new-privileges",
            f"--read-only={'true' if s['read_only'] else 'false'}", f"--memory={s['memory_mib']}m",
            f"--label=ou.component={s['component']}", f"--label=ou.unit={s['name']}"]
+    run += [f"--cap-add={x}" for x in s.get("capabilities", [])]
     if s["type"] == "container-hostnet":
         run.append("--network=host")
     # no per-component network on this path: rootless `podman run --network=<user-defined>` fails on Debian 12's podman 4.3.1 with "unable to find

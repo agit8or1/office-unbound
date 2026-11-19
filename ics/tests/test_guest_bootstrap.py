@@ -188,6 +188,8 @@ BAD = [
     ({"type": "container-hostnet", "ports": GOOD["ports"]}, "bad_params"),
     ({"component": "Web"}, "bad_params"), ({"name": "a;b"}, "bad_params"), ({"memory_mib": 1}, "bad_params"), ({"read_only": "yes"}, "bad_params"),
     ({"user": "root"}, "bad_params"),
+    ({"capabilities": ["SYS_ADMIN"]}, "bad_params"), ({"capabilities": ["ALL"]}, "bad_params"), ({"capabilities": "SYS_CHROOT"}, "bad_params"),
+    ({"capabilities": ["SYS_CHROOT", "SYS_CHROOT"]}, "bad_params"), ({"capabilities": ["sys_chroot"]}, "bad_params"),
 ]
 
 
@@ -320,6 +322,20 @@ def test_helper_main_revalidates_spool_and_writes_result(node, monkeypatch, tmp_
     gh.main(["podman", rid])
     assert json.load(open(res / "ou-rb-podman" / (rid + ".json")))["rejected"]["code"] == "not_allowed"   # wrong family
     assert gh.main(["podman", "../etc/passwd"]) == 2
+
+
+def test_only_sys_chroot_can_be_given_back_and_only_explicitly():
+    # real VM e2e-fo6: with DropCapability=ALL the document engine's per-document chroot fails (EPERM), no document process starts and coolwsd
+    # never answers HTTP; the lab run with --cap-drop=ALL --cap-add=SYS_CHROOT --security-opt=no-new-privileges answered discovery (2026-11-19)
+    assert gs.UNIT_CAPS == ("SYS_CHROOT",)
+    plain = gs.check_deploy(GOOD, CFG)
+    assert "capabilities" not in plain and gs.spec_hash(plain) == gs.spec_hash(gs.check_deploy({**GOOD, "capabilities": []}, CFG))
+    s = gs.check_deploy({**GOOD, "capabilities": ["SYS_CHROOT"]}, CFG)
+    c = gs.render(s)["ou-web-whoami.container"]
+    assert "DropCapability=ALL" in c and "NoNewPrivileges=true" in c and c.count("AddCapability=") == 1 and "AddCapability=SYS_CHROOT" in c
+    t = gs.render_service(s)["ou-web-whoami.service"]
+    assert "--cap-drop=ALL --security-opt=no-new-privileges" in t and t.count("--cap-add=") == 1 and "--cap-add=SYS_CHROOT" in t
+    assert "--cap-add" not in gs.render_service(plain)["ou-web-whoami.service"]
 
 
 def test_facts_shape(node):
