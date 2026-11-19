@@ -1,6 +1,6 @@
 # Office Unbound roadmap & progress
 
-> Generated from [`docs/progress.json`](docs/progress.json) by `scripts/render_roadmap.py` — edit the JSON, not this file. Last updated **2026-11-18** · stage: **pre-alpha (lab)** · current version: **0.4.1**.
+> Generated from [`docs/progress.json`](docs/progress.json) by `scripts/render_roadmap.py` — edit the JSON, not this file. Last updated **2026-11-18** · stage: **pre-alpha (lab)** · current version: **0.4.2**.
 
 Core platform components are integrated and tested in an isolated lab: own source build of Exchange-compatible groupware with single sign-on webmail, Keycloak SSO, file sync and browser document editing, backup/restore drills, chat and video meetings, and an infrastructure control server with monitoring, self-healing and a real Proxmox integration (VM lifecycle verified on a live cluster). Guided deployment wizards, provisioning automation and the credential vault are being integrated.
 
@@ -170,6 +170,7 @@ Core platform components are integrated and tested in an isolated lab: own sourc
 
 | Version | Date | Status | Highlights |
 |---|---|---|---|
+| [0.4.2](https://github.com/agit8or1/office-unbound/blob/main/CHANGELOG.md) | 2026-11-19 | prepared | 0.4.2: Files and Office configured by the engine (OpenCloud, Collabora, verified HTTPS edge); fix for writing component volume files on a real VM (agent 0.5.0-ou5) |
 | [0.4.1](https://github.com/agit8or1/office-unbound/blob/main/CHANGELOG.md) | 2026-11-19 | released | 0.4.1: VM ownership read from the live guest configuration (no false refusal while the Proxmox cache lags); clones drop the golden-image tags |
 | [0.4.0](https://github.com/agit8or1/office-unbound/blob/main/CHANGELOG.md) | 2026-11-19 | released | 0.4.0: the engine configures identity and edge on the VMs it creates (directory, Keycloak, database, TLS, proxy); agent-side health probes; golden image v2 |
 | [0.3.7](https://github.com/agit8or1/office-unbound/blob/main/CHANGELOG.md) | 2026-11-18 | released | 0.3.7: deployments get past agent enrollment (ICS service can read the host neighbour table again) |

@@ -10,6 +10,11 @@ isolated lab; nothing is production supported ([ROADMAP.md](ROADMAP.md)).
 
 ## [Unreleased]
 
+## [0.4.2] - 2026-11-19
+
+- **Files and Office are configured by the engine** like Identity and Edge: OpenCloud (plus its collaboration unit, same image, `command: [collaboration, server]`) and Collabora get their TLS, environment and CSP files; on their own VM a same-VM TLS proxy serves them, and the edge reaches it over HTTPS verified against the deployment CA (`upstream_name`), with a matching per-peer firewall rule. A catalog unit may now set a `command`; a port may be `shared_with` another component on the same VM (the edge and a hosted service both on 443). Evidence: `test_deploy_exec.py` (files/office), `test_deploy_plan.py` (unit order, shared 443, firewall).
+- **Fix: writing files into a component volume failed on a real VM** (`cfg.volume_files`, e2e-id2 on pve06: crun "create directory …/libpod-….scope/container: No such file or directory"). The configuration helper is a system unit; podman's default systemd cgroup manager asked the service user's systemd for a scope it cannot move a system-unit process into. The one-shot copy container now runs with `--cgroup-manager=cgroupfs --cgroups=disabled` (it stays in the helper's cgroup); the services' own units are unchanged. Node agent package **0.5.0-ou5**, catalog pin raised. Evidence: `test_guest_configure.py::test_volume_files_need_a_verified_image_and_carry_exact_modes`; real-VM evidence in docs/status/host-changes.md.
+
 ## [0.4.1] - 2026-11-19
 
 - **Fix: a fresh deployment refused its own VM** ("VM … is not a guest of this deployment (tags/name do not match)", real pve06, deployment e2e-id1). Right after the ownership tags were set, Proxmox's `/cluster/resources` cache still listed the template's tags; the ownership checks read that cache. They now read name and tags from the guest's live configuration (`guest_owned`, provider `_guest`), which is authoritative in both directions. The simulator models the cache lag. Evidence: `test_first_real_deployment.py::test_ownership_is_read_from_the_live_config_not_the_lagging_resources_cache` (fails without the fix with the real error).
