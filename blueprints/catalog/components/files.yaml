@@ -51,7 +51,7 @@ notices: []
 dns:
   - {host: cloud, type: A, target: edge}
 health_checks:
-  - {name: opencloud-status, kind: http, port: 9200, path: /status.php, expect_status: 200, body_contains: '"installed":true'}
+  - {name: opencloud-status, kind: http, port: 9200, path: /status.php, expect_status: 200, body_contains: '"installed": true'}   # OpenCloud 9.1.0 pretty-prints (tests/fixtures/opencloud-9.1.0-status.php.json; real VM e2e-fo4)
 backup:
   method: tar_xattr
   description: "tar with user.* xattrs + ACLs, numeric owners; brief stop of opencloud+collaboration; config dir included"

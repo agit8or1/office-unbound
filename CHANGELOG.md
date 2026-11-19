@@ -10,6 +10,10 @@ isolated lab; nothing is production supported ([ROADMAP.md](ROADMAP.md)).
 
 ## [Unreleased]
 
+## [0.4.5] - 2026-11-19
+
+- **Fix: a Files deployment could never pass health verification.** The `opencloud-status` check looked for `"installed":true` in `/status.php`, but OpenCloud 9.1.0 pretty-prints its answer (`"installed": true`), so a healthy OpenCloud failed with "HTTP 200 (expected text missing)" (real VM e2e-fo4, the first deployment to get that far; the simulator answered compact JSON). The check now matches the real response, recorded from the lab OpenCloud 9.1.0 as a test fixture. Evidence: `test_deploy_catalog_install.py::test_the_opencloud_health_check_matches_the_real_status_response` (fails on the old catalog).
+
 ## [0.4.4] - 2026-11-19
 
 - **Fix: a deployment broke whenever Ubuntu published a security update** for a package the catalog names. On e2e-fo3 the Files VM's `pkg.install_pinned nginx=1.24.0-2ubuntu7.19` failed with "Unable to correct problems, you have held broken packages": that morning's security update 7.20 made `nginx-common` 7.20 the candidate while nginx 7.19 needs exactly 7.19, and the archive keeps only the newest build per pocket, so 7.19 disappears altogether once 7.20 reaches `-updates`. For packages from a distribution archive (`ubuntu-noble`, `debian-bookworm`) the catalog version is now a **floor**: the agent installs the archive's current candidate, refuses it if it is older than the floor or is served only by our own repository, and reports the version it installed. Our own repository's packages stay pinned exactly. Node agent **0.5.0-ou8**, catalog pin raised. Evidence: `test_guest_bootstrap.py::test_floor_installs_the_archives_current_security_update`, `::test_floor_refuses_older_absent_or_own_repository_versions`, `test_deploy_plan.py` (floor for distribution packages, exact for ours, every package step accepted by the agent validator).
@@ -239,7 +243,8 @@ editing, chat/meetings, telephony prototype, migration tooling and package pipel
 - **Review 4** (2 High, 11 Medium, 9 Low; gromox patches, lifecycle, SSO, telephony, migration engine, package pipeline, Collabora) reported. Findings are **open** on `main`; see Unreleased. [report](docs/status/security-review-4-2026-11-15.md)
 - `SECURITY.md` (private reporting) and `CONTRIBUTING.md` (DCO sign-off) added; AGPL-3.0 license. [SECURITY](SECURITY.md)
 
-[Unreleased]: https://github.com/agit8or1/office-unbound/compare/v0.4.4...HEAD
+[Unreleased]: https://github.com/agit8or1/office-unbound/compare/v0.4.5...HEAD
+[0.4.5]: https://github.com/agit8or1/office-unbound/compare/v0.4.4...v0.4.5
 [0.4.4]: https://github.com/agit8or1/office-unbound/compare/v0.4.3...v0.4.4
 [0.4.3]: https://github.com/agit8or1/office-unbound/releases/tag/v0.4.3
 [0.4.2]: https://github.com/agit8or1/office-unbound/releases/tag/v0.4.2

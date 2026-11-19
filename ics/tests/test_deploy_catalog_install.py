@@ -15,3 +15,13 @@ def test_runtime_catalog_path_matches_install_destination():
     # the default resolution is relative to the installed package: /opt/office-unbound/ics/ics/deploy -> /opt/office-unbound/blueprints/catalog
     assert "OU_CATALOG_DIR" in src
     assert (ROOT / "blueprints" / "catalog").is_dir() and any((ROOT / "blueprints" / "catalog").glob("*.yaml"))
+
+
+def test_the_opencloud_health_check_matches_the_real_status_response():
+    # real VM e2e-fo4 (2026-11-19): OpenCloud 9.1.0 answers `"installed": true` (pretty-printed); the catalog looked for `"installed":true`
+    # and the deployment failed health verification with "HTTP 200 (expected text missing)". Body recorded from the lab ou-files1 (9.1.0).
+    import pathlib
+    from ics.deploy.catalog import get_catalog
+    body = (pathlib.Path(__file__).parent / "fixtures" / "opencloud-9.1.0-status.php.json").read_text()
+    hc = next(h for h in get_catalog().components["files"].health_checks if h.name == "opencloud-status")
+    assert hc.path == "/status.php" and hc.body_contains in body
