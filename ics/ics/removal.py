@@ -56,10 +56,13 @@ def channel_risk(p: ChannelDelete) -> str:
 
 def _check_guard(db, check_id) -> object:
     PlanError, _ = _errs()
-    c = db.execute(text("SELECT id, name, kind, deployment_id FROM checks WHERE id = :i FOR UPDATE"), {"i": str(check_id)}).first()
+    c = db.execute(text("SELECT c.id, c.name, c.kind, c.deployment_id, d.status AS deployment_status FROM checks c "
+                        "LEFT JOIN deployments d ON d.id = c.deployment_id WHERE c.id = :i FOR UPDATE OF c"), {"i": str(check_id)}).first()
     if c is None:
         raise PlanError(404, "check not found")
-    if c.deployment_id is not None:
+    # a live deployment owns its checks (change or destroy it instead). A DESTROYED deployment cannot be destroyed again: a check it left
+    # behind (destroy before 0.4.7 skipped the checks of a create that never applied, 2026-11-19) would otherwise stay critical forever.
+    if c.deployment_id is not None and c.deployment_status != "destroyed":
         raise PlanError(409, "this check is managed by a deployment; change or destroy the deployment instead")
     if db.execute(text("SELECT 1 FROM remediation_attempts WHERE check_id = :i AND status IN ('queued','pending_approval','running')"), {"i": str(check_id)}).first():
         raise PlanError(409, "the check is bound to an active remediation attempt; wait for it to finish or let it be superseded")

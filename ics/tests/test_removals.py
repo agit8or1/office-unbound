@@ -85,6 +85,27 @@ def test_check_delete_refuses_deployment_owned_check_and_rechecks_at_execution(c
         assert db.execute(text("SELECT count(*) FROM checks")).scalar() == 1
 
 
+def test_check_delete_refuses_a_live_deployments_check_but_clears_one_a_destroyed_deployment_left(client, rt, team):
+    with rt.session() as db:
+        for slug, status in (("live", "active"), ("gone", "destroyed")):
+            db.execute(text("INSERT INTO deployments (slug, customer_id, profile, profile_version, status, desired_spec) "
+                            "VALUES (:s, 'c', 'small', '1', :st, '{}'::jsonb)"), {"s": slug, "st": status})
+        db.commit()
+    live, gone = mk_check(rt, "live-check"), mk_check(rt, "gone-check")
+    with rt.session() as db:
+        for cid, slug in ((live, "live"), (gone, "gone")):
+            db.execute(text("UPDATE checks SET deployment_id = (SELECT id FROM deployments WHERE slug = :s), state = 'critical' WHERE id = :i"),
+                       {"s": slug, "i": cid})
+            db.execute(text("INSERT INTO incidents (check_id, status, severity, title) VALUES (:i, 'open', 'critical', 't')"), {"i": cid})
+        db.commit()
+    request(team, "check.delete", {"check_id": live}, expect=409)
+    p = request(team, "check.delete", {"check_id": gone, "reason": "left behind by a destroyed deployment"}, approvers=("ap1",))
+    assert run(rt, team, p["job_id"])["status"] == "succeeded"
+    with rt.session() as db:
+        assert db.execute(text("SELECT name FROM checks")).scalars().all() == ["live-check"]
+        assert db.execute(text("SELECT count(*) FROM incidents")).scalar() == 1
+
+
 def test_alert_channel_delete_last_enabled_needs_confirmation_and_is_then_high(client, rt, team):
     with rt.session() as db:
         a = str(db.execute(text("INSERT INTO alert_channels (name, kind, config, enabled) VALUES ('a', 'webhook', '{}'::jsonb, true) RETURNING id")).scalar())
