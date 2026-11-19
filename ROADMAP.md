@@ -170,7 +170,7 @@ Core platform components are integrated and tested in an isolated lab: own sourc
 
 | Version | Date | Status | Highlights |
 |---|---|---|---|
-| [0.4.6](https://github.com/agit8or1/office-unbound/blob/main/CHANGELOG.md) | 2026-11-19 | prepared | 0.4.6: Office (Collabora) starts on a real VM (host networking like every other unit; rootless private-network failure tracked as KI-4) |
+| [0.4.6](https://github.com/agit8or1/office-unbound/blob/main/CHANGELOG.md) | 2026-11-19 | released | 0.4.6: Office (Collabora) starts on a real VM (host networking like every other unit; rootless private-network failure tracked as KI-4) |
 | [0.4.5](https://github.com/agit8or1/office-unbound/blob/main/CHANGELOG.md) | 2026-11-19 | released | 0.4.5: the Files health check matches what OpenCloud 9.1.0 really answers (a healthy OpenCloud no longer fails verification) |
 | [0.4.4](https://github.com/agit8or1/office-unbound/blob/main/CHANGELOG.md) | 2026-11-19 | released | 0.4.4: Ubuntu security updates no longer break deployments (distribution packages are version floors, our own stay exact; agent 0.5.0-ou8); an apt timeout reports where apt stalled |
 | [0.4.3](https://github.com/agit8or1/office-unbound/blob/main/CHANGELOG.md) | 2026-11-19 | released | 0.4.3: container units start on a real VM (runbook units that run podman no longer freeze a read-only cgroup tree into the rootless pause process; agent 0.5.0-ou7) |
