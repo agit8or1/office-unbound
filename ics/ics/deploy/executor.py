@@ -531,7 +531,7 @@ def _now():
 
 
 def _fail(rt, row_id, message, explanation, deployment_id, job_id, key) -> None:
-    _update(rt, row_id, status="failed", error_message=message[:500], error_explanation=explanation[:500], finished_at=_now())
+    _update(rt, row_id, status="failed", error_message=message[:2000], error_explanation=explanation[:500], finished_at=_now())
     with rt.session() as db:
         state.add_event(db, deployment_id, "step_failed", f"{key}: {message}", job_id)
         db.commit()

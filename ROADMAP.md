@@ -170,7 +170,7 @@ Core platform components are integrated and tested in an isolated lab: own sourc
 
 | Version | Date | Status | Highlights |
 |---|---|---|---|
-| [0.4.2](https://github.com/agit8or1/office-unbound/blob/main/CHANGELOG.md) | 2026-11-19 | prepared | 0.4.2: Files and Office configured by the engine (OpenCloud, Collabora, verified HTTPS edge); fix for writing component volume files on a real VM (agent 0.5.0-ou5) |
+| [0.4.2](https://github.com/agit8or1/office-unbound/blob/main/CHANGELOG.md) | 2026-11-19 | prepared | 0.4.2: Files and Office configured by the engine (OpenCloud, Collabora, verified HTTPS edge); volume files written on a real VM; a failed unit start reports its redacted log (agent 0.5.0-ou6) |
 | [0.4.1](https://github.com/agit8or1/office-unbound/blob/main/CHANGELOG.md) | 2026-11-19 | released | 0.4.1: VM ownership read from the live guest configuration (no false refusal while the Proxmox cache lags); clones drop the golden-image tags |
 | [0.4.0](https://github.com/agit8or1/office-unbound/blob/main/CHANGELOG.md) | 2026-11-19 | released | 0.4.0: the engine configures identity and edge on the VMs it creates (directory, Keycloak, database, TLS, proxy); agent-side health probes; golden image v2 |
 | [0.3.7](https://github.com/agit8or1/office-unbound/blob/main/CHANGELOG.md) | 2026-11-18 | released | 0.3.7: deployments get past agent enrollment (ICS service can read the host neighbour table again) |

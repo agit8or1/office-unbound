@@ -13,7 +13,8 @@ isolated lab; nothing is production supported ([ROADMAP.md](ROADMAP.md)).
 ## [0.4.2] - 2026-11-19
 
 - **Files and Office are configured by the engine** like Identity and Edge: OpenCloud (plus its collaboration unit, same image, `command: [collaboration, server]`) and Collabora get their TLS, environment and CSP files; on their own VM a same-VM TLS proxy serves them, and the edge reaches it over HTTPS verified against the deployment CA (`upstream_name`), with a matching per-peer firewall rule. A catalog unit may now set a `command`; a port may be `shared_with` another component on the same VM (the edge and a hosted service both on 443). Evidence: `test_deploy_exec.py` (files/office), `test_deploy_plan.py` (unit order, shared 443, firewall).
-- **Fix: writing files into a component volume failed on a real VM** (`cfg.volume_files`, e2e-id2 on pve06: crun "create directory …/libpod-….scope/container: No such file or directory"). The configuration helper is a system unit; podman's default systemd cgroup manager asked the service user's systemd for a scope it cannot move a system-unit process into. The one-shot copy container now runs with `--cgroup-manager=cgroupfs --cgroups=disabled` (it stays in the helper's cgroup); the services' own units are unchanged. Node agent package **0.5.0-ou5**, catalog pin raised. Evidence: `test_guest_configure.py::test_volume_files_need_a_verified_image_and_carry_exact_modes`; real-VM evidence in docs/status/host-changes.md.
+- **Fix: writing files into a component volume failed on a real VM** (`cfg.volume_files`, e2e-id2 on pve06: crun "create directory …/libpod-….scope/container: No such file or directory"). The configuration helper is a system unit; podman's default systemd cgroup manager asked the service user's systemd for a scope it cannot move a system-unit process into. The one-shot copy container now runs with `--cgroup-manager=cgroupfs --cgroups=disabled` (it stays in the helper's cgroup); the services' own units are unchanged. Node agent package **0.5.0-ou5**. Evidence: `test_guest_configure.py::test_volume_files_need_a_verified_image_and_carry_exact_modes`; real-VM evidence in docs/status/host-changes.md.
+- **A unit that fails to start now says why.** `podman.deploy_unit` returns the unit's last journal lines (printable ASCII, long token-like strings replaced by `***`) and the step error carries them; before, a failed Keycloak start on the first real VM (e2e-id3) read only "control process exited with error code". Step and event messages keep up to 2000 characters. Node agent package **0.5.0-ou6**, catalog pin raised. Evidence: `test_guest_bootstrap.py::test_a_failed_start_reports_the_units_redacted_log`.
 
 ## [0.4.1] - 2026-11-19
 
@@ -227,7 +228,8 @@ editing, chat/meetings, telephony prototype, migration tooling and package pipel
 - **Review 4** (2 High, 11 Medium, 9 Low; gromox patches, lifecycle, SSO, telephony, migration engine, package pipeline, Collabora) reported. Findings are **open** on `main`; see Unreleased. [report](docs/status/security-review-4-2026-11-15.md)
 - `SECURITY.md` (private reporting) and `CONTRIBUTING.md` (DCO sign-off) added; AGPL-3.0 license. [SECURITY](SECURITY.md)
 
-[Unreleased]: https://github.com/agit8or1/office-unbound/compare/v0.3.6...HEAD
+[Unreleased]: https://github.com/agit8or1/office-unbound/compare/v0.4.2...HEAD
+[0.4.2]: https://github.com/agit8or1/office-unbound/releases/tag/v0.4.2
 [0.4.1]: https://github.com/agit8or1/office-unbound/releases/tag/v0.4.1
 [0.4.0]: https://github.com/agit8or1/office-unbound/releases/tag/v0.4.0
 [0.3.7]: https://github.com/agit8or1/office-unbound/releases/tag/v0.3.7

@@ -527,7 +527,8 @@ class GuestAgentPort:
             raise StepFailed(f"{runbook}: image verification failed: {str(inner.get('error', ''))[:300]}",
                              "The image is not signed by the pinned key, or its digest differs from the plan.", retryable=False)
         if inner.get("started") is False or inner.get("error"):
-            raise StepFailed(f"{runbook} failed: {str(inner.get('error') or inner.get('active_state'))[:300]}", "The unit did not start.", retryable=False)
+            log = f"; unit log: {str(inner['log'])[-1500:]}" if inner.get("log") else ""   # the agent's redacted journal excerpt (agent 0.5.0-ou6+)
+            raise StepFailed(f"{runbook} failed: {str(inner.get('error') or inner.get('active_state'))[:300]}{log}", "The unit did not start.", retryable=False)
         return inner
 
     def address(self, vm: str) -> str:

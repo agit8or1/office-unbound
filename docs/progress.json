@@ -14,7 +14,7 @@
       "codename": "Daybreak",
       "channel": "pre-release",
       "highlights": [
-        "0.4.2: Files and Office configured by the engine (OpenCloud, Collabora, verified HTTPS edge); fix for writing component volume files on a real VM (agent 0.5.0-ou5)"
+        "0.4.2: Files and Office configured by the engine (OpenCloud, Collabora, verified HTTPS edge); volume files written on a real VM; a failed unit start reports its redacted log (agent 0.5.0-ou6)"
       ],
       "notes_url": "https://github.com/agit8or1/office-unbound/blob/main/CHANGELOG.md",
       "changelog": "CHANGELOG.md"

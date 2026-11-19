@@ -17,6 +17,7 @@ CONFIG = "/etc/ou-agent/agent.json"
 SPOOL_DIR = "/run/ou-agent-spool"
 RESULT_ROOT = "/run"
 PODMAN, SYSTEMCTL, APT_GET, DPKG_QUERY, GPG = "/usr/bin/podman", "/usr/bin/systemctl", "/usr/bin/apt-get", "/usr/bin/dpkg-query", "/usr/bin/gpg"
+JOURNALCTL = "/usr/bin/journalctl"
 APT_DIR = "/etc/ou-agent/apt"                 # root-owned: sources.list + keyrings/ + pinned-fingerprints
 APT_STATE = "/var/lib/ou-pkg"
 OU_KEYRING = "signed-by=/etc/ou-agent/apt/keyrings/ou-repo.asc"      # the Office Unbound repo line (guest/cloudinit.py); everything else is a distro archive
@@ -68,6 +69,18 @@ def atomic_write(path, text, mode=0o644):
 
 def user_systemctl(*a, timeout=120):
     return run([SYSTEMCTL, "--user", "--no-ask-password", *a], timeout=timeout)
+
+
+TOKEN_RE = re.compile(r"[A-Za-z0-9_+/=-]{24,}")   # anything shaped like a generated secret, key or token never leaves the node in a log excerpt
+LOG_LINES, LOG_CHARS = 25, 1500
+
+
+def unit_log(base):
+    """The failed unit's last journal lines (the service user's own journal), for the step error: without them a failed start reads
+    "control process exited" and nothing else. Printable ASCII only; long token-like strings are replaced by ***."""
+    r = run([JOURNALCTL, "--user", "-u", base + ".service", "-n", str(LOG_LINES), "-o", "cat", "--no-pager", "-q"], timeout=20)
+    lines = ["".join(ch if 32 <= ord(ch) < 127 else "?" for ch in ln) for ln in (r.stdout or "").splitlines()]
+    return " | ".join(TOKEN_RE.sub("***", ln).strip() for ln in lines if ln.strip())[-LOG_CHARS:]
 
 
 def unit_state(base):
@@ -200,6 +213,8 @@ def deploy_unit(p, cfg):
            "changed": changed, "spec_sha256": manifest["spec_sha256"]}
     if r.returncode != 0:
         out["error"] = tail(r.stderr)[-400:]
+    if not out["started"]:
+        out["log"] = unit_log(base)
     return out
 
 

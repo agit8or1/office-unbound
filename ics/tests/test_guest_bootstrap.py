@@ -428,3 +428,26 @@ def test_pull_falls_back_to_python_verification_when_podman_has_no_sigstore(node
     calls.clear()
     r = gh.pull_verified({"image": IMG}, FULL)
     assert r["verified"] is False and not any(gs.PULLONLY_POLICY_FILE in " ".join(a) for a in calls)   # unsigned image: never pulled
+
+
+def test_a_failed_start_reports_the_units_redacted_log(node, monkeypatch):
+    # first real VM (e2e-id3, 2026-11-19): the step said only "control process exited with error code"; the cause was on the node
+    tmp, log = node
+    assert gh.pull_verified({"image": IMG}, FULL)["verified"] is True
+    secret = "Zq3_" + "x" * 40
+    seen = []
+    real = gh.run
+
+    def run(argv, env=None, timeout=120):
+        if argv[0] == gh.JOURNALCTL:
+            seen.append(argv)
+            return subprocess.CompletedProcess(argv, 0, f"ERROR: Failed to start server\nFATAL: password authentication failed (pw {secret})\n\x1b[0mdone\n", "")
+        if "show" in argv:
+            return subprocess.CompletedProcess(argv, 0, "ActiveState=failed\nSubState=failed\n", "")
+        return real(argv, env=env, timeout=timeout)
+    monkeypatch.setattr(gh, "run", run)
+    r = gh.deploy_unit(GOOD, FULL)
+    assert r["started"] is False and seen[0][1:4] == ["--user", "-u", "ou-web-whoami.service"]
+    assert "password authentication failed" in r["log"] and secret not in r["log"] and "***" in r["log"] and "\x1b" not in r["log"]
+    monkeypatch.setattr(gh, "run", lambda argv, env=None, timeout=120: subprocess.CompletedProcess(argv, 0, "ActiveState=active\n", ""))
+    assert "log" not in gh.deploy_unit(GOOD, FULL)

@@ -65,7 +65,7 @@ def provider_ref(db, deployment_id: str, vm: str) -> dict | None:
 
 def add_event(db, deployment_id: str, kind: str, message: str, job_id: str | None = None, details: dict | None = None) -> None:
     db.execute(text("INSERT INTO deployment_events (deployment_id, kind, message, job_id, details) VALUES (:d, :k, :m, :j, CAST(:x AS jsonb))"),
-               {"d": deployment_id, "k": kind, "m": message[:500], "j": job_id, "x": json.dumps(details or {}, sort_keys=True)})
+               {"d": deployment_id, "k": kind, "m": message[:2000], "j": job_id, "x": json.dumps(details or {}, sort_keys=True)})
 
 
 def existing_from_resources(db, deployment_id: str) -> dict[str, ExistingVm]:
