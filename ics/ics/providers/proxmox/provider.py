@@ -906,7 +906,8 @@ class ProxmoxMutations(ProxmoxProvider):
         if foreign:
             raise ScopeViolation(f"guest {task.vmid} already carries ownership tags of another deployment ({', '.join(foreign)}); refusing")
         # a clone inherits the template's tags (real PVE): the golden-image markers describe the template, never a deployed guest
-        keep = [t for t in tags_of(cfg.get("tags")) if t != OWNED_TAG and not t.startswith(DEP_PREFIX) and t != "ou-image" and not t.startswith("ou-rel-")]
+        keep = [t for t in tags_of(cfg.get("tags")) if t != OWNED_TAG and not t.startswith(DEP_PREFIX) and t != "ou-image" and not t.startswith("ou-rel-")
+                and not t.startswith("ou-ver-")]
         tags = ";".join(keep + [OWNED_TAG, DEP_PREFIX + task.deployment_id.lower()])
         node = r["node"]
         up = self._do("put", f"/nodes/{_seg(node)}/qemu/{int(task.vmid)}/config", {"tags": tags})
@@ -1271,7 +1272,9 @@ class ProxmoxMutations(ProxmoxProvider):
         data = {"vmid": vmid, "name": spec.name, "pool": spec.pool, "cores": spec.cores, "memory": spec.memory_mb, "ostype": "l26", "scsihw": "virtio-scsi-single",
                 "scsi0": f"{spec.target_storage}:0,import-from={volid}", "boot": "order=scsi0", "serial0": "socket", "agent": "0",
                 "description": "Office Unbound golden guest image (ADR-0008 pipeline output)"}
-        tags = f"{OWNED_TAG};ou-image;{rel_tag}"
+        # ou-ver-<N>: the signed manifest version; several images of one day share the date tag, and Proxmox reuses freed VM ids, so the
+        # version (not the VM id) decides which template is current (pick_template; 2026-11-19: v8 got VMID 131 below v7's 148)
+        tags = f"{OWNED_TAG};ou-image;{rel_tag};ou-ver-{int(rel.version)}"
         if net:
             data["net0"] = net
         try:

@@ -366,11 +366,14 @@ def _node_for(ctx: StepCtx, vm: str) -> str:
 
 def pick_template(templates: list[dict], name: str) -> dict | None:
     """Several templates may carry the catalog name after a newer golden image was imported (image.import never deletes the previous one): take
-    the Office Unbound image (tag ou-image) with the newest release tag (ou-rel-<os>-<YYYYMMDD>), then the highest VM id. Deterministic."""
+    the Office Unbound image (tag ou-image) with the newest release tag (ou-rel-<os>-<YYYYMMDD>), then the highest signed manifest version
+    (ou-ver-<N>; an untagged older import counts 0), then the highest VM id. The VM id is only the last resort: Proxmox reuses freed ids, so a
+    newer import can get a LOWER id (2026-11-19: image v8 became VMID 131 while v7 was 148). Deterministic."""
     def key(t):
         tags = t.get("tags") or []
         rel = max((x.rsplit("-", 1)[-1] for x in tags if x.startswith("ou-rel-")), default="")
-        return ("ou-image" in tags, rel, int(t.get("vmid") or 0))
+        ver = max((int(x[7:]) for x in tags if x.startswith("ou-ver-") and x[7:].isdigit()), default=0)
+        return ("ou-image" in tags, rel, ver, int(t.get("vmid") or 0))
     cands = [t for t in templates if t.get("name") == name]
     return max(cands, key=key) if cands else None
 

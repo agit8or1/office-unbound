@@ -738,6 +738,21 @@ def test_the_newest_imported_golden_template_wins_when_names_repeat():
     assert executor.pick_template(t, "ou-tpl-none") is None
 
 
+def test_the_signed_version_beats_a_higher_reused_vm_id():
+    """2026-11-19 on pve06: image v8 was imported on the same day as v7 and Proxmox gave it the freed VMID 131, below v7's 148. Same date tag:
+    the higher VM id used to win, so deployments kept cloning v7 (whose agent lacks cfg.gromox)."""
+    rel = "ou-rel-ubuntu-24.04-20261119"
+    v7 = {"vmid": 148, "name": "ou-tpl-ubuntu-2404", "tags": ["ou-managed", "ou-image", rel]}                 # imported before version tags
+    v8 = {"vmid": 131, "name": "ou-tpl-ubuntu-2404", "tags": ["ou-managed", "ou-image", rel, "ou-ver-8"]}
+    v9 = {"vmid": 120, "name": "ou-tpl-ubuntu-2404", "tags": ["ou-managed", "ou-image", rel, "ou-ver-9"]}
+    assert executor.pick_template([v7, v8], "ou-tpl-ubuntu-2404")["vmid"] == 131
+    assert executor.pick_template([v7, v8, v9], "ou-tpl-ubuntu-2404")["vmid"] == 120
+    newer_day = {"vmid": 100, "name": "ou-tpl-ubuntu-2404", "tags": ["ou-managed", "ou-image", "ou-rel-ubuntu-24.04-20261120", "ou-ver-1"]}
+    assert executor.pick_template([v9, newer_day], "ou-tpl-ubuntu-2404")["vmid"] == 100                     # the release date still comes first
+    bad = {"vmid": 400, "name": "ou-tpl-ubuntu-2404", "tags": ["ou-managed", "ou-image", rel, "ou-ver-x9"]}
+    assert executor.pick_template([v8, bad], "ou-tpl-ubuntu-2404")["vmid"] == 131                            # a malformed tag counts 0
+
+
 def test_deployed_service_checks_are_agent_probes_on_real_guests(client, actors, rt, env, monkeypatch):
     """With an agent that probes its own loopback (the real GuestAgentPort), http/tcp_tls checks are registered as agent_probe checks with the
     name the deployment certificate carries; nothing asks for TLS trust discovery any more."""

@@ -173,6 +173,7 @@ def test_m7_older_releases_are_refused_unless_an_explicit_downgrade(sim, job, tm
     floor = golden.Floor(5, new[1])
     r = m.import_image(spec(new, floor=floor))
     assert "ou-rel-debian-12-20261115" in sim.sim.vms[r.vmid]["cfg"]["tags"]
+    assert "ou-ver-5" in sim.sim.vms[r.vmid]["cfg"]["tags"]           # the signed manifest version decides between same-day imports
     old = release(tmp_path, "20261001", version=3)
     with pytest.raises(ProviderError) as e:
         m.import_image(spec(old, name="ou-tpl-debian12-agent2", floor=floor))
