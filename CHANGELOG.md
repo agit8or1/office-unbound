@@ -10,6 +10,11 @@ isolated lab; nothing is production supported ([ROADMAP.md](ROADMAP.md)).
 
 ## [Unreleased]
 
+## [0.4.1] - 2026-11-19
+
+- **Fix: a fresh deployment refused its own VM** ("VM … is not a guest of this deployment (tags/name do not match)", real pve06, deployment e2e-id1). Right after the ownership tags were set, Proxmox's `/cluster/resources` cache still listed the template's tags; the ownership checks read that cache. They now read name and tags from the guest's live configuration (`guest_owned`, provider `_guest`), which is authoritative in both directions. The simulator models the cache lag. Evidence: `test_first_real_deployment.py::test_ownership_is_read_from_the_live_config_not_the_lagging_resources_cache` (fails without the fix with the real error).
+- **A deployed VM no longer carries the golden-image markers** (`ou-image`, `ou-rel-…`) it inherited from its template. Evidence: `test_a_clone_does_not_keep_the_golden_image_markers_of_its_template`.
+
 ## [0.4.0] - 2026-11-19
 
 Release line **Daybreak**: the deployment engine now creates the node-local state a component needs before its service starts (open item 5 of docs/status/artifacts-core-results.md), for **identity** (OpenLDAP + Keycloak + PostgreSQL) and the **edge** (nginx). Files, documents and groupware still carry their catalog notices.
@@ -218,6 +223,7 @@ editing, chat/meetings, telephony prototype, migration tooling and package pipel
 - `SECURITY.md` (private reporting) and `CONTRIBUTING.md` (DCO sign-off) added; AGPL-3.0 license. [SECURITY](SECURITY.md)
 
 [Unreleased]: https://github.com/agit8or1/office-unbound/compare/v0.3.6...HEAD
+[0.4.1]: https://github.com/agit8or1/office-unbound/releases/tag/v0.4.1
 [0.4.0]: https://github.com/agit8or1/office-unbound/releases/tag/v0.4.0
 [0.3.7]: https://github.com/agit8or1/office-unbound/releases/tag/v0.3.7
 [0.3.6]: https://github.com/agit8or1/office-unbound/releases/tag/v0.3.6

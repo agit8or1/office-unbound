@@ -197,3 +197,31 @@ def test_podman_runbook_unit_does_not_stack_seccomp_and_mount_sandboxing():
     assert not (keys & mount and keys & seccomp), (keys & mount, keys & seccomp)
     assert "PrivateTmp" not in keys and "PrivateTmp=true" not in lines          # the image store keeps temporary files in /var/tmp across runbook runs
     assert "User=ou-svc" in lines and "NoNewPrivileges=true" not in lines and "NoNewPrivileges=yes" not in lines
+
+
+def test_ownership_is_read_from_the_live_config_not_the_lagging_resources_cache(sim, job):
+    """Real pve06 2026-11-19 (deployment e2e-id1): right after finalize_clone set the ownership tags, /cluster/resources still listed the
+    template's tags, so configure_vm refused its own guest ("is not a guest of this deployment"). The live config is authoritative."""
+    sim.sim.tag_cache_lag = 5
+    m = mutations(sim)
+    t = m.clone_vm(clone_spec())
+    m.wait(t, timeout=5)
+    m.wait(m.finalize_clone(t), timeout=5)
+    r = VmRef(node=t.node, vmid=t.vmid, kind="vm", deployment_id=t.deployment_id)
+    m.wait(m.configure_vm(r, VmConfigSpec(cores=2)), timeout=5)                 # refused before the fix
+    assert m.guest_owned(r, "app01", t.deployment_id)["vmid"] == t.vmid
+    sim.sim.vms[t.vmid]["cfg"]["tags"] = "ou-managed;ou-deployment-other"      # the live config decides in both directions
+    assert m.guest_owned(r, "app01", t.deployment_id) is None
+    with pytest.raises(Exception, match="ownership tags"):
+        m.configure_vm(r, VmConfigSpec(cores=2))
+
+
+def test_a_clone_does_not_keep_the_golden_image_markers_of_its_template(sim, job):
+    """Real pve06: a clone inherits the template's tags (ou-image;ou-rel-...); the deployed guest must not look like a golden image."""
+    sim.sim.clone_inherits_tags = True
+    sim.sim.vms[9000]["cfg"]["tags"] = "ou-image;ou-managed;ou-rel-ubuntu-24.04-20261118;keep-me"
+    m = mutations(sim)
+    t = m.clone_vm(clone_spec())
+    m.wait(t, timeout=5)
+    m.wait(m.finalize_clone(t), timeout=5)
+    assert sorted(sim.sim.vms[t.vmid]["cfg"]["tags"].split(";")) == ["keep-me", "ou-deployment-d9", "ou-managed"]

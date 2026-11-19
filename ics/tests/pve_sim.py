@@ -324,6 +324,9 @@ class PveSim:
              "uptime": 5000 if run else 0, "netin": 1000, "netout": 500, "template": 1 if c.get("template") else 0}
         if c.get("tags"):
             d["tags"] = c["tags"]
+        if vm.get("res_tag_lag"):
+            vm["res_tag_lag"] -= 1
+            d["tags"] = vm.get("res_old_tags", "")
         if vm["pool"]:
             d["pool"] = vm["pool"]
         return d
@@ -947,6 +950,8 @@ class PveSim:
             raise HTTPErr(500, "Linked clone feature is not available (source is not a template)")
         target = f.get("target") or node
         cfg = {k: v for k, v in src["cfg"].items() if k not in ("template", "tags")}
+        if getattr(self, "clone_inherits_tags", False) and src["cfg"].get("tags"):   # real PVE: the clone carries the template's tags
+            cfg["tags"] = src["cfg"]["tags"]
         cfg["name"] = f.get("name") or f"Copy-of-VM-{src['cfg'].get('name')}"
         if st and full:
             for k, v in list(cfg.items()):
@@ -975,6 +980,9 @@ class PveSim:
         self.cluster_log.append({"user": tid, "pri": 6, "node": node, "tag": "pvedaemon",
                                  "msg": f"update VM {vm['vmid']}: " + " ".join(f"-{k} {'<hidden>' if k == 'cipassword' else v}" for k, v in sorted(f.items()))})
         running = vm["status"] == "running"
+        if "tags" in f and getattr(self, "tag_cache_lag", 0) and f["tags"] != vm["cfg"].get("tags"):
+            # real PVE 9 (pve06 2026-11-19): /cluster/resources keeps showing the previous tags for a moment after a tag change
+            vm["res_old_tags"], vm["res_tag_lag"] = vm["cfg"].get("tags", ""), self.tag_cache_lag
         for k, v in f.items():
             if k == "delete":
                 for dk in str(v).split(","):

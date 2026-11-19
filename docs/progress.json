@@ -5,8 +5,20 @@
   "repository": "https://github.com/agit8or1/office-unbound",
   "updated": "2026-11-18",
   "stage": "pre-alpha (lab)",
-  "current_version": "0.4.0",
+  "current_version": "0.4.1",
   "releases": [
+    {
+      "version": "0.4.1",
+      "date": "2026-11-19",
+      "status": "prepared",
+      "codename": "Daybreak",
+      "channel": "pre-release",
+      "highlights": [
+        "0.4.1: VM ownership read from the live guest configuration (no false refusal while the Proxmox cache lags); clones drop the golden-image tags"
+      ],
+      "notes_url": "https://github.com/agit8or1/office-unbound/blob/main/CHANGELOG.md",
+      "changelog": "CHANGELOG.md"
+    },
     {
       "version": "0.4.0",
       "date": "2026-11-19",

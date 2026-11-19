@@ -168,6 +168,9 @@ def _disk_key(index: int) -> str:
 
 def _owned_guest(ctx: StepCtx, ref: VmRef, name: str):
     """Review 3 L3: ownership is by VMID + tags (+ name), never by name alone: a recycled vmid carrying someone else's guest is not ours."""
+    live = getattr(ctx.env.provider, "guest_owned", None)
+    if live is not None:   # the live guest config, not the /cluster/resources cache (it lags behind tag changes on real PVE)
+        return live(ref, name, ctx.slug)
     d = ctx.env.provider.discover()
     tag = f"ou-deployment-{ctx.slug}"
     return next((g for g in d.guests if int(g["vmid"]) == int(ref.vmid) and g["name"] == name and tag in g["tags"] and "ou-managed" in g["tags"]), None)

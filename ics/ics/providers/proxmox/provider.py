@@ -755,10 +755,28 @@ class ProxmoxMutations(ProxmoxProvider):
             raise ScopeViolation(f"guest {ref.vmid} is in pool {r.get('pool')!r}, not in the endpoint's allowed pools")
         if r.get("template"):
             raise ScopeViolation(f"guest {ref.vmid} is a template")
-        tags = tags_of(r.get("tags"))
-        if not allow_untagged and (OWNED_TAG not in tags or DEP_PREFIX + ref.deployment_id.lower() not in tags):
-            raise ScopeViolation(f"guest {ref.vmid} does not carry the ownership tags {OWNED_TAG} + {DEP_PREFIX}{ref.deployment_id}")
+        if not allow_untagged:
+            # the tags from the LIVE config: /cluster/resources is a cache that showed the previous tags for a while after finalize_clone set
+            # ours (real pve06 2026-11-19), which refused the deployment's own guest; the cache also cannot prove ownership the other way
+            tags = tags_of(self._cfg(ref).get("tags"))
+            if OWNED_TAG not in tags or DEP_PREFIX + ref.deployment_id.lower() not in tags:
+                raise ScopeViolation(f"guest {ref.vmid} does not carry the ownership tags {OWNED_TAG} + {DEP_PREFIX}{ref.deployment_id}")
+            r = {**r, "tags": ";".join(sorted(tags))}
         return r
+
+    def guest_owned(self, ref: VmRef, name: str, deployment_id: str) -> dict | None:
+        """Read-only ownership check from the guest's LIVE config (name + both ownership tags); node/pool scope as in _guest. None = not ours."""
+        r = next((x for x in self._resources() if x.get("vmid") == ref.vmid), None)
+        if r is None or r.get("template") or r.get("pool") not in self.scope.pools or not self.scope.node_ok(r.get("node")):
+            return None
+        try:
+            cfg = self._get(f"/nodes/{_seg(r['node'])}/{_KIND_PATH[ref.kind]}/{int(ref.vmid)}/config", self._w)
+        except ProviderError:
+            return None
+        tags = tags_of(cfg.get("tags"))
+        if cfg.get("name") != name or OWNED_TAG not in tags or DEP_PREFIX + deployment_id.lower() not in tags:
+            return None
+        return {**r, "name": cfg.get("name"), "tags": sorted(tags)}
 
     def _refuse_self(self, vmid: int, node: str, kind: str = "vm") -> None:
         """HARD RULE: never touch the ICS's own VM or a protected guest, whatever the token is allowed to do. Fails closed."""
@@ -887,7 +905,8 @@ class ProxmoxMutations(ProxmoxProvider):
         foreign = [t for t in mine if t not in (OWNED_TAG, DEP_PREFIX + task.deployment_id.lower())]
         if foreign:
             raise ScopeViolation(f"guest {task.vmid} already carries ownership tags of another deployment ({', '.join(foreign)}); refusing")
-        keep = [t for t in tags_of(cfg.get("tags")) if t != OWNED_TAG and not t.startswith(DEP_PREFIX)]
+        # a clone inherits the template's tags (real PVE): the golden-image markers describe the template, never a deployed guest
+        keep = [t for t in tags_of(cfg.get("tags")) if t != OWNED_TAG and not t.startswith(DEP_PREFIX) and t != "ou-image" and not t.startswith("ou-rel-")]
         tags = ";".join(keep + [OWNED_TAG, DEP_PREFIX + task.deployment_id.lower()])
         node = r["node"]
         up = self._do("put", f"/nodes/{_seg(node)}/qemu/{int(task.vmid)}/config", {"tags": tags})
