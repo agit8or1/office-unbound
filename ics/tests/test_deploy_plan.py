@@ -320,6 +320,16 @@ def test_steps_form_a_valid_dependency_order():
         assert gs.check_deploy(params, reg)["image"] == params["image"]
     inst = next(s for s in p["steps"] if s["key"] == "comp.install:acme-prod-groupware:groupware")
     assert {r["runbook"] for r in inst["params"]["runbooks"]} == {"pkg.install_pinned"}
+    # distribution-archive packages are floors (the archive keeps only its newest build per pocket: real VM e2e-fo3), our own repository is exact;
+    # every package step is in the shape the node agent's validator accepts
+    pk = {r["params"]["packages"][0]["name"]: r["params"]["packages"][0] for r in inst["params"]["runbooks"]}
+    assert pk["mariadb-server"]["match"] == "floor" and pk["postfix"]["match"] == "floor"
+    assert "match" not in pk["ou-gromox"] and "match" not in pk["ou-grommunio-web"]
+    for st in p["steps"]:
+        for r in st.get("params", {}).get("runbooks", []):
+            if r["runbook"] == "pkg.install_pinned":
+                names = [x["name"] for x in r["params"]["packages"]]
+                assert gs.check_pkg(r["params"], {"packages": names})["packages"][0]["match"] in ("exact", "floor")
 
 
 def test_order_steps_rejects_cycles_and_unknown_deps():

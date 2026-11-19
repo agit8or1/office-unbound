@@ -17,6 +17,7 @@ CONFIG = "/etc/ou-agent/agent.json"
 SPOOL_DIR = "/run/ou-agent-spool"
 RESULT_ROOT = "/run"
 PODMAN, SYSTEMCTL, APT_GET, DPKG_QUERY, GPG = "/usr/bin/podman", "/usr/bin/systemctl", "/usr/bin/apt-get", "/usr/bin/dpkg-query", "/usr/bin/gpg"
+APT_CACHE, DPKG = "/usr/bin/apt-cache", "/usr/bin/dpkg"
 JOURNALCTL = "/usr/bin/journalctl"
 APT_DIR = "/etc/ou-agent/apt"                 # root-owned: sources.list + keyrings/ + pinned-fingerprints
 APT_STATE = "/var/lib/ou-pkg"
@@ -369,6 +370,50 @@ def _check_channel_release(lists=None):
                 raise Reject("release_channel_mismatch", "the Release for %s says Suite=%s Codename=%s: channel confusion refused" % (s, hdr.get("Suite"), hdr.get("Codename")))
 
 
+def _apt_run(argv, env, timeout, what):
+    """Run apt; on a timeout return a message carrying the tail of apt's own progress output (the Get/Ign/Err lines name the source that
+    stalled) instead of a bare exception name (real VM e2e-fo2, 2026-11-19: "pkg.install_pinned failed: TimeoutExpired", nothing else)."""
+    try:
+        return run(argv, env=env, timeout=timeout)
+    except subprocess.TimeoutExpired as e:
+        raw = e.stdout or b""
+        txt = raw.decode("utf-8", "replace") if isinstance(raw, bytes) else raw
+        lines = ["".join(ch if 32 <= ord(ch) < 127 else "?" for ch in ln).strip() for ln in txt.replace("\r", "\n").splitlines()]
+        return f"{what} timed out after {timeout} s; last output: " + (" | ".join(ln for ln in lines if ln)[-600:] or "(none)")
+
+
+def _ou_repo_urls():
+    return {ln.split()[2] for ln in open(os.path.join(APT_DIR, "sources.list")).read().split("\n")
+            if ln.strip() and not ln.startswith("#") and OU_KEYRING in ln}
+
+
+def _floor_candidate(name, floor, env):
+    """`match: floor` (distro archive packages): the archive's current candidate, refused unless it is at least `floor` and is served by a
+    distribution archive line (never by our own repository: those packages are pinned exactly). Returns "=<version>" or an error message."""
+    r = run([APT_CACHE, "-q", *_apt_opts(), "policy", name], env=env, timeout=60)
+    cand, table, cur = None, {}, None
+    for ln in (r.stdout or "").splitlines():
+        if ln.strip().startswith("Candidate:"):
+            cand = ln.split(":", 1)[1].strip()
+            continue
+        m = re.match(r"^ {5}(?:\*\*\* )?(\S+) -?\d+$", ln) or re.match(r"^ \*\*\* (\S+) -?\d+$", ln)
+        if m:
+            cur = m.group(1)
+            table.setdefault(cur, set())
+            continue
+        m = re.match(r"^ {8}-?\d+ (\S+) ", ln)
+        if m and cur is not None:
+            table[cur].add(m.group(1))
+    if r.returncode != 0 or not cand or cand == "(none)" or not g.PKGVER_RE.fullmatch(cand):
+        return f"{name}: no installable version in the configured archives"
+    srcs = {u for u in table.get(cand, set()) if u.startswith("http")}
+    if not srcs or srcs <= _ou_repo_urls():
+        return f"{name} {cand}: a floor-matched package must come from a distribution archive"
+    if run([DPKG, "--compare-versions", cand, "ge", floor], env=env, timeout=20).returncode != 0:
+        return f"{name}: the archive offers {cand}, older than the catalog floor {floor}"
+    return "=" + cand
+
+
 def install_pinned(p, cfg):
     _check_sources()
     pinned, found = _keyring_fingerprints()
@@ -376,16 +421,31 @@ def install_pinned(p, cfg):
         raise Reject("repo_key_mismatch", "repository keyring does not match the pinned fingerprints")
     os.makedirs(APT_STATE + "/lists/partial", exist_ok=True)
     env = {"PATH": "/usr/bin:/bin:/usr/sbin:/sbin", "LANG": "C", "DEBIAN_FRONTEND": "noninteractive"}
-    u = run([APT_GET, "-q", *_apt_opts(), "update"], env=env, timeout=300)
+    u = _apt_run([APT_GET, "-q", *_apt_opts(), "update"], env, 300, "apt update")
+    if isinstance(u, str):
+        return {"installed": [], "ok": False, "error": u}
     if u.returncode != 0:
         return {"installed": [], "error": "apt update failed: " + tail(u.stderr)[-300:]}
     _check_channel_release()
-    specs = [f"{x['name']}={x['version']}" for x in p["packages"]]
-    r = run([APT_GET, "-q", "-y", "--no-install-recommends", *_apt_opts(), "install", *specs], env=env, timeout=900)
+    want = {}
+    for x in p["packages"]:
+        if x.get("match", "exact") == "floor":
+            v = _floor_candidate(x["name"], x["version"], env)
+            if not v.startswith("="):
+                return {"installed": [], "ok": False, "error": v}
+            want[x["name"]] = v[1:]
+        else:
+            want[x["name"]] = x["version"]
+    specs = [f"{n}={v}" for n, v in want.items()]
+    r = _apt_run([APT_GET, "-q", "-y", "--no-install-recommends", *_apt_opts(), "install", *specs], env, 900, "apt install")
+    if isinstance(r, str):
+        return {"installed": [], "ok": False, "error": r}
     res = []
     for x in p["packages"]:
         q = run([DPKG_QUERY, "-W", "-f=${Version}", x["name"]], env=env, timeout=20)
-        res.append({"name": x["name"], "wanted": x["version"], "installed": q.stdout.strip() or None, "ok": q.stdout.strip() == x["version"]})
+        w = want[x["name"]]
+        res.append({"name": x["name"], "wanted": w, "floor": x["version"] if w != x["version"] else None,
+                    "installed": q.stdout.strip() or None, "ok": q.stdout.strip() == w})
     out = {"installed": res, "ok": r.returncode == 0 and all(x["ok"] for x in res)}
     if r.returncode != 0:
         out["error"] = tail(r.stderr)[-400:]

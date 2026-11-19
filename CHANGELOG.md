@@ -10,6 +10,11 @@ isolated lab; nothing is production supported ([ROADMAP.md](ROADMAP.md)).
 
 ## [Unreleased]
 
+## [0.4.4] - 2026-11-19
+
+- **Fix: a deployment broke whenever Ubuntu published a security update** for a package the catalog names. On e2e-fo3 the Files VM's `pkg.install_pinned nginx=1.24.0-2ubuntu7.19` failed with "Unable to correct problems, you have held broken packages": that morning's security update 7.20 made `nginx-common` 7.20 the candidate while nginx 7.19 needs exactly 7.19, and the archive keeps only the newest build per pocket, so 7.19 disappears altogether once 7.20 reaches `-updates`. For packages from a distribution archive (`ubuntu-noble`, `debian-bookworm`) the catalog version is now a **floor**: the agent installs the archive's current candidate, refuses it if it is older than the floor or is served only by our own repository, and reports the version it installed. Our own repository's packages stay pinned exactly. Node agent **0.5.0-ou8**, catalog pin raised. Evidence: `test_guest_bootstrap.py::test_floor_installs_the_archives_current_security_update`, `::test_floor_refuses_older_absent_or_own_repository_versions`, `test_deploy_plan.py` (floor for distribution packages, exact for ours, every package step accepted by the agent validator).
+- **An apt timeout now says where apt stalled**: `pkg.install_pinned` returns the tail of apt's own progress output instead of the bare exception name (e2e-fo2: "pkg.install_pinned failed: TimeoutExpired"). Evidence: `test_guest_bootstrap.py::test_an_apt_timeout_reports_apts_own_output`.
+
 ## [0.4.3] - 2026-11-19
 
 - **Fix: no container unit could start on a real VM** (Keycloak on e2e-id5: `mkdir /sys/fs/cgroup/user.slice/.../ou-identity-keycloak.service/runtime: read-only file system`, visible thanks to the 0.4.2 unit log). The first podman command of the service user creates its long-lived rootless `pause` process, and every later podman command, the Quadlet units under the user manager included, joins that process's mount namespace. It was created inside a runbook unit with `ProtectControlGroups=true` (and, for the configuration helper, `PrivateTmp`/`ProtectKernel*`), which froze a read-only `/sys/fs/cgroup` into every container start. The two units that run podman (`ou-rb-podman@`, `ou-rb-cfg@`) now carry no mount-namespace option. Node agent **0.5.0-ou7**, catalog pin raised. Evidence: `test_first_real_deployment.py::test_units_that_run_podman_create_no_mount_namespace`; real-VM evidence in docs/status/host-changes.md.
@@ -234,7 +239,8 @@ editing, chat/meetings, telephony prototype, migration tooling and package pipel
 - **Review 4** (2 High, 11 Medium, 9 Low; gromox patches, lifecycle, SSO, telephony, migration engine, package pipeline, Collabora) reported. Findings are **open** on `main`; see Unreleased. [report](docs/status/security-review-4-2026-11-15.md)
 - `SECURITY.md` (private reporting) and `CONTRIBUTING.md` (DCO sign-off) added; AGPL-3.0 license. [SECURITY](SECURITY.md)
 
-[Unreleased]: https://github.com/agit8or1/office-unbound/compare/v0.4.3...HEAD
+[Unreleased]: https://github.com/agit8or1/office-unbound/compare/v0.4.4...HEAD
+[0.4.4]: https://github.com/agit8or1/office-unbound/compare/v0.4.3...v0.4.4
 [0.4.3]: https://github.com/agit8or1/office-unbound/releases/tag/v0.4.3
 [0.4.2]: https://github.com/agit8or1/office-unbound/releases/tag/v0.4.2
 [0.4.1]: https://github.com/agit8or1/office-unbound/releases/tag/v0.4.1

@@ -451,3 +451,70 @@ def test_a_failed_start_reports_the_units_redacted_log(node, monkeypatch):
     assert "password authentication failed" in r["log"] and secret not in r["log"] and "***" in r["log"] and "\x1b" not in r["log"]
     monkeypatch.setattr(gh, "run", lambda argv, env=None, timeout=120: subprocess.CompletedProcess(argv, 0, "ActiveState=active\n", ""))
     assert "log" not in gh.deploy_unit(GOOD, FULL)
+
+
+def test_an_apt_timeout_reports_apts_own_output(node, monkeypatch):
+    # real VM e2e-fo2 (2026-11-19): `apt update` stalled 300 s and the step said only "pkg.install_pinned failed: TimeoutExpired"
+    def stalled(argv, env=None, timeout=120):
+        raise subprocess.TimeoutExpired(argv, timeout, output=b"Hit:1 http://security.ubuntu.com/ubuntu noble-security InRelease\r0% [Connecting to archive.ubuntu.com (2001:db8::1)]\x1b")
+    monkeypatch.setattr(gh, "run", stalled)
+    msg = gh._apt_run(["apt-get", "update"], {}, 300, "apt update")
+    assert msg.startswith("apt update timed out after 300 s; last output: ")
+    assert "Hit:1 http://security.ubuntu.com/ubuntu noble-security InRelease | 0% [Connecting to archive.ubuntu.com (2001:db8::1)]?" in msg
+    monkeypatch.setattr(gh, "run", lambda argv, env=None, timeout=120: (_ for _ in ()).throw(subprocess.TimeoutExpired(argv, timeout)))
+    assert gh._apt_run(["apt-get", "update"], {}, 300, "apt update").endswith("last output: (none)")
+
+
+def test_package_match_is_exact_or_floor():
+    cfg = {"packages": ["nginx"]}
+    assert gs.check_pkg({"packages": [{"name": "nginx", "version": "1.24.0-2ubuntu7.19"}]}, cfg)["packages"][0]["match"] == "exact"
+    assert gs.check_pkg({"packages": [{"name": "nginx", "version": "1.24.0-2ubuntu7.19", "match": "floor"}]}, cfg)["packages"][0]["match"] == "floor"
+    for bad in ({"name": "nginx", "version": "1.24.0", "match": "latest"}, {"name": "nginx", "version": "1.24.0", "match": "floor", "x": 1}):
+        with pytest.raises(Reject):
+            gs.check_pkg({"packages": [bad]}, cfg)
+
+
+# `apt-cache policy nginx` as a guest saw it on 2026-11-19 after the 7.20 security update (7.19 still in noble-updates), plus our repository line
+POLICY = """nginx:
+  Installed: (none)
+  Candidate: 1.24.0-2ubuntu7.20
+  Version table:
+     1.24.0-2ubuntu7.20 500
+        500 http://security.ubuntu.com/ubuntu noble-security/main amd64 Packages
+     1.24.0-2ubuntu7.19 500
+        500 http://archive.ubuntu.com/ubuntu noble-updates/main amd64 Packages
+     1.24.0-2ubuntu7 500
+        500 http://archive.ubuntu.com/ubuntu noble/main amd64 Packages
+"""
+
+
+def _policy_stub(monkeypatch, tmp_path, policy, cmp_rc=0):
+    apt = tmp_path / "apt"
+    apt.mkdir(exist_ok=True)
+    (apt / "sources.list").write_text("deb [signed-by=/usr/share/keyrings/ubuntu-archive-keyring.gpg] http://archive.ubuntu.com/ubuntu noble main\n"
+                                      f"deb [{gh.OU_KEYRING}] https://artifacts.ou.test:8446/apt dev main\n")
+    monkeypatch.setattr(gh, "APT_DIR", str(apt))
+    calls = []
+
+    def run(argv, env=None, timeout=120):
+        calls.append(argv)
+        out = policy if argv[0] == gh.APT_CACHE else ""
+        return subprocess.CompletedProcess(argv, cmp_rc if argv[0] == gh.DPKG else 0, out, "")
+    monkeypatch.setattr(gh, "run", run)
+    return calls
+
+
+def test_floor_installs_the_archives_current_security_update(monkeypatch, tmp_path):
+    calls = _policy_stub(monkeypatch, tmp_path, POLICY)
+    assert gh._floor_candidate("nginx", "1.24.0-2ubuntu7.19", {}) == "=1.24.0-2ubuntu7.20"
+    assert calls[-1] == [gh.DPKG, "--compare-versions", "1.24.0-2ubuntu7.20", "ge", "1.24.0-2ubuntu7.19"]
+
+
+def test_floor_refuses_older_absent_or_own_repository_versions(monkeypatch, tmp_path):
+    _policy_stub(monkeypatch, tmp_path, POLICY, cmp_rc=1)
+    assert "older than the catalog floor" in gh._floor_candidate("nginx", "1.26.0-1", {})
+    _policy_stub(monkeypatch, tmp_path, "nginx:\n  Installed: (none)\n  Candidate: (none)\n  Version table:\n")
+    assert "no installable version" in gh._floor_candidate("nginx", "1.24.0", {})
+    own = "ou-x:\n  Candidate: 2.0-ou1\n  Version table:\n     2.0-ou1 500\n        500 https://artifacts.ou.test:8446/apt dev/main amd64 Packages\n"
+    _policy_stub(monkeypatch, tmp_path, own)
+    assert "must come from a distribution archive" in gh._floor_candidate("ou-x", "1.0-ou1", {})

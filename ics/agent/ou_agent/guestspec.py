@@ -29,6 +29,7 @@ FORBIDDEN_MOUNT_PREFIXES = ("/proc", "/sys", "/dev", "/run", "/etc", "/boot", "/
 IPV4_RE = re.compile(r"^(25[0-5]|2[0-4]\d|1?\d?\d)(\.(25[0-5]|2[0-4]\d|1?\d?\d)){3}$")
 PKGNAME_RE = re.compile(r"^[a-z0-9][a-z0-9+.-]{1,62}$")
 PKGVER_RE = re.compile(r"^[0-9][A-Za-z0-9.+~:-]{0,63}$")
+PKG_MATCH = ("exact", "floor")
 SECRET_RE = re.compile(r"^[a-z][a-z0-9-]{1,40}$")
 USER_RE = re.compile(r"^[0-9]{1,5}(:[0-9]{1,5})?$")
 UNIT_TYPES = ("container", "container-hostnet")                  # host networking only when the spec says so explicitly
@@ -162,11 +163,16 @@ def check_pkg(p, cfg):
         raise Reject("bad_params", "packages: 1..%d entries" % MAX_PACKAGES)
     allowed, out = cfg.get("packages", []), []
     for x in pk:
-        _exact(x, ("name", "version"))
+        _exact(x, ("name", "version", "match"), ("name", "version"))
         n = _s(x["name"], PKGNAME_RE, "package name")
         if n not in allowed:
             raise Reject("not_allowed", "package is not allowlisted on this node")
-        out.append({"name": n, "version": _s(x["version"], PKGVER_RE, "package version")})  # exact version: no ranges, no wildcards
+        m = x.get("match", "exact")
+        if m not in PKG_MATCH:
+            raise Reject("bad_params", "package match must be exact or floor")
+        # exact: this version, no ranges/wildcards (our own repository). floor: the distro archive's current version, never older than this one
+        # (an Ubuntu/Debian archive keeps only the newest build per pocket, so an exact pin breaks on every security update: real VM e2e-fo3)
+        out.append({"name": n, "version": _s(x["version"], PKGVER_RE, "package version"), "match": m})
     if len({o["name"] for o in out}) != len(out):
         raise Reject("bad_params", "duplicate package")
     return {"packages": out}

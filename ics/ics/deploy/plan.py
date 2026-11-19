@@ -18,7 +18,7 @@ from typing import Any
 from pydantic import BaseModel, ConfigDict, Field
 
 from .netmodel import NetworkModel, resolve as resolve_network
-from ..artifacts import SENTINEL_REGISTRY, ArtifactMap, placeholder_images
+from ..artifacts import REPO_SUITE, SENTINEL_REGISTRY, ArtifactMap, placeholder_images
 from .catalog import Catalog, Component, Profile, VmLayout, get_catalog
 from .sizing import SizingSpec, ceil as _dceil, component_size, drivers
 
@@ -564,7 +564,12 @@ def _install_params(c: Component, domain: str = "") -> list[dict]:
                     params["ports"] = []   # host networking carries no published ports (the agent refuses both)
             out.append({"runbook": "podman.deploy_unit", "params": params})
         else:
-            out.append({"runbook": "pkg.install_pinned", "params": {"packages": [{"name": a.package, "version": a.version}]}})
+            pkg = {"name": a.package, "version": a.version}
+            if a.repo not in REPO_SUITE:
+                # a distribution archive keeps only its newest build per pocket: the catalog version is a floor (the agent installs the archive's
+                # current security/stable update, never an older one); our own repository stays exact (real VM e2e-fo3, 2026-11-19)
+                pkg["match"] = "floor"
+            out.append({"runbook": "pkg.install_pinned", "params": {"packages": [pkg]}})
     return out
 
 

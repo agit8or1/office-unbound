@@ -3,10 +3,22 @@
   "schema_doc": "docs/progress-schema.md",
   "project": "Office Unbound",
   "repository": "https://github.com/agit8or1/office-unbound",
-  "updated": "2026-11-18",
+  "updated": "2026-11-19",
   "stage": "pre-alpha (lab)",
-  "current_version": "0.4.3",
+  "current_version": "0.4.4",
   "releases": [
+    {
+      "version": "0.4.4",
+      "date": "2026-11-19",
+      "status": "prepared",
+      "codename": "Daybreak",
+      "channel": "pre-release",
+      "highlights": [
+        "0.4.4: Ubuntu security updates no longer break deployments (distribution packages are version floors, our own stay exact; agent 0.5.0-ou8); an apt timeout reports where apt stalled"
+      ],
+      "notes_url": "https://github.com/agit8or1/office-unbound/blob/main/CHANGELOG.md",
+      "changelog": "CHANGELOG.md"
+    },
     {
       "version": "0.4.3",
       "date": "2026-11-19",
