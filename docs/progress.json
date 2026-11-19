@@ -5,8 +5,20 @@
   "repository": "https://github.com/agit8or1/office-unbound",
   "updated": "2026-11-19",
   "stage": "pre-alpha (lab)",
-  "current_version": "0.4.5",
+  "current_version": "0.4.6",
   "releases": [
+    {
+      "version": "0.4.6",
+      "date": "2026-11-19",
+      "status": "prepared",
+      "codename": "Daybreak",
+      "channel": "pre-release",
+      "highlights": [
+        "0.4.6: Office (Collabora) starts on a real VM (host networking like every other unit; rootless private-network failure tracked as KI-4)"
+      ],
+      "notes_url": "https://github.com/agit8or1/office-unbound/blob/main/CHANGELOG.md",
+      "changelog": "CHANGELOG.md"
+    },
     {
       "version": "0.4.5",
       "date": "2026-11-19",

@@ -30,6 +30,7 @@
 - KI-2: LDAP lock alone does not end Keycloak SSO/offline refresh tokens (>420 s). Deprovisioning must revoke in Keycloak (<1 s measured).
 - KI-3: Collabora CODE in nspawn runs without chroot jails (unshare fails in unprivileged container) — lab-only acceptable; production VM must have jails.
 - Lab install scripts: clean-room one-pass re-runs of identity, files, office (vendor + own editor) and groupware DONE on fresh machines in a separate domain (A22), 12 script fixes, all tiers idempotent; see docs/status/clean-room-results.md. Not covered: t07 desktop sync, manual checklist, collab/pbx spikes.
+- KI-4 (open, not diagnosed): on a real Ubuntu 24.04 VM (podman 4.9.3) a rootless unit on a private podman network failed to start: "failed to mount runtime directory for rootless netns: no such file or directory" (Collabora, e2e-fo5, 2026-11-19). Since 0.4.6 every catalog unit uses host networking behind the guest firewall's default drop (`test_every_catalog_unit_uses_host_networking`). To diagnose: report podman's runtime/tmp directories and rootless-netns state from the node (guest.facts) and reproduce on a disposable VM.
 
 ## Open owner items
 1. Gateway resolver 192.168.22.1 SERVFAILs officeunbound.com (local workaround in host-changes.md).

@@ -10,6 +10,10 @@ isolated lab; nothing is production supported ([ROADMAP.md](ROADMAP.md)).
 
 ## [Unreleased]
 
+## [0.4.6] - 2026-11-19
+
+- **Fix: Office (Collabora) could not start on a real VM.** It was the only unit on a private podman network; on Ubuntu 24.04's podman 4.9.3 its start failed with "failed to mount runtime directory for rootless netns: no such file or directory" (e2e-fo5; Files had just passed its health check). It now uses host networking like the Identity and Files units: the Files VM's nginx terminates TLS for `office.<domain>` and proxies to 127.0.0.1:9980, the guest firewall drops every port the engine did not open, and Collabora sees the VM's `/etc/hosts` with the deployment's names. The rootless-netns cause is not yet determined (STATUS.md KI-4). Evidence: `test_deploy_catalog_install.py::test_every_catalog_unit_uses_host_networking`, `test_deploy_plan.py`, `test_deploy_exec.py`.
+
 ## [0.4.5] - 2026-11-19
 
 - **Fix: a Files deployment could never pass health verification.** The `opencloud-status` check looked for `"installed":true` in `/status.php`, but OpenCloud 9.1.0 pretty-prints its answer (`"installed": true`), so a healthy OpenCloud failed with "HTTP 200 (expected text missing)" (real VM e2e-fo4, the first deployment to get that far; the simulator answered compact JSON). The check now matches the real response, recorded from the lab OpenCloud 9.1.0 as a test fixture. Evidence: `test_deploy_catalog_install.py::test_the_opencloud_health_check_matches_the_real_status_response` (fails on the old catalog).
@@ -243,7 +247,8 @@ editing, chat/meetings, telephony prototype, migration tooling and package pipel
 - **Review 4** (2 High, 11 Medium, 9 Low; gromox patches, lifecycle, SSO, telephony, migration engine, package pipeline, Collabora) reported. Findings are **open** on `main`; see Unreleased. [report](docs/status/security-review-4-2026-11-15.md)
 - `SECURITY.md` (private reporting) and `CONTRIBUTING.md` (DCO sign-off) added; AGPL-3.0 license. [SECURITY](SECURITY.md)
 
-[Unreleased]: https://github.com/agit8or1/office-unbound/compare/v0.4.5...HEAD
+[Unreleased]: https://github.com/agit8or1/office-unbound/compare/v0.4.6...HEAD
+[0.4.6]: https://github.com/agit8or1/office-unbound/compare/v0.4.5...v0.4.6
 [0.4.5]: https://github.com/agit8or1/office-unbound/compare/v0.4.4...v0.4.5
 [0.4.4]: https://github.com/agit8or1/office-unbound/compare/v0.4.3...v0.4.4
 [0.4.3]: https://github.com/agit8or1/office-unbound/releases/tag/v0.4.3

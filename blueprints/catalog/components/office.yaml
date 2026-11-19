@@ -12,7 +12,11 @@ artifacts:
     digest: "sha256:2cbeafdcfd9eaab177f969fce4b66d4c55e15e490e0ade37c3c621e2990ee6ee"
     version: "26.04.6-ou3"
     unit:
-      type: container                 # published on loopback only; the files VM's nginx terminates TLS for office.<domain>
+      # host networking like every other unit (the files VM's nginx terminates TLS for office.<domain> and proxies to 127.0.0.1:9980; the guest
+      # firewall drops every inbound port the engine did not open). A private podman network failed on the first real VM (e2e-fo5, podman 4.9.3:
+      # "failed to mount runtime directory for rootless netns: no such file or directory"; cause not yet determined, docs/status/STATUS.md open item)
+      # and would not see the VM's /etc/hosts, which the engine fills with the deployment's names (WOPI to cloud.<domain>).
+      type: container-hostnet
       memory_mib: 2048
       env: {OU_WOPI_HOST: "https://cloud.{domain}:443", OU_SERVER_NAME: "office.{domain}", OU_CA_FILE: /opt/ou-tls/ca.crt}
       volumes: [{name: work, path: /opt/ou-docs/work}, {name: tls, path: /opt/ou-tls, read_only: true}]

@@ -25,3 +25,12 @@ def test_the_opencloud_health_check_matches_the_real_status_response():
     body = (pathlib.Path(__file__).parent / "fixtures" / "opencloud-9.1.0-status.php.json").read_text()
     hc = next(h for h in get_catalog().components["files"].health_checks if h.name == "opencloud-status")
     assert hc.path == "/status.php" and hc.body_contains in body
+
+
+def test_every_catalog_unit_uses_host_networking():
+    # real VM e2e-fo5 (2026-11-19, Ubuntu 24.04 podman 4.9.3): the first unit on a private podman network (Collabora) failed to start with
+    # "failed to mount runtime directory for rootless netns: no such file or directory"; the host-network units (Keycloak, OpenCloud, collaboration)
+    # run. Until a private network is proven on a real VM, every catalog unit uses host networking behind the guest firewall's default drop.
+    from ics.deploy.catalog import get_catalog
+    units = [(c.name, a.name, a.unit.type) for c in get_catalog().components.values() for a in c.artifacts if getattr(a, "unit", None)]
+    assert units and all(t == "container-hostnet" for _, _, t in units), [u for u in units if u[2] != "container-hostnet"]
