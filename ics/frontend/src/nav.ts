@@ -44,7 +44,6 @@ export const NAV: NavGroup[] = [
     { label: 'System', to: '/system', icon: 'server', min: 'admin' },
     { label: 'Access policies', icon: 'shield', planned: true, min: 'admin' },
     { label: 'Configuration', icon: 'gear', planned: true, min: 'admin' },
-    { label: 'System', to: '/system', icon: 'gear' },
   ] },
 ]
 

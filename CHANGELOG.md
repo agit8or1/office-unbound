@@ -10,6 +10,10 @@ isolated lab; nothing is production supported ([ROADMAP.md](ROADMAP.md)).
 
 ## [Unreleased]
 
+## [0.4.8] - 2026-11-19
+
+- **Fix: "System" appeared twice in the menu.** A merge had added a second System menu item and a second `/system` route without the administrator restriction (the later route won, so non-administrators could open a page whose API answers them 403). The duplicates are removed; System stays administrator-only, matching `GET /api/v1/system`. A new console test fails on any repeated menu target/label or route name/path ([nav.test.ts](ics/frontend/src/nav.test.ts)).
+
 ## [0.4.7] - 2026-11-19
 
 - **Fix: Office (Collabora) never answered on a real VM.** The unit started, but `/hosting/discovery` timed out for the whole verification window (e2e-fo6, the first run where every other component passed). coolwsd takes its port before it starts and serves HTTP only once its first document process exists; every document process died at `chroot(...) failed (EPERM)`, because the unit runs with `DropCapability=ALL` and an empty capability bounding set survives the user namespace coolwsd's forkit enters, so its jail chroot is refused. Reproduced in the lab with the signed image and the unit's flags (discovery timeout, the same EPERM); `--cap-add=SYS_CHROOT` alone (no-new-privileges and every other drop kept) answered HTTP 200 with document processes ready. The unit schema now takes `capabilities`, closed to `SYS_CHROOT`, and only the Office unit sets it. Node agent **0.5.0-ou9**, golden image version 7. Evidence: `test_guest_bootstrap.py::test_only_sys_chroot_can_be_given_back_and_only_explicitly`, `test_deploy_catalog_install.py::test_only_the_document_engine_gets_sys_chroot_and_the_plan_carries_it`, `docs/status/host-changes.md` (2026-11-19 12:00).
@@ -256,6 +260,7 @@ editing, chat/meetings, telephony prototype, migration tooling and package pipel
 - `SECURITY.md` (private reporting) and `CONTRIBUTING.md` (DCO sign-off) added; AGPL-3.0 license. [SECURITY](SECURITY.md)
 
 [Unreleased]: https://github.com/agit8or1/office-unbound/compare/v0.4.7...HEAD
+[0.4.8]: https://github.com/agit8or1/office-unbound/compare/v0.4.7...v0.4.8
 [0.4.7]: https://github.com/agit8or1/office-unbound/compare/v0.4.6...v0.4.7
 [0.4.6]: https://github.com/agit8or1/office-unbound/compare/v0.4.5...v0.4.6
 [0.4.5]: https://github.com/agit8or1/office-unbound/compare/v0.4.4...v0.4.5

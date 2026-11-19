@@ -5,8 +5,20 @@
   "repository": "https://github.com/agit8or1/office-unbound",
   "updated": "2026-11-19",
   "stage": "pre-alpha (lab)",
-  "current_version": "0.4.7",
+  "current_version": "0.4.8",
   "releases": [
+    {
+      "version": "0.4.8",
+      "date": "2026-11-19",
+      "status": "prepared",
+      "codename": "Daybreak",
+      "channel": "pre-release",
+      "highlights": [
+        "0.4.8: System appears once in the menu and stays administrator-only (duplicate menu item and route removed; test guards against repeats)"
+      ],
+      "notes_url": "https://github.com/agit8or1/office-unbound/blob/main/CHANGELOG.md",
+      "changelog": "CHANGELOG.md"
+    },
     {
       "version": "0.4.7",
       "date": "2026-11-19",

@@ -58,7 +58,6 @@ export const routes: RouteRecordRaw[] = [
   { path: '/inventory/:id?', name: 'inventory', component: () => import('./views/Inventory.vue'), meta: { title: 'Inventory snapshots', section: 'Administration' } },
   { path: '/system', name: 'system', component: () => import('./views/System.vue'), meta: { title: 'System', section: 'Administration', min: 'admin' } },
   { path: '/preview', name: 'preview', component: () => import('./views/Preview.vue'), meta: { title: 'Plan preview', section: 'Administration', min: 'operator' } },
-  { path: '/system', name: 'system', component: () => import('./views/System.vue'), meta: { title: 'System', section: 'Administration' } },
   { path: '/audit', name: 'audit', component: () => import('./views/Audit.vue'), meta: { title: 'Audit log', section: 'Administration', min: 'approver' } },
   ...providerRoutes,
   ...wizardRoutes.map(wizardRecord),
