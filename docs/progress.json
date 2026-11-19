@@ -15,7 +15,8 @@
       "channel": "pre-release",
       "highlights": [
         "0.4.7: Office (Collabora) answers on a real VM (its document processes get CAP_SYS_CHROOT back; agent 0.5.0-ou9, golden image v7)",
-        "0.4.7: destroying a deployment removes its health checks and their incidents (no more permanent critical incidents from destroyed deployments)"
+        "0.4.7: destroying a deployment removes its health checks and their incidents (no more permanent critical incidents from destroyed deployments)",
+        "0.4.7: guest.remove + GET /infra/leftovers: Office Unbound removes the templates and guests it provably left behind (approved, audited)"
       ],
       "notes_url": "https://github.com/agit8or1/office-unbound/blob/main/CHANGELOG.md",
       "changelog": "CHANGELOG.md"

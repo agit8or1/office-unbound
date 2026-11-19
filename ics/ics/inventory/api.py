@@ -364,6 +364,12 @@ def mount(app: FastAPI) -> None:
                 w.append(f"{col} = :{key}"); p[key] = val  # noqa: E702
         return _list(request, db, "infra_guests", "infra_guests", w, p, "vmid", limit)
 
+    @app.get(f"{API}/infra/leftovers")
+    def leftovers(user: User = Depends(require("admin")), db: Session = Depends(get_db)):
+        """Guests/templates Office Unbound left behind (removable with the guest.remove action), and every other guest with the reason it is not."""
+        from ..provisioning.leftovers import list_leftovers
+        return {"items": list_leftovers(db)}
+
     @app.get(f"{API}/infra/templates")
     def templates(request: Request, endpoint: UUID | None = None, limit: int = 500, user: User = Depends(require("viewer")), db: Session = Depends(get_db)):
         w, p = (["endpoint_id = :e"], {"e": str(endpoint)}) if endpoint else ([], {})

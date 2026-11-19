@@ -1156,6 +1156,33 @@ class ProxmoxMutations(ProxmoxProvider):
         up = self._do("delete", f"/nodes/{_seg(ref.node)}/{_KIND_PATH[ref.kind]}/{int(ref.vmid)}?purge=1&destroy-unreferenced-disks=1")
         return self._task(ref.node, up, ref.vmid, "destroy", ref.deployment_id)
 
+    def remove_leftover(self, vmid: int, *, template: bool) -> TaskRef:
+        """Delete a guest/template Office Unbound left behind (guest.remove; the ICS decided it is a leftover from the live view). Fenced here
+        independently of that decision: the endpoint's pools and nodes only, never the ICS itself or a protected guest, only guests whose LIVE
+        config carries ou-managed, a template only when `template` says so (and the reverse), and never a guest that is not stopped. Node and
+        type come from Proxmox, never from the caller."""
+        require_job_execution()
+        vmid = int(vmid)
+        r = next((x for x in self._resources() if x.get("vmid") == vmid), None)
+        if r is None:
+            raise ScopeViolation(f"guest {vmid} is not visible to the provisioning token")
+        if r.get("pool") not in self.scope.pools or not self.scope.node_ok(r.get("node")):
+            raise ScopeViolation(f"guest {vmid} is outside this endpoint's pools/nodes")
+        if bool(r.get("template")) != bool(template):
+            raise ScopeViolation(f"guest {vmid} is {'a template' if r.get('template') else 'not a template'}; the approved removal said otherwise")
+        kind = "lxc" if r.get("type") == "lxc" else "vm"
+        node = str(r.get("node") or "")
+        self._refuse_self(vmid, node, kind)
+        ref = VmRef(node, vmid, kind, None)
+        if OWNED_TAG not in tags_of(self._cfg(ref).get("tags")):
+            raise ScopeViolation(f"guest {vmid} does not carry {OWNED_TAG} in its live configuration; refusing")
+        if not template:
+            live = self._get(f"/nodes/{_seg(node)}/{_KIND_PATH[kind]}/{vmid}/status/current", self._w) or {}
+            if live.get("status") != "stopped":
+                raise ProviderError("invalid_state", f"guest {vmid} is {live.get('status')}; only a stopped guest is removed")
+        up = self._do("delete", f"/nodes/{_seg(node)}/{_KIND_PATH[kind]}/{vmid}?purge=1&destroy-unreferenced-disks=1")
+        return self._task(node, up, vmid, "destroy", None)
+
     def _import_volumes(self, node: str, storage: str) -> dict[str, int]:
         """volid -> size of the `import` content on one node's storage (Datastore.Audit)."""
         rows = self._get(f"/nodes/{_seg(node)}/storage/{_seg(storage)}/content?content=import", self._w) or []

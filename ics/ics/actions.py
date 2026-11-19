@@ -21,6 +21,7 @@ from sqlalchemy.orm import Session
 from . import release as release_ops
 from . import imageimport
 from .provisioning import operate as guest_operate
+from .provisioning import leftovers as guest_leftovers
 from . import agentclient, alerts, audit, auth, checks as checkmod, endpoint_actions, identity, mailadmin, monitor, removal
 from .deploy import ops as deploy_ops
 from .deploy import ports as deploy_ports
@@ -121,6 +122,7 @@ class ActionType(StrEnum):
     backup_prune = "backup.prune"
     release_promote = "release.promote"
     image_import = "image.import"
+    guest_remove = "guest.remove"
     guest_power = "guest.power"
     msp_client_create = "msp.client.create"
     msp_client_set_permissions = "msp.client.set_permissions"
@@ -440,6 +442,7 @@ CATALOG: dict[ActionType, dict] = {
     ActionType.image_import: {"model": imageimport.ImageImport, "risk": "high", "secrets": (), "admin_only": True},
     # power control of an EXISTING guest the administrator authorized individually (operations preset; provisioning/operate.py)
     ActionType.guest_power: {"model": guest_operate.GuestPower, "risk": guest_operate.risk, "secrets": ()},
+    ActionType.guest_remove: {"model": guest_leftovers.GuestRemove, "risk": "high", "secrets": (), "admin_only": True},
 }
 CATALOG.update({ActionType(k): v for k, v in prov_actions.CATALOG.items()})   # provider provisioning (ics/provisioning/actions.py)
 _PROV = {ActionType(k) for k in prov_actions.CATALOG}
@@ -620,7 +623,7 @@ _PRECHECK = {ActionType.node_enroll: _pre_node_enroll, ActionType.check_create: 
              ActionType.check_delete: removal.pre_check_delete, ActionType.alert_channel_delete: removal.pre_channel_delete,
              ActionType.node_decommission: removal.pre_node_decommission, ActionType.maintenance_cancel: removal.pre_maintenance_cancel,
              ActionType.maintenance_delete: removal.pre_maintenance_delete, ActionType.plan_archive: removal.pre_plan_archive, ActionType.release_promote: release_ops.precheck,
-             ActionType.image_import: imageimport.precheck, ActionType.guest_power: guest_operate.precheck,
+             ActionType.image_import: imageimport.precheck, ActionType.guest_power: guest_operate.precheck, ActionType.guest_remove: guest_leftovers.precheck,
 **{ActionType(k): v for k, v in {**cred_actions.PRECHECK, **ten_actions.PRECHECK, **msp_actions.PRECHECK}.items()}}
 
 
@@ -1529,6 +1532,6 @@ _EXEC = {**{ActionType(k): v for k, v in ssh_actions.EXECUTORS.items()}, ActionT
          **{ActionType(k): v for k, v in deploy_ops.EXECUTORS.items()},
          **{ActionType(k): v for k, v in endpoint_actions.EXECUTORS.items()},
          **{ActionType(k): v for k, v in prov_actions.EXECUTORS.items()},
-         ActionType.release_promote: release_ops.exec_promote, ActionType.image_import: imageimport.exec_import, ActionType.guest_power: guest_operate.exec_power,
+         ActionType.release_promote: release_ops.exec_promote, ActionType.image_import: imageimport.exec_import, ActionType.guest_power: guest_operate.exec_power, ActionType.guest_remove: guest_leftovers.exec_remove,
          **{ActionType(k): v for k, v in {**cred_actions.EXECUTORS, **ten_actions.EXECUTORS, **msp_actions.EXECUTORS}.items()},
          **{ActionType(k): v for k, v in backup_ops.EXECUTORS.items()}}
