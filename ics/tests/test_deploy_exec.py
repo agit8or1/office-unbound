@@ -474,6 +474,20 @@ def test_health_verification_failure_is_explained(client, actors, rt, env):
     assert j["status"] == "failed" and "health verification failed" in j["error"]["message"] and "keycloak-oidc" in j["error"]["message"]
     f = next(s for s in steps(actors[0], jid) if s["status"] == "failed")
     assert f["kind"] == "verify_health" and "service logs" in f["error_explanation"] and f["attempts"] == 1
+    # destroying the failed deployment removes the checks it registered although no revision was ever applied (real: e2e-fo1..fo6 kept
+    # critical checks with open incidents after their destroy, 2026-11-19)
+    with rt.session() as db:
+        registered = set(db.execute(text("SELECT name FROM checks WHERE deployment_id IS NOT NULL")).scalars().all())
+    assert any("keycloak" in n for n in registered)
+    pv = actors[0][0].post(f"{H}/deployments/prod/destroy/preview", headers=actors[0][1]).json()
+    assert {c["name"] for c in pv["plan"]["checks"]} == registered
+    r, _ = submit(actors, rt, "deployment.destroy", {"deployment_id": "prod", "confirm": "prod", "plan_hash": pv["plan_hash"]}, approvals=1)
+    a2 = actors[2]
+    djid = a2[0].post(f"{H}/plans/{r['plan_id']}/approve", headers=a2[1]).json()["job_id"]
+    assert worker.run_once(rt)
+    assert job(actors[0], djid)["status"] == "succeeded", job(actors[0], djid)["error"]
+    with rt.session() as db:
+        assert db.execute(text("SELECT count(*) FROM checks")).scalar() == 0
 
 
 def test_unconfigured_provider_fails_cleanly(client, actors, rt, env):

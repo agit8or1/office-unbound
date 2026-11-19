@@ -269,7 +269,10 @@ def build_destroy_plan(db, dep) -> dict:
     applied = db.execute(text("SELECT plan FROM deployment_revisions WHERE deployment_id = :d AND status = 'applied' AND kind IN ('create','change') "
                               "AND revision = :r"), {"d": str(dep.id), "r": dep.current_revision}).first()
     names = {v["name"] for v in applied.plan["vms"]} if applied else set()
-    checks = [c["name"] for c in applied.plan["checks"]] if applied else []
+    # every check this deployment registered, applied or not: a create that failed after checks.register has no applied revision, and its
+    # checks were never removed (they stayed critical with open incidents after the destroy, 2026-11-19). Ownership is the deployment_id column.
+    checks = sorted({c["name"] for c in applied.plan["checks"]} if applied else set()
+                    | set(db.execute(text("SELECT name FROM checks WHERE deployment_id = :d"), {"d": str(dep.id)}).scalars().all()))
     for r in db.execute(text("SELECT logical_name FROM deployment_resources WHERE deployment_id = :d AND kind = 'vm' AND provider_ref IS NOT NULL "
                              "AND state <> 'removed'"), {"d": str(dep.id)}):
         names.add(r.logical_name)
