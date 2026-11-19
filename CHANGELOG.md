@@ -10,6 +10,14 @@ isolated lab; nothing is production supported ([ROADMAP.md](ROADMAP.md)).
 
 ## [Unreleased]
 
+## [0.5.0] - 2026-11-19
+
+First release of the 0.5 "Ember" line: **mail, calendar and contacts are part of the deployed stack.**
+
+- **New: the ICS deploys and configures the groupware.** A deployment that includes the `groupware` component now gets a working mail server: gromox (mail store, IMAP, EWS, MAPI/HTTP), Postfix, MariaDB and the web apps (webmail, ActiveSync, CalDAV/CardDAV) behind nginx. Users sign in with their directory password (LDAP, read-only bind); the administrator's mailbox is created from the directory. Mail for the domain is accepted on port 25 and delivered to the mailbox. Clients send through submission on 587/465 with their own address only. Relaying to other domains is refused. Outbound internet mail is deliberately not enabled yet; it needs a public IP, DNS and SPF/DKIM (next stage). Configured by the new typed agent runbook `cfg.gromox` (no shell, closed schema, secrets never on a command line), enabled only on VMs that host the groupware. Proven on Ubuntu 24.04 with the noble packages: 13/13 functional checks, again after a reboot, idempotent re-run ([groupware-deploy-results.md](docs/status/groupware-deploy-results.md)).
+- **Node agent 0.5.0-ou10 and golden image v8** carry the new runbook. A VM without groupware keeps working with the previous image.
+- **Catalog:** the groupware lists every package its configuration needs (Postfix MySQL maps, SASL, nginx, ldap-utils), opens 443 and 465 for mail clients and checks the submission port too.
+
 ## [0.4.10] - 2026-11-19
 
 - **Fix: every deployment raised "2 new infrastructure resource(s) discovered (not authorized)" for its own VMs.** The inventory ledger reported every guest it had not seen before, including the ones Office Unbound had just created. Guests Office Unbound created itself are now recorded as already reviewed. That means the VMs a live deployment records and the templates a successful image import created (matching template name and type). This is decided from its own records, never from Proxmox tags, which anyone with configuration rights can set. A VM seen before the deployment recorded its ID becomes known on the next sync. A guest under the ID of a destroyed deployment, and anything else created outside Office Unbound, is still reported. The note now reads "created outside Office Unbound" instead of the misleading "(not authorized)" ([test_inventory_ledger.py](ics/tests/test_inventory_ledger.py)).
@@ -269,6 +277,7 @@ editing, chat/meetings, telephony prototype, migration tooling and package pipel
 - `SECURITY.md` (private reporting) and `CONTRIBUTING.md` (DCO sign-off) added; AGPL-3.0 license. [SECURITY](SECURITY.md)
 
 [Unreleased]: https://github.com/agit8or1/office-unbound/compare/v0.4.7...HEAD
+[0.5.0]: https://github.com/agit8or1/office-unbound/compare/v0.4.10...v0.5.0
 [0.4.10]: https://github.com/agit8or1/office-unbound/compare/v0.4.9...v0.4.10
 [0.4.9]: https://github.com/agit8or1/office-unbound/compare/v0.4.8...v0.4.9
 [0.4.8]: https://github.com/agit8or1/office-unbound/compare/v0.4.7...v0.4.8

@@ -5,8 +5,21 @@
   "repository": "https://github.com/agit8or1/office-unbound",
   "updated": "2026-11-19",
   "stage": "pre-alpha (lab)",
-  "current_version": "0.4.10",
+  "current_version": "0.5.0",
   "releases": [
+    {
+      "version": "0.5.0",
+      "date": "2026-11-19",
+      "status": "prepared",
+      "codename": "Ember",
+      "channel": "pre-release",
+      "highlights": [
+        "0.5.0: mail, calendar and contacts in the deployed stack: the ICS installs and configures gromox, Postfix, MariaDB, webmail, ActiveSync and CalDAV/CardDAV with directory sign-in",
+        "0.5.0: node agent 0.5.0-ou10 (runbook cfg.gromox, enabled only on groupware VMs) and golden image v8"
+      ],
+      "notes_url": "https://github.com/agit8or1/office-unbound/blob/main/CHANGELOG.md",
+      "changelog": "CHANGELOG.md"
+    },
     {
       "version": "0.4.10",
       "date": "2026-11-19",
