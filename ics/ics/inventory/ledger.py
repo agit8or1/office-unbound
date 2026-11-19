@@ -7,6 +7,7 @@ After each discovery (collector.collect_discovery) `reconcile` compares the norm
   moved             a guest's node changed (migration)
   renamed           a guest's name changed
   identity_changed  a guest's type changed under the same VMID (deleted and re-created): never inherits review state
+  (a guest that went missing and comes back under the same VMID with another name or type is a NEW guest that reused the ID: recorded as new)
 Review (`acknowledge`) only marks an entry as seen. NOTHING here grants access: authorization comes exclusively from the approved policy
 (endpoints.allowed_* / managed_vmids) changed through approved plans."""
 from __future__ import annotations
@@ -45,6 +46,14 @@ def reconcile(db: Session, eid: str, complete: set[str]) -> dict:
                             "VALUES (:e, :k, :key, :n, :node, :t, CASE WHEN :b THEN now() ELSE NULL END)"),
                        {"e": eid, "k": kind, "key": key, "n": c["name"], "node": c["node"], "t": c["type"], "b": baseline})
             counts["new"] += 0 if baseline else 1
+            continue
+        if kind == "guest" and r.missing_since is not None and (r.name != c["name"] or (r.type or "").removeprefix("template-") != c["type"].removeprefix("template-")):
+            # Gone after a COMPLETE fetch, now back under the same VMID with another name/type: Proxmox reused the ID for a NEW guest (e.g. a
+            # destroyed test VM's ID taken by a newly imported template). A new identity: recorded as new, never as a rename of the old one.
+            db.execute(text("UPDATE inventory_ledger SET name = :n, node = :node, type = :t, first_seen = now(), last_seen = now(), missing_since = NULL, "
+                            "change = NULL, change_detail = NULL, acknowledged_at = NULL WHERE endpoint_id = :e AND kind = :k AND key = :key"),
+                       {"e": eid, "k": kind, "key": key, "n": c["name"], "node": c["node"], "t": c["type"]})
+            counts["new"] += 1
             continue
         change, detail = None, None
         if kind == "guest":

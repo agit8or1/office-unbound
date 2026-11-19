@@ -76,6 +76,31 @@ def test_a_reused_vmid_is_an_identity_change_not_the_same_guest(w, owner, rt):  
     assert res[("guest", "105")]["change"]["was"]["type"] == "vm" and res[("guest", "105")]["change"]["now"]["type"] == "lxc"
 
 
+def test_a_vmid_reused_after_the_guest_went_missing_is_a_new_guest_not_a_rename(w, owner, rt):  # noqa: F811
+    """2026-11-19 on pve06: test VM 148 was destroyed (recorded missing), and the next golden-image import got VMID 148: the cluster page
+    showed "1 authorized resource(s) were renamed, moved or re-created". A new guest under a reused ID is new, never a rename."""
+    eid = connect(w, owner)
+    owner.sim.add_vm(148, "pve06", "c-000000000000-e2e-fo6-files", status="stopped", storage="PVE06-Storage", pool="officeunbound-pve06")
+    collect(rt, eid)
+    assert w.o.post(f"{H}/endpoints/{eid}/access/acknowledge", json={}, headers=w.oh).status_code == 200
+    del owner.sim.vms[148]
+    assert collect(rt, eid)["changes"]["missing"] == 1
+    owner.sim.add_vm(148, "pve06", "ou-tpl-ubuntu-2404", status="stopped", storage="PVE06-Storage", pool="officeunbound-pve06")
+    assert collect(rt, eid)["changes"] == {"new": 1, "changed": 0, "missing": 0}
+    res, counts = access(w, eid)
+    assert res[("guest", "148")]["state"] == "new" and res[("guest", "148")]["change"] is None and res[("guest", "148")]["name"] == "ou-tpl-ubuntu-2404"
+    assert counts["changed"] == 0 and counts["missing"] == 0
+    # the same guest coming back (same name, e.g. access restored) is the same identity: no change, no rename (going missing already asked
+    # for a fresh review, so it shows unreviewed until acknowledged)
+    w.o.post(f"{H}/endpoints/{eid}/access/acknowledge", json={}, headers=w.oh)
+    held = owner.sim.vms.pop(148)
+    collect(rt, eid)
+    owner.sim.vms[148] = held
+    assert collect(rt, eid)["changes"] == {"new": 0, "changed": 0, "missing": 0}
+    res, counts = access(w, eid)
+    assert res[("guest", "148")]["state"] == "new" and res[("guest", "148")]["change"] is None and counts["changed"] == 0
+
+
 def test_manage_access_discovery_shows_everything_annotated(w, owner, rt):  # noqa: F811
     eid = connect(w, owner)
     collect(rt, eid)

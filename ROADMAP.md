@@ -1,6 +1,6 @@
 # Office Unbound roadmap & progress
 
-> Generated from [`docs/progress.json`](docs/progress.json) by `scripts/render_roadmap.py` — edit the JSON, not this file. Last updated **2026-11-19** · stage: **pre-alpha (lab)** · current version: **0.4.8**.
+> Generated from [`docs/progress.json`](docs/progress.json) by `scripts/render_roadmap.py` — edit the JSON, not this file. Last updated **2026-11-19** · stage: **pre-alpha (lab)** · current version: **0.4.9**.
 
 Core platform components are integrated and tested in an isolated lab: own source build of Exchange-compatible groupware with single sign-on webmail, Keycloak SSO, file sync and browser document editing, backup/restore drills, chat and video meetings, and an infrastructure control server with monitoring, self-healing and a real Proxmox integration (VM lifecycle verified on a live cluster). Guided deployment wizards, provisioning automation and the credential vault are being integrated.
 
@@ -170,6 +170,7 @@ Core platform components are integrated and tested in an isolated lab: own sourc
 
 | Version | Date | Status | Highlights |
 |---|---|---|---|
+| [0.4.9](https://github.com/agit8or1/office-unbound/blob/main/CHANGELOG.md) | 2026-11-19 | prepared | 0.4.9: "Clean up leftovers" and "Manage access" buttons on the cluster list and cluster page (sign in once, cleanup opens directly; credentials never stored)<br>0.4.9: a VM ID reused by Proxmox after a guest was deleted is recorded as a new guest, not as a rename (no false cluster warning) |
 | [0.4.8](https://github.com/agit8or1/office-unbound/blob/main/CHANGELOG.md) | 2026-11-19 | released | 0.4.8: System appears once in the menu and stays administrator-only (duplicate menu item and route removed; test guards against repeats) |
 | [0.4.7](https://github.com/agit8or1/office-unbound/blob/main/CHANGELOG.md) | 2026-11-19 | released | 0.4.7: Office (Collabora) answers on a real VM (its document processes get CAP_SYS_CHROOT back; agent 0.5.0-ou9, golden image v7)<br>0.4.7: destroying a deployment removes its health checks and their incidents (no more permanent critical incidents from destroyed deployments)<br>0.4.7: guest.remove + GET /infra/leftovers: Office Unbound removes the templates and guests it provably left behind (approved, audited)<br>0.4.7: Clean up leftovers (Manage access): sign in like the setup wizard; the credentials are used for that one approved job and never stored |
 | [0.4.6](https://github.com/agit8or1/office-unbound/blob/main/CHANGELOG.md) | 2026-11-19 | released | 0.4.6: Office (Collabora) starts on a real VM (host networking like every other unit; rootless private-network failure tracked as KI-4) |

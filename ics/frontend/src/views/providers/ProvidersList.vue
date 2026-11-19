@@ -60,6 +60,8 @@ const tone = (t: string) => (t === 'ok' ? 'ok' : t === 'warn' ? 'warn' : t === '
           <Button size="sm" variant="primary" :to="`/infrastructure/providers/${c.ep.id}`">Open</Button>
           <Button size="sm" :to="`/infrastructure/providers/${c.ep.id}/permissions`">Permissions</Button>
           <Button size="sm" variant="ghost" :to="`/infrastructure/providers/${c.ep.id}/credentials`">Credentials</Button>
+          <Button size="sm" :to="`/infrastructure/providers/${c.ep.id}/access`" data-testid="manage-access">Manage access</Button>
+          <Button size="sm" :to="`/infrastructure/providers/${c.ep.id}/access?task=cleanup`" data-testid="cleanup">Clean up leftovers</Button>
         </footer>
       </article>
     </div>

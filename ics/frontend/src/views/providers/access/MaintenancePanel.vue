@@ -11,7 +11,7 @@ import RunPanel from '../RunPanel.vue'
 import PlanView from '../PlanView.vue'
 import type { PlanPreviewOut } from '../model'
 
-const props = defineProps<{ endpointId: string; sessionId: string; endpointName: string }>()
+const props = defineProps<{ endpointId: string; sessionId: string; endpointName: string; initial?: 'cleanup' }>()
 const what = ref<'' | 'repair' | 'rotate' | 'disconnect' | 'cleanup'>('')
 const run = useRun()
 const preview = ref<PlanPreviewOut | null>(null)
@@ -33,6 +33,7 @@ function pick(w: typeof what.value) {
   what.value = w; preview.value = null; run.reset(); confirmName.value = ''
   if (w === 'cleanup') loadLeftovers()
 }
+if (props.initial) pick(props.initial)          // opened from the "Clean up leftovers" button (?task=cleanup)
 const cleanup = () => run.start('provider.cleanup', { ...base.value, confirm_name: confirmName.value, vmids: chosen.value, import_files: importFiles.value })
 async function repairPreview() {
   const j = await run.start('provider.provision.plan_preview', { ...base.value, purpose: 'reconcile' })
@@ -48,7 +49,7 @@ const blocked = computed(() => preview.value?.plan.blocked ?? [])
 </script>
 
 <template>
-  <details class="ax-maint">
+  <details class="ax-maint" :open="!!initial" data-testid="maintenance">
     <summary>Connection maintenance: repair, rotate credentials, clean up leftovers, disconnect</summary>
     <div class="row">
       <button type="button" class="wz-btn" :class="{ primary: what === 'repair' }" @click="pick('repair')">Repair connection</button>

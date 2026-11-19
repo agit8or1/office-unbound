@@ -22,6 +22,7 @@ const here = computed(() => current.path)
   <div class="pv-head">
     <PageHeader :title="title" :sub="subtitle">
       <template #actions><span v-if="ep" class="badge" :class="tone">{{ label }}</span>
+        <router-link v-if="ep" class="wz-btn" :to="`/infrastructure/providers/${id}/access?task=cleanup`" data-testid="cleanup">Clean up leftovers</router-link>
         <router-link v-if="ep" class="wz-btn primary" :to="`/infrastructure/providers/${id}/access`" data-testid="manage-access">Manage access</router-link></template>
     </PageHeader>
     <nav class="pv-tabs" aria-label="Cluster sections">

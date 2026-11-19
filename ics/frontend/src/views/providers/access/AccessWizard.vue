@@ -2,6 +2,7 @@
 // Connect → Discover → Select → Authorize → Done (new), and Manage access → Select changes → Apply → Done (edit, `id` = the integration).
 // The password and second-factor code go to the server once; only a short-lived Proxmox session (never the password) is kept there.
 import { computed, onBeforeUnmount, reactive, ref, watch } from 'vue'
+import { useRoute } from 'vue-router'
 import { Banner, WizardShell, useWizard, type Errors, type StepDef } from '../../../wizards/kit'
 import { api, msg } from '../api'
 import { useRun } from '../run'
@@ -21,6 +22,8 @@ import '../providers.css'
 
 const props = defineProps<{ id?: string }>()
 const edit = computed(() => !!props.id)
+const route = useRoute()
+const cleanupTask = computed(() => edit.value && route.query.task === 'cleanup')   // the "Clean up leftovers" button: maintenance panel first, opened
 const f = reactive({ host: '', port: 8006, username: 'root', realm: 'pam', customRealm: '', advanced: false, trust: 'auto' as 'auto' | 'fingerprint' | 'ca', caPem: '', compared: false, name: '' })
 const pw = ref('')
 const tfa = reactive({ method: 'totp', code: '' })
@@ -186,8 +189,8 @@ function next() {
 
 <template>
   <div class="pv-wiz">
-    <WizardShell :title="edit ? 'Manage access' : 'Connect a Proxmox cluster'"
-      :subtitle="edit ? 'Add or remove resources and change what Office Unbound may do. Existing access is kept unless you change it.' : 'Sign in, pick exactly what Office Unbound may use, and it sets up its own restricted access. Nothing changes in Proxmox until approved.'"
+    <WizardShell :title="cleanupTask ? 'Clean up leftovers' : edit ? 'Manage access' : 'Connect a Proxmox cluster'"
+      :subtitle="cleanupTask ? 'Sign in to Proxmox as an administrator (for example root@pam, with your second factor), then choose what to remove. The sign-in is used for that one approved job and never stored.' : edit ? 'Add or remove resources and change what Office Unbound may do. Existing access is kept unless you change it.' : 'Sign in, pick exactly what Office Unbound may use, and it sets up its own restricted access. Nothing changes in Proxmox until approved.'"
       :steps="steps.map((s) => ({ id: s.id, title: s.title }))" :index="w.m.index" :reached="w.m.reached" :busy="busy || previewRun.busy.value || applyRun.busy.value"
       :hide-next="cur === 'connect' || cur === 'review' || cur === 'done'" :next-label="cur === 'permissions' ? 'Review' : cur === 'validate' ? 'Finish' : 'Next'" @next="next" @back="w.back()" @goto="w.goto($event)">
 
@@ -251,6 +254,7 @@ function next() {
           Missing: <span v-for="m in inv.account.missing" :key="m.path + m.privilege" class="mono">{{ m.privilege }} on {{ m.path }} </span>. {{ inv.account.remediation }}
         </Banner>
         <Banner v-if="edit && inv.missing?.length" kind="warn" title="No longer found">{{ inv.missing.map((x) => `${x.kind} ${x.key}`).join(', ') }}: deleted in Proxmox, or no longer visible.</Banner>
+        <MaintenancePanel v-if="cleanupTask && session && id" :endpoint-id="id" :session-id="session.id" :endpoint-name="epName" initial="cleanup" />
         <h2>Which hypervisors may Office Unbound use?</h2>
         <p class="muted">Tick the nodes it may use. It sees their status and, with the Deployment level, creates its own guests there. Your existing VMs and containers stay invisible to it.</p>
         <InventoryTree :inv="inv" :sel="sel" :edit="edit" />
@@ -259,7 +263,7 @@ function next() {
           <label class="row"><input v-model="sel.monitorCluster" type="radio" :value="true" name="monscope" /> The whole cluster, read-only <span class="muted small">every node, VM, container and storage, including ones Office Unbound did not create. It can look, never change. Uses the read-only token only.</span></label>
         </fieldset>
         <div class="row"><button type="button" class="wz-btn" :disabled="busy" @click="rescan">Rescan</button></div>
-        <MaintenancePanel v-if="edit && session && id" :endpoint-id="id" :session-id="session.id" :endpoint-name="epName" />
+        <MaintenancePanel v-if="edit && session && id && !cleanupTask" :endpoint-id="id" :session-id="session.id" :endpoint-name="epName" />
         <p v-if="w.m.errors.select" class="err" role="alert">{{ w.m.errors.select }}</p>
       </section>
 

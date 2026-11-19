@@ -10,6 +10,11 @@ isolated lab; nothing is production supported ([ROADMAP.md](ROADMAP.md)).
 
 ## [Unreleased]
 
+## [0.4.9] - 2026-11-19
+
+- **New: a "Clean up leftovers" button.** The cleanup was only reachable at the bottom of Manage access, inside a collapsed section, after signing in. The Proxmox clusters list now has **Manage access** and **Clean up leftovers** on each cluster card, and the cluster page has **Clean up leftovers** next to Manage access. It opens the Proxmox sign-in (administrator, second factor as in the setup wizard) and then shows the cleanup directly, with the removable items pre-ticked. The sign-in is still used for that one approved job and never stored.
+- **Fix: a reused VM ID was reported as "renamed, moved or re-created".** Proxmox reuses the ID of a deleted guest. When test VM 148 was destroyed and the next golden-image template got ID 148, the cluster page warned that an authorized resource was renamed. A guest that went missing after a complete sync and comes back under the same ID with another name or type is now recorded as a new guest, never as a rename of the old one ([test_inventory_ledger.py](ics/tests/test_inventory_ledger.py)).
+
 ## [0.4.8] - 2026-11-19
 
 - **Fix: "System" appeared twice in the menu.** A merge had added a second System menu item and a second `/system` route without the administrator restriction (the later route won, so non-administrators could open a page whose API answers them 403). The duplicates are removed; System stays administrator-only, matching `GET /api/v1/system`. A new console test fails on any repeated menu target/label or route name/path ([nav.test.ts](ics/frontend/src/nav.test.ts)).
@@ -260,6 +265,7 @@ editing, chat/meetings, telephony prototype, migration tooling and package pipel
 - `SECURITY.md` (private reporting) and `CONTRIBUTING.md` (DCO sign-off) added; AGPL-3.0 license. [SECURITY](SECURITY.md)
 
 [Unreleased]: https://github.com/agit8or1/office-unbound/compare/v0.4.7...HEAD
+[0.4.9]: https://github.com/agit8or1/office-unbound/compare/v0.4.8...v0.4.9
 [0.4.8]: https://github.com/agit8or1/office-unbound/compare/v0.4.7...v0.4.8
 [0.4.7]: https://github.com/agit8or1/office-unbound/compare/v0.4.6...v0.4.7
 [0.4.6]: https://github.com/agit8or1/office-unbound/compare/v0.4.5...v0.4.6

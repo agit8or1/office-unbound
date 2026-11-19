@@ -5,8 +5,21 @@
   "repository": "https://github.com/agit8or1/office-unbound",
   "updated": "2026-11-19",
   "stage": "pre-alpha (lab)",
-  "current_version": "0.4.8",
+  "current_version": "0.4.9",
   "releases": [
+    {
+      "version": "0.4.9",
+      "date": "2026-11-19",
+      "status": "prepared",
+      "codename": "Daybreak",
+      "channel": "pre-release",
+      "highlights": [
+        "0.4.9: \"Clean up leftovers\" and \"Manage access\" buttons on the cluster list and cluster page (sign in once, cleanup opens directly; credentials never stored)",
+        "0.4.9: a VM ID reused by Proxmox after a guest was deleted is recorded as a new guest, not as a rename (no false cluster warning)"
+      ],
+      "notes_url": "https://github.com/agit8or1/office-unbound/blob/main/CHANGELOG.md",
+      "changelog": "CHANGELOG.md"
+    },
     {
       "version": "0.4.8",
       "date": "2026-11-19",
