@@ -91,8 +91,8 @@ def test_catalog_validation_rejects_bad_definitions(tmp_path):
             build_catalog(meta, c, p)
 
     idx = {x["name"]: x for x in comps}
-    bad(lambda c, p: next(x for x in c if x["name"] == "files")["artifacts"][0].pop("digest"), "digest")                      # digest REQUIRED
-    bad(lambda c, p: next(x for x in c if x["name"] == "files")["artifacts"][0].update(digest="sha256:xyz"), "digest")        # malformed
+    bad(lambda c, p: next(a for a in next(x for x in c if x["name"] == "files")["artifacts"] if a["kind"] == "oci").pop("digest"), "digest")                      # digest REQUIRED
+    bad(lambda c, p: next(a for a in next(x for x in c if x["name"] == "files")["artifacts"] if a["kind"] == "oci").update(digest="sha256:xyz"), "digest")        # malformed
     bad(lambda c, p: next(x for x in c if x["name"] == "edge")["artifacts"][0].update(version="latest"), "pin")
     bad(lambda c, p: next(x for x in c if x["name"] == "office").update(depends_on=["nope"]), "unknown dependency")
     bad(lambda c, p: (next(x for x in c if x["name"] == "identity").update(depends_on=["office"])), "cycle")
@@ -302,9 +302,12 @@ def test_steps_form_a_valid_dependency_order():
     kinds = {s["kind"] for s in p["steps"]}
     assert kinds == {"provider_task", "wait_guest_callback", "wait_agent_enrollment", "agent_runbook", "register_checks", "verify_health"}
     inst = next(s for s in p["steps"] if s["key"] == "comp.install:acme-prod-files:files")
-    assert [r["runbook"] for r in inst["params"]["runbooks"]] == ["podman.pull_verified", "podman.deploy_unit"]
-    assert inst["params"]["runbooks"][0]["params"]["image"].endswith("@" + DIGEST)   # the exact shape the node agent accepts
-    dep = inst["params"]["runbooks"][1]["params"]
+    # packages first (the engine's configuration, inserted before the first unit, writes the nginx site), then each unit after its pull
+    assert [r["runbook"] for r in inst["params"]["runbooks"]] == ["pkg.install_pinned", "podman.pull_verified", "podman.deploy_unit",
+                                                                    "podman.pull_verified", "podman.deploy_unit"]
+    assert inst["params"]["runbooks"][1]["params"]["image"].endswith("@" + DIGEST)   # the exact shape the node agent accepts
+    assert inst["params"]["runbooks"][4]["params"]["command"] == ["collaboration", "server"]
+    dep = inst["params"]["runbooks"][2]["params"]
     assert dep["type"] == "container-hostnet" and dep["component"] == "files" and dep["ports"] == []   # configured unit: no published ports on host networking
     assert {x["name"] for x in dep["secrets"]} == {"ldap-bind-password", "oc-admin-password"} and {v["name"] for v in dep["volumes"]} == {"data", "config", "tls"}
     kc = next(s for s in p["steps"] if s["key"] == "comp.install:acme-prod-id:identity")["params"]["runbooks"]
@@ -443,3 +446,12 @@ def test_naming_the_node_agent_in_a_custom_layout_does_not_add_it_twice():
     assert [v["components"] for v in p["vms"]] == [["monitoring-agent"]]
     p2 = generate_plan(inp(profile="custom", custom_layout=[{"name": "a", "components": ["identity", "monitoring-agent"]}]), cap(), c)
     assert p2["vms"][0]["components"].count("monitoring-agent") == 1 and "port_conflict" not in codes(p2["errors"])
+
+
+def test_files_tls_proxy_is_open_to_the_edge_vm_only_and_shares_443_with_a_co_located_edge():
+    c = pinned()
+    p = generate_plan(inp(), cap(), c)
+    fw = [f for f in p["firewall"] if f["vm"] == "acme-prod-files"]
+    assert {(f["port"], f["from"]) for f in fw if f["port"] in (443, 9200, 9300, 9980)} == {(443, "acme-prod-id")}   # app ports stay on loopback
+    lab = generate_plan(inp(profile="lab", users=5), cap(), c)
+    assert not [e for e in lab["errors"] if e["code"] == "port_conflict"]                                          # one nginx serves both

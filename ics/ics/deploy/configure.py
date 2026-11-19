@@ -26,7 +26,11 @@ REALM = "ou"
 LDAP_GROUPS = ("opencloudAdmin", "opencloudSpaceAdmin", "opencloudUser", "opencloudGuest", "mail-users")
 KEYCLOAK_UID = "10130:10130"   # the non-root user of the Keycloak image (blueprints/build/oci/idfiles)
 SECRET_PARAM_KEYS = ("admin_password", "bind_password", "password", "value", "key_pem")
-CONFIGURED = ("identity", "edge")   # components whose node-local state the engine creates today (files/office/groupware: still notices)
+CONFIGURED = ("identity", "edge", "files", "office")   # components whose node-local state the engine creates today (groupware: still a notice)
+OPENCLOUD_UID = "10140:10140"  # the non-root user of the OpenCloud image (blueprints/build/oci/idfiles)
+DOCS_UID = "10001:10001"       # the non-root user of the Office Unbound Docs image (blueprints/build/collabora/oci)
+# the loopback port each web-facing component's service listens on (catalog ports with exposure local), by DNS host name
+LOCAL_PORT = {"auth": ("identity", 8080), "cloud": ("files", 9200), "office": ("office", 9980)}
 
 
 class ConfigError(Exception):
@@ -159,9 +163,15 @@ def firewall_runbook(ctx, vm: str) -> dict:
     return {"runbook": "cfg.firewall", "params": {"rules": [uniq[k] for k in sorted(uniq)]}}
 
 
+def hosted_names(plan: dict, vm: str, domain: str) -> list[str]:
+    """Web names whose SERVICE runs on `vm` (cloud -> the files VM), whatever VM their A record points at (the edge): the TLS proxy on `vm` serves them."""
+    comps = next((v.get("components") or [] for v in plan.get("vms", []) if v["name"] == vm), [])
+    return sorted(f"{h}.{domain}" for h, (c, _) in LOCAL_PORT.items() if c in comps)
+
+
 def _tls(ctx, vm: str, domain: str, names: dict) -> dict:
     ca_ = ca(ctx.rt, ctx.deployment_id, ctx.plan["input"]["domain"], ctx.slug)
-    mine = names.get(vm) or [f"{vm}.{domain}"]
+    mine = sorted(set(names.get(vm, [])) | set(hosted_names(ctx.plan, vm, domain))) or [f"{vm}.{domain}"]
     cert, key = leaf(ca_, mine)
     return {"runbook": "cfg.tls", "params": {"name": "deployment", "ca_pem": ca_["cert"], "cert_pem": cert, "key_pem": key}}
 
@@ -216,17 +226,89 @@ def identity_runbooks(ctx, vm: str) -> list[dict]:
     ]
 
 
+def _site(name: str, fqdn: str, upstream: str, upstream_name: str | None = None) -> dict:
+    p = {"name": name, "server_names": [fqdn], "upstream": upstream, "tls_name": "deployment", "max_body_mb": 0 if name == "cloud" else 100}
+    if upstream_name:
+        p["upstream_name"] = upstream_name
+    return {"runbook": "cfg.nginx_site", "params": p}
+
+
 def edge_runbooks(ctx, vm: str) -> list[dict]:
+    """One site per web name: to the service's loopback port when it runs on this VM, otherwise over verified HTTPS to the TLS proxy of its VM."""
     domain = domain_of(ctx.plan, vm)
     names = names_by_vm(ctx.plan, domain)
-    out = [{"runbook": "cfg.hosts", "params": {"entries": hosts_entries(ctx, names)}}, _tls(ctx, vm, domain, names)]
-    if vm_of(ctx.plan, "identity", None) == vm:
-        out.append({"runbook": "cfg.nginx_site", "params": {"name": "auth", "server_names": [f"auth.{domain}"], "upstream": "http://127.0.0.1:8080",
-                                                            "tls_name": "deployment", "max_body_mb": 16}})
+    out = [{"runbook": "cfg.hosts", "params": {"entries": hosts_entries(ctx, names)}}, firewall_runbook(ctx, vm), _tls(ctx, vm, domain, names)]
+    tenant = next((v.get("tenant") for v in ctx.plan.get("vms", []) if v["name"] == vm), None)
+    for host, (comp, port) in LOCAL_PORT.items():
+        svc = vm_of(ctx.plan, comp, tenant)
+        if svc is None:
+            continue
+        fqdn = f"{host}.{domain}"
+        if svc == vm:
+            out.append(_site(host, fqdn, f"http://127.0.0.1:{port}"))
+        else:
+            try:
+                ip = ctx.env.agent.address(svc)
+            except Exception as e:  # noqa: BLE001
+                raise ConfigError(f"the address of {svc} is unknown (not enrolled): {e}") from None
+            out.append(_site(host, fqdn, f"https://{ip}:443", fqdn))
     return out
 
 
-BUILDERS = {"identity": identity_runbooks, "edge": edge_runbooks}
+def _local_sites(ctx, vm: str, domain: str, hosts: tuple[str, ...]) -> list[dict]:
+    """The same-VM TLS proxy for services the edge reaches over HTTPS; none when the edge runs on this VM (it proxies to loopback itself)."""
+    tenant = next((v.get("tenant") for v in ctx.plan.get("vms", []) if v["name"] == vm), None)
+    if vm_of(ctx.plan, "edge", tenant) == vm or vm_of(ctx.plan, "edge", None) == vm:
+        return []
+    return [_site(h, f"{h}.{domain}", f"http://127.0.0.1:{LOCAL_PORT[h][1]}") for h in hosts]
+
+
+def _template(rel: str, **values) -> str:
+    t = (catalog_dir() / "templates" / rel).read_text()
+    for k, v in values.items():
+        t = t.replace(f"@{k}@", v)
+    return t
+
+
+def files_runbooks(ctx, vm: str) -> list[dict]:
+    dep, rt = ctx.deployment_id, ctx.rt
+    domain = domain_of(ctx.plan, vm)
+    names = names_by_vm(ctx.plan, domain)
+    img = _image(ctx, vm, "files")
+    ca_pem = ca(rt, dep, ctx.plan["input"]["domain"], ctx.slug)["cert"]
+    base = ",".join(f"dc={x}" for x in domain.split("."))
+    hosts = dict(FILES_HOST=f"cloud.{domain}", IDP_HOST=f"auth.{domain}", OFFICE_HOST=f"office.{domain}", REALM=REALM, LDAP_HOST=f"ldap.{domain}", BASE_DN=base)
+    return [
+        {"runbook": "cfg.hosts", "params": {"entries": hosts_entries(ctx, names)}},
+        firewall_runbook(ctx, vm),
+        _tls(ctx, vm, domain, names),
+        {"runbook": "cfg.podman_secret", "params": {"name": "ldap-bind-password", "value": secret(rt, dep, "ldap-bind-password")}},
+        {"runbook": "cfg.podman_secret", "params": {"name": "oc-admin-password", "value": secret(rt, dep, "oc-admin-password")}},
+        {"runbook": "cfg.volume_files", "params": {"component": "files", "volume": "tls", "image": img, "owner": OPENCLOUD_UID,
+                                                   "files": [{"path": "ca.crt", "mode": 0o644, "content": ca_pem}]}},
+        {"runbook": "cfg.volume_files", "params": {"component": "files", "volume": "config", "image": img, "owner": OPENCLOUD_UID,
+                                                   "files": [{"path": "ou.env", "mode": 0o640, "content": _template("files/opencloud.env", **hosts)},
+                                                             {"path": "csp.yaml", "mode": 0o644, "content": _template("files/csp.yaml", **hosts)}]}},
+        {"runbook": "cfg.volume_files", "params": {"component": "files", "volume": "data", "image": img, "owner": OPENCLOUD_UID,
+                                                   "files": [{"path": ".ou-volume", "mode": 0o644, "content": "Office Unbound files data volume\n"}]}},
+        *_local_sites(ctx, vm, domain, ("cloud",)),
+    ]
+
+
+def office_runbooks(ctx, vm: str) -> list[dict]:
+    domain = domain_of(ctx.plan, vm)
+    img = _image(ctx, vm, "office")
+    ca_pem = ca(ctx.rt, ctx.deployment_id, ctx.plan["input"]["domain"], ctx.slug)["cert"]
+    return [
+        {"runbook": "cfg.volume_files", "params": {"component": "office", "volume": "tls", "image": img, "owner": DOCS_UID,
+                                                   "files": [{"path": "ca.crt", "mode": 0o644, "content": ca_pem}]}},
+        {"runbook": "cfg.volume_files", "params": {"component": "office", "volume": "work", "image": img, "owner": DOCS_UID,
+                                                   "files": [{"path": ".ou-volume", "mode": 0o644, "content": "Office Unbound Docs work volume\n"}]}},
+        *_local_sites(ctx, vm, domain, ("office",)),
+    ]
+
+
+BUILDERS = {"identity": identity_runbooks, "edge": edge_runbooks, "files": files_runbooks, "office": office_runbooks}
 
 
 def expand(ctx, vm: str, component: str, runbooks: list[dict]) -> list[dict]:

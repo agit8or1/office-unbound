@@ -1,0 +1,46 @@
+# Derived from opencloud-compose@d4695d2 config/opencloud/csp.yaml with the lab
+# hostnames substituted by install-files.sh (@IDP_HOST@, @OFFICE_HOST@).
+# Trimmed: no companion / euro-office / OSM tiles / update server (lab has no
+# internet egress requirement).
+directives:
+  child-src:
+    - "'self'"
+  connect-src:
+    - "'self'"
+    - 'blob:'
+    - 'https://@IDP_HOST@/'
+  default-src:
+    - "'none'"
+  font-src:
+    - "'self'"
+  frame-ancestors:
+    - "'self'"
+  frame-src:
+    - "'self'"
+    - 'blob:'
+    - 'https://@OFFICE_HOST@/'
+    - 'https://@IDP_HOST@/'
+  img-src:
+    - "'self'"
+    - 'data:'
+    - 'blob:'
+    - 'https://@OFFICE_HOST@/'
+  manifest-src:
+    - "'self'"
+  media-src:
+    - "'self'"
+    - 'blob:'
+  object-src:
+    - "'self'"
+    - 'blob:'
+  script-src:
+    - "'self'"
+    - "'unsafe-inline'"
+    - 'https://@IDP_HOST@/'
+  style-src:
+    - "'self'"
+    - "'unsafe-inline'"
+    - 'blob:'
+  worker-src:
+    - "'self'"
+    - 'blob:'

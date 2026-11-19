@@ -3,6 +3,9 @@ version: 1.0.0
 title: Files (OpenCloud)
 description: File sync and share (OpenCloud + collaboration service), OIDC against identity. ADR-0005.
 artifacts:
+  # same-VM TLS proxy (the proven topology: OpenCloud plain HTTP on 127.0.0.1:9200 behind nginx on this VM); the deployment's edge reaches it over HTTPS. FIRST: packages install before the configuration
+  # (cfg.nginx_site) that the engine inserts ahead of the first unit
+  - {name: nginx, kind: package, package: nginx, version: "1.24.0-2ubuntu7.19", repo: ubuntu-noble}
   # OpenCloud 9.1.0: upstream release binary (the .sha256 file next to it and the GitHub asset digest agree with our sha256; upstream publishes no signature)
   # wrapped, not rebuilt, in a non-root image (blueprints/build/oci/idfiles), signed with the DEV channel key of the hardened signer (ou-oci-sign).
   # Registry host: .invalid placeholder (digest is registry-independent); lab copy 192.168.186.235:5000/ou/opencloud.
@@ -18,6 +21,21 @@ artifacts:
       env: {OC_CONFIG_DIR: /var/lib/opencloud-config, OC_BASE_DATA_PATH: /var/lib/opencloud}
       secrets: [{name: ldap-bind-password, env: OC_LDAP_BIND_PASSWORD}, {name: oc-admin-password, env: OU_INIT_ADMIN_PASSWORD}]
       volumes: [{name: data, path: /var/lib/opencloud}, {name: config, path: /var/lib/opencloud-config}, {name: tls, path: /opt/ou-tls, read_only: true}]
+  # the collaboration (WOPI) service: the same image and configuration volume, entrypoint `collaboration server` (agent >= 0.5.0 unit command).
+  # It reaches OpenCloud's registry on loopback and starts once OpenCloud is up (Restart=always); WOPI traffic reaches it through OpenCloud's proxy on :9200.
+  - name: opencloud-collaboration
+    kind: oci
+    image: registry.ou.invalid/ou/opencloud
+    digest: "sha256:8105eed9f97ab9a80fdaa47de4e8e414e592aa983a74f590d4effc00d5b8afce"
+    version: "9.1.0"
+    signed: true
+    unit:
+      type: container-hostnet
+      memory_mib: 400
+      command: [collaboration, server]
+      env: {OC_CONFIG_DIR: /var/lib/opencloud-config, OC_BASE_DATA_PATH: /var/lib/opencloud}
+      secrets: [{name: ldap-bind-password, env: OC_LDAP_BIND_PASSWORD}, {name: oc-admin-password, env: OU_INIT_ADMIN_PASSWORD}]
+      volumes: [{name: data, path: /var/lib/opencloud}, {name: config, path: /var/lib/opencloud-config}, {name: tls, path: /opt/ou-tls, read_only: true}]
 resources:
   cores:     {base: 1,    per_user: 0.004, source: "identity-files-lab-results.md: ou-files1 light; scale is a planning assumption"}
   memory_mb: {base: 1024, per_user: 1,     source: "identity-files-lab-results.md: ou-files1 0.23 GB idle, 0.57 GB peak, MemoryMax 2G"}
@@ -25,11 +43,11 @@ resources:
 volumes:
   - {name: files-data, path: /var/lib/opencloud, size_gb: {base: 10, per_user: 5, source: "PLANNING ASSUMPTION: 5 GB default per user; the lab data tree backup was ~17 MB"}, backup: true}
 ports:
-  - {name: opencloud, port: 9200, proto: tcp, exposure: edge}
-  - {name: collaboration, port: 9300, proto: tcp, exposure: edge}
+  - {name: opencloud, port: 9200, proto: tcp, exposure: local}
+  - {name: collaboration, port: 9300, proto: tcp, exposure: local}
+  - {name: https, port: 443, proto: tcp, exposure: edge, shared_with: [edge]}   # the same-VM TLS proxy (one nginx with the edge when co-located), reached by the edge VM only
 depends_on: [identity]
-notices:
-  - "Node-local state the OpenCloud unit reads is not yet created by the deployment engine: the podman secrets ldap-bind-password and oc-admin-password and the rendered configuration (ou.env, csp.yaml) in volume config (docs/status/artifacts-core-results.md, gaps). The proven topology serves OpenCloud as plain HTTP on 127.0.0.1:9200 behind a same-VM TLS proxy."
+notices: []
 dns:
   - {host: cloud, type: A, target: edge}
 health_checks:

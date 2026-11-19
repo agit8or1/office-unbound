@@ -730,3 +730,35 @@ def test_deployed_service_checks_are_agent_probes_on_real_guests(client, actors,
     assert probes and all(r.kind in ("agent_probe", "smtp_banner", "imap_login", "ews_getfolder") for r in rows), [(r.name, r.kind) for r in rows]
     ld = next(v for k, v in probes.items() if v["probe"].get("port") == 636)
     assert ld["probe"]["server_name"] == "ldap.acme.example" and ld["node_id"] == ids[next(v["name"] for v in p["vms"] if v["name"].endswith("-id"))]
+
+
+def test_files_and_office_are_configured_and_the_edge_reaches_them_over_verified_https(client, actors, rt, env):
+    p = _active(actors, rt)
+    fvm = next(v["name"] for v in p["vms"] if v["name"].endswith("-files"))
+    idvm = next(v["name"] for v in p["vms"] if v["name"].endswith("-id"))
+    fip, idip = env.agent.address(fvm), env.agent.address(idvm)
+    rb = [(r[1], r[2]) for r in env.agent.runbooks if r[0] == f"node-{fvm}"]
+    seq = [n for n, _ in rb]
+    oc = next(i for i, (n, prm) in enumerate(rb) if n == "podman.deploy_unit" and prm["name"] == "opencloud")
+    collab = next(prm for n, prm in rb if n == "podman.deploy_unit" and prm["name"] == "opencloud-collaboration")
+    assert collab["command"] == ["collaboration", "server"]
+    assert {prm["name"] for n, prm in rb[:oc] if n == "cfg.podman_secret"} == {"ldap-bind-password", "oc-admin-password"}
+    cfgvol = next(prm for n, prm in rb if n == "cfg.volume_files" and prm["component"] == "files" and prm["volume"] == "config")
+    env_ = next(f["content"] for f in cfgvol["files"] if f["path"] == "ou.env")
+    assert "OC_URL=https://cloud.acme.example" in env_ and "OC_OIDC_ISSUER=https://auth.acme.example/realms/ou" in env_ and "@" not in env_.split("\n", 4)[4]
+    with rt.session() as db:
+        did = str(db.execute(text("SELECT id FROM deployments WHERE slug = 'prod'")).scalar())
+    assert configure.secret(rt, did, "ldap-bind-password") not in env_                     # the bind password is a podman secret, never in the file
+    fw = next(prm for n, prm in rb if n == "cfg.firewall")["rules"]
+    assert {"source": idip, "proto": "tcp", "port": 443} in fw and all(r["source"] == idip for r in fw)
+    local = {prm["name"]: prm for n, prm in rb if n == "cfg.nginx_site"}
+    assert local["cloud"]["upstream"] == "http://127.0.0.1:9200" and local["office"]["upstream"] == "http://127.0.0.1:9980"
+    tls = next(prm for n, prm in rb if n == "cfg.tls")
+    from cryptography import x509 as _x
+    sans = _x.load_pem_x509_certificate(tls["cert_pem"].encode()).extensions.get_extension_for_class(_x.SubjectAlternativeName).value.get_values_for_type(_x.DNSName)
+    assert {"cloud.acme.example", "office.acme.example"} <= set(sans)
+    edge = {prm["name"]: prm for n, prm in ((r[1], r[2]) for r in env.agent.runbooks if r[0] == f"node-{idvm}") if n == "cfg.nginx_site"}
+    assert edge["auth"]["upstream"] == "http://127.0.0.1:8080" and "upstream_name" not in edge["auth"]
+    assert edge["cloud"]["upstream"] == f"https://{fip}:443" and edge["cloud"]["upstream_name"] == "cloud.acme.example"
+    assert edge["office"]["upstream"] == f"https://{fip}:443" and edge["office"]["upstream_name"] == "office.acme.example"
+    assert seq.index("cfg.volume_files") < oc

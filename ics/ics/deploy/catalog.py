@@ -64,6 +64,7 @@ class OciUnit(_M):
     memory_mib: int = Field(default=512, ge=16, le=65536)
     read_only: bool = True
     user: str | None = Field(default=None, pattern=r"^[0-9]{1,5}(:[0-9]{1,5})?$")
+    command: list[Annotated[str, Field(pattern=r"^[a-z][a-z0-9-]{0,30}$")]] = Field(default=[], max_length=4)   # entrypoint words (agent >= 0.5.0)
 
 
 class OciArtifact(_M):
@@ -129,6 +130,8 @@ class Port(_M):
     exposure: Exposure
     port_end: int | None = Field(default=None, ge=1, le=65535, description="last port of a range (e.g. RTP 10000-10200); None = single port")
     default_enabled: bool = Field(default=True, description="False = declared but closed unless the plan input enables it (enabled_ports)")
+    shared_with: list[str] = Field(default=[], description="components whose SAME process serves this port when placed on one VM (the nginx TLS "
+                                                           "proxy: files' 443 and edge's 443); not a port conflict with them")
 
     @model_validator(mode="after")
     def _range(self) -> Self:

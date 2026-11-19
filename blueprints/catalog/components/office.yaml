@@ -6,14 +6,23 @@ artifacts:
   # Built from source in ou-build1 (blueprints/build/collabora/oci). DEV-SIGNED 2026-11-18 through the hardened signer ou-oci-sign (dev channel key,
   # SPKI sha256 cd28d8bcc53aa2568d28c259b0923bc87f5e1bbd21e09e1bcdf28280aae7ee10; runner scan attestation + SBOM), published to the ICS artifact
   # service (ADR-0015) whose host the signature names. The catalog keeps the .invalid placeholder host: OU_ARTIFACT_BASE replaces it at plan time.
-  - {name: collabora, kind: oci, image: registry.ou.invalid/ou/office, digest: "sha256:2cbeafdcfd9eaab177f969fce4b66d4c55e15e490e0ade37c3c621e2990ee6ee", version: "26.04.6-ou3"}
+  - name: collabora
+    kind: oci
+    image: registry.ou.invalid/ou/office
+    digest: "sha256:2cbeafdcfd9eaab177f969fce4b66d4c55e15e490e0ade37c3c621e2990ee6ee"
+    version: "26.04.6-ou3"
+    unit:
+      type: container                 # published on loopback only; the files VM's nginx terminates TLS for office.<domain>
+      memory_mib: 2048
+      env: {OU_WOPI_HOST: "https://cloud.{domain}:443", OU_SERVER_NAME: "office.{domain}", OU_CA_FILE: /opt/ou-tls/ca.crt}
+      volumes: [{name: work, path: /opt/ou-docs/work}, {name: tls, path: /opt/ou-tls, read_only: true}]
 resources:
   cores:     {base: 2,    per_user: 0.02, source: "identity-files-lab-results.md: document load + conversion bursts; 1 core per 50 users is an assumption (no concurrency test)"}
   memory_mb: {base: 2048, per_user: 15,   source: "identity-files-lab-results.md: ou-office1 0.29 GB idle, 1.7 GB peak at a handful of sessions, MemoryMax 3G; ~10% concurrency x ~150 MB/doc assumed"}
   disk_gb:   {base: 6,    per_user: 0,    source: "CODE packages + fonts (lab estimate)"}
 volumes: []
 ports:
-  - {name: coolwsd, port: 9980, proto: tcp, exposure: edge}
+  - {name: coolwsd, port: 9980, proto: tcp, exposure: local}
 depends_on: [files]
 dns:
   - {host: office, type: A, target: edge}
@@ -23,7 +32,8 @@ health_checks:
   # ("getNewChild: No child available", docs/status/docs-reliability-results.md), so this check runs a REAL conversion through a kit on the node
   # (ou-docs-ready via the loopback socket ou-docs-health.socket, 503 + reason while not ready). The edge must route exactly this path to
   # [::1]:9981 (blueprints/build/collabora/deploy/nginx-ou-ready.conf); the check is cached 5 s node-side so polling cannot starve the kits.
-  - {name: kit-ready, kind: http, port: 9980, path: /hosting/ou-ready, expect_status: 200, interval_seconds: 60}
+  # kit-ready (/hosting/ou-ready through the node-side ou-docs-health socket) is NOT registered for the container deployment: that socket unit belongs to
+  # the package install (blueprints/build/collabora/deploy) and the engine does not create it yet (docs/status/artifacts-core-results.md open item 6).
 backup:
   method: stateless
   description: "no persistent data; redeploy from catalog"

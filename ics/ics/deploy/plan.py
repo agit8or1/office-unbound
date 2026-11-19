@@ -207,6 +207,8 @@ def _expand(inp: PlanInput, prof: Profile, cat: Catalog, errors: list[dict]) -> 
                 if not _port_open(cn, p, inp):
                     continue
                 for lo, hi, proto, other in seen:
+                    if other in p.shared_with or cn in _shared(cat, other, p.port):
+                        continue
                     if proto == p.proto and p.port <= hi and lo <= p.last:
                         errors.append(_err("port_conflict", f"{v.name}: {cn} and {other} both listen on {p.proto}/{p.port}"
                                                             f"{'-' + str(p.last) if p.port_end else ''}; put them on different VMs", vm=v.name))
@@ -556,6 +558,8 @@ def _install_params(c: Component, domain: str = "") -> list[dict]:
                                "memory_mib": u.memory_mib, "read_only": u.read_only})
                 if u.user:
                     params["user"] = u.user
+                if u.command:   # only when set: plans of units without a command keep their hash
+                    params["command"] = list(u.command)
                 if u.type == "container-hostnet":
                     params["ports"] = []   # host networking carries no published ports (the agent refuses both)
             out.append({"runbook": "podman.deploy_unit", "params": params})
@@ -647,6 +651,10 @@ def _nic(inp: PlanInput, net: dict | None, vm: str) -> dict:
 
 
 # ---- main ---------------------------------------------------------------------------------------------------
+
+def _shared(cat, comp: str, port: int) -> list[str]:
+    return [x for q in cat.components[comp].ports if q.port == port for x in q.shared_with]
+
 
 def generate_plan(inp: PlanInput, cap: Capacity, cat: Catalog | None = None, existing: dict[str, ExistingVm] | None = None,
                   networks: "NetworkModel | None" = None, scope_networks: tuple[str, ...] | None = None,
