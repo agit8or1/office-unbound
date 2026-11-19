@@ -14,8 +14,16 @@ artifacts:
   - {name: groupware-web, kind: package, package: ou-grommunio-web, version: "5.2-ou2", repo: ob-apt-dev}
   - {name: groupware-dav, kind: package, package: ou-grommunio-dav, version: "1.9-ou1", repo: ob-apt-dev}
   - {name: groupware-sync, kind: package, package: ou-grommunio-sync, version: "2.7-ou1", repo: ob-apt-dev}
-  - {name: mariadb, kind: package, package: mariadb-server, version: "10.11.13", repo: ubuntu-noble}
-  - {name: postfix, kind: package, package: postfix, version: "3.8.6", repo: ubuntu-noble}
+  # distribution packages: floors (the agent installs the archive's current update); versions current on noble 2026-11-19. Everything cfg.gromox
+  # needs is listed so the configuration never depends on a Recommends: Postfix MySQL maps, SASL submission (saslauthd -> PAM -> pam_gromox),
+  # nginx as the TLS front of web/ActiveSync/DAV/EWS/MAPI, ldap-utils for the directory lookups (same build as the identity VM).
+  - {name: mariadb, kind: package, package: mariadb-server, version: "1:10.11.14-0ubuntu0.24.04.1", repo: ubuntu-noble}
+  - {name: postfix, kind: package, package: postfix, version: "3.8.6-1ubuntu0.1", repo: ubuntu-noble}
+  - {name: postfix-mysql, kind: package, package: postfix-mysql, version: "3.8.6-1ubuntu0.1", repo: ubuntu-noble}
+  - {name: saslauthd, kind: package, package: sasl2-bin, version: "2.1.28+dfsg1-5ubuntu3.1", repo: ubuntu-noble}
+  - {name: sasl-modules, kind: package, package: libsasl2-modules, version: "2.1.28+dfsg1-5ubuntu3.1", repo: ubuntu-noble}
+  - {name: nginx, kind: package, package: nginx, version: "1.24.0-2ubuntu7.19", repo: ubuntu-noble}
+  - {name: ldap-utils, kind: package, package: ldap-utils, version: "2.6.10+dfsg-0ubuntu0.24.04.1", repo: ubuntu-noble}
 resources:
   cores:     {base: 2,    per_user: 0.01, source: "groupware-lab-results.md: 8 mailboxes, light load; 1 core per 100 users is a planning assumption (no load test yet)"}
   memory_mb: {base: 3072, per_user: 6,    source: "groupware-lab-results.md: idle stack ~1.3 GB incl page cache; gromox-imap 123 MB, mariadb 112 MB, gromox-http 85 MB, php-fpm ~35 MB/worker; 6 MB/user assumed"}
@@ -27,6 +35,8 @@ ports:
   - {name: smtp, port: 25, proto: tcp, exposure: public}
   - {name: submission, port: 587, proto: tcp, exposure: public}
   - {name: imaps, port: 993, proto: tcp, exposure: public}
+  - {name: client-https, port: 443, proto: tcp, exposure: public, shared_with: [edge, files]}   # EWS, MAPI/HTTP, ActiveSync, Autodiscover, DAV, webmail at mail.<domain>
+  - {name: smtps, port: 465, proto: tcp, exposure: public}
   - {name: web-https, port: 8447, proto: tcp, exposure: edge}
 depends_on: [identity]
 dns:
@@ -37,6 +47,7 @@ dns:
 health_checks:
   - {name: smtp-banner, kind: smtp_banner, port: 25}
   - {name: imaps-tls, kind: tcp_tls, port: 993}
+  - {name: submission-banner, kind: smtp_banner, port: 587}
   - {name: web-tls, kind: tcp_tls, port: 8447}
 backup:
   method: logical_export

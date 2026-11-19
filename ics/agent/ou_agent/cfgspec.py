@@ -14,7 +14,7 @@ from .guestspec import DIGEST_RE, IPV4_RE, NAME_RE, REGISTRY_RE, REPO_RE, SECRET
 from .proto import Reject
 
 CFG_RUNBOOKS = ("cfg.hosts", "cfg.tls", "cfg.ldap_init", "cfg.ldap_user", "cfg.pg_db", "cfg.podman_secret", "cfg.volume_files", "cfg.nginx_site",
-                "cfg.firewall")
+                "cfg.firewall", "cfg.gromox")
 FAMILY = "cfg"
 
 FQDN_RE = re.compile(r"^(?=.{4,200}$)([a-z0-9]([a-z0-9-]{0,61}[a-z0-9])?\.)+[a-z]{2,24}$")
@@ -30,6 +30,7 @@ PEM_RE = {"cert": re.compile(r"^-----BEGIN CERTIFICATE-----\n([A-Za-z0-9+/=]{1,7
 # plain HTTP only to this VM's loopback; anything on another host is HTTPS, verified against the deployment CA under `upstream_name`
 UPSTREAM_RE = re.compile(r"^(http://127\.0\.0\.1|https://(25[0-5]|2[0-4]\d|1?\d?\d)(\.(25[0-5]|2[0-4]\d|1?\d?\d)){3}):[0-9]{2,5}$")
 MAX_RULES = 64
+MAX_MAILBOXES = 32
 MAX_HOSTS, MAX_NAMES, MAX_GROUPS, MAX_FILES, MAX_FILE_BYTES, MAX_TOTAL_BYTES = 32, 16, 16, 16, 262144, 524288
 FILE_MODES = (0o600, 0o640, 0o644)
 
@@ -172,7 +173,36 @@ def check_firewall(p, cfg):
     return {"rules": sorted(out, key=lambda r: (r["source"], r["proto"], r["port"]))}
 
 
-CHECKS = {"cfg.firewall": check_firewall, "cfg.hosts": check_hosts, "cfg.tls": check_tls, "cfg.ldap_init": check_ldap_init, "cfg.ldap_user": check_ldap_user,
+def _mail(v, domain, what):
+    if not isinstance(v, str) or v.count("@") != 1:
+        raise Reject("bad_params", f"{what} must be local@domain")
+    local, _, dom = v.partition("@")
+    _s(local, LDAPNAME_RE, f"{what} local part")
+    if dom != domain:
+        raise Reject("bad_params", f"{what} must be an address of the deployment's mail domain")
+    return v
+
+
+def check_gromox(p, cfg):
+    """The groupware node (gromox + Postfix + MariaDB + grommunio web/sync/dav behind nginx): mail domain, the VM's mail host name, the
+    deployment TLS material (cfg.tls), the database password, the read-only directory bind (cfg.ldap_init's svc-bind) and the entitlement
+    group. `mailboxes` are directory addresses whose mailbox is created when the directory entry exists and is in the group."""
+    _exact(p, ("domain", "hostname", "tls_name", "db_password", "ldap_host", "bind_password", "group", "mailboxes"))
+    domain = _s(p["domain"], FQDN_RE, "domain")
+    host = _s(p["hostname"], FQDN_RE, "hostname")
+    ldap_host = _s(p["ldap_host"], FQDN_RE, "ldap_host")
+    for h, what in ((host, "hostname"), (ldap_host, "ldap_host")):
+        if not h.endswith("." + domain):
+            raise Reject("bad_params", f"{what} must be a name inside the mail domain")
+    boxes = [_mail(m, domain, "mailbox") for m in _list(p["mailboxes"], "mailboxes", MAX_MAILBOXES)]
+    if len(set(boxes)) != len(boxes):
+        raise Reject("bad_params", "duplicate mailbox")
+    return {"domain": domain, "hostname": host, "tls_name": _s(p["tls_name"], NAME_RE, "tls_name"),
+            "db_password": _password(p["db_password"], "db_password"), "ldap_host": ldap_host,
+            "bind_password": _password(p["bind_password"], "bind_password"), "group": _s(p["group"], GROUP_RE, "group"), "mailboxes": boxes}
+
+
+CHECKS = {"cfg.firewall": check_firewall, "cfg.gromox": check_gromox, "cfg.hosts": check_hosts, "cfg.tls": check_tls, "cfg.ldap_init": check_ldap_init, "cfg.ldap_user": check_ldap_user,
           "cfg.pg_db": check_pg_db, "cfg.podman_secret": check_podman_secret, "cfg.volume_files": check_volume_files,
           "cfg.nginx_site": check_nginx_site}
 

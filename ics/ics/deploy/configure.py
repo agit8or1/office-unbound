@@ -25,8 +25,9 @@ from .catalog import default_dir as catalog_dir
 REALM = "ou"
 LDAP_GROUPS = ("opencloudAdmin", "opencloudSpaceAdmin", "opencloudUser", "opencloudGuest", "mail-users")
 KEYCLOAK_UID = "10130:10130"   # the non-root user of the Keycloak image (blueprints/build/oci/idfiles)
-SECRET_PARAM_KEYS = ("admin_password", "bind_password", "password", "value", "key_pem")
-CONFIGURED = ("identity", "edge", "files", "office")   # components whose node-local state the engine creates today (groupware: still a notice)
+SECRET_PARAM_KEYS = ("admin_password", "bind_password", "password", "value", "key_pem", "db_password")
+CONFIGURED = ("identity", "edge", "files", "office", "groupware")   # components whose node-local state the engine creates today
+MAIL_GROUP = "mail-users"      # directory group whose members get a mailbox (cfg.ldap_init creates it; ou-admin is a member)
 OPENCLOUD_UID = "10140:10140"  # the non-root user of the OpenCloud image (blueprints/build/oci/idfiles)
 DOCS_UID = "10001:10001"       # the non-root user of the Office Unbound Docs image (blueprints/build/collabora/oci)
 # the loopback port each web-facing component's service listens on (catalog ports with exposure local), by DNS host name
@@ -308,7 +309,24 @@ def office_runbooks(ctx, vm: str) -> list[dict]:
     ]
 
 
-BUILDERS = {"identity": identity_runbooks, "edge": edge_runbooks, "files": files_runbooks, "office": office_runbooks}
+def groupware_runbooks(ctx, vm: str) -> list[dict]:
+    """The groupware node: gromox (mail store, IMAP, EWS/MAPI, delivery) + Postfix + MariaDB + grommunio web/ActiveSync/DAV behind nginx, users
+    authenticated against the deployment directory (read-only bind), mailboxes for the administrator. Lab proof: docs/status/groupware-deploy-results.md."""
+    dep, rt = ctx.deployment_id, ctx.rt
+    domain = domain_of(ctx.plan, vm)
+    names = names_by_vm(ctx.plan, domain)
+    return [
+        {"runbook": "cfg.hosts", "params": {"entries": hosts_entries(ctx, names)}},
+        firewall_runbook(ctx, vm),
+        _tls(ctx, vm, domain, names),
+        {"runbook": "cfg.gromox", "params": {"domain": domain, "hostname": f"mail.{domain}", "tls_name": "deployment",
+                                             "db_password": secret(rt, dep, "gw-db-password"), "ldap_host": f"ldap.{domain}",
+                                             "bind_password": secret(rt, dep, "ldap-bind-password"), "group": MAIL_GROUP,
+                                             "mailboxes": [f"ou-admin@{domain}"]}},
+    ]
+
+
+BUILDERS = {"identity": identity_runbooks, "edge": edge_runbooks, "files": files_runbooks, "office": office_runbooks, "groupware": groupware_runbooks}
 
 
 def expand(ctx, vm: str, component: str, runbooks: list[dict]) -> list[dict]:
