@@ -320,7 +320,12 @@ def volume_files(p, x):
             t.addfile(ti, io.BytesIO(data))
     as_svc(x, [BIN["podman"], "volume", "create", "--ignore", "--label", f"ou.component={p['component']}", vol], what="podman volume create")
     r = subprocess.run([BIN["runuser"], "-u", SERVICE_USER, "--", "/usr/bin/env", "-i", *[f"{k}={v}" for k, v in svc_env().items()],
-                        BIN["podman"], "run", "--rm", "-i", "--pull=never", "--network=none", "--user", "0", "--entrypoint", "/bin/sh",
+                        # cgroupfs + --cgroups=disabled: this helper is a SYSTEM unit (ou-rb-cfg@), so the default systemd cgroup manager would
+                        # ask the service user's systemd for a scope it cannot move this process into (crun: "create directory
+                        # .../libpod-<id>.scope/container: No such file or directory", first real VM 2026-11-19). A one-shot copy container
+                        # needs no cgroup; it stays in this unit's cgroup and its limits. The long-running units still run under the user manager.
+                        BIN["podman"], "--cgroup-manager=cgroupfs", "run", "--cgroups=disabled", "--rm", "-i", "--pull=never", "--network=none",
+                        "--user", "0", "--entrypoint", "/bin/sh",
                         "-v", f"{vol}:/d", p["image"], "-c", f"tar -xf - -C /d && chown -R {p['owner']} /d"],
                        input=buf.getvalue(), capture_output=True, timeout=300, cwd="/")
     if r.returncode != 0:

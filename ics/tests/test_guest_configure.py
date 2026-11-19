@@ -235,6 +235,8 @@ def test_volume_files_need_a_verified_image_and_carry_exact_modes(fake, monkeypa
     t = tarfile.open(fileobj=io.BytesIO(seen["tar"]))
     m = t.getmember("import/realm-ou.json")
     assert m.mode == 0o600 and t.extractfile(m).read() == b"{}"
+    a = seen["argv"]   # run from a system unit: no systemd scope may be requested (the user manager cannot adopt this process)
+    assert a[a.index("run") - 1] == "--cgroup-manager=cgroupfs" and "--cgroups=disabled" in a[a.index("run"):]
     assert "--network=none" in seen["argv"] and "--pull=never" in seen["argv"] and seen["argv"][-1] == "tar -xf - -C /d && chown -R 10130:10130 /d"
 
 
