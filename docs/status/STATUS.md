@@ -1,7 +1,7 @@
 # Office Unbound — status
 
-**Milestone:** Phase 1 core proof largely done; Phase 2 (orchestration) + Phase 3 (UX) in progress. Updated 2026-11-15. Public roadmap: ROADMAP.md / docs/progress.json.
-**Constraints:** ADR-0007 zero mandatory licensing cost / no artificial limits. Proxmox out of scope until owner re-enables (lab = isolated systemd-nspawn on ICS host, zone `oulab`).
+**Milestone (2026-11-19):** first repeatable multi-VM deployment of the core stack (identity, edge, files, Office) through the production ICS onto real Proxmox pve06, 3 of 3 green with clean destroy (`multi-vm-deploy-results.md`). Current release 0.4.10. Next: mail/groupware in the deployed stack, then external mail (owner: public IP + domain). Beta plan and scorecard: `ALPHA-EXECUTION-QUEUE.md`; public roadmap: ROADMAP.md / docs/progress.json.
+**Constraints:** ADR-0007 zero mandatory licensing cost / no artificial limits. Proxmox: cluster agit8or1 connected (pve06 only; pve01-05, ha-zfs, PBS1 never touched; VM 126 = the ICS, protected).
 
 ## Component status (ADR-0000)
 | Component | Status | Evidence |
@@ -10,7 +10,7 @@
 | ICS console (Vue, redesigned shell/dashboard/users) | Integrated in lab — deployed 2026-11-15 | vitest 32/32, typecheck, build; screenshots docs/screenshots/ |
 | ICS monitoring, alerts, node agent, remediation | Integrated in lab | ics-monitoring-results.md; review fixes H1, H2, M1–M4, Lows merged |
 | ICS identity lifecycle (create / update_groups / disable+VERIFY / enable / delete / reconcile) | Integrated in lab | user-lifecycle-results.md: acceptance script PASS (all paths refused <= 7 s), pytest suite; open gaps: OpenCloud app tokens resurrect on enable, ActiveSync wipe, Gromox open-session kill is a quarantine workaround |
-| Proxmox pve06 (real) | Read-only probe verified; provider broker + mutations implemented vs simulator, integration in progress | provider-proxmox-real.md, provider-proxmox.md |
+| Proxmox pve06 (real) | Integrated: ICS deploys and destroys 2-VM core stacks (identity+edge, files+office) from signed golden image v7; leftovers cleanup with temporary admin sign-in | multi-vm-deploy-results.md, provider-proxmox-real.md, host-changes.md |
 | Groupware: own source build of gromox 3.13 + sync/dav/web | Integrated in lab | groupware-lab-results.md — 57 automated checks pass (lead re-run): MAPI/HTTP Connect, EWS, ActiveSync, Autodiscover, IMAP/SMTP, CalDAV/CardDAV, shared mailbox, restart, export/import restore; 7 users (no cap) |
 | Groupware ↔ OpenLDAP single user store | Implementing | groupware-ldap-results.md (pending) |
 | Identity: OpenLDAP + Keycloak 26.8.2 | Integrated in lab | identity-files-lab-results.md (T01 36/0) |
@@ -30,7 +30,7 @@
 - KI-2: LDAP lock alone does not end Keycloak SSO/offline refresh tokens (>420 s). Deprovisioning must revoke in Keycloak (<1 s measured).
 - KI-3: Collabora CODE in nspawn runs without chroot jails (unshare fails in unprivileged container) — lab-only acceptable; production VM must have jails.
 - Lab install scripts: clean-room one-pass re-runs of identity, files, office (vendor + own editor) and groupware DONE on fresh machines in a separate domain (A22), 12 script fixes, all tiers idempotent; see docs/status/clean-room-results.md. Not covered: t07 desktop sync, manual checklist, collab/pbx spikes.
-- KI-4 (open, not diagnosed): on a real Ubuntu 24.04 VM (podman 4.9.3) a rootless unit on a private podman network failed to start: "failed to mount runtime directory for rootless netns: no such file or directory" (Collabora, e2e-fo5, 2026-11-19). Since 0.4.6 every catalog unit uses host networking behind the guest firewall's default drop (`test_every_catalog_unit_uses_host_networking`). To diagnose: report podman's runtime/tmp directories and rootless-netns state from the node (guest.facts) and reproduce on a disposable VM.
+- KI-4 (worked around, root cause not diagnosed): on a real Ubuntu 24.04 VM (podman 4.9.3) a rootless unit on a private podman network failed to start: "failed to mount runtime directory for rootless netns: no such file or directory" (Collabora, e2e-fo5, 2026-11-19). Since 0.4.6 every catalog unit uses host networking behind the guest firewall's default drop (`test_every_catalog_unit_uses_host_networking`). To diagnose: report podman's runtime/tmp directories and rootless-netns state from the node (guest.facts) and reproduce on a disposable VM.
 
 ## Open owner items
 1. Gateway resolver 192.168.22.1 SERVFAILs officeunbound.com (local workaround in host-changes.md).

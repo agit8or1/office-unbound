@@ -547,11 +547,12 @@
         {
           "id": "P2.2",
           "title": "Deployment engine: profiles, sizing, dependency graph, plans, desired vs actual state, drift",
-          "status": "implementing",
+          "status": "integrated_lab",
           "evidence": [
+            "docs/status/multi-vm-deploy-results.md",
             "docs/status/deployment-engine.md"
           ],
-          "note": "Engine and plans work; full-stack bill of materials shows missing/unsigned artifacts (Keycloak, OpenCloud, MAS, Jitsi) being produced on branches artifacts-core / oci-signing"
+          "note": "Milestone 2026-11-19: repeatable multi-VM deployment of identity + edge + files + Office through the production ICS onto real pve06 (e2e-fo7/fo8/fo9: create 267-314 s, 6/6 health checks, destroy 14-17 s leaves no checks or incidents; 3 of 3 since 0.4.7). Mail/groupware has no configuration runbook yet; chat, meetings, telephony artifacts unsigned/placeholder."
         },
         {
           "id": "P2.3",
@@ -567,8 +568,10 @@
           "id": "P2.4",
           "title": "Setup, deployment and change wizards backed by approval-gated plans",
           "status": "integrated_lab",
-          "evidence": [],
-          "note": "Setup/deployment/change wizards deployed as the default first-run path; end-to-end deployment run in progress"
+          "evidence": [
+            "docs/status/multi-vm-deploy-results.md"
+          ],
+          "note": "Setup/deployment/change wizards are the default first-run path; the deployment path ran end to end on real pve06 three times in a row (multi-vm-deploy-results.md)"
         },
         {
           "id": "P2.5",
@@ -1170,8 +1173,8 @@
   "beta": {
     "target_date": "2026-12-31",
     "kind": "invite-only beta",
-    "readiness_percent": 42,
-    "as_of": "2026-11-16",
+    "readiness_percent": 47,
+    "as_of": "2026-11-19",
     "stage": "Stage 1 — security and repository stabilization (Nov 16–22)",
     "scorecard": "docs/status/ALPHA-EXECUTION-QUEUE.md",
     "method": "Weighted: security 20, install/full-stack deploy 20, data integrity/recovery 15, tenant isolation 15, core services 15, MSP admin 8, operations 7; only tested requirements count."

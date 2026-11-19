@@ -12,22 +12,22 @@ How it is run:
 
 Readiness is the weighted share of each area's beta requirements that are **tested on the relevant level**. Implementation without tests counts zero. Data comes from this file and `docs/progress.json`.
 
-| Area | Weight | Status (2026-11-16) | Evidence-based score |
+| Area | Weight | Status (2026-11-19) | Evidence-based score |
 |---|---|---|---|
 | Security (no Critical/High; review 8; least privilege applied; signing verified) | 20 | 0 Critical. Independent review 8 done and fixed (1 High, 4 Medium, 2 Low; 1 Low open by design). 5 Highs Partial until owner privsep apply and signed registry | 60% |
-| Installation and full-stack deploy through ICS (fresh, repeated) | 20 | Single VM and container on real PVE (A1). Full stack not yet deployed. Golden images and artifacts are on branches | 15% |
+| Installation and full-stack deploy through ICS (fresh, repeated) | 20 | **Milestone 2026-11-19:** core stack (identity, edge, files, Office) deployed on 2 real VMs through the production ICS, 3 of 3 runs green with clean destroy (multi-vm-deploy-results.md). Mail/groupware, chat, meetings, telephony not yet deployed by the ICS | 40% |
 | Data integrity and recovery (backup and restore of tenant and ICS; upgrade and rollback; failover) | 15 | Lab-verified: restores, ICS controller tier, editor and groupware rollback, HA partition proof | 55% |
 | Tenant isolation (identity, mail, files, docs, chat, meetings, admin, API, backups, network) | 15 | App and backup isolation lab-verified (209/0). Network (SDN) not yet applied | 45% |
 | Core services working together (identity, mail incl. external, calendar and contacts, files and sync, docs, chat, meetings, telephony) | 15 | Lab-integrated. External mail, GUI desktop sync and Outlook not yet tested | 40% |
 | MSP and Org admin (control center, Org Admin, provisioning API, quotas, audit) | 8 | Built and lab-tested on branches, merged in 5504775 | 50% |
 | Operations (monitoring, alerts incl. email/SMS/webhook, updates, capacity) | 7 | Monitoring and incidents exist. Alert channels beyond webhook/email are partial | 35% |
-| **Overall** | **100** | | **≈ 42%** |
+| **Overall** | **100** | | **≈ 47%** |
 
 | Tracker | Value (commit) |
 |---|---|
 | Security findings open | Critical 0 · High 5 Partial · Medium/Low: see `SECURITY-REMEDIATION.md` (140 rows) |
-| Backend / frontend / e2e | Last green: 0df8ae4 (1359 / 151 / 437+27); deployed c3d8756 2026-11-16 16:24Z |
-| Full-stack deploy success | 0 of 0 attempts |
+| Backend / frontend / e2e | Last green: d7792f5 (1546 / 203 / 463+27); deployed 0.4.10 (d7792f5) 2026-11-19 21:43Z |
+| Full-stack deploy success | Core stack (no mail/chat/meetings/telephony): 3 of 3 since 0.4.7 (e2e-fo7/fo8/fo9, 2026-11-19); 1 of 15 before the Office fix |
 | Tenant isolation | 209 pass / 0 fail (lab, branch evidence); network isolation pending |
 | External mail | Not tested; needs owner domain/DNS |
 | Backup and recovery | Lab restores verified (RTO 29–127 s); ICS tier verified |
