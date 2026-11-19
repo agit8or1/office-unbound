@@ -520,7 +520,8 @@ class GuestAgentPort:
         res = resp.get("result") if isinstance(resp.get("result"), dict) else {}
         if resp.get("status") != "ok" or "rejected" in res:
             rej = res.get("rejected") or {}
-            raise StepFailed(f"{runbook} refused: {rej.get('code') or resp.get('code')}: {str(rej.get('message') or '')[:200]}",
+            # a helper's refusal is in result.rejected; the agent's own (before spooling) in result.message (e2e-fo1: "bad_params: " and nothing else)
+            raise StepFailed(f"{runbook} refused: {rej.get('code') or resp.get('code')}: {str(rej.get('message') or res.get('message') or '')[:200]}",
                              "The node agent rejected the runbook request.", retryable=False)
         inner = res.get("result") if isinstance(res.get("result"), dict) else res
         if inner.get("verified") is False:

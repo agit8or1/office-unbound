@@ -290,7 +290,7 @@ def files_runbooks(ctx, vm: str) -> list[dict]:
                                                    "files": [{"path": "ou.env", "mode": 0o640, "content": _template("files/opencloud.env", **hosts)},
                                                              {"path": "csp.yaml", "mode": 0o644, "content": _template("files/csp.yaml", **hosts)}]}},
         {"runbook": "cfg.volume_files", "params": {"component": "files", "volume": "data", "image": img, "owner": OPENCLOUD_UID,
-                                                   "files": [{"path": ".ou-volume", "mode": 0o644, "content": "Office Unbound files data volume\n"}]}},
+                                                   "files": [{"path": "ou-volume", "mode": 0o644, "content": "Office Unbound files data volume\n"}]}},
         *_local_sites(ctx, vm, domain, ("cloud",)),
     ]
 
@@ -303,7 +303,7 @@ def office_runbooks(ctx, vm: str) -> list[dict]:
         {"runbook": "cfg.volume_files", "params": {"component": "office", "volume": "tls", "image": img, "owner": DOCS_UID,
                                                    "files": [{"path": "ca.crt", "mode": 0o644, "content": ca_pem}]}},
         {"runbook": "cfg.volume_files", "params": {"component": "office", "volume": "work", "image": img, "owner": DOCS_UID,
-                                                   "files": [{"path": ".ou-volume", "mode": 0o644, "content": "Office Unbound Docs work volume\n"}]}},
+                                                   "files": [{"path": "ou-volume", "mode": 0o644, "content": "Office Unbound Docs work volume\n"}]}},
         *_local_sites(ctx, vm, domain, ("office",)),
     ]
 

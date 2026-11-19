@@ -168,6 +168,13 @@ def test_run_runbook_turns_agent_refusals_and_failed_verification_into_step_fail
     reply({"status": "ok", "result": {"returncode": 0, "result": {"started": False, "active_state": "failed"}}})
     with pytest.raises(StepFailed, match="failed"):
         port.run_runbook("n", "podman.deploy_unit", {})
+    # the agent's own refusal (before the helper runs) carries its reason in result.message (e2e-fo1 showed "bad_params: " and nothing else)
+    reply({"status": "rejected", "code": "bad_params", "result": {"message": "file path does not match the allowed pattern"}})
+    with pytest.raises(StepFailed, match="bad_params: file path does not match"):
+        port.run_runbook("n", "cfg.volume_files", {})
+    reply({"status": "ok", "result": {"returncode": 0, "result": {"started": False, "active_state": "failed", "log": "Error: mkdir /sys/fs/cgroup/x: read-only file system"}}})
+    with pytest.raises(StepFailed, match="unit log: Error: mkdir"):
+        port.run_runbook("n", "podman.deploy_unit", {})
 
 
 

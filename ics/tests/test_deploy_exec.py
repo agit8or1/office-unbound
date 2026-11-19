@@ -762,3 +762,18 @@ def test_files_and_office_are_configured_and_the_edge_reaches_them_over_verified
     assert edge["cloud"]["upstream"] == f"https://{fip}:443" and edge["cloud"]["upstream_name"] == "cloud.acme.example"
     assert edge["office"]["upstream"] == f"https://{fip}:443" and edge["office"]["upstream_name"] == "office.acme.example"
     assert seq.index("cfg.volume_files") < oc
+    _agent_accepts_every_cfg_runbook(env)
+
+
+def _agent_accepts_every_cfg_runbook(env):
+    """Every configuration runbook the engine sends must pass the node agent's own validator (e2e-fo1 on pve06 was refused `bad_params`)."""
+    import os
+    import sys as _sys
+    _sys.path.insert(0, os.path.join(os.path.dirname(__file__), "..", "agent"))
+    from ou_agent import cfgspec
+    for node, name, prm in ((r[0], r[1], r[2]) for r in env.agent.runbooks):
+        if name in cfgspec.CHECKS:
+            try:
+                cfgspec.CHECKS[name](prm, {"runbooks": {name: {"enabled": True}}})
+            except Exception as e:
+                raise AssertionError(f"{node} {name} {prm.get('component', '')}/{prm.get('volume', prm.get('name', ''))}: {e!r}") from None
