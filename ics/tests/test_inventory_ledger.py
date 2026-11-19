@@ -101,6 +101,57 @@ def test_a_vmid_reused_after_the_guest_went_missing_is_a_new_guest_not_a_rename(
     assert res[("guest", "148")]["state"] == "new" and res[("guest", "148")]["change"] is None and counts["changed"] == 0
 
 
+def _record_deployment_vm(rt, eid, vmid, status="active"):
+    with rt.session() as db:
+        d = db.execute(text("INSERT INTO deployments (slug, customer_id, profile, profile_version, endpoint_id, status, desired_spec) "
+                            "VALUES (:s, 'c-000000000000', 'custom', '1.0.0', :e, :st, '{}'::jsonb) RETURNING id"),
+                       {"s": f"led-{vmid}", "e": eid, "st": status}).scalar()
+        db.execute(text("INSERT INTO deployment_resources (deployment_id, kind, logical_name, provider_ref, desired, state) "
+                        "VALUES (:d, 'vm', 'vm1', CAST(:r AS jsonb), '{}'::jsonb, 'present')"), {"d": d, "r": f'{{"node": "pve06", "vmid": {vmid}}}'})
+        db.commit()
+
+
+def _record_import(rt, eid, vmid, name):
+    with rt.session() as db:
+        u = db.execute(text("SELECT id FROM users LIMIT 1")).scalar()
+        p = db.execute(text("INSERT INTO plans (action, params, risk, status, requested_by) VALUES ('image.import', CAST(:pa AS jsonb), 'high', "
+                            "'approved', :u) RETURNING id"), {"pa": f'{{"endpoint_id": "{eid}"}}', "u": u}).scalar()
+        db.execute(text("INSERT INTO jobs (plan_id, action, status, result) VALUES (:p, 'image.import', 'succeeded', CAST(:r AS jsonb))"),
+                   {"p": p, "r": f'{{"vmid": {vmid}, "template": "{name}", "node": "pve06"}}'})
+        db.commit()
+
+
+def test_guests_office_unbound_created_are_not_reported_as_new(w, owner, rt):  # noqa: F811
+    """2026-11-19: every sample deployment showed "2 new infrastructure resource(s) discovered" for its own two VMs. VMs a live deployment
+    records and templates a successful image.import created are Office Unbound's own (decided from its records, never from Proxmox tags);
+    everything else is still reported."""
+    eid = connect(w, owner)
+    collect(rt, eid)
+    _record_deployment_vm(rt, eid, 150)
+    _record_import(rt, eid, 152, "ou-tpl-ubuntu-2404")
+    for v, n in ((150, "c-000000000000-x-id"), (151, "someone-elses"), (153, "tagged-but-not-ours")):
+        owner.sim.add_vm(v, "pve06", n, status="running", storage="PVE06-Storage", pool="officeunbound-pve06")
+    owner.sim.add_vm(152, "pve06", "ou-tpl-ubuntu-2404", status="stopped", storage="PVE06-Storage", pool="officeunbound-pve06", template=True)
+    r = collect(rt, eid)
+    res, counts = access(w, eid)
+    assert res[("guest", "150")]["state"] == "known"                        # our deployment's VM
+    assert res[("guest", "151")]["state"] == "new" and res[("guest", "153")]["state"] == "new"
+    assert res[("guest", "152")]["state"] == "known" and res[("guest", "152")]["type"].startswith("template-")   # our imported template
+    assert counts["new"] == 2 and r["changes"]["new"] == 2
+    # cloned first, recorded after (the deployment records the VMID once the clone exists): known on the next sync
+    owner.sim.add_vm(154, "pve06", "c-000000000000-x-files", status="running", storage="PVE06-Storage", pool="officeunbound-pve06")
+    collect(rt, eid)
+    assert access(w, eid)[0][("guest", "154")]["state"] == "new"
+    _record_deployment_vm(rt, eid, 154)
+    collect(rt, eid)
+    assert access(w, eid)[0][("guest", "154")]["state"] == "known"
+    # a VMID recorded by a DESTROYED deployment is not ours any more: a new guest under it is reported
+    _record_deployment_vm(rt, eid, 155, status="destroyed")
+    owner.sim.add_vm(155, "pve06", "after-destroy", status="running", storage="PVE06-Storage", pool="officeunbound-pve06")
+    collect(rt, eid)
+    assert access(w, eid)[0][("guest", "155")]["state"] == "new"
+
+
 def test_manage_access_discovery_shows_everything_annotated(w, owner, rt):  # noqa: F811
     eid = connect(w, owner)
     collect(rt, eid)

@@ -10,6 +10,10 @@ isolated lab; nothing is production supported ([ROADMAP.md](ROADMAP.md)).
 
 ## [Unreleased]
 
+## [0.4.10] - 2026-11-19
+
+- **Fix: every deployment raised "2 new infrastructure resource(s) discovered (not authorized)" for its own VMs.** The inventory ledger reported every guest it had not seen before, including the ones Office Unbound had just created. Guests Office Unbound created itself are now recorded as already reviewed. That means the VMs a live deployment records and the templates a successful image import created (matching template name and type). This is decided from its own records, never from Proxmox tags, which anyone with configuration rights can set. A VM seen before the deployment recorded its ID becomes known on the next sync. A guest under the ID of a destroyed deployment, and anything else created outside Office Unbound, is still reported. The note now reads "created outside Office Unbound" instead of the misleading "(not authorized)" ([test_inventory_ledger.py](ics/tests/test_inventory_ledger.py)).
+
 ## [0.4.9] - 2026-11-19
 
 - **New: a "Clean up leftovers" button.** The cleanup was only reachable at the bottom of Manage access, inside a collapsed section, after signing in. The Proxmox clusters list now has **Manage access** and **Clean up leftovers** on each cluster card, and the cluster page has **Clean up leftovers** next to Manage access. It opens the Proxmox sign-in (administrator, second factor as in the setup wizard) and then shows the cleanup directly, with the removable items pre-ticked. The sign-in is still used for that one approved job and never stored.
@@ -265,6 +269,7 @@ editing, chat/meetings, telephony prototype, migration tooling and package pipel
 - `SECURITY.md` (private reporting) and `CONTRIBUTING.md` (DCO sign-off) added; AGPL-3.0 license. [SECURITY](SECURITY.md)
 
 [Unreleased]: https://github.com/agit8or1/office-unbound/compare/v0.4.7...HEAD
+[0.4.10]: https://github.com/agit8or1/office-unbound/compare/v0.4.9...v0.4.10
 [0.4.9]: https://github.com/agit8or1/office-unbound/compare/v0.4.8...v0.4.9
 [0.4.8]: https://github.com/agit8or1/office-unbound/compare/v0.4.7...v0.4.8
 [0.4.7]: https://github.com/agit8or1/office-unbound/compare/v0.4.6...v0.4.7

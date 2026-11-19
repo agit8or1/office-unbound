@@ -8,7 +8,8 @@ After each discovery (collector.collect_discovery) `reconcile` compares the norm
   renamed           a guest's name changed
   identity_changed  a guest's type changed under the same VMID (deleted and re-created): never inherits review state
   (a guest that went missing and comes back under the same VMID with another name or type is a NEW guest that reused the ID: recorded as new)
-Review (`acknowledge`) only marks an entry as seen. NOTHING here grants access: authorization comes exclusively from the approved policy
+Guests Office Unbound created itself (`own_guests`: its deployments' VMs, its imported templates, from its own records) are recorded as
+already reviewed. Review (`acknowledge`) only marks an entry as seen. NOTHING here grants access: authorization comes exclusively from the approved policy
 (endpoints.allowed_* / managed_vmids) changed through approved plans."""
 from __future__ import annotations
 
@@ -34,26 +35,54 @@ def current(db: Session, eid: str) -> dict[tuple[str, str], dict]:
     return out
 
 
+def own_guests(db: Session, eid: str) -> dict[str, str | None]:
+    """VMIDs Office Unbound itself created on this endpoint, from its OWN records (never from Proxmox tags, which anyone with config rights
+    can set): VMs a deployment that is not destroyed still holds -> None; templates created by a successful image.import -> the template name.
+    Such a guest is not news to the operator: it is recorded as already reviewed (2026-11-19: every sample deployment showed "2 new
+    infrastructure resources discovered")."""
+    out: dict[str, str | None] = {}
+    for r in db.execute(text("SELECT r.provider_ref->>'vmid' AS vmid FROM deployment_resources r JOIN deployments d ON d.id = r.deployment_id "
+                             "WHERE d.endpoint_id = :e AND d.status <> 'destroyed' AND r.kind = 'vm' AND r.state <> 'removed' "
+                             "AND r.provider_ref->>'vmid' IS NOT NULL"), {"e": eid}).all():
+        out[str(int(r.vmid))] = None
+    for r in db.execute(text("SELECT j.result->>'vmid' AS vmid, j.result->>'template' AS name FROM jobs j JOIN plans p ON p.id = j.plan_id "
+                             "WHERE p.action = 'image.import' AND j.status = 'succeeded' AND p.params->>'endpoint_id' = :e "
+                             "AND j.result->>'vmid' IS NOT NULL ORDER BY j.created_at"), {"e": eid}).all():
+        out[str(int(r.vmid))] = r.name or ""          # the latest import of a VMID wins
+    return out
+
+
+def _is_own(own: dict[str, str | None], kind: str, key: str, c: dict) -> bool:
+    if kind != "guest" or key not in own:
+        return False
+    tpl = own[key]
+    if tpl is None:                                   # a deployment VM: never a template
+        return not str(c.get("type") or "").startswith("template-")
+    return str(c.get("type") or "").startswith("template-") and c.get("name") == tpl
+
+
 def reconcile(db: Session, eid: str, complete: set[str]) -> dict:
     cur = current(db, eid)
     led = {(r.kind, r.key): r for r in db.execute(text("SELECT * FROM inventory_ledger WHERE endpoint_id = :e"), {"e": eid}).all()}
     baseline = not led
+    own = own_guests(db, eid)
     counts = {"new": 0, "changed": 0, "missing": 0}
     for (kind, key), c in cur.items():
         r = led.get((kind, key))
         if r is None:
             db.execute(text("INSERT INTO inventory_ledger (endpoint_id, kind, key, name, node, type, acknowledged_at) "
                             "VALUES (:e, :k, :key, :n, :node, :t, CASE WHEN :b THEN now() ELSE NULL END)"),
-                       {"e": eid, "k": kind, "key": key, "n": c["name"], "node": c["node"], "t": c["type"], "b": baseline})
-            counts["new"] += 0 if baseline else 1
+                       {"e": eid, "k": kind, "key": key, "n": c["name"], "node": c["node"], "t": c["type"], "b": baseline or _is_own(own, kind, key, c)})
+            counts["new"] += 0 if baseline or _is_own(own, kind, key, c) else 1
             continue
         if kind == "guest" and r.missing_since is not None and (r.name != c["name"] or (r.type or "").removeprefix("template-") != c["type"].removeprefix("template-")):
             # Gone after a COMPLETE fetch, now back under the same VMID with another name/type: Proxmox reused the ID for a NEW guest (e.g. a
             # destroyed test VM's ID taken by a newly imported template). A new identity: recorded as new, never as a rename of the old one.
             db.execute(text("UPDATE inventory_ledger SET name = :n, node = :node, type = :t, first_seen = now(), last_seen = now(), missing_since = NULL, "
-                            "change = NULL, change_detail = NULL, acknowledged_at = NULL WHERE endpoint_id = :e AND kind = :k AND key = :key"),
-                       {"e": eid, "k": kind, "key": key, "n": c["name"], "node": c["node"], "t": c["type"]})
-            counts["new"] += 1
+                            "change = NULL, change_detail = NULL, acknowledged_at = CASE WHEN :o THEN now() ELSE NULL END "
+                            "WHERE endpoint_id = :e AND kind = :k AND key = :key"),
+                       {"e": eid, "k": kind, "key": key, "n": c["name"], "node": c["node"], "t": c["type"], "o": _is_own(own, kind, key, c)})
+            counts["new"] += 0 if _is_own(own, kind, key, c) else 1
             continue
         change, detail = None, None
         if kind == "guest":
@@ -73,6 +102,11 @@ def reconcile(db: Session, eid: str, complete: set[str]) -> dict:
             db.execute(text("UPDATE inventory_ledger SET name = :n, node = :node, type = :t, last_seen = now(), missing_since = NULL "
                             "WHERE endpoint_id = :e AND kind = :k AND key = :key"),
                        {"e": eid, "k": kind, "key": key, "n": c["name"], "node": c["node"], "t": c["type"]})
+    # a guest seen before its deployment/import recorded the VMID (clone first, record after) becomes known on a later sync
+    mine = [k for (kind, k), c in cur.items() if _is_own(own, kind, k, c)]
+    if mine:
+        db.execute(text("UPDATE inventory_ledger SET acknowledged_at = now() WHERE endpoint_id = :e AND kind = 'guest' AND key = ANY(:ks) "
+                        "AND acknowledged_at IS NULL AND change IS NULL AND missing_since IS NULL"), {"e": eid, "ks": mine})
     for (kind, key), r in led.items():
         if (kind, key) in cur or kind not in _COMPLETE or not all(x in complete for x in _COMPLETE[kind]):
             continue
