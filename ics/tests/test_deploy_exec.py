@@ -628,6 +628,15 @@ def test_destroy_removes_only_owned_guests(client, actors, rt, env):
     # a guest that lost its ownership tag is never destroyed
     victim = next(v for v in prov.vms.values() if v["name"].endswith("-groupware"))
     victim["tags"] = []
+    with rt.session() as db:   # a failing check of this deployment with an open incident, and someone else's check
+        mine = db.execute(text("SELECT id FROM checks WHERE deployment_id = (SELECT id FROM deployments WHERE slug = 'prod') LIMIT 1")).scalar()
+        assert mine is not None
+        db.execute(text("UPDATE checks SET state = 'critical' WHERE id = :i"), {"i": str(mine)})
+        db.execute(text("INSERT INTO incidents (id, check_id, status, severity, title) VALUES (gen_random_uuid(), :i, 'open', 'critical', 't')"),
+                   {"i": str(mine)})
+        db.execute(text("INSERT INTO checks (id, name, kind, config, interval_seconds, customer_id, created_by) SELECT gen_random_uuid(), 'other-check', kind, config, "
+                        "interval_seconds, customer_id, created_by FROM checks WHERE id = :i"), {"i": str(mine)})
+        db.commit()
     r, jid = submit(actors, rt, "deployment.destroy", {"deployment_id": "prod", "confirm": "prod", "plan_hash": dh}, approvals=1)
     assert r["risk"] == "high" and jid is None
     (o, oh), a1, a2 = actors
@@ -638,8 +647,11 @@ def test_destroy_removes_only_owned_guests(client, actors, rt, env):
     d = o.get(f"{H}/deployments/prod").json()
     assert d["status"] == "destroyed"
     with rt.session() as db:
-        assert db.execute(text("SELECT count(*) FROM checks WHERE enabled")).scalar() == 0
-        assert db.execute(text("SELECT count(*) FROM audit_events WHERE action = 'deployment.destroyed'")).scalar() == 1
+        # the deployment's checks are gone with their incidents (a destroyed deployment must not keep raising incidents); others stay
+        assert db.execute(text("SELECT name FROM checks")).scalars().all() == ["other-check"]
+        assert db.execute(text("SELECT count(*) FROM incidents")).scalar() == 0
+        ev = db.execute(text("SELECT details FROM audit_events WHERE action = 'deployment.destroyed'")).scalars().all()
+        assert len(ev) == 1 and ev[0]["checks_deleted"] and "other-check" not in ev[0]["checks_deleted"]
     submit(actors, rt, "deployment.destroy", {"deployment_id": "prod", "confirm": "prod", "plan_hash": dh}, expect=409)
 
 

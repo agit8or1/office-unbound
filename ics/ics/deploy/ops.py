@@ -493,8 +493,11 @@ def exec_destroy(rt, db, m: DeploymentDestroy, plan_row, known) -> dict:
             if nid:
                 d2.execute(text("UPDATE nodes SET status = 'decommissioned' WHERE CAST(id AS text) = :i"), {"i": nid})
         d2.execute(text("UPDATE deployment_resources SET state = 'removed', updated_at = now() WHERE deployment_id = :d"), {"d": did})
-        for c in plan["checks"]:  # review 3 L4: only checks this deployment created
-            d2.execute(text("UPDATE checks SET enabled = false WHERE name = :n AND deployment_id = :d"), {"n": c["name"], "d": did})
+        # the checks watched services that no longer exist: delete them (results, incidents, maintenance windows and remediation history
+        # cascade, as with check.delete). Disabling them left each one critical with its incident open, so every destroyed deployment kept
+        # raising incidents on the dashboard (2026-11-19). review 3 L4: only checks this deployment created.
+        removed_checks = [r.name for c in plan["checks"] for r in d2.execute(
+            text("DELETE FROM checks WHERE name = :n AND deployment_id = :d RETURNING name"), {"n": c["name"], "d": did}).all()]
         d2.commit()
     _set_status(rt, did, "destroyed", rev.id, "applied", res["job_id"], current_revision=rev.revision)
     with rt.session() as d2:   # the deployment's passwords and CA key die with it
@@ -502,7 +505,7 @@ def exec_destroy(rt, db, m: DeploymentDestroy, plan_row, known) -> dict:
         d2.commit()
     _event(rt, did, "destroyed", "deployment destroyed", res["job_id"])
     audit.append(db, "deployment.destroyed", actor_name="worker", resource="deployment", resource_id=did,
-                 details={"slug": dep.slug, "vms": names, "plan_hash": rev.plan_hash})
+                 details={"slug": dep.slug, "vms": names, "checks_deleted": sorted(removed_checks), "plan_hash": rev.plan_hash})
     return {"deployment_id": dep.slug, "destroyed_vms": len(names)}
 
 
