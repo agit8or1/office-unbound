@@ -251,7 +251,8 @@ editing, chat/meetings, telephony prototype, migration tooling and package pipel
 - **Review 4** (2 High, 11 Medium, 9 Low; gromox patches, lifecycle, SSO, telephony, migration engine, package pipeline, Collabora) reported. Findings are **open** on `main`; see Unreleased. [report](docs/status/security-review-4-2026-11-15.md)
 - `SECURITY.md` (private reporting) and `CONTRIBUTING.md` (DCO sign-off) added; AGPL-3.0 license. [SECURITY](SECURITY.md)
 
-[Unreleased]: https://github.com/agit8or1/office-unbound/compare/v0.4.6...HEAD
+[Unreleased]: https://github.com/agit8or1/office-unbound/compare/v0.4.7...HEAD
+[0.4.7]: https://github.com/agit8or1/office-unbound/compare/v0.4.6...v0.4.7
 [0.4.6]: https://github.com/agit8or1/office-unbound/compare/v0.4.5...v0.4.6
 [0.4.5]: https://github.com/agit8or1/office-unbound/compare/v0.4.4...v0.4.5
 [0.4.4]: https://github.com/agit8or1/office-unbound/compare/v0.4.3...v0.4.4
