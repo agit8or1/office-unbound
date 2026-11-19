@@ -5,8 +5,20 @@
   "repository": "https://github.com/agit8or1/office-unbound",
   "updated": "2026-11-18",
   "stage": "pre-alpha (lab)",
-  "current_version": "0.3.7",
+  "current_version": "0.4.0",
   "releases": [
+    {
+      "version": "0.4.0",
+      "date": "2026-11-19",
+      "status": "prepared",
+      "codename": "Daybreak",
+      "channel": "pre-release",
+      "highlights": [
+        "0.4.0: the engine configures identity and edge on the VMs it creates (directory, Keycloak, database, TLS, proxy); agent-side health probes; golden image v2"
+      ],
+      "notes_url": "https://github.com/agit8or1/office-unbound/blob/main/CHANGELOG.md",
+      "changelog": "CHANGELOG.md"
+    },
     {
       "version": "0.3.7",
       "date": "2026-11-18",

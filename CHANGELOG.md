@@ -10,6 +10,18 @@ isolated lab; nothing is production supported ([ROADMAP.md](ROADMAP.md)).
 
 ## [Unreleased]
 
+## [0.4.0] - 2026-11-19
+
+Release line **Daybreak**: the deployment engine now creates the node-local state a component needs before its service starts (open item 5 of docs/status/artifacts-core-results.md), for **identity** (OpenLDAP + Keycloak + PostgreSQL) and the **edge** (nginx). Files, documents and groupware still carry their catalog notices.
+
+- **Guest configuration runbooks `cfg.*`** in the node agent 0.5.0 (`ics/agent/ou_agent/cfgspec.py`, `cfghelper.py`): name resolution for the deployment's names, deployment TLS material, OpenLDAP first configuration (overlays, ACLs, base tree, bind user, role groups), an initial administrator, a PostgreSQL role/database, podman secrets, files inside a component's named volume, nginx sites, and exact VM-to-VM firewall allowances. Fixed code in a root helper started only as `ou-rb-cfg@`; closed schemas; secrets reach programs on stdin only; errors scrubbed; the request is spooled 0600. Remote upstreams are HTTPS verified against the deployment CA (plain HTTP only to loopback).
+- **Per-deployment secrets and CA** (`ics/ics/deploy/configure.py`, migration `0019c`): random passwords vault-encrypted in `deployment_secrets`, a deployment CA whose NameConstraints permit only the deployment's own domain, leaf certificates for exactly the names on each VM. Built at execution time: the hashed plan never holds a secret; the audit log records cfg runbooks without values; everything is wiped when the deployment is destroyed.
+- **Health of deployed services** through the node agent (`guest.probe`, check kind `agent_probe`): service ports are loopback-only or open to the deployment's own VMs, so the agent probes them on loopback and verifies TLS against the deployment CA. Replaces the unimplemented TLS trust discovery every http/tcp_tls check of a deployed component would have hit.
+- **Golden image ubuntu-24.04 version 2** (`ou-golden-ubuntu-24.04-20261118.qcow2`, sha256 18fe77f5…): agent 0.5.0-ou4; first-boot firewall with an empty peer-allowance set; independent boot test 97/97.
+- Engine: every component install waits for all VMs of the deployment to enroll; when several templates carry the catalog name, the newest imported golden image wins.
+- Catalog: `ldap-utils` for identity, exact nginx pin `1.24.0-2ubuntu7.19` (the upstream-only `1.24.0` could not install), node-agent pin `0.5.0-ou4`, production realm template without the lab test client.
+- Evidence: `test_guest_configure.py` (agent schemas, root helper against recording stand-ins, probes against real loopback servers), `test_deploy_exec.py` (order, no secret in steps/audit, wipe on destroy, agent_probe registration, template choice); real-program verification in the lab machine `ou-cfg1` (docs/status/host-changes.md 2026-11-18 23:00).
+
 ## [0.3.7] - 2026-11-18
 
 - **Fix: every production deployment stopped at agent enrollment** with "the reporting address could not be tied to the VM's network card (no neighbour entry)". The guest had booted and called back correctly; the ICS service's systemd sandbox (`ProcSubset=pid`) hid the host neighbour table `/proc/net/arp`, so the MAC binding check (review 5 M2) never saw any entry. `ics.service` no longer sets `ProcSubset=pid` (the rest of the /proc hardening stays), and an unreadable table is now reported as such instead of blaming the network. The binding check itself is unchanged and still fails closed. Evidence: `test_review5_bootstrap.py` (unit-file check, unreadable-table case; fail without the fix).
@@ -206,6 +218,7 @@ editing, chat/meetings, telephony prototype, migration tooling and package pipel
 - `SECURITY.md` (private reporting) and `CONTRIBUTING.md` (DCO sign-off) added; AGPL-3.0 license. [SECURITY](SECURITY.md)
 
 [Unreleased]: https://github.com/agit8or1/office-unbound/compare/v0.3.6...HEAD
+[0.4.0]: https://github.com/agit8or1/office-unbound/releases/tag/v0.4.0
 [0.3.7]: https://github.com/agit8or1/office-unbound/releases/tag/v0.3.7
 [0.3.6]: https://github.com/agit8or1/office-unbound/releases/tag/v0.3.6
 [0.3.5]: https://github.com/agit8or1/office-unbound/releases/tag/v0.3.5
