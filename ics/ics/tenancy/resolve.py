@@ -104,6 +104,7 @@ REFS: dict[str, list[tuple[str, str]]] = {
     "provider.ssh.helper": [("endpoint_id", "endpoint")],
     "provider.ssh.narrow": [("endpoint_id", "endpoint")],
     "provider.token.revoke": [("endpoint_id", "endpoint")],
+    "provider.cleanup": [("endpoint_id", "endpoint")],
     "provider.token.rotate": [("endpoint_id", "endpoint")],
     "runbook.execute": [("node_id", "node"), ("check_id", "check")],
 }

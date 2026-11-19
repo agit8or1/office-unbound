@@ -265,7 +265,8 @@ def _pkg_risk(p: ProvisionPackage) -> str:
 
 ADMIN_SECRETS = ("admin_password", "admin_token_secret", "admin_ticket", "admin_csrf")
 SERVER_ONLY = ("admin_ticket", "admin_csrf", "admin_ticket_user")
-SESSION_FINAL = ("provider.provision.apply", "provider.permissions.reconcile", "provider.token.rotate", "provider.token.revoke", "provider.scope.change")
+SESSION_FINAL = ("provider.provision.apply", "provider.permissions.reconcile", "provider.token.rotate", "provider.token.revoke", "provider.scope.change",
+                 "provider.cleanup")
 
 
 def session_target(db: Session, full: dict) -> tuple[str | None, str | None, str | None]:
@@ -473,6 +474,9 @@ def precheck(db: Session, rt: Runtime, action: str, p) -> dict:
         if (p.delete_user or p.delete_roles) and not p.has_creds():
             raise PlanError(422, "deleting the service user or roles needs the temporary provisioning credentials")
         extra["revokes_remote"] = p.has_creds()
+    elif action == "provider.cleanup":
+        from . import cleanup
+        extra.update(cleanup.precheck(db, rt, p, ep))
     elif action == "provider.token.rotate":
         if _stored(db, ep.id) is None:
             raise PlanError(409, "this endpoint has no provisioning policy")
@@ -1125,3 +1129,10 @@ def bind_customer(db: Session, action: str, p, full: dict, cust, model, default_
             if art is not None and art.customer_id is not None and str(art.customer_id) != cust:
                 raise ValueError(f"{k} belongs to another customer")
     return cust
+
+
+# provider.cleanup lives in its own module (it imports TempCreds/open_admin from here)
+from . import cleanup as _cleanup  # noqa: E402
+
+CATALOG["provider.cleanup"] = {"model": _cleanup.ProviderCleanup, "risk": "high", "secrets": ADMIN_SECRETS, "admin_only": True}
+EXECUTORS["provider.cleanup"] = _cleanup.exec_cleanup

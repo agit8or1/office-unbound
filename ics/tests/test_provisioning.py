@@ -803,3 +803,92 @@ def test_no_secrets_in_api_responses(w, owner):
         blobs.append(w.ad.get(H + url).text)
     assert not any(s in b for s in secrets for b in blobs)
     assert "PVEAPIToken" not in " ".join(blobs)
+
+
+# ======================================================================================= provider.cleanup (owner request 2026-11-19)
+def _cleanup_world(w, owner, rt):
+    pv, p, j = mode_a(w, owner)
+    assert j["status"] == "succeeded", j
+    eid = j["result"]["endpoint_id"]
+    s = owner.sim
+    s.add_storage("local", "dir", "images,iso,import", nodes=["pve06"])
+    s.storages["local"]["files"] = {"import/ou-golden-ubuntu-24.04-20261119.qcow2": 100, "import/customer-disk.qcow2": 5}
+    rows = [(2001, "ou-tpl-ubuntu-2404", "ou-managed;ou-image;ou-rel-ubuntu-24.04-20261116", True, "stopped"),
+            (2002, "ou-tpl-ubuntu-2404", "ou-managed;ou-image;ou-rel-ubuntu-24.04-20261119", True, "stopped"),
+            (2003, "c-0-old-id", "ou-managed;ou-deployment-old", False, "stopped"),
+            (2004, "c-0-old-files", "ou-managed;ou-deployment-old", False, "running")]
+    for vmid, name, tags, tpl, st in rows:
+        s.add_vm(vmid, "pve06", name, pool="officeunbound-pve06", tags=tags, template=tpl, status=st, storage="PVE06-Storage")
+    with rt.session() as db:
+        db.execute(text("UPDATE endpoints SET allowed_storage = array_append(allowed_storage, 'local') WHERE id = :e"), {"e": eid})
+        db.execute(text("INSERT INTO deployments (slug, customer_id, profile, profile_version, status, desired_spec) "
+                        "VALUES ('old', 'c', 'small', '1', 'destroyed', '{}'::jsonb)"))
+        for vmid, name, tags, tpl, st in rows:
+            if tpl:
+                db.execute(text("INSERT INTO infra_templates (endpoint_id, vmid, kind, node, name, pool, tags, observed_at) "
+                                "VALUES (:e, :v, 'vm', 'pve06', :n, 'officeunbound-pve06', :t, now())"), {"e": eid, "v": vmid, "n": name, "t": tags.split(";")})
+            else:
+                db.execute(text("INSERT INTO infra_guests (endpoint_id, vmid, kind, node, name, status, tags, pool, observed_at) "
+                                "VALUES (:e, :v, 'vm', 'pve06', :n, :s, :t, 'officeunbound-pve06', now())"),
+                           {"e": eid, "v": vmid, "n": name, "s": st, "t": tags.split(";")})
+        db.commit()
+    return eid
+
+
+def _aplan(w, params, expect=201):
+    r = w.ad.post(f"{H}/plans", json={"action": "provider.cleanup", "params": params}, headers=w.adh)   # admin only
+    assert r.status_code == expect, r.text
+    return r if expect != 201 else r.json()
+
+
+def _arun(w, rt, params):
+    p = _aplan(w, params)
+    for c, h in ((w.a1, w.a1h), (w.a2, w.a2h)):
+        r = c.post(f"{H}/plans/{p['plan_id']}/approve", headers=h)
+        assert r.status_code == 200, r.text
+    while worker.run_once(rt):
+        pass
+    return p, w.o.get(f"{H}/jobs/{r.json()['job_id']}").json()
+
+
+def test_cleanup_with_temporary_root_credentials_removes_only_leftovers_and_stores_nothing(w, owner, rt, owner_engine):
+    eid = _cleanup_world(w, owner, rt)
+    root = {"admin_username": "root@pam", "admin_password": owner.sim.ROOT_PW}
+    base_p = {"endpoint_id": eid, "confirm_name": "owner"}
+    _aplan(w, {**base_p, "vmids": [2003]}, expect=422)                                   # credentials are required
+    _aplan(w, {**base_p, "confirm_name": "nope", "vmids": [2003], **root}, expect=422)
+    assert "current" in _aplan(w, {**base_p, "vmids": [2002], **root}, expect=409).text  # the template new deployments clone
+    assert "stopped" in _aplan(w, {**base_p, "vmids": [2004], **root}, expect=409).text
+    r126 = w.ad.post(f"{H}/plans", json={"action": "provider.cleanup", "params": {**base_p, "vmids": [126], **root}}, headers=w.adh)
+    assert r126.status_code in (403, 409), r126.text                                                     # the ICS VM: protected / not ou-managed
+    assert w.o.post(f"{H}/plans", json={"action": "provider.cleanup", "params": {**base_p, "vmids": [2003], **root}},
+                    headers=w.oh).status_code == 403                                                      # operators cannot request it
+    p, j = _arun(w, rt, {**base_p, "vmids": [2001, 2003], "import_files": True, **root})
+    assert p["risk"] == "high" and j["status"] == "succeeded", j
+    r = j["result"]
+    assert sorted(x["vmid"] for x in r["removed"]) == [2001, 2003] and r["skipped"] == []
+    assert [f["volid"] for f in r["files_deleted"]] == ["local:import/ou-golden-ubuntu-24.04-20261119.qcow2"]
+    s = owner.sim
+    assert 2001 not in s.vms and 2003 not in s.vms and {2002, 2004, 126, 9612, 131} <= set(s.vms)
+    assert list(s.storages["local"]["files"]) == ["import/customer-disk.qcow2"]
+    with owner_engine.connect() as c:                                     # the root password went nowhere durable
+        assert c.execute(text("SELECT count(*) FROM plans WHERE secret_enc IS NOT NULL")).scalar() == 0
+        dump = json.dumps([[str(x) for x in row] for row in c.execute(text("SELECT params::text FROM plans")).all()]
+                          + [[str(x) for x in row] for row in c.execute(text("SELECT coalesce(result::text,''), coalesce(error::text,'') FROM jobs")).all()]
+                          + [[str(x) for x in row] for row in c.execute(text("SELECT details_canon FROM audit_events")).all()])
+        acts = c.execute(text("SELECT action FROM audit_events")).scalars().all()
+    assert owner.sim.ROOT_PW not in dump and "provider.cleanup.done" in acts
+
+
+def test_cleanup_rechecks_live_and_skips_what_is_no_longer_a_leftover(w, owner, rt):
+    eid = _cleanup_world(w, owner, rt)
+    p = _aplan(w, {"endpoint_id": eid, "confirm_name": "owner", "vmids": [2003], "import_files": False,
+                   "admin_username": "root@pam", "admin_password": owner.sim.ROOT_PW})
+    owner.sim.vms[2003]["status"] = "running"                             # started after approval
+    for c, h in ((w.a1, w.a1h), (w.a2, w.a2h)):
+        r = c.post(f"{H}/plans/{p['plan_id']}/approve", headers=h)
+    while worker.run_once(rt):
+        pass
+    j = w.o.get(f"{H}/jobs/{r.json()['job_id']}").json()
+    assert j["status"] == "succeeded" and j["result"]["removed"] == [] and "stopped" in j["result"]["skipped"][0]["reason"]
+    assert 2003 in owner.sim.vms

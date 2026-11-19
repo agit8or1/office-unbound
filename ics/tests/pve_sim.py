@@ -408,6 +408,7 @@ class PveSim:
             R("GET", r"/pools", self.r_pools), R("POST", r"/pools", self.r_pool_add), R("DELETE", r"/pools/([^/]+)", self.r_pool_del),
             R("GET", r"/nodes/([^/]+)/" + g, self.r_list_guests),
             R("GET", r"/nodes/([^/]+)/storage/([^/]+)/content", self.r_content),
+            R("DELETE", r"/nodes/([^/]+)/storage/([^/]+)/content/([^/]+)", self.r_content_del),
             R("POST", r"/nodes/([^/]+)/storage/([^/]+)/upload", self.r_upload), R("POST", r"/nodes/([^/]+)/qemu", self.r_create),
             R("POST", r"/nodes/([^/]+)/qemu/(\d+)/template", self.r_template),
             R("GET", r"/nodes/([^/]+)/storage", self.r_node_storage), R("GET", r"/nodes/([^/]+)/network", self.r_network),
@@ -537,6 +538,20 @@ class PveSim:
     def r_node_tasks(self, tid, q, f, node):
         self.need(tid, "node", node, "Sys.Audit")
         return [dict(t) for t in self.vzdump_tasks if t["node"] == node and (not q.get("typefilter") or t.get("type") == q["typefilter"])]
+
+    def r_content_del(self, tid, q, f, node, storage, volid):
+        """DELETE a volume (real PVE: Datastore.Allocate on /storage/<id> for a volume no guest owns). Only `import` files are modelled."""
+        from urllib.parse import unquote
+        volid = unquote(volid)
+        if storage not in self.storages or node not in self.storages[storage]["nodes"]:
+            raise HTTPErr(500, f"storage '{storage}' does not exist")
+        self.need(tid, "storage", storage, "Datastore.Allocate")
+        key = volid.split(":", 1)[1] if volid.startswith(storage + ":") else None
+        files = self.storages[storage].get("files", {})
+        if key is None or key not in files:
+            raise HTTPErr(500, f"volume '{volid}' does not exist")
+        del files[key]
+        return None
 
     def r_content(self, tid, q, f, node, storage):
         if storage not in self.storages or node not in self.storages[storage]["nodes"]:

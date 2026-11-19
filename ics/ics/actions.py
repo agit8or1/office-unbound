@@ -99,6 +99,7 @@ class ActionType(StrEnum):
     provider_permissions_reconcile = "provider.permissions.reconcile"
     provider_token_rotate = "provider.token.rotate"
     provider_token_revoke = "provider.token.revoke"
+    provider_cleanup = "provider.cleanup"
     provider_scope_change = "provider.scope.change"
     provider_scope_package = "provider.scope.package"
     provider_ssh_discover = "provider.ssh.discover"
