@@ -14,9 +14,9 @@ TimeoutStartSec=1000
 # Root: writes /etc/hosts, the deployment TLS files, slapd/nginx configuration, and runs psql/podman as their own users through runuser.
 # NoNewPrivileges is not set: dpkg-reconfigure runs maintainer scripts and runuser switches users. The helper is fixed code; every value is
 # validated (ou_agent/cfgspec.py) and secrets reach programs on stdin only.
-PrivateTmp=true
-# no ProtectHome: podman (cfg.podman_secret, cfg.volume_files) runs as ou-svc and needs /run/user/<uid>
-ProtectKernelModules=true
-ProtectKernelTunables=true
-ProtectControlGroups=true
+# NO mount-namespace option (PrivateTmp, Protect{Home,ControlGroups,KernelTunables,KernelModules,System}, ReadOnlyPaths, ...): this helper runs
+# podman as ou-svc (cfg.podman_secret, cfg.volume_files) and the FIRST podman command of that user creates its long-lived rootless `pause`
+# process, whose user+mount namespaces every later podman command of the user joins, including the Quadlet units under the user manager.
+# A namespace made here would be frozen into all of them (real VM e2e-id5, 2026-11-19: ProtectControlGroups -> keycloak unit "mkdir
+# /sys/fs/cgroup/.../runtime: read-only file system"; earlier PrivateTmp -> images unusable, docs/status/first-real-deployment.md #12).
 LockPersonality=true

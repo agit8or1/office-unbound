@@ -10,6 +10,10 @@ isolated lab; nothing is production supported ([ROADMAP.md](ROADMAP.md)).
 
 ## [Unreleased]
 
+## [0.4.3] - 2026-11-19
+
+- **Fix: no container unit could start on a real VM** (Keycloak on e2e-id5: `mkdir /sys/fs/cgroup/user.slice/.../ou-identity-keycloak.service/runtime: read-only file system`, visible thanks to the 0.4.2 unit log). The first podman command of the service user creates its long-lived rootless `pause` process, and every later podman command, the Quadlet units under the user manager included, joins that process's mount namespace. It was created inside a runbook unit with `ProtectControlGroups=true` (and, for the configuration helper, `PrivateTmp`/`ProtectKernel*`), which froze a read-only `/sys/fs/cgroup` into every container start. The two units that run podman (`ou-rb-podman@`, `ou-rb-cfg@`) now carry no mount-namespace option. Node agent **0.5.0-ou7**, catalog pin raised. Evidence: `test_first_real_deployment.py::test_units_that_run_podman_create_no_mount_namespace`; real-VM evidence in docs/status/host-changes.md.
+
 ## [0.4.2] - 2026-11-19
 
 - **Files and Office are configured by the engine** like Identity and Edge: OpenCloud (plus its collaboration unit, same image, `command: [collaboration, server]`) and Collabora get their TLS, environment and CSP files; on their own VM a same-VM TLS proxy serves them, and the edge reaches it over HTTPS verified against the deployment CA (`upstream_name`), with a matching per-peer firewall rule. A catalog unit may now set a `command`; a port may be `shared_with` another component on the same VM (the edge and a hosted service both on 443). Evidence: `test_deploy_exec.py` (files/office), `test_deploy_plan.py` (unit order, shared 443, firewall).
@@ -228,7 +232,8 @@ editing, chat/meetings, telephony prototype, migration tooling and package pipel
 - **Review 4** (2 High, 11 Medium, 9 Low; gromox patches, lifecycle, SSO, telephony, migration engine, package pipeline, Collabora) reported. Findings are **open** on `main`; see Unreleased. [report](docs/status/security-review-4-2026-11-15.md)
 - `SECURITY.md` (private reporting) and `CONTRIBUTING.md` (DCO sign-off) added; AGPL-3.0 license. [SECURITY](SECURITY.md)
 
-[Unreleased]: https://github.com/agit8or1/office-unbound/compare/v0.4.2...HEAD
+[Unreleased]: https://github.com/agit8or1/office-unbound/compare/v0.4.3...HEAD
+[0.4.3]: https://github.com/agit8or1/office-unbound/releases/tag/v0.4.3
 [0.4.2]: https://github.com/agit8or1/office-unbound/releases/tag/v0.4.2
 [0.4.1]: https://github.com/agit8or1/office-unbound/releases/tag/v0.4.1
 [0.4.0]: https://github.com/agit8or1/office-unbound/releases/tag/v0.4.0

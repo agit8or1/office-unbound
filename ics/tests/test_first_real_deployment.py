@@ -225,3 +225,18 @@ def test_a_clone_does_not_keep_the_golden_image_markers_of_its_template(sim, job
     m.wait(t, timeout=5)
     m.wait(m.finalize_clone(t), timeout=5)
     assert sorted(sim.sim.vms[t.vmid]["cfg"]["tags"].split(";")) == ["keep-me", "ou-deployment-d9", "ou-managed"]
+
+
+@pytest.mark.parametrize("unit", ["ou-rb-podman@.service", "ou-rb-cfg@.service"])
+def test_units_that_run_podman_create_no_mount_namespace(unit):
+    """Real VM e2e-id5 (2026-11-19): the first podman command of ou-svc creates the long-lived rootless `pause` process; every later podman
+    command of the user, including the Quadlet units started by the user manager, joins its user+mount namespaces. ProtectControlGroups in
+    the runbook unit froze a read-only /sys/fs/cgroup into it and every unit start failed ("mkdir .../runtime: read-only file system").
+    Any unit that runs podman as ou-svc must therefore carry no mount-namespace option at all."""
+    import os
+    path = os.path.join(os.path.dirname(__file__), "..", "agent", "deploy", "runbooks", unit)
+    keys = {l.split("=", 1)[0].strip() for l in open(path) if "=" in l and not l.lstrip().startswith("#")}
+    mount = {"PrivateTmp", "ProtectControlGroups", "ProtectSystem", "ProtectHome", "PrivateDevices", "ReadOnlyPaths", "InaccessiblePaths", "ProtectKernelTunables",
+             "ProtectKernelModules", "ProtectKernelLogs", "ProtectProc", "ProtectClock", "PrivateMounts", "BindPaths", "BindReadOnlyPaths", "TemporaryFileSystem",
+             "ReadWritePaths", "ProtectHostname", "PrivateNetwork", "PrivateIPC", "PrivateUsers"}
+    assert not keys & mount, keys & mount

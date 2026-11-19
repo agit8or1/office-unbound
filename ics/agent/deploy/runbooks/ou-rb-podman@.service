@@ -16,11 +16,13 @@ RuntimeDirectoryMode=0755
 RuntimeDirectoryPreserve=yes
 UMask=0022
 TimeoutStartSec=900
-# Sandboxing: only ProtectControlGroups (a mount-namespace option); NO seccomp-based options (LockPersonality, RestrictRealtime, ProtectKernelModules,
+# Sandboxing: none beyond User=. NO seccomp-based options (LockPersonality, RestrictRealtime, ProtectKernelModules,
 # ProtectKernelTunables) and NO PrivateTmp. Bisected on the real Debian 12 VM (systemd 252, kernel 6.1; docs/status/first-real-deployment.md):
 #  * any seccomp option stacked with a mount-namespace option makes rootless podman fail with "newuidmap: write to uid_map failed: Operation not
 #    permitted" (each group alone is fine);
 #  * PrivateTmp makes `podman pull` succeed but leaves the image unusable afterwards ("inspecting image: open /var/tmp/<n>: no such file"), because
 #    the private /var/tmp is discarded when the unit exits.
 # The unit runs as the unprivileged service user, so the dropped options only restricted things it cannot do anyway.
-ProtectControlGroups=true
+# NO mount-namespace option at all, ProtectControlGroups included: the first podman command of ou-svc creates the long-lived rootless `pause`
+# process and every later podman command (the Quadlet units too) joins its mount namespace; a read-only /sys/fs/cgroup frozen into it made
+# every unit start fail with "mkdir /sys/fs/cgroup/.../runtime: read-only file system" (real VM e2e-id5, 2026-11-19). Same cause as PrivateTmp.
