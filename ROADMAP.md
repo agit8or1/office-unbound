@@ -1,6 +1,6 @@
 # Office Unbound roadmap & progress
 
-> Generated from [`docs/progress.json`](docs/progress.json) by `scripts/render_roadmap.py` — edit the JSON, not this file. Last updated **2026-11-19** · stage: **pre-alpha (lab)** · current version: **0.4.6**.
+> Generated from [`docs/progress.json`](docs/progress.json) by `scripts/render_roadmap.py` — edit the JSON, not this file. Last updated **2026-11-19** · stage: **pre-alpha (lab)** · current version: **0.4.7**.
 
 Core platform components are integrated and tested in an isolated lab: own source build of Exchange-compatible groupware with single sign-on webmail, Keycloak SSO, file sync and browser document editing, backup/restore drills, chat and video meetings, and an infrastructure control server with monitoring, self-healing and a real Proxmox integration (VM lifecycle verified on a live cluster). Guided deployment wizards, provisioning automation and the credential vault are being integrated.
 
@@ -170,6 +170,7 @@ Core platform components are integrated and tested in an isolated lab: own sourc
 
 | Version | Date | Status | Highlights |
 |---|---|---|---|
+| [0.4.7](https://github.com/agit8or1/office-unbound/blob/main/CHANGELOG.md) | 2026-11-19 | prepared | 0.4.7: Office (Collabora) answers on a real VM (its document processes get CAP_SYS_CHROOT back; agent 0.5.0-ou9, golden image v7) |
 | [0.4.6](https://github.com/agit8or1/office-unbound/blob/main/CHANGELOG.md) | 2026-11-19 | released | 0.4.6: Office (Collabora) starts on a real VM (host networking like every other unit; rootless private-network failure tracked as KI-4) |
 | [0.4.5](https://github.com/agit8or1/office-unbound/blob/main/CHANGELOG.md) | 2026-11-19 | released | 0.4.5: the Files health check matches what OpenCloud 9.1.0 really answers (a healthy OpenCloud no longer fails verification) |
 | [0.4.4](https://github.com/agit8or1/office-unbound/blob/main/CHANGELOG.md) | 2026-11-19 | released | 0.4.4: Ubuntu security updates no longer break deployments (distribution packages are version floors, our own stay exact; agent 0.5.0-ou8); an apt timeout reports where apt stalled |

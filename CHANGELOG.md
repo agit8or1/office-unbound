@@ -10,6 +10,10 @@ isolated lab; nothing is production supported ([ROADMAP.md](ROADMAP.md)).
 
 ## [Unreleased]
 
+## [0.4.7] - 2026-11-19
+
+- **Fix: Office (Collabora) never answered on a real VM.** The unit started, but `/hosting/discovery` timed out for the whole verification window (e2e-fo6, the first run where every other component passed). coolwsd takes its port before it starts and serves HTTP only once its first document process exists; every document process died at `chroot(...) failed (EPERM)`, because the unit runs with `DropCapability=ALL` and an empty capability bounding set survives the user namespace coolwsd's forkit enters, so its jail chroot is refused. Reproduced in the lab with the signed image and the unit's flags (discovery timeout, the same EPERM); `--cap-add=SYS_CHROOT` alone (no-new-privileges and every other drop kept) answered HTTP 200 with document processes ready. The unit schema now takes `capabilities`, closed to `SYS_CHROOT`, and only the Office unit sets it. Node agent **0.5.0-ou9**, golden image version 7. Evidence: `test_guest_bootstrap.py::test_only_sys_chroot_can_be_given_back_and_only_explicitly`, `test_deploy_catalog_install.py::test_only_the_document_engine_gets_sys_chroot_and_the_plan_carries_it`, `docs/status/host-changes.md` (2026-11-19 12:00).
+
 ## [0.4.6] - 2026-11-19
 
 - **Fix: Office (Collabora) could not start on a real VM.** It was the only unit on a private podman network; on Ubuntu 24.04's podman 4.9.3 its start failed with "failed to mount runtime directory for rootless netns: no such file or directory" (e2e-fo5; Files had just passed its health check). It now uses host networking like the Identity and Files units: the Files VM's nginx terminates TLS for `office.<domain>` and proxies to 127.0.0.1:9980, the guest firewall drops every port the engine did not open, and Collabora sees the VM's `/etc/hosts` with the deployment's names. The rootless-netns cause is not yet determined (STATUS.md KI-4). Evidence: `test_deploy_catalog_install.py::test_every_catalog_unit_uses_host_networking`, `test_deploy_plan.py`, `test_deploy_exec.py`.
