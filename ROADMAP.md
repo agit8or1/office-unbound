@@ -170,7 +170,7 @@ Core platform components are integrated and tested in an isolated lab: own sourc
 
 | Version | Date | Status | Highlights |
 |---|---|---|---|
-| [0.4.0](https://github.com/agit8or1/office-unbound/blob/main/CHANGELOG.md) | 2026-11-19 | prepared | 0.4.0: the engine configures identity and edge on the VMs it creates (directory, Keycloak, database, TLS, proxy); agent-side health probes; golden image v2 |
+| [0.4.0](https://github.com/agit8or1/office-unbound/blob/main/CHANGELOG.md) | 2026-11-19 | released | 0.4.0: the engine configures identity and edge on the VMs it creates (directory, Keycloak, database, TLS, proxy); agent-side health probes; golden image v2 |
 | [0.3.7](https://github.com/agit8or1/office-unbound/blob/main/CHANGELOG.md) | 2026-11-18 | released | 0.3.7: deployments get past agent enrollment (ICS service can read the host neighbour table again) |
 | [0.3.6](https://github.com/agit8or1/office-unbound/blob/main/CHANGELOG.md) | 2026-11-18 | released | 0.3.6: golden template creation works with pool-scoped rights; failed-backup alert uses the latest result per guest |
 | [0.3.5](https://github.com/agit8or1/office-unbound/blob/main/CHANGELOG.md) | 2026-11-18 | released | 0.3.5: image import works when the cluster address forwards to another node; standard alerts without false warnings, failed backups on monitored nodes detected |
