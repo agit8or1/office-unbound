@@ -14,6 +14,10 @@ vm_overhead:                              # added to every VM on top of the sum 
   cores: 0
   memory_mb: 512
   disk_gb: 10
+vm_minimum:                               # floor for every VM after the components are summed (owner 2026-11-20: "min 8 cpu, 8gb, etc")
+  cores: 8
+  memory_mb: 8192
+  root_disk_gb: 40
 placement:
   cpu_overcommit: 4                       # max vCPUs per physical core (lab-grade default)
   memory_reserve_pct: 10                  # host memory kept back, never allocated

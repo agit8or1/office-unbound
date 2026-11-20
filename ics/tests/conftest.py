@@ -186,3 +186,10 @@ def fake_agent(tmp_path):
     a = FakeAgent(tmp_path)
     yield a
     a.stop()
+
+
+@pytest.fixture()
+def no_vm_floor(monkeypatch):
+    """Per-component sizing arithmetic without the owner's per-VM floor (catalog meta.vm_minimum; tested in test_deploy_vm_minimum.py)."""
+    from ics.deploy import catalog, plan
+    monkeypatch.setattr(plan, "vm_minimum", lambda cat: catalog.VmMinimum())

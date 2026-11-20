@@ -1,6 +1,6 @@
 # Office Unbound roadmap & progress
 
-> Generated from [`docs/progress.json`](docs/progress.json) by `scripts/render_roadmap.py` — edit the JSON, not this file. Last updated **2026-11-19** · stage: **pre-alpha (lab)** · current version: **0.5.0**.
+> Generated from [`docs/progress.json`](docs/progress.json) by `scripts/render_roadmap.py` — edit the JSON, not this file. Last updated **2026-11-19** · stage: **pre-alpha (lab)** · current version: **0.5.1**.
 
 Core platform components are integrated and tested in an isolated lab: own source build of Exchange-compatible groupware with single sign-on webmail, Keycloak SSO, file sync and browser document editing, backup/restore drills, chat and video meetings, and an infrastructure control server with monitoring, self-healing and a real Proxmox integration (VM lifecycle verified on a live cluster). Guided deployment wizards, provisioning automation and the credential vault are being integrated.
 
@@ -170,6 +170,7 @@ Core platform components are integrated and tested in an isolated lab: own sourc
 
 | Version | Date | Status | Highlights |
 |---|---|---|---|
+| [0.5.1](https://github.com/agit8or1/office-unbound/blob/main/CHANGELOG.md) | 2026-11-20 | prepared | 0.5.1: Open your apps: links, hosts-file lines, the deployment certificate, mail app settings and the administrator password (fresh authenticator code, audited)<br>0.5.1: every VM gets at least 8 vCPU, 8 GB RAM and a 40 GB system disk (owner minimum) |
 | [0.5.0](https://github.com/agit8or1/office-unbound/blob/main/CHANGELOG.md) | 2026-11-19 | released | 0.5.0: mail, calendar and contacts in the deployed stack: the ICS installs and configures gromox, Postfix, MariaDB, webmail, ActiveSync and CalDAV/CardDAV with directory sign-in<br>0.5.0: node agent 0.5.0-ou10 (runbook cfg.gromox, enabled only on groupware VMs) and golden image v8 |
 | [0.4.10](https://github.com/agit8or1/office-unbound/blob/main/CHANGELOG.md) | 2026-11-19 | released | 0.4.10: the VMs and templates Office Unbound creates itself no longer show up as "new infrastructure resources" after every deployment (decided from its own records, never from tags) |
 | [0.4.9](https://github.com/agit8or1/office-unbound/blob/main/CHANGELOG.md) | 2026-11-19 | released | 0.4.9: "Clean up leftovers" and "Manage access" buttons on the cluster list and cluster page (sign in once, cleanup opens directly; credentials never stored)<br>0.4.9: a VM ID reused by Proxmox after a guest was deleted is recorded as a new guest, not as a rename (no false cluster warning) |

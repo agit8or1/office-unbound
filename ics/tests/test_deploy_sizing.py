@@ -121,6 +121,7 @@ def test_dependency_closure_and_disabled_components_consume_nothing():
     assert r["totals"]["memory_mb"] < full["totals"]["memory_mb"] and r["totals"]["disk_gb"] < full["totals"]["disk_gb"]
 
 
+@pytest.mark.usefixtures("no_vm_floor")
 def test_sizing_changes_with_services_and_workload():
     light = run(req(services=["mail", "calendar", "files"]), cap())
     heavy = run(req(services=["mail", "calendar", "files", "office", "meetings"]), cap())

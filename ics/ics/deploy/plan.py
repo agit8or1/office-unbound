@@ -224,11 +224,16 @@ def _expand(inp: PlanInput, prof: Profile, cat: Catalog, errors: list[dict]) -> 
     return vms, present
 
 
+def vm_minimum(cat: Catalog):
+    """The owner's per-VM floor (catalog meta.vm_minimum). One lookup so tests of the per-component arithmetic can switch it off."""
+    return cat.meta.vm_minimum
+
+
 def _size(vms: list[_Vm], cat: Catalog, inp: "PlanInput | None" = None, errors: list[dict] | None = None,
           warnings: list[dict] | None = None) -> dict:
     """Legacy: per-user formulas. With `inp.sizing.workload`: the sizing-engine models (sizing.py). Overrides apply in both modes.
     Returns the plan's `sizing` section ({} for plans without `sizing`)."""
-    ov = cat.meta.vm_overhead
+    ov, vmin = cat.meta.vm_overhead, vm_minimum(cat)
     every = [c for c in cat.components.values() if c.placement == "every_vm"]
     spec = inp.sizing if inp is not None else None
     wl = spec.workload if spec is not None else None
@@ -261,6 +266,9 @@ def _size(vms: list[_Vm], cat: Catalog, inp: "PlanInput | None" = None, errors: 
                               "components": {k: {"cores": x["cores"], "memory_mb": x["memory_mb"], "disk_gb": x["disk_gb"],
                                                  "volumes": dict(sorted(x["volumes"].items())), "estimated": x["estimated"],
                                                  "floor_applied": x["floor_applied"]} for k, x in sorted(sz.items())}}
+        v.cores, v.memory_mb = max(v.cores, vmin.cores), max(v.memory_mb, vmin.memory_mb)
+        v.disks[0]["size_gb"] = max(v.disks[0]["size_gb"], vmin.root_disk_gb)
+        floor = {"cores": max((floor or {}).get("cores", 0), vmin.cores), "memory_mb": max((floor or {}).get("memory_mb", 0), vmin.memory_mb)}
         ovr = (spec.vm_overrides.get(v.name) or spec.vm_overrides.get(v.logical)) if spec is not None else None
         if ovr is None:
             continue
@@ -285,7 +293,7 @@ def _size(vms: list[_Vm], cat: Catalog, inp: "PlanInput | None" = None, errors: 
         if floor is not None and errors is not None:
             for k in ("cores", "memory_mb"):
                 if getattr(v, k) < floor[k]:
-                    errors.append(_err("override_below_minimum", f"{v.name}: {k} override {getattr(v, k)} is below the components' documented minimum "
+                    errors.append(_err("override_below_minimum", f"{v.name}: {k} override {getattr(v, k)} is below the minimum (components' documented minimum, catalog vm_minimum) "
                                                                  f"{floor[k]}", vm=v.name))
         if warnings is not None and (v.cores < computed["cores"] or v.memory_mb < computed["memory_mb"]):
             warnings.append(_err("override_below_sizing", f"{v.name}: operator override is below the sized value "

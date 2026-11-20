@@ -514,6 +514,7 @@ def cprev(op, changes, expect=200):
     return r.json()
 
 
+@pytest.mark.usefixtures("no_vm_floor")
 def test_change_preview_and_disruptive_requires_maintenance(client, actors, rt, env):
     _active(actors, rt)
     pv = cprev(actors[0], {"users": 50})
@@ -533,6 +534,7 @@ def test_change_preview_and_disruptive_requires_maintenance(client, actors, rt, 
     submit(actors, rt, "deployment.change", {**params, "plan_hash": "1" * 64, "maintenance": "override"}, expect=409)
 
 
+@pytest.mark.usefixtures("no_vm_floor")
 def test_change_apply_with_active_window_runs_snapshot_resize_reboot(client, actors, rt, env):
     _active(actors, rt, users=30)
     pv = cprev(actors[0], {"users": 40})
@@ -567,6 +569,7 @@ def test_change_apply_with_active_window_runs_snapshot_resize_reboot(client, act
     assert job(actors[0], jid2)["status"] == "failed" and "maintenance window is not active" in job(actors[0], jid2)["error"]["message"]
 
 
+@pytest.mark.usefixtures("no_vm_floor")
 def test_change_override_and_removal_are_high_risk(client, actors, rt, env):
     _active(actors, rt, profile="medium", users=100)
     pv = cprev(actors[0], {"users": 120})

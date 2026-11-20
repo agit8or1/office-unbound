@@ -3,14 +3,15 @@ from datetime import datetime
 from typing import Literal
 from uuid import UUID
 
-from fastapi import Depends, FastAPI, HTTPException
+from fastapi import Depends, FastAPI, HTTPException, Request, Response
 from pydantic import BaseModel, ConfigDict, ValidationError
 from sqlalchemy import text
 from sqlalchemy.orm import Session
 
-from ..auth import User, get_db, require
+from .. import audit
+from ..auth import User, client_ip, get_db, require, step_up
 from ..tenancy import scope as tscope
-from . import ops, sizeops, sizer, state
+from . import appaccess, ops, sizeops, sizer, state
 from .catalog import describe_component, describe_profile, get_catalog
 from .plan import PlanInput
 
@@ -19,6 +20,11 @@ API = "/api/v1"
 
 class ChangePreviewIn(BaseModel):
     changes: ops.ChangeSet
+
+
+class RevealIn(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+    totp_code: str
 
 
 class ResizeIn(BaseModel):
@@ -111,6 +117,28 @@ def register_routes(app: FastAPI, rt) -> None:
         rows = db.execute(text("SELECT kind, logical_name, provider_ref, desired, actual, state, updated_at FROM deployment_resources "
                                "WHERE deployment_id = :d ORDER BY kind, logical_name"), {"d": str(d.id)}).all()
         return [_clean(r) for r in rows]
+
+    @app.get(f"{API}/deployments/{{slug}}/access")
+    def access(slug: str, user: User = Depends(require("admin")), db: Session = Depends(get_db)):
+        """Open your apps: links, hosts-file lines, client settings, the deployment CA certificate (public). No secret."""
+        return appaccess.access_info(rt, db, _get(db, slug))
+
+    @app.post(f"{API}/deployments/{{slug}}/admin-password")
+    def reveal_admin_password(slug: str, body: RevealIn, request: Request, response: Response, user: User = Depends(require("admin")),
+                              db: Session = Depends(get_db)):
+        """The deployment administrator's directory password, after a fresh one-time code; audited, never cached (appaccess docstring)."""
+        d = _get(db, slug)
+        ip = client_ip(request)
+        step_up(db, rt, user, body.totp_code, ip, f"deployment.admin_password:{d.slug}")
+        pw = appaccess.admin_password(rt, db, d)
+        if pw is None:
+            db.commit()
+            raise HTTPException(404, "this deployment has no administrator password (it was never configured, or it was destroyed)")
+        audit.append(db, "deployment.admin_password_revealed", actor_id=user.id, actor_name=user.username, ip=ip,
+                     details={"deployment": d.slug, "username": appaccess.ADMIN_UID})
+        db.commit()
+        response.headers["Cache-Control"] = "no-store"
+        return {"username": appaccess.ADMIN_UID, "password": pw}
 
     @app.get(f"{API}/deployments/{{slug}}/events")
     def events(slug: str, limit: int = 200, user: User = Depends(require("viewer")), db: Session = Depends(get_db)):

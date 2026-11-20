@@ -160,6 +160,25 @@ def _consume_totp(db: Session, row, secret: str, code: str) -> bool:
     return False
 
 
+def step_up(db: Session, rt: Runtime, user: "User", totp_code: str, ip: str | None, purpose: str) -> None:
+    """A fresh second factor for one sensitive read (e.g. revealing a deployment password): the signed-in user's one-time TOTP code, single use
+    (shares last_totp_step with sign-in, so a code used to sign in cannot be replayed here) and throttled like sign-in. Raises 401/429."""
+    key = "stepup:" + user.username[:56]
+    wait = throttle_remaining(db, rt, key, ip)
+    if wait > 0:
+        raise HTTPException(429, "too many attempts", headers={"Retry-After": str(int(wait) + 1)})
+    row = db.execute(text("SELECT * FROM users WHERE id = :i"), {"i": user.id}).first()
+    ok = row is not None and not row.disabled and row.totp_secret_enc is not None and _consume_totp(
+        db, row, rt.vault.decrypt(row.totp_secret_enc, f"user-totp:{row.username}").decode(), totp_code)
+    if not ok:
+        db.rollback()
+        db.execute(text("INSERT INTO login_attempts (username, ip, success) VALUES (:u, :i, false)"), {"u": key, "i": ip})
+        audit.append(db, "auth.step_up_failed", actor_id=user.id, actor_name=user.username, ip=ip, details={"purpose": purpose})
+        db.commit()
+        raise HTTPException(401, "the one-time code is not valid (use a new code from your authenticator app)")
+    db.execute(text("INSERT INTO login_attempts (username, ip, success) VALUES (:u, :i, true)"), {"u": key, "i": ip})
+
+
 def enroll_confirm(db: Session, rt: Runtime, username: str, token: str, totp_code: str, ip: str | None) -> None:
     if throttle_remaining(db, rt, "enroll:" + username, ip) > 0:
         raise HTTPException(429, "too many attempts")

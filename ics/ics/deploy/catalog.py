@@ -376,6 +376,13 @@ class VmOverhead(_M):
     disk_gb: int = Field(ge=0)
 
 
+class VmMinimum(_M):
+    """Owner floor for every VM, applied after the components are summed (owner 2026-11-20: "vms are being sized too small. min 8 cpu, 8gb")."""
+    cores: int = Field(default=0, ge=0)
+    memory_mb: int = Field(default=0, ge=0)
+    root_disk_gb: int = Field(default=0, ge=0)
+
+
 class PlacementDefaults(_M):
     cpu_overcommit: int = Field(ge=1, le=32)
     memory_reserve_pct: int = Field(ge=0, le=50)
@@ -388,6 +395,7 @@ class Meta(_M):
     os_images: list[OsImage] = Field(min_length=1)
     default_os_image: str
     vm_overhead: VmOverhead
+    vm_minimum: VmMinimum = Field(default_factory=VmMinimum)
     placement: PlacementDefaults
 
 

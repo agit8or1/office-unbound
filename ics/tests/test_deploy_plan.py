@@ -126,6 +126,7 @@ def test_plan_is_deterministic_and_hash_covers_everything():
     assert not [x for x in re.findall(r"\d+\.\d+", json.dumps(a["consumption"]))]
 
 
+@pytest.mark.usefixtures("no_vm_floor")
 def test_plan_contents_small_profile():
     p = generate_plan(inp(), cap(), pinned())
     assert p["executable"] and codes(p["errors"]) == []
@@ -165,6 +166,7 @@ def test_unpinned_artifacts_block_execution_with_explanation():
     assert generate_plan(inp(), cap(), load_catalog())["executable"]        # the real catalog is pinned and signed
 
 
+@pytest.mark.usefixtures("no_vm_floor")
 def test_optional_component_toggle():
     c = pinned()
     on = generate_plan(inp(), cap(), c)
@@ -370,6 +372,7 @@ def _existing(plan):
             for v in plan["vms"]}
 
 
+@pytest.mark.usefixtures("no_vm_floor")
 def test_change_diff_grow_users_is_normal_risk_with_downtime_and_snapshot():
     c = pinned()
     old = generate_plan(inp(users=40), cap(), c)

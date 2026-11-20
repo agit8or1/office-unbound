@@ -248,6 +248,7 @@ def test_m5_stale_change_plan_is_refused_after_another_change_was_applied(client
     assert d["desired_spec"]["users"] == 40 and d["current_revision"] == 2
 
 
+@pytest.mark.usefixtures("no_vm_floor")
 def test_l2_self_minted_maintenance_window_cannot_lower_the_change_tier(client, actors, rt, env):
     _active(actors, rt, users=30)
     (o, oh) = actors[0]

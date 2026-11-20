@@ -11,6 +11,7 @@ import Button from '../ui/Button.vue'
 import Skeleton from '../ui/Skeleton.vue'
 import ErrorBox from '../components/ErrorBox.vue'
 import BootstrapPanel from '../components/BootstrapPanel.vue'
+import AppsPanel from '../components/AppsPanel.vue'
 import ResizePanel from '../wizards/deploy/ResizePanel.vue'
 import { hasRole } from '../store'
 
@@ -30,6 +31,7 @@ const s = (v: unknown) => (v === undefined || v === null ? '-' : String(v))
     <EmptyState v-else-if="!dep.data.value" icon="rocket" title="Deployment not found" text="It may have been removed, or deployments are not available yet."><Button to="/deployments">All deployments</Button></EmptyState>
     <template v-else>
       <PageHeader :title="dep.data.value.name" :sub="dep.data.value.profile ? 'Profile: ' + dep.data.value.profile : undefined"><template #actions><StatusBadge :s="dep.data.value.status" /></template></PageHeader>
+      <AppsPanel v-if="hasRole('admin')" :slug="props.id" />
       <BootstrapPanel :slug="props.id" />
       <div class="grid cols-2">
         <Card title="Resources" flush>

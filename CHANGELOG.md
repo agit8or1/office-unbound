@@ -10,6 +10,11 @@ isolated lab; nothing is production supported ([ROADMAP.md](ROADMAP.md)).
 
 ## [Unreleased]
 
+## [0.5.1] - 2026-11-20
+
+- **New: "Open your apps" on the deployment page** (administrators). Shows everything needed to use a deployed stack from your own computer: links to Files, Webmail and the sign-in account page, the hosts-file lines for the deployment's names (until public DNS exists), the deployment's certificate authority to download and trust, the settings for mail apps (IMAP, SMTP, ActiveSync, CalDAV/CardDAV) and the administrator's sign-in. The administrator password is shown only after a fresh code from your authenticator app. That code is single use and rate-limited like sign-in, and every reveal or failed attempt is recorded in the audit log. The password is never cached and is hidden again after two minutes ([test_deploy_appaccess.py](ics/tests/test_deploy_appaccess.py)).
+- **Change: every VM gets at least 8 vCPU, 8 GB RAM and a 40 GB system disk.** The owner set this minimum because VMs were sized too small. It is a catalog setting (`vm_minimum` in `blueprints/catalog/catalog.yaml`), applied after the components are added up. Larger sizings are unchanged, and an operator override below it is refused. Existing deployments are not resized automatically. A change plan shows the new sizes ([test_deploy_vm_minimum.py](ics/tests/test_deploy_vm_minimum.py)).
+
 ## [0.5.0] - 2026-11-19
 
 First release of the 0.5 "Ember" line: **mail, calendar and contacts are part of the deployed stack.**
@@ -278,6 +283,7 @@ editing, chat/meetings, telephony prototype, migration tooling and package pipel
 - `SECURITY.md` (private reporting) and `CONTRIBUTING.md` (DCO sign-off) added; AGPL-3.0 license. [SECURITY](SECURITY.md)
 
 [Unreleased]: https://github.com/agit8or1/office-unbound/compare/v0.4.7...HEAD
+[0.5.1]: https://github.com/agit8or1/office-unbound/compare/v0.5.0...v0.5.1
 [0.5.0]: https://github.com/agit8or1/office-unbound/compare/v0.4.10...v0.5.0
 [0.4.10]: https://github.com/agit8or1/office-unbound/compare/v0.4.9...v0.4.10
 [0.4.9]: https://github.com/agit8or1/office-unbound/compare/v0.4.8...v0.4.9
