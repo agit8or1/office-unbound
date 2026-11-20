@@ -5,8 +5,22 @@
   "repository": "https://github.com/agit8or1/office-unbound",
   "updated": "2026-11-19",
   "stage": "pre-alpha (lab)",
-  "current_version": "0.5.1",
+  "current_version": "0.6.0",
   "releases": [
+    {
+      "version": "0.6.0",
+      "date": "2026-11-20",
+      "status": "prepared",
+      "codename": "Foundry",
+      "channel": "pre-release",
+      "highlights": [
+        "0.6.0: user portal in every deployment, one Keycloak sign-in for mail, calendar, contacts, files and documents; webmail SSO",
+        "0.6.0: service addresses and per-customer domains as settings; unknown names never reach a backend; multi-tenant configured per tenant (own CA, secrets, portal)",
+        "0.6.0: node agent 0.6.0-ou11, golden image v9; one-public-IP gateway design (ADR-0018)"
+      ],
+      "notes_url": "https://github.com/agit8or1/office-unbound/blob/main/CHANGELOG.md",
+      "changelog": "CHANGELOG.md"
+    },
     {
       "version": "0.5.1",
       "date": "2026-11-20",
@@ -672,6 +686,16 @@
             "ics/tests/test_manage_access.py"
           ],
           "note": "Branch pve-wizard (2026-11-16). Simulator-tested: ticket-only sign-in sessions with TFA, per-VMID operations preset + guest.power, inventory ledger (new/missing/moved/renamed/VMID reuse), incremental scope changes (guests, pools, networks, level), excess-privilege stop. Console: new Connect/Manage access wizard. Real-cluster evidence pending pve06."
+        },
+        {
+          "id": "P2.12",
+          "title": "One public IP: gateway routing, publicly trusted certificates (ACME, automatic renewal), DNS automation, port allocation, Gateway & Certificates UI and wizard (ADR-0018)",
+          "status": "implementing",
+          "evidence": [
+            "docs/adr/0018-gateway-certificates-dns.md",
+            "ics/tests/test_deploy_names.py"
+          ],
+          "note": "0.6.0: host name settings per deployment and tenant (labels or full names, conflict detection), per-tenant CAs, edge default site (portal or refuse). Next: G1 data model + routes/ports view, G2 ICS-side ACME against Pebble, G3 public certificates (needs public IP + domain), G4 DNS providers (Cloudflare first; needs a token), G5 L4 mail/TURN forwarding, G6 UI + wizard, G7 90-day acceptance."
         }
       ]
     },

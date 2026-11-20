@@ -21,7 +21,7 @@
   "revokeRefreshToken": false,
   "organizationsEnabled": false,
   "attributes": {
-    "frontendUrl": "https://auth.@DOMAIN@"
+    "frontendUrl": "https://@AUTH_HOST@"
   },
   "roles": {
     "realm": [
@@ -58,12 +58,12 @@
       "serviceAccountsEnabled": false,
       "fullScopeAllowed": true,
       "redirectUris": [
-        "https://cloud.@DOMAIN@/",
-        "https://cloud.@DOMAIN@/oidc-callback.html",
-        "https://cloud.@DOMAIN@/oidc-silent-redirect.html"
+        "https://@FILES_HOST@/",
+        "https://@FILES_HOST@/oidc-callback.html",
+        "https://@FILES_HOST@/oidc-silent-redirect.html"
       ],
       "webOrigins": [
-        "https://cloud.@DOMAIN@"
+        "https://@FILES_HOST@"
       ],
       "attributes": {
         "post.logout.redirect.uris": "+",
@@ -71,7 +71,7 @@
         "backchannel.logout.revoke.offline.tokens": "false",
         "display.on.consent.screen": "false",
         "pkce.code.challenge.method": "S256",
-        "backchannel.logout.url": "https://cloud.@DOMAIN@/backchannel_logout"
+        "backchannel.logout.url": "https://@FILES_HOST@/backchannel_logout"
       },
       "defaultClientScopes": [
         "web-origins",

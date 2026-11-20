@@ -20,6 +20,7 @@ ADMIN_UID = "ou-admin"
 
 # component of the DNS record -> (title, path, what it is). Office opens from Files; LDAP and the MX/TXT records are not apps.
 APPS = {
+    "portal": ("Portal", "/", "Start here: one sign-in for mail, calendar, contacts, files and documents"),
     "files": ("Files", "/", "File sync and sharing; documents open in Office from here"),
     "groupware": ("Webmail", "/web/", "Mail, calendar and contacts in the browser"),
     "edge": ("Account", f"/realms/{configure.REALM}/account/", "Single sign-on account: password, sessions"),
@@ -59,7 +60,8 @@ def build(plan: dict, addresses: dict[str, str]) -> dict:
         if addr:
             hosts.setdefault(addr, []).append(name)
     apps = []
-    for x in sorted(plan.get("dns", []), key=lambda r: r["name"]):
+    order = list(APPS)
+    for x in sorted(plan.get("dns", []), key=lambda r: (order.index(r["component"]) if r.get("component") in order else 99, r["name"])):
         if x["type"] == "A" and x.get("component") in APPS and a.get(x["name"]):
             title, path, what = APPS[x["component"]]
             apps.append({"id": x["component"], "title": title, "url": f"https://{x['name']}{path}", "description": what})

@@ -67,6 +67,37 @@ export interface WizardModel {
   updatesMode: 'manual' | 'maintenance_window'; updatesWindow: string
   marginPct: string; tier: '' | 'minimum' | 'recommended'
   vmOverrides: Record<string, VmOverride>
+  /** Service address overrides: catalog host label -> '' (default <label>.<domain>), a word (files) or a full name (files.example.com). */
+  hosts: Record<string, string>
+  /** Multi-tenant: own domain per customer (index 0 = t01); '' = <tNN>.<domain>. */
+  tenantDomains: string[]
+}
+
+/** The service addresses a deployment can rename (catalog DNS host labels; the planner refuses unknown ones). */
+export const HOST_FIELDS = [
+  { id: 'portal', label: 'User portal' }, { id: 'auth', label: 'Sign-in' }, { id: 'cloud', label: 'Files' },
+  { id: 'office', label: 'Documents' }, { id: 'mail', label: 'Mail' },
+] as const
+export const HOST_LABEL_RE = /^[a-z0-9](?:[a-z0-9-]{0,61}[a-z0-9])?$/
+export const tenantId = (i: number) => 't' + String(i + 1).padStart(2, '0')
+
+/** PlanInput.names from the wizard (undefined = catalog defaults, so plans without settings keep their exact input). */
+export function nameSettings(m: WizardModel): Raw | undefined {
+  const hosts = Object.fromEntries(Object.entries(m.hosts).map(([k, v]) => [k, v.trim().toLowerCase()]).filter(([, v]) => v))
+  const tenants: Raw = {}
+  if (m.type === 'msp') m.tenantDomains.slice(0, m.tenants).forEach((d, i) => { if (d.trim()) tenants[tenantId(i)] = { domain: d.trim().toLowerCase() } })
+  if (!Object.keys(hosts).length && !Object.keys(tenants).length) return undefined
+  return { hosts, tenants }
+}
+/** The plan input the reviewed size response produced, with the address settings. */
+export function withNames(planInput: Raw, m: WizardModel): Raw {
+  const n = nameSettings(m)
+  return n ? { ...planInput, names: n } : planInput
+}
+/** Full name of a service address as it will be used (for hints in the form). */
+export function hostPreview(m: WizardModel, id: string): string {
+  const v = (m.hosts[id] ?? '').trim().toLowerCase() || id
+  return v.includes('.') ? v : `${v}.${m.domain.trim().toLowerCase() || 'your-company.tld'}`
 }
 
 export function newModel(): WizardModel {
@@ -78,6 +109,7 @@ export function newModel(): WizardModel {
     storage: '', bridge: '', vlan: '', pool: '',
     backupDestination: '', retentionDays: 14, rpoHours: 24, rtoHours: '', offsite: false,
     updatesMode: 'manual', updatesWindow: '', marginPct: '', tier: '', vmOverrides: {},
+    hosts: Object.fromEntries(HOST_FIELDS.map((h) => [h.id, ''])), tenantDomains: [],
   }
 }
 
@@ -300,12 +332,27 @@ export function validateType(m: WizardModel): Errors {
   if (!DEPLOY_SLUG_RE.test(m.customerId.trim())) e.customerId = 'Lower-case letters, digits and "-" (2-31 characters), starting with a letter or digit.'
   if (!DEPLOY_SLUG_RE.test(m.name.trim())) e.name = 'Lower-case letters, digits and "-" (2-31 characters), starting with a letter or digit.'
   if (!DOMAIN_RE.test(m.domain.trim())) e.domain = 'Enter the customer domain, for example your-company.tld.'
+  const seen = new Map<string, string>()
+  for (const h of HOST_FIELDS) {
+    const v = (m.hosts[h.id] ?? '').trim().toLowerCase()
+    if (v && !(HOST_LABEL_RE.test(v) || DOMAIN_RE.test(v))) { e['host_' + h.id] = 'A single word (for example files) or a full name (files.example.com).'; continue }
+    const full = hostPreview(m, h.id)
+    if (seen.has(full)) e['host_' + h.id] = `Same address as ${seen.get(full)}; each service needs its own.`
+    seen.set(full, h.label)
+  }
   return e
 }
 export function validateWorkload(m: WizardModel): Errors {
   const e: Errors = {}
   if (!intIn(m.users, 1, 100000)) e.users = 'Whole number of users, 1-100000.'
   if (m.type === 'msp' && !intIn(m.tenants, 1, 50)) e.tenants = 'Whole number of customers, 1-50.'
+  if (m.type === 'msp') {
+    const ds = m.tenantDomains.slice(0, m.tenants).map((d) => d.trim().toLowerCase())
+    ds.forEach((d, i) => {
+      if (d && !DOMAIN_RE.test(d)) e['tenant_' + i] = 'Enter a domain, for example customer.tld, or leave empty.'
+      else if (d && (ds.indexOf(d) !== i || d === m.domain.trim().toLowerCase())) e['tenant_' + i] = 'Each customer needs its own domain.'
+    })
+  }
   if (m.concurrentUsers.trim() && !(num(m.concurrentUsers) !== null && num(m.concurrentUsers)! <= m.users)) e.concurrentUsers = 'A whole number no larger than the number of users, or empty.'
   if (!intIn(m.concurrentPct, 1, 100)) e.concurrentPct = 'Percent, 1-100.'
   if (!(m.mailboxGb >= 0 && m.mailboxGb <= 1000)) e.mailboxGb = 'GB per user, 0-1000.'

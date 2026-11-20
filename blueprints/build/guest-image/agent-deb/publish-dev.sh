@@ -5,7 +5,7 @@
 set -euo pipefail
 DEB=${1:?usage: publish-dev.sh <deb> <repo-dir>}; REPO=${2:?}
 SIGN=${OU_RELEASE_CMD:-sudo -n -u ou-release /usr/local/sbin/ou-release-sign}
-S=dev; C=ou-node-agent; N=$(basename "$DEB")
+S=dev; C=${OU_COMPONENT:-ou-node-agent}; N=$(basename "$DEB")
 [ -f "$DEB" ] && [ ! -L "$DEB" ] || { echo "REFUSED: $DEB is not a regular file"; exit 3; }
 mkdir -p "$REPO/pool/$S/$C" "$REPO/dists/$S/main/binary-amd64" "$REPO/dists/$S/main/source"
 cp "$DEB" "$REPO/pool/$S/$C/$N"

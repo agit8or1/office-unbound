@@ -109,9 +109,9 @@ def test_profile_vm_counts_are_derived_and_match_generated_plans():
 
 def test_dependency_closure_and_disabled_components_consume_nothing():
     c = load_catalog()
-    assert services_to_components(c, ["office"])[0] == {"identity", "edge", "files", "office"}
-    assert services_to_components(c, ["telephony"])[0] == {"identity", "edge", "telephony"}
-    assert services_to_components(c, ["mail"])[0] == {"identity", "edge", "groupware"}
+    assert services_to_components(c, ["office"])[0] == {"identity", "edge", "portal", "files", "office"}
+    assert services_to_components(c, ["telephony"])[0] == {"identity", "edge", "portal", "telephony"}
+    assert services_to_components(c, ["mail"])[0] == {"identity", "edge", "portal", "groupware"}
     assert services_to_components(c, ["nope"])[1] == ["nope"]
     r = run(req(services=["files"]), cap())
     comps = {x for v in r["vms"] for x in v["components"]}

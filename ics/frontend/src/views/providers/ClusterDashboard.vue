@@ -93,11 +93,11 @@ const nodeMem = (n: InfraNode) => pctOf(n.mem_used, n.mem_total)
     <ErrorBox v-if="data.error.value" :error="data.error.value" />
     <template v-if="d && cap">
       <div class="pv-stats">
-        <StatCard label="Connection" :value="d.ep.enabled ? ({ ok: 'Healthy', warning: 'Attention', critical: 'Problem', unknown: 'Unknown' } as Record<string, string>)[d.ep.health.status] ?? d.ep.health.status : 'Paused'" :tone="healthTone(d.ep.health.status)" icon="plug" :sub="'Synced ' + ago(d.ep.last_discovery.at)" />
-        <StatCard label="Nodes online" :value="onlineNodes.length" :of="d.nodes.length" icon="server" :tone="onlineNodes.length === d.nodes.length ? 'ok' : 'bad'" :sub="allowedNodes.length ? allowedNodes.length + ' authorised' : 'no node limit set'" />
-        <StatCard label="Running" :value="cap.running" :of="d.guests.length" icon="vm" tone="info" :sub="`${cap.vmsRunning} VMs, ${cap.ctsRunning} containers`" />
-        <StatCard label="Stopped" :value="cap.stopped" icon="box" tone="idle" :sub="`${cap.vmsStopped} VMs, ${cap.ctsStopped} containers`" />
-        <StatCard label="Room to deploy" :value="cap.authorisedStorage ? fmtBytes(cap.diskFree) : 'Not set'" icon="rocket" :tone="cap.authorisedStorage ? 'ok' : 'warn'" :sub="cap.authorisedStorage ? `free on ${cap.authorisedStorage} authorised storage, ${fmtBytes(cap.memFree)} memory` : 'Authorise storage to plan deployments'" />
+        <StatCard label="Connection" :to="`/infrastructure/providers/${id}/access`" :value="d.ep.enabled ? ({ ok: 'Healthy', warning: 'Attention', critical: 'Problem', unknown: 'Unknown' } as Record<string, string>)[d.ep.health.status] ?? d.ep.health.status : 'Paused'" :tone="healthTone(d.ep.health.status)" icon="plug" :sub="'Synced ' + ago(d.ep.last_discovery.at)" />
+        <StatCard label="Nodes online" to="/infrastructure/nodes" :value="onlineNodes.length" :of="d.nodes.length" icon="server" :tone="onlineNodes.length === d.nodes.length ? 'ok' : 'bad'" :sub="allowedNodes.length ? allowedNodes.length + ' authorised' : 'no node limit set'" />
+        <StatCard label="Running" to="/infrastructure/vms" :value="cap.running" :of="d.guests.length" icon="vm" tone="info" :sub="`${cap.vmsRunning} VMs, ${cap.ctsRunning} containers`" />
+        <StatCard label="Stopped" to="/infrastructure/vms" :value="cap.stopped" icon="box" tone="idle" :sub="`${cap.vmsStopped} VMs, ${cap.ctsStopped} containers`" />
+        <StatCard label="Room to deploy" to="/infrastructure/storage" :value="cap.authorisedStorage ? fmtBytes(cap.diskFree) : 'Not set'" icon="rocket" :tone="cap.authorisedStorage ? 'ok' : 'warn'" :sub="cap.authorisedStorage ? `free on ${cap.authorisedStorage} authorised storage, ${fmtBytes(cap.memFree)} memory` : 'Authorise storage to plan deployments'" />
       </div>
 
       <div v-if="alerts.length" class="card pv-alerts"><h2>Needs attention</h2>

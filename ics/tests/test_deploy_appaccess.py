@@ -14,14 +14,20 @@ PLAN = {"input": {"domain": "e2e-gw1.example"},
                 {"name": "e2e-gw1.example", "type": "TXT", "value": "v=spf1 mx -all", "component": "groupware"},
                 {"name": "mail.e2e-gw1.example", "type": "A", "value": "vm:c-x-mail", "component": "groupware"},
                 {"name": "office.e2e-gw1.example", "type": "A", "value": "vm:c-x-id", "component": "office"}]}
+PORTAL = {"name": "portal.e2e-gw1.example", "type": "A", "value": "vm:c-x-id", "component": "portal"}
+
+
+def test_the_portal_is_listed_first():
+    out = appaccess.build({**PLAN, "dns": [*PLAN["dns"], PORTAL]}, ADDR)
+    assert out["apps"][0]["url"] == "https://portal.e2e-gw1.example/" and "portal.e2e-gw1.example" in out["hosts"][0]["names"]
 ADDR = {"c-x-id": "192.168.22.214", "c-x-mail": "192.168.22.215"}
 
 
 def test_apps_hosts_and_mail_settings_come_from_the_plan():
     out = appaccess.build(PLAN, ADDR)
     assert [(a["title"], a["url"]) for a in out["apps"]] == [
-        ("Account", "https://auth.e2e-gw1.example/realms/ou/account/"), ("Files", "https://cloud.e2e-gw1.example/"),
-        ("Webmail", "https://mail.e2e-gw1.example/web/")]
+        ("Files", "https://cloud.e2e-gw1.example/"), ("Webmail", "https://mail.e2e-gw1.example/web/"),
+        ("Account", "https://auth.e2e-gw1.example/realms/ou/account/")]
     assert out["hosts"] == [{"address": "192.168.22.214", "names": ["auth.e2e-gw1.example", "cloud.e2e-gw1.example", "office.e2e-gw1.example"]},
                             {"address": "192.168.22.215", "names": ["autodiscover.e2e-gw1.example", "mail.e2e-gw1.example"]}]
     assert out["clients"]["imap"] == {"host": "mail.e2e-gw1.example", "port": 993, "security": "SSL/TLS"}
@@ -31,7 +37,7 @@ def test_apps_hosts_and_mail_settings_come_from_the_plan():
 def test_a_vm_without_an_address_yet_is_left_out():
     out = appaccess.build(PLAN, {"c-x-id": "10.0.0.1"})
     assert all("mail" not in n for h in out["hosts"] for n in h["names"]) and out["clients"] is None
-    assert [a["id"] for a in out["apps"]] == ["edge", "files"]
+    assert [a["id"] for a in out["apps"]] == ["files", "edge"]
 
 
 def _deployment(rt, slug="e2e-gw1"):

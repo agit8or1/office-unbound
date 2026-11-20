@@ -15,7 +15,7 @@ import re
 from dataclasses import dataclass, field
 from typing import Any
 
-from pydantic import BaseModel, ConfigDict, Field
+from pydantic import BaseModel, ConfigDict, Field, field_validator
 
 from .netmodel import NetworkModel, resolve as resolve_network
 from ..artifacts import REPO_SUITE, SENTINEL_REGISTRY, ArtifactMap, placeholder_images
@@ -29,6 +29,62 @@ FQDN = r"^([a-z0-9]([a-z0-9-]{0,61}[a-z0-9])?\.)+[a-z]{2,24}$"
 
 class _M(BaseModel):
     model_config = ConfigDict(extra="forbid")
+
+
+HOSTLABEL = r"^[a-z0-9]([a-z0-9-]{0,61}[a-z0-9])?$"
+
+
+def _check_hosts(v: dict[str, str]) -> dict[str, str]:
+    for k, x in v.items():
+        if not re.match(HOSTLABEL, k) or not (re.match(HOSTLABEL, x) or (re.match(FQDN, x) and len(x) <= 200)):
+            raise ValueError(f"host name setting {k!r} -> {x!r}: use a single label (e.g. 'files') or a full name (e.g. 'files.example.com')")
+    return v
+
+
+class TenantNames(_M):
+    """One tenant's names. `domain`: its own domain (default <tenant>.<deployment domain>); `hosts`: overrides for this tenant only."""
+    domain: str | None = Field(default=None, pattern=FQDN, max_length=200)
+    hosts: dict[str, str] = Field(default_factory=dict, max_length=30)
+
+    @field_validator("hosts")
+    @classmethod
+    def _h(cls, v):
+        return _check_hosts(v)
+
+
+class NameSettings(_M):
+    """Host names of the deployment (owner 2026-11-20: "single tenant or multi tenant but we need to make settings for fqdn").
+    `hosts` maps a catalog host label (portal, auth, cloud, office, mail, autodiscover, ...) to another label under the (tenant) domain or to a
+    full name; `tenants` (multi-tenant: t01, t02, ...) sets a tenant's own domain and per-tenant overrides. Unset = the catalog defaults."""
+    hosts: dict[str, str] = Field(default_factory=dict, max_length=30)
+    tenants: dict[str, TenantNames] = Field(default_factory=dict, max_length=50)
+
+    @field_validator("hosts")
+    @classmethod
+    def _h(cls, v):
+        return _check_hosts(v)
+
+
+def scope_domain(inp: "PlanInput", tenant: str | None) -> str:
+    t = inp.names.tenants.get(tenant) if (inp.names is not None and tenant is not None) else None
+    if t is not None and t.domain:
+        return t.domain
+    return inp.domain if tenant is None else f"{tenant}.{inp.domain}"
+
+
+def host_fqdn(inp: "PlanInput", tenant: str | None, label: str) -> str:
+    """The full name of catalog host `label` ('@' = the domain itself) in the scope of `tenant` (None = the deployment)."""
+    dom = scope_domain(inp, tenant)
+    if label == "@":
+        return dom
+    ov: dict[str, str] = {}
+    if inp.names is not None:
+        ov.update(inp.names.hosts)
+        t = inp.names.tenants.get(tenant) if tenant is not None else None
+        if t is not None:
+            ov.update(t.hosts)
+    v = ov.get(label, label)
+    return v if "." in v else f"{v}.{dom}"
 
 
 class PlanInput(_M):
@@ -50,6 +106,7 @@ class PlanInput(_M):
     custom_layout: list[VmLayout] | None = Field(default=None, max_length=30)
     backup_retention_days: int | None = Field(default=None, ge=1, le=3650)
     sizing: SizingSpec | None = Field(default=None, description="sizing-engine parameters (POST /deployments/size output); None = legacy profile formulas")
+    names: NameSettings | None = Field(default=None, description="host names and tenant domains; None = catalog defaults under `domain`")
 
 
 def input_dump(inp: "PlanInput") -> dict:
@@ -57,6 +114,8 @@ def input_dump(inp: "PlanInput") -> dict:
     d = inp.model_dump(mode="json")
     if d.get("sizing") is None:
         d.pop("sizing", None)
+    if d.get("names") is None:
+        d.pop("names", None)
     return d
 
 
@@ -181,6 +240,7 @@ def _expand(inp: PlanInput, prof: Profile, cat: Catalog, errors: list[dict]) -> 
         # (that produced a self port conflict). A layout that names only every_vm components is a VM with just the agent.
         only_every = bool(comps) and all(cat.components[c].placement == "every_vm" for c in comps)
         comps = [c for c in comps if cat.components[c].placement != "every_vm"]
+        comps += sorted(x.name for x in cat.components.values() if x.alongside in comps and x.name not in comps)
         if not comps and not only_every:
             continue
         for t in (tenants if lay.per_tenant else [None]):
@@ -456,6 +516,38 @@ def _place(vms: list[_Vm], inp: PlanInput, prof: Profile, cat: Catalog, cap: Cap
     return {"nodes": out_nodes, "storage": out_sto}
 
 
+def _name_errors(inp: PlanInput, cat: Catalog, vms: list, dns: list[dict], names: dict | None = None) -> list[dict]:
+    """Name settings must name real hosts and tenants, and two different services can never get the same name."""
+    out: list[dict] = []
+    if inp.names is not None:
+        labels = {r.host for c in cat.components.values() for r in c.dns if r.host != "@"}
+        tids = {v.tenant for v in vms if v.tenant}
+        given = [("", k) for k in inp.names.hosts] + [(t, k) for t, x in inp.names.tenants.items() for k in x.hosts]
+        bad = sorted({k for _, k in given if k not in labels})
+        if bad:
+            out.append(_err("names_unknown_host", "host name settings for hosts the catalog does not have: " + ", ".join(bad)
+                            + " (known: " + ", ".join(sorted(labels)) + ")", items=bad))
+        badt = sorted(t for t in inp.names.tenants if t not in tids)
+        if badt:
+            out.append(_err("names_unknown_tenant", "name settings for tenants this deployment does not have: " + ", ".join(badt)
+                            + (" (tenants: " + ", ".join(sorted(tids)) + ")" if tids else " (single tenant: use the deployment domain and hosts)"), items=badt))
+    owner: dict[str, str] = {}
+    for sc, x in sorted((names or {}).items()):
+        for label, fqdn in sorted(x["hosts"].items()):
+            who = f"{sc + '/' if sc else ''}{label}"
+            if fqdn in owner:
+                out.append(_err("names_duplicate", f"{fqdn} is set for both {owner[fqdn]} and {who}; give one of them another name", name=fqdn))
+            owner.setdefault(fqdn, who)
+    seen: dict[str, tuple] = {}
+    for r in dns:
+        if r["type"] in ("A", "CNAME"):
+            k = (r["type"], r.get("component"))   # replicas of one component share a name (round robin)
+            if r["name"] in seen and seen[r["name"]] != k:
+                out.append(_err("names_duplicate", f"{r['name']} would point at two different services; give one of them another name", name=r["name"]))
+            seen.setdefault(r["name"], k)
+    return out
+
+
 # ---- derived sections ---------------------------------------------------------------------------------------
 
 def _scope_match(a: str | None, b: str | None) -> bool:
@@ -468,8 +560,10 @@ def _derive(vms: list[_Vm], inp: PlanInput, prof: Profile, cat: Catalog, warning
     edge_vms = [v for v in vms if "edge" in v.components]
     retention = inp.backup_retention_days or prof.backup.retention_days
     fw: set[tuple] = set()
+    names: dict[str, dict] = {}
     for v in vms:
-        dom = inp.domain if v.tenant is None else f"{v.tenant}.{inp.domain}"
+        dom = scope_domain(inp, v.tenant)
+        scope = names.setdefault(v.tenant or "", {"domain": dom, "hosts": {}})
         for cname in [*v.components, *(c.name for c in every)]:
             c = cat.components[cname]
             for a in c.artifacts:
@@ -500,18 +594,20 @@ def _derive(vms: list[_Vm], inp: PlanInput, prof: Profile, cat: Catalog, warning
                     tgt_vm = v
                     if r.target == "edge" and edge_vms:
                         tgt_vm = next((e for e in edge_vms if _scope_match(e.tenant, v.tenant)), edge_vms[0])
-                    host = dom if r.host == "@" else f"{r.host}.{dom}"
+                    host = host_fqdn(inp, v.tenant, r.host)
+                    if r.host != "@":
+                        scope["hosts"][r.host] = host
                     if r.type == "A":
                         dns.append({"name": host, "type": "A", "value": f"vm:{tgt_vm.name}", "component": c.name})
                     elif r.type == "CNAME":
-                        dns.append({"name": host, "type": "CNAME", "value": f"{r.target}.{dom}", "component": c.name})
+                        dns.append({"name": host, "type": "CNAME", "value": host_fqdn(inp, v.tenant, r.target), "component": c.name})
                     elif r.type == "MX":
                         pri, _, h = r.target.partition(" ")
-                        dns.append({"name": host, "type": "MX", "value": f"{pri} {h}.{dom}", "component": c.name})
+                        dns.append({"name": host, "type": "MX", "value": f"{pri} {host_fqdn(inp, v.tenant, h)}", "component": c.name})
                     else:
                         dns.append({"name": host, "type": "TXT", "value": r.target, "component": c.name})
             fq = next((r for r in c.dns if r.type == "A"), None)
-            fqdn = (dom if fq and fq.host == "@" else f"{fq.host}.{dom}") if fq else None
+            fqdn = host_fqdn(inp, v.tenant, fq.host) if fq else None
             for h in c.health_checks:
                 checks.append({"name": f"{v.name}-{c.name}-{h.name}", "component": c.name, "vm": v.name, "kind": h.kind,
                                "host": fqdn or f"vm:{v.name}", "port": h.port, "path": h.path, "expect_status": h.expect_status,
@@ -534,7 +630,8 @@ def _derive(vms: list[_Vm], inp: PlanInput, prof: Profile, cat: Catalog, warning
             dns_u.append(r)
     return {"containers": sorted(containers, key=lambda x: x["name"]), "services": sorted(services, key=lambda x: x["name"]),
             "firewall": firewall, "dns": dns_u, "backups": sorted(backups, key=lambda x: (x["vm"], x["component"])),
-            "checks": sorted(checks, key=lambda x: x["name"])}
+            "checks": sorted(checks, key=lambda x: x["name"]),
+            "names": {k: {"domain": x["domain"], "hosts": dict(sorted(x["hosts"].items()))} for k, x in sorted(names.items())}}
 
 
 # ---- steps (DAG) --------------------------------------------------------------------------------------------
@@ -547,7 +644,17 @@ def _step(key: str, kind: str, target: str, op: str, params: dict, deps: list[st
             "disruptive": extra.get("disruptive", False), "downtime_seconds": extra.get("downtime_seconds", 0), "est_seconds": extra.get("est_seconds", EST.get(key.split(":")[0], 30))}
 
 
-def _install_params(c: Component, domain: str = "") -> list[dict]:
+_HOSTREF = re.compile(r"\{host:([a-z0-9-]+)\}")
+
+
+def _env_value(v: str, domain: str, host=None) -> str:
+    """`{domain}` -> the (tenant) domain; `{host:<label>}` -> that catalog host's full name under the name settings."""
+    if host is not None:
+        v = _HOSTREF.sub(lambda m: host(m.group(1)), v)
+    return v.replace("{domain}", domain)
+
+
+def _install_params(c: Component, domain: str = "", host=None) -> list[dict]:
     """Runbook parameters in exactly the shape the node agent's closed schemas accept (agent/ou_agent/guestspec.py): the image is one
     digest-pinned reference `<registry>/<repo>@sha256:<digest>`, ports carry an explicit bind address."""
     out = []
@@ -560,7 +667,7 @@ def _install_params(c: Component, domain: str = "") -> list[dict]:
                                 for p in c.ports if p.name != "agent"]}
             u = getattr(a, "unit", None)
             if u is not None:   # configured unit (artifacts-core): env/volumes/named secrets exactly as the agent's closed schema takes them
-                params.update({"type": u.type, "env": {k: v.replace("{domain}", domain) for k, v in sorted(u.env.items())},
+                params.update({"type": u.type, "env": {k: _env_value(v, domain, host) for k, v in sorted(u.env.items())},
                                "secrets": [{"name": x.name, "env": x.env} for x in u.secrets],
                                "volumes": [{"name": x.name, "path": x.path, "read_only": x.read_only} for x in u.volumes],
                                "memory_mib": u.memory_mib, "read_only": u.read_only})
@@ -648,7 +755,7 @@ def create_steps(vms: list[dict], inp: PlanInput, cat: Catalog, extra_nic: bool 
                 for (vn, vt) in inst.get(d, []):
                     if _scope_match(vt, v["tenant"]):
                         deps.append(f"health.verify:{vn}:{d}")
-            steps.append(_step(f"comp.install:{n}:{cname}", "agent_runbook", n, "install", {"component": cname, "runbooks": _install_params(c, inp.domain if v["tenant"] is None else f"{v['tenant']}.{inp.domain}")}, deps))
+            steps.append(_step(f"comp.install:{n}:{cname}", "agent_runbook", n, "install", {"component": cname, "runbooks": _install_params(c, scope_domain(inp, v["tenant"]), lambda lb, t=v["tenant"]: host_fqdn(inp, t, lb))}, deps))
             steps.append(_step(f"checks.register:{n}:{cname}", "register_checks", n, "register", {"component": cname},
                                [f"comp.install:{n}:{cname}"]))
             steps.append(_step(f"health.verify:{n}:{cname}", "verify_health", n, "verify", {"component": cname, "timeout_seconds": 300},
@@ -755,6 +862,7 @@ def generate_plan(inp: PlanInput, cap: Capacity, cat: Catalog | None = None, exi
                                  + ", ".join(est), items=est))
     capacity = _place(vms, inp, prof, cat, cap, existing, errors, warnings)
     derived = _derive(vms, inp, prof, cat, warnings)
+    errors.extend(_name_errors(inp, cat, vms, derived["dns"], derived["names"]))
     net = None
     if networks is not None:
         net, nerr, nwarn = resolve_network(networks, inp.customer_id, inp.endpoint, inp.bridge, scope_networks, [v.name for v in vms])

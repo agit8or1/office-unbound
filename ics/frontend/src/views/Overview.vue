@@ -93,7 +93,7 @@ const notReady = computed(() => ready.data.value && !ready.data.value.ready ? Ob
     </div>
 
     <section class="statgrid" aria-label="Status summary">
-      <StatCard label="Infrastructure health" :value="health.text" :sub="health.sub" icon="shield" :tone="health.tone" :loading="!loaded" />
+      <StatCard label="Infrastructure health" :value="health.text" :sub="health.sub" icon="shield" to="/monitoring/infrastructure" :tone="health.tone" :loading="!loaded" />
       <StatCard label="Clusters" :value="i.clusters.length" :sub="i.clusters.length ? i.clusters.filter((c) => isUp(c.status)).length + ' online' : 'None connected'" icon="cluster" :tone="i.clusters.some((c) => isDown(c.status)) ? 'bad' : i.clusters.length ? 'ok' : 'idle'" to="/infrastructure/clusters" :loading="!loaded" />
       <StatCard label="Nodes" :value="nodesUp" :of="i.nodes.length" :sub="i.nodes.length - nodesUp ? i.nodes.length - nodesUp + ' not online' : 'All online'" icon="server" :tone="!i.nodes.length ? 'idle' : nodesUp < i.nodes.length ? 'bad' : 'ok'" to="/infrastructure/nodes" :loading="!loaded" />
       <StatCard label="Virtual machines" :value="runningGuests(vms).length" :of="vms.length" :sub="visNote ? 'running · Office Unbound guests only' : 'running'" icon="vm" :tone="vms.length ? 'info' : 'idle'" to="/infrastructure/vms" :loading="!loaded" />

@@ -10,6 +10,19 @@ isolated lab; nothing is production supported ([ROADMAP.md](ROADMAP.md)).
 
 ## [Unreleased]
 
+## [0.6.0] - 2026-11-20
+
+First release of the 0.6 "Foundry" line: **one sign-in for everything, and service addresses you choose.**
+
+- **New: the user portal is part of every deployment.** Employees open `portal.<domain>`, sign in once (Keycloak) and reach mail, calendar, contacts, files and new documents from there. Organisation administrators (directory group `org-admin`; the deployment's `ou-admin` is a member) see the admin area. The portal runs next to the scope's identity, one per tenant. It is shipped as the signed package `ou-portal` and configured by the new agent runbook `cfg.portal`. The client secret goes to a file, never into the environment ([portal-results.md](docs/status/portal-results.md), [test_deploy_names.py](ics/tests/test_deploy_names.py)).
+- **New: webmail signs in through Keycloak (SSO).** The ICS now generates the realm's signing key itself, so the mail server is given the matching public key at deployment time, with no key-sync step. Each deployment gets its own Keycloak clients for the portal and webmail. Lab: webmail's login page redirects to Keycloak with the deployment's client and callback ([webmail-sso-results.md](docs/status/webmail-sso-results.md)).
+- **New: service addresses and customer domains are settings.** The deploy wizard has an optional "Service addresses" section: rename any service (`files` instead of `cloud`) or give it a full name on another domain. MSP deployments take a domain per customer. The plan, DNS records, certificates, edge routes, Keycloak and the apps panel all follow these settings. Two services on one name, unknown services and unknown customers are refused.
+- **New: a bare IP address or an unknown name no longer reaches a backend.** Single tenant: it is sent to the portal. Multi-tenant: it is refused, so no customer's name or application leaks.
+- **Security: multi-tenant deployments are configured per tenant.** Each customer has its own certificate authority (limited to its own domains), directory, Keycloak and mail secrets, administrator password, portal and edge certificate. Before this, a multi-tenant plan's tenants would have shared the deployment's secrets and CA, and the shared edge did not route tenant sites. Audit redaction now also covers nested settings (the webmail client secret).
+- **Console: every dashboard tile opens the page behind it** (Overview and cluster page), guarded by a test.
+- **Node agent 0.6.0-ou11 and golden image v9** carry `cfg.portal`, `cfg.nginx_default`, webmail SSO in `cfg.gromox` and per-scope CA files in `cfg.tls`.
+- **Design: one public IP** (gateway routing, ACME certificates with automatic renewal, DNS automation, port allocation, Gateway & Certificates UI): [ADR-0018](docs/adr/0018-gateway-certificates-dns.md), milestone "Gateway & certificates" (issues #23-#29).
+
 ## [0.5.1] - 2026-11-20
 
 - **New: "Open your apps" on the deployment page** (administrators). Shows everything needed to use a deployed stack from your own computer: links to Files, Webmail and the sign-in account page, the hosts-file lines for the deployment's names (until public DNS exists), the deployment's certificate authority to download and trust, the settings for mail apps (IMAP, SMTP, ActiveSync, CalDAV/CardDAV) and the administrator's sign-in. The administrator password is shown only after a fresh code from your authenticator app. That code is single use and rate-limited like sign-in, and every reveal or failed attempt is recorded in the audit log. The password is never cached and is hidden again after two minutes ([test_deploy_appaccess.py](ics/tests/test_deploy_appaccess.py)).
@@ -283,6 +296,7 @@ editing, chat/meetings, telephony prototype, migration tooling and package pipel
 - `SECURITY.md` (private reporting) and `CONTRIBUTING.md` (DCO sign-off) added; AGPL-3.0 license. [SECURITY](SECURITY.md)
 
 [Unreleased]: https://github.com/agit8or1/office-unbound/compare/v0.4.7...HEAD
+[0.6.0]: https://github.com/agit8or1/office-unbound/compare/v0.5.1...v0.6.0
 [0.5.1]: https://github.com/agit8or1/office-unbound/compare/v0.5.0...v0.5.1
 [0.5.0]: https://github.com/agit8or1/office-unbound/compare/v0.4.10...v0.5.0
 [0.4.10]: https://github.com/agit8or1/office-unbound/compare/v0.4.9...v0.4.10

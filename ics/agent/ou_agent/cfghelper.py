@@ -45,7 +45,7 @@ BIN = {"openssl": "/usr/bin/openssl", "update-ca": "/usr/sbin/update-ca-certific
        "mkpublic": "/usr/sbin/gromox-mkpublic", "usermod": "/usr/sbin/usermod", "groupadd": "/usr/sbin/groupadd", "getent": "/usr/bin/getent",
        "chown": "/usr/bin/chown", "phpenmod": "/usr/sbin/phpenmod"}
 ROOT_ENV = {"PATH": "/usr/bin:/bin:/usr/sbin:/sbin", "LANG": "C", "DEBIAN_FRONTEND": "noninteractive"}
-SECRET_KEYS = ("admin_password", "bind_password", "password", "value", "key_pem", "db_password")
+SECRET_KEYS = ("admin_password", "bind_password", "password", "value", "key_pem", "db_password", "client_secret")
 
 
 class Failed(Exception):
@@ -54,7 +54,8 @@ class Failed(Exception):
 
 class Ctx:
     def __init__(self, params):
-        self.secrets = sorted({str(params[k]) for k in SECRET_KEYS if isinstance(params.get(k), str) and params.get(k)}, key=len, reverse=True)
+        nested = [params["sso"]] if isinstance(params.get("sso"), dict) else []
+        self.secrets = sorted({str(d[k]) for d in (params, *nested) for k in SECRET_KEYS if isinstance(d.get(k), str) and d.get(k)}, key=len, reverse=True)
         for f in params.get("files", []) or []:   # volume files may embed secrets (realm import, env files): scrub every line of them too
             for line in f["content"].splitlines():
                 for m in re.findall(r"[A-Za-z0-9_-]{16,128}", line):
@@ -130,15 +131,19 @@ def tls(p, x):
     os.makedirs(TLS_DIR, mode=0o755, exist_ok=True)
     os.chmod(TLS_DIR, 0o755)
     crt, key = os.path.join(TLS_DIR, p["name"] + ".crt"), os.path.join(TLS_DIR, p["name"] + ".key")
-    atomic_write(os.path.join(TLS_DIR, "ca.crt"), p["ca_pem"], 0o644)
+    # "deployment" is the VM's own scope (ca.crt, read by LDAP, gromox, the TLS proxies); another name is a further scope served by the shared
+    # edge of a multi-tenant deployment: its CA is kept beside it (<name>.ca.crt) and trusted under its own file
+    cafile = os.path.join(TLS_DIR, "ca.crt" if p["name"] == "deployment" else p["name"] + ".ca.crt")
+    trust = CA_TRUST if p["name"] == "deployment" else CA_TRUST.replace("ou-deployment-ca", "ou-" + p["name"] + "-ca")
+    atomic_write(cafile, p["ca_pem"], 0o644)
     atomic_write(key, p["key_pem"], 0o600)
     atomic_write(crt, p["cert_pem"], 0o644)
     if _pubkey(x, "cert", crt) != _pubkey(x, "key", key):
         raise Failed("the certificate does not belong to the private key")
-    x.run([BIN["openssl"], "verify", "-CAfile", os.path.join(TLS_DIR, "ca.crt"), crt], what="openssl verify")
-    changed = read(CA_TRUST) != p["ca_pem"]
+    x.run([BIN["openssl"], "verify", "-CAfile", cafile, crt], what="openssl verify")
+    changed = read(trust) != p["ca_pem"]
     if changed:
-        atomic_write(CA_TRUST, p["ca_pem"], 0o644)
+        atomic_write(trust, p["ca_pem"], 0o644)
         x.run([BIN["update-ca"]], what="update-ca-certificates")
     return {"name": p["name"], "ca_trust_updated": changed}
 
@@ -382,8 +387,9 @@ def nginx_site(p, x):
     old = read(path)
     body = f"{p['max_body_mb']}m" if p["max_body_mb"] else "0"
     up_tls = ""
+    cafile = "ca.crt" if p["tls_name"] == "deployment" else p["tls_name"] + ".ca.crt"
     if p["upstream_name"]:   # another VM: TLS to it, its certificate verified against the deployment CA for exactly this name
-        up_tls = (f"\n    proxy_ssl_verify on;\n    proxy_ssl_verify_depth 2;\n    proxy_ssl_trusted_certificate {TLS_DIR}/ca.crt;\n"
+        up_tls = (f"\n    proxy_ssl_verify on;\n    proxy_ssl_verify_depth 2;\n    proxy_ssl_trusted_certificate {TLS_DIR}/{cafile};\n"
                   f"    proxy_ssl_name {p['upstream_name']};\n    proxy_ssl_server_name on;\n    proxy_ssl_protocols TLSv1.2 TLSv1.3;")
     atomic_write(path, NGINX_SITE.format(names=" ".join(p["server_names"]), tls=TLS_DIR, cert=p["tls_name"], body=body, upstream=p["upstream"],
                                          upstream_tls=up_tls), 0o644)
@@ -552,10 +558,10 @@ def _uid(name):
     return pwd.getpwnam(name).pw_uid
 
 
-def _cfgfile(path, body):
+def _cfgfile(path, body, mode=0o640, uid=0, gid=None):
     old = read(path)
     if old != body:
-        atomic_write(path, body, 0o640, 0, _gid("gromoxcf"))
+        atomic_write(path, body, mode, uid, _gid("gromoxcf") if gid is None else gid)
     return old != body
 
 
@@ -783,6 +789,22 @@ def gromox(p, x):
         t = read(path)
         if t is not None and re.search(pat, t):
             atomic_write(path, re.sub(pat, rep, t), 0o644)
+    # --- webmail sign-in through Keycloak (webmail-sso-results.md): keycloak.json for grommunio-web, the realm's public key for gromox (zcore
+    # verifies the token's RS256 signature with it); without `sso` webmail keeps its own login form (directory password)
+    kc, pub = os.path.join(GX_ETC, "keycloak.json"), os.path.join(GX_ETC, "bearer_pubkey")
+    if p.get("sso"):
+        o = p["sso"]
+        changed |= _cfgfile(kc, json.dumps({"realm": o["realm"], "auth-server-url": o["auth_url"], "ssl-required": "external",
+                                            "resource": o["client_id"], "redirect-url": o["redirect_url"],
+                                            "credentials": {"secret": o["client_secret"]}, "confidential-port": 0}, indent=1) + "\n", 0o640, 0, gxcf)
+        changed |= _cfgfile(pub, o["bearer_pubkey"], 0o640, 0, gxcf)
+        # the web pool (user groweb) reads keycloak.json; without the group the login page silently keeps its own password form
+        x.run([BIN["usermod"], "-aG", "gromoxcf", "groweb"], what="usermod groweb")
+    else:
+        for f in (kc, pub):
+            if os.path.exists(f):
+                os.unlink(f)
+                changed = True
     # --- nginx: mail.<domain> + autodiscover on 443 (clients) and 8447 (the edge), TLS with the deployment certificate
     path, link = os.path.join(NGINX_AVAIL, GW_SITE), os.path.join(NGINX_ENABLED, GW_SITE)
     old = read(path)
@@ -813,8 +835,83 @@ def gromox(p, x):
     return {"domain": dom, "hostname": host, "mailboxes": boxes, "services": len(units), "config_changed": changed}
 
 
+# ---------------------------------------------------------------- cfg.nginx_default
+NGINX_DEFAULT = "ou-00-default"
+NGINX_DEFAULT_SITE = """# generated by ou-agent (cfg.nginx_default): requests for any other name or a bare IP address; do not edit
+server {{
+  listen 80 default_server;
+  listen [::]:80 default_server;
+  server_name _;
+  {action}
+}}
+server {{
+  listen 443 ssl default_server;
+  listen [::]:443 ssl default_server;
+  server_name _;
+  ssl_certificate {tls}/{cert}.crt;
+  ssl_certificate_key {tls}/{cert}.key;
+  ssl_protocols TLSv1.2 TLSv1.3;
+  {action}
+}}
+"""
+
+
+def nginx_default(p, x):
+    for f in (p["tls_name"] + ".crt", p["tls_name"] + ".key"):
+        if not os.path.exists(os.path.join(TLS_DIR, f)):
+            raise Failed(f"missing {f}: cfg.tls must run first")
+    action = f"return 302 {p['redirect']};" if p["redirect"] else "return 444;"
+    path, link = os.path.join(NGINX_AVAIL, NGINX_DEFAULT), os.path.join(NGINX_ENABLED, NGINX_DEFAULT)
+    old = read(path)
+    atomic_write(path, NGINX_DEFAULT_SITE.format(action=action, tls=TLS_DIR, cert=p["tls_name"]), 0o644)
+    if not os.path.islink(link):
+        if os.path.lexists(link):
+            os.unlink(link)
+        os.symlink(path, link)
+    if os.path.lexists(os.path.join(NGINX_ENABLED, "default")):
+        os.unlink(os.path.join(NGINX_ENABLED, "default"))
+    t = x.run([BIN["nginx"], "-t"], check=False)
+    if t.returncode != 0:
+        if old is None:
+            os.unlink(link)
+            os.unlink(path)
+        else:
+            atomic_write(path, old, 0o644)
+        raise Failed("nginx refused the configuration: " + x.scrub(t.stderr))
+    x.run([BIN["systemctl"], "enable", "--now", "nginx"], what="systemctl enable nginx")
+    x.run([BIN["systemctl"], "reload", "nginx"], what="systemctl reload nginx")
+    return {"site": NGINX_DEFAULT, "redirect": p["redirect"]}
+
+
+# ---------------------------------------------------------------- cfg.portal
+PORTAL_ETC = "/etc/ou-portal"
+PORTAL_PORT = 8090
+
+
+def portal(p, x):
+    if not _installed(x, "ou-portal"):
+        raise Failed("not installed (pkg.install_pinned must run first): ou-portal")
+    gid = _gid("ou-portal")
+    os.makedirs(PORTAL_ETC, exist_ok=True)
+    os.chown(PORTAL_ETC, 0, gid)
+    os.chmod(PORTAL_ETC, 0o750)
+    env = {"PORTAL_BASE_URL": p["base_url"], "PORTAL_OIDC_ISSUER": p["issuer"], "PORTAL_OIDC_CLIENT_ID": p["client_id"],
+           "PORTAL_OIDC_CLIENT_SECRET_FILE": PORTAL_ETC + "/client-secret", "PORTAL_FILES_URL": p["files_url"] or p["base_url"],
+           "PORTAL_MAIL_WEB_URL": p["mail_web_url"], "PORTAL_MAIL_HOST": p["mail_host"] or p["mail_domain"], "PORTAL_MAIL_DOMAIN": p["mail_domain"],
+           "PORTAL_ORG_NAME": p["org_name"], "PORTAL_CA_BUNDLE": "/etc/ssl/certs/ca-certificates.crt"}
+    text = "# generated by ou-agent (cfg.portal); no secret in this file\n" + "".join(f"{k}={v}\n" for k, v in env.items())
+    changed = _cfgfile(os.path.join(PORTAL_ETC, "portal.env"), text, 0o640, 0, gid)
+    changed |= _cfgfile(os.path.join(PORTAL_ETC, "client-secret"), p["client_secret"], 0o640, 0, gid)
+    x.run([BIN["systemctl"], "enable", "ou-portal"], what="systemctl enable ou-portal")
+    x.run([BIN["systemctl"], "restart" if changed else "start", "ou-portal"], what="systemctl start ou-portal")
+    if x.run([BIN["systemctl"], "is-active", "ou-portal"], check=False).stdout.strip() != "active":
+        raise Failed("ou-portal is not running after start")
+    return {"base_url": p["base_url"], "config_changed": changed}
+
+
 DISPATCH = {"cfg.firewall": firewall, "cfg.hosts": hosts, "cfg.tls": tls, "cfg.ldap_init": ldap_init, "cfg.ldap_user": ldap_user, "cfg.pg_db": pg_db,
-            "cfg.podman_secret": podman_secret, "cfg.volume_files": volume_files, "cfg.nginx_site": nginx_site, "cfg.gromox": gromox}
+            "cfg.podman_secret": podman_secret, "cfg.volume_files": volume_files, "cfg.nginx_site": nginx_site, "cfg.gromox": gromox,
+            "cfg.nginx_default": nginx_default, "cfg.portal": portal}
 
 
 def handle(req, cfg):

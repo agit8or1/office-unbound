@@ -14,7 +14,7 @@ from .guestspec import DIGEST_RE, IPV4_RE, NAME_RE, REGISTRY_RE, REPO_RE, SECRET
 from .proto import Reject
 
 CFG_RUNBOOKS = ("cfg.hosts", "cfg.tls", "cfg.ldap_init", "cfg.ldap_user", "cfg.pg_db", "cfg.podman_secret", "cfg.volume_files", "cfg.nginx_site",
-                "cfg.firewall", "cfg.gromox")
+                "cfg.firewall", "cfg.gromox", "cfg.nginx_default", "cfg.portal")
 FAMILY = "cfg"
 
 FQDN_RE = re.compile(r"^(?=.{4,200}$)([a-z0-9]([a-z0-9-]{0,61}[a-z0-9])?\.)+[a-z]{2,24}$")
@@ -25,7 +25,8 @@ GROUP_RE = re.compile(r"^[A-Za-z][A-Za-z0-9-]{0,30}[A-Za-z0-9]$")   # group cn (
 PERSON_RE = re.compile(r"^[A-Za-z][A-Za-z .'-]{0,62}$")
 DBNAME_RE = re.compile(r"^[a-z][a-z0-9_]{0,30}$")
 RELPATH_RE = re.compile(r"^[A-Za-z0-9_][A-Za-z0-9_.-]{0,63}(/[A-Za-z0-9_][A-Za-z0-9_.-]{0,63}){0,3}$")
-PEM_RE = {"cert": re.compile(r"^-----BEGIN CERTIFICATE-----\n([A-Za-z0-9+/=]{1,76}\n){4,200}-----END CERTIFICATE-----\n$"),
+PEM_RE = {"pubkey": re.compile(r"^-----BEGIN PUBLIC KEY-----\n([A-Za-z0-9+/=]{1,76}\n){2,40}-----END PUBLIC KEY-----\n$"),
+          "cert": re.compile(r"^-----BEGIN CERTIFICATE-----\n([A-Za-z0-9+/=]{1,76}\n){4,200}-----END CERTIFICATE-----\n$"),
           "key": re.compile(r"^-----BEGIN (EC |RSA )?PRIVATE KEY-----\n([A-Za-z0-9+/=]{1,76}\n){2,200}-----END (EC |RSA )?PRIVATE KEY-----\n$")}
 # plain HTTP only to this VM's loopback; anything on another host is HTTPS, verified against the deployment CA under `upstream_name`
 UPSTREAM_RE = re.compile(r"^(http://127\.0\.0\.1|https://(25[0-5]|2[0-4]\d|1?\d?\d)(\.(25[0-5]|2[0-4]\d|1?\d?\d)){3}):[0-9]{2,5}$")
@@ -183,28 +184,79 @@ def _mail(v, domain, what):
     return v
 
 
+HTTPS_ROOT_RE = re.compile(r"^https://(([a-z0-9]([a-z0-9-]{0,61}[a-z0-9])?\.)+[a-z]{2,24})/$")
+CLIENT_RE = re.compile(r"^[a-z][a-z0-9-]{1,40}$")
+
+
+def _https_host(v, what, path=""):
+    """https://<fqdn><path> exactly (no port, query or other path)."""
+    if not isinstance(v, str) or not v.startswith("https://") or not v.endswith(path) or len(v) > 260:
+        raise Reject("bad_params", f"{what} must be https://<name>{path}")
+    host = v[len("https://"):len(v) - len(path)] if path else v[len("https://"):]
+    _s(host, FQDN_RE, what)
+    return v
+
+
+def check_sso(p):
+    """Webmail sign-in through Keycloak (grommunio-web keycloak.json + gromox bearer_pubkey): the realm's issuer base, the webmail client and the
+    realm's public signing key the ICS generated."""
+    _exact(p, ("auth_url", "realm", "client_id", "client_secret", "redirect_url", "bearer_pubkey"))
+    if not isinstance(p["auth_url"], str) or not HTTPS_ROOT_RE.fullmatch(p["auth_url"]):
+        raise Reject("bad_params", "sso.auth_url must be https://<name>/")
+    return {"auth_url": p["auth_url"], "realm": _s(p["realm"], CLIENT_RE, "sso.realm"),
+            "client_id": _s(p["client_id"], CLIENT_RE, "sso.client_id"), "client_secret": _password(p["client_secret"], "sso.client_secret"),
+            "redirect_url": _https_host(p["redirect_url"], "sso.redirect_url", "/web"), "bearer_pubkey": _pem(p["bearer_pubkey"], "pubkey")}
+
+
 def check_gromox(p, cfg):
     """The groupware node (gromox + Postfix + MariaDB + grommunio web/sync/dav behind nginx): mail domain, the VM's mail host name, the
     deployment TLS material (cfg.tls), the database password, the read-only directory bind (cfg.ldap_init's svc-bind) and the entitlement
     group. `mailboxes` are directory addresses whose mailbox is created when the directory entry exists and is in the group."""
-    _exact(p, ("domain", "hostname", "tls_name", "db_password", "ldap_host", "bind_password", "group", "mailboxes"))
+    _exact(p, ("domain", "hostname", "tls_name", "db_password", "ldap_host", "bind_password", "group", "mailboxes", "sso"),
+           ("domain", "hostname", "tls_name", "db_password", "ldap_host", "bind_password", "group", "mailboxes"))
     domain = _s(p["domain"], FQDN_RE, "domain")
-    host = _s(p["hostname"], FQDN_RE, "hostname")
+    host = _s(p["hostname"], FQDN_RE, "hostname")      # the mail host may be any name (name settings), the directory is the deployment's own
     ldap_host = _s(p["ldap_host"], FQDN_RE, "ldap_host")
-    for h, what in ((host, "hostname"), (ldap_host, "ldap_host")):
-        if not h.endswith("." + domain):
-            raise Reject("bad_params", f"{what} must be a name inside the mail domain")
+    if not ldap_host.endswith("." + domain):
+        raise Reject("bad_params", "ldap_host must be a name inside the mail domain")
     boxes = [_mail(m, domain, "mailbox") for m in _list(p["mailboxes"], "mailboxes", MAX_MAILBOXES)]
     if len(set(boxes)) != len(boxes):
         raise Reject("bad_params", "duplicate mailbox")
     return {"domain": domain, "hostname": host, "tls_name": _s(p["tls_name"], NAME_RE, "tls_name"),
             "db_password": _password(p["db_password"], "db_password"), "ldap_host": ldap_host,
-            "bind_password": _password(p["bind_password"], "bind_password"), "group": _s(p["group"], GROUP_RE, "group"), "mailboxes": boxes}
+            "bind_password": _password(p["bind_password"], "bind_password"), "group": _s(p["group"], GROUP_RE, "group"), "mailboxes": boxes,
+            **({"sso": check_sso(p["sso"])} if p.get("sso") is not None else {})}
+
+
+def check_nginx_default(p, cfg):
+    """What a request for any other name (a bare IP address, an unknown host) gets: a redirect to one https URL (the portal), or nothing."""
+    _exact(p, ("redirect", "tls_name"))
+    r = p["redirect"]
+    return {"redirect": _https_host(r, "redirect", "/") if r is not None else None, "tls_name": _s(p["tls_name"], NAME_RE, "tls_name")}
+
+
+def check_portal(p, cfg):
+    """The user portal (package ou-portal): its public URL, the Keycloak issuer and client, the apps it links to. Plain HTTP on 127.0.0.1:8090
+    behind the TLS proxy; the client secret goes to a file, never into the environment file."""
+    _exact(p, ("base_url", "issuer", "client_id", "client_secret", "files_url", "mail_web_url", "mail_host", "mail_domain", "org_name"))
+    base = _https_host(p["base_url"], "base_url")
+    iss = p["issuer"]
+    if not isinstance(iss, str) or "/realms/" not in iss:
+        raise Reject("bad_params", "issuer must be https://<name>/realms/<realm>")
+    host, _, realm = iss.partition("/realms/")
+    _https_host(host, "issuer")
+    _s(realm, CLIENT_RE, "issuer realm")
+    files = _https_host(p["files_url"], "files_url") if p["files_url"] else ""
+    web = _https_host(p["mail_web_url"], "mail_web_url", "/web/") if p["mail_web_url"] else ""
+    return {"base_url": base, "issuer": iss, "client_id": _s(p["client_id"], CLIENT_RE, "client_id"),
+            "client_secret": _password(p["client_secret"], "client_secret"), "files_url": files, "mail_web_url": web,
+            "mail_host": _s(p["mail_host"], FQDN_RE, "mail_host") if p["mail_host"] else "", "mail_domain": _s(p["mail_domain"], FQDN_RE, "mail_domain"),
+            "org_name": _s(p["org_name"], ORG_RE, "org_name")}
 
 
 CHECKS = {"cfg.firewall": check_firewall, "cfg.gromox": check_gromox, "cfg.hosts": check_hosts, "cfg.tls": check_tls, "cfg.ldap_init": check_ldap_init, "cfg.ldap_user": check_ldap_user,
           "cfg.pg_db": check_pg_db, "cfg.podman_secret": check_podman_secret, "cfg.volume_files": check_volume_files,
-          "cfg.nginx_site": check_nginx_site}
+          "cfg.nginx_site": check_nginx_site, "cfg.nginx_default": check_nginx_default, "cfg.portal": check_portal}
 
 
 def validate_runbook_config(name, c):

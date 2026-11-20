@@ -13,6 +13,7 @@ import '../../views/providers/providers.css'
 import { useRun } from '../../views/providers/run'
 import {
   DEPLOYMENT_TYPES, KNOWN_SERVICES, SERVICE_INFO, applyType, architectureCards, backupMessages, buildSizeRequest, createParams, createSizer, identityValid,
+  HOST_FIELDS, hostPreview, nameSettings, tenantId, withNames,
   newModel, nodeRows, recommendationText, requestKey, serviceLabel, sizable, sizingApi, summarize, wizardSteps, type Arch, type SizeResponse,
 } from './sizing'
 
@@ -70,22 +71,26 @@ const planning = ref(false)
 const planError = ref('')
 const confirmed = ref(false)
 const run = useRun()
-watch(key, () => { confirmed.value = false })
+// the address settings are not part of sizing, but they are part of the plan: changing one makes a generated plan stale
+const planKey = computed(() => key.value + '|' + JSON.stringify(nameSettings(m) ?? null))
+watch(planKey, () => { confirmed.value = false })
 watch(stepId, (id) => { if (id === 'review') void regenerate() })
 const canPlan = computed(() => fresh.value && identityValid(m) && !!resp.value?.selected && !!resp.value.plan_input && !(resp.value.plan_blocking ?? []).length && resp.value.fits === true)
 async function createPlan() {
   if (!canPlan.value || !resp.value?.plan_input) return
   planError.value = ''; planning.value = true; confirmed.value = false
-  const k = key.value
-  try { generated.value = mapPlan(await sizingApi.plan(resp.value.plan_input)); generatedKey.value = k }
+  const k = planKey.value
+  const input = withNames(resp.value.plan_input, m)
+  try { generated.value = mapPlan(await sizingApi.plan(input)); generatedKey.value = k; plannedInput.value = input }
   catch (e) { generated.value = null; planError.value = e instanceof Error ? e.message : String(e) }
   finally { planning.value = false }
 }
-const planCurrent = computed(() => !!generated.value && generatedKey.value === key.value)
+const plannedInput = ref<Record<string, unknown> | null>(null)
+const planCurrent = computed(() => !!generated.value && generatedKey.value === planKey.value)
 const canSubmit = computed(() => planCurrent.value && confirmed.value && !!generated.value && !generated.value.errors.length && !run.busy.value && !run.created.value)
 function submit() {
-  if (!canSubmit.value || !resp.value?.plan_input || !generated.value) return
-  void run.start('deployment.create', createParams(resp.value.plan_input, generated.value.plan_hash))
+  if (!canSubmit.value || !plannedInput.value || !generated.value) return
+  void run.start('deployment.create', createParams(plannedInput.value, generated.value.plan_hash))
 }
 </script>
 
@@ -116,6 +121,14 @@ function submit() {
               <Field label="Customer domain" :error="err('domain')" hint="Used for service addresses and DNS records." v-slot="{ id, invalid, describedBy }"><input :id="id" v-model.trim="m.domain" type="text" placeholder="your-company.tld" autocomplete="off" :aria-invalid="invalid" :aria-describedby="describedBy" /></Field>
             </div>
           </div>
+          <details class="wz-card" data-testid="dw-addresses">
+            <summary><h2 style="display:inline">Service addresses</h2> <span class="muted small">optional: the defaults work for most</span></summary>
+            <p class="muted small">Each service gets its own name under the domain. Type a word to rename it (for example <code>files</code>) or a full name on another domain.</p>
+            <div class="wz-grid">
+              <Field v-for="h in HOST_FIELDS" :key="h.id" :label="h.label" optional :error="err('host_' + h.id)" :hint="hostPreview(m, h.id)" v-slot="{ id, invalid, describedBy }">
+                <input :id="id" v-model.trim="m.hosts[h.id]" type="text" :placeholder="h.id" autocomplete="off" :aria-invalid="invalid" :aria-describedby="describedBy" /></Field>
+            </div>
+          </details>
         </div>
 
         <!-- 2 workload -->
@@ -125,6 +138,11 @@ function submit() {
             <div class="wz-grid">
               <Field :label="m.type === 'msp' ? 'Users per customer' : 'Total users'" :error="err('users')" v-slot="{ id, invalid }"><input :id="id" v-model.number="m.users" type="number" min="1" :aria-invalid="invalid" /></Field>
               <Field v-if="m.type === 'msp'" label="Customers" :error="err('tenants')" hint="Each customer is kept separate." v-slot="{ id, invalid }"><input :id="id" v-model.number="m.tenants" type="number" min="1" max="50" :aria-invalid="invalid" /></Field>
+              <template v-if="m.type === 'msp'">
+                <Field v-for="i in Math.min(Math.max(m.tenants || 0, 0), 50)" :key="'td' + i" :label="`Customer ${i} domain`" optional :error="err('tenant_' + (i - 1))"
+                       :hint="`Empty = ${tenantId(i - 1)}.${m.domain || 'your-company.tld'}`" v-slot="{ id, invalid }">
+                  <input :id="id" v-model.trim="m.tenantDomains[i - 1]" type="text" placeholder="customer.tld" autocomplete="off" :aria-invalid="invalid" /></Field>
+              </template>
               <Field label="Active at the same time" optional :error="err('concurrentUsers')" :hint="`Empty = ${m.concurrentPct}% of users.`" v-slot="{ id, invalid }"><input :id="id" v-model="m.concurrentUsers" type="number" min="0" :placeholder="String(Math.round(m.users * m.concurrentPct / 100))" :aria-invalid="invalid" /></Field>
               <Field label="Mailbox size per user (GB)" :error="err('mailboxGb')" v-slot="{ id, invalid }"><input :id="id" v-model.number="m.mailboxGb" type="number" min="0" step="0.5" :aria-invalid="invalid" /></Field>
               <Field label="File storage per user (GB)" :error="err('fileGb')" v-slot="{ id, invalid }"><input :id="id" v-model.number="m.fileGb" type="number" min="0" step="0.5" :aria-invalid="invalid" /></Field>

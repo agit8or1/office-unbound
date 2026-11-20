@@ -46,7 +46,7 @@ def codes(items):
 def test_real_catalog_loads_and_is_complete():
     c = load_catalog()
     assert set(c.profiles) == {"lab", "small", "medium", "large", "ha", "msp-multi", "dedicated", "custom"}
-    assert set(c.components) == {"identity", "groupware", "files", "office", "edge", "monitoring-agent", "chat", "meetings", "telephony"}
+    assert set(c.components) == {"identity", "groupware", "files", "office", "edge", "monitoring-agent", "chat", "meetings", "telephony", "portal"}
     assert re.fullmatch(r"[0-9a-f]{64}", c.digest)
     for comp in c.components.values():  # every formula cites its evidence
         for f in (comp.resources.cores, comp.resources.memory_mb, comp.resources.disk_gb, *(v.size_gb for v in comp.volumes)):
@@ -133,12 +133,12 @@ def test_plan_contents_small_profile():
     names = [v["name"] for v in p["vms"]]
     assert names == ["acme-prod-files", "acme-prod-groupware", "acme-prod-id"]
     idv = next(v for v in p["vms"] if v["logical"] == "id")
-    assert set(idv["components"]) == {"identity", "edge", "monitoring-agent"}
+    assert set(idv["components"]) == {"identity", "edge", "portal", "monitoring-agent"}   # the portal runs alongside identity
     assert idv["os_image"]["id"] == "ubuntu-24.04" and idv["nics"] == [{"bridge": "vmbr0", "vlan": None}]
     assert {"ou-managed", "ou-deployment-prod"} <= set(idv["tags"])
     assert all(d["storage"] for v in p["vms"] for d in v["disks"])
     # sizing = overhead + components (formula at 40 users): identity mem 2048+80, edge 512+10, agent 64, overhead 512
-    assert idv["memory_mb"] == 512 + 2048 + 80 + 512 + 10 + 64
+    assert idv["memory_mb"] == 512 + 2048 + 80 + 512 + 10 + 64 + 128 + 4   # ... + portal (128 + 0.1/user)
     cons = p["consumption"]
     assert cons["vms"] == 3 and cons["cores"] == sum(v["cores"] for v in p["vms"]) and cons["disk_gb"] == sum(d["size_gb"] for v in p["vms"] for d in v["disks"])
     assert {c["name"] for c in p["containers"]} >= {"acme-prod-files-opencloud", "acme-prod-files-collabora"}

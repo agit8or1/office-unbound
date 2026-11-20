@@ -55,7 +55,7 @@ class UnitSecret(_M):
 
 class OciUnit(_M):
     """How the container unit is configured on the node: the closed `podman.deploy_unit` shape of the agent (agent/ou_agent/guestspec.py check_deploy), so
-    the plan carries exactly what the unit needs and nothing the agent would refuse. `{domain}` in an env value is replaced by the customer's domain.
+    the plan carries exactly what the unit needs and nothing the agent would refuse. `{domain}` in an env value is replaced by the customer's (tenant) domain, `{host:<label>}` by that catalog host's full name (name settings).
     Values here are configuration, never secrets (secrets are named podman secrets)."""
     type: Literal["container", "container-hostnet"] = "container"
     env: dict[Annotated[str, Field(pattern=r"^[A-Z][A-Z0-9_]{0,63}$")], Annotated[str, Field(pattern=r"^[A-Za-z0-9_./:@,+={}-]{0,256}$")]] = {}
@@ -274,6 +274,7 @@ class Component(_M):
     title: str = Field(max_length=100)
     description: str = Field(max_length=500)
     placement: Literal["normal", "every_vm"] = "normal"
+    alongside: str | None = Field(default=None, pattern=NAME, description="placed automatically on every VM that runs this component (e.g. the portal with identity)")
     artifacts: list[Artifact] = Field(min_length=1)
     resources: Resources
     volumes: list[Volume] = []

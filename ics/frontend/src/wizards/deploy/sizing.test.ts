@@ -223,3 +223,27 @@ describe('resize plan', () => {
     expect(calls).toEqual(['POST /api/v1/deployments/acme-prod/resize-plan {"window":"24h"}'])
   })
 })
+
+describe('service addresses and customer domains (name settings)', () => {
+  it('sends nothing when every default is kept, so existing plans keep their input', async () => {
+    const { newModel, nameSettings, withNames } = await import('./sizing')
+    const m = newModel(); m.domain = 'acme.tld'
+    expect(nameSettings(m)).toBeUndefined()
+    expect(withNames({ domain: 'acme.tld' }, m)).toEqual({ domain: 'acme.tld' })
+  })
+  it('carries renamed services and per-customer domains into the plan input', async () => {
+    const { newModel, withNames } = await import('./sizing')
+    const m = newModel(); m.type = 'msp'; m.domain = 'msp.tld'; m.tenants = 2
+    m.hosts.cloud = 'Files'; m.hosts.mail = 'mx.customer.com'; m.tenantDomains = ['customer-a.com', '']
+    expect(withNames({ domain: 'msp.tld' }, m).names).toEqual({ hosts: { cloud: 'files', mail: 'mx.customer.com' }, tenants: { t01: { domain: 'customer-a.com' } } })
+  })
+  it('refuses invalid or duplicate addresses with a plain message', async () => {
+    const { newModel, validateType, validateWorkload } = await import('./sizing')
+    const m = newModel(); m.type = 'production'; m.customerId = 'acme'; m.name = 'prod'; m.domain = 'acme.tld'
+    m.hosts.cloud = 'bad name'; m.hosts.office = 'portal'
+    const e = validateType(m)
+    expect(e.host_cloud).toMatch(/single word/); expect(e.host_office).toMatch(/Same address as User portal/)
+    const t = newModel(); t.type = 'msp'; t.domain = 'msp.tld'; t.tenants = 2; t.tenantDomains = ['a.tld', 'a.tld']
+    expect(validateWorkload(t).tenant_1).toMatch(/own domain/)
+  })
+})

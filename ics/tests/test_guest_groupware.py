@@ -21,6 +21,7 @@ from ics.deploy import configure  # noqa: E402
 from ics.guest import cloudinit as ci  # noqa: E402
 
 PW = "Abcdefghijklmnop_qrstuv-0123456789"
+KEY = configure._rsa_key()
 PW2 = "ZyxwvutsrqponmlkjI-0987654321_abc"
 OK = {"domain": "e2e.example", "hostname": "mail.e2e.example", "tls_name": "deployment", "db_password": PW, "ldap_host": "ldap.e2e.example",
       "bind_password": PW2, "group": "mail-users", "mailboxes": ["ou-admin@e2e.example"]}
@@ -36,7 +37,9 @@ def test_a_valid_request_passes_unchanged():
     {"mailboxes": ["x)(mail=*@e2e.example"]},                  # LDAP filter injection
     {"mailboxes": ["ou-admin@e2e.example", "ou-admin@e2e.example"]},
     {"mailboxes": [f"u{i}@e2e.example" for i in range(c.MAX_MAILBOXES + 1)]},
-    {"hostname": "mail.evil.example"},                         # a host name outside the domain
+    {"hostname": "mail..example"},                             # not a host name (any valid name is allowed: name settings, e.g. mail.customer.com)
+    {"sso": {"auth_url": "http://auth.e2e.example/", "realm": "ou", "client_id": "ou-webmail", "client_secret": PW,
+             "redirect_url": "https://mail.e2e.example/web", "bearer_pubkey": "x"}},   # SSO over plain HTTP / no key
     {"ldap_host": "ldap.evil.example"},                        # the directory of another deployment
     {"db_password": "short"},
     {"db_password": PW + "'"},
@@ -98,18 +101,22 @@ class _Agent:
 def test_groupware_runbooks_carry_the_deployment_values(monkeypatch):
     secrets = {}
     monkeypatch.setattr(configure, "secret", lambda rt, dep, name, make=None: secrets.setdefault(name, f"{name}-" + "x" * 20))
-    monkeypatch.setattr(configure, "_tls", lambda ctx, vm, domain, names: {"runbook": "cfg.tls", "params": {"names": names.get(vm)}})
+    monkeypatch.setattr(configure, "_tls", lambda ctx, vm, *a: {"runbook": "cfg.tls", "params": {"names": configure.names_by_vm(ctx.plan).get(vm)}})
+    monkeypatch.setattr(configure, "realm_key", lambda rt, dep, t=None: KEY)
     ctx = type("Ctx", (), {"deployment_id": "d1", "rt": None, "slug": "e2e", "plan": _plan(), "env": type("E", (), {"agent": _Agent()})()})()
     rb = configure.groupware_runbooks(ctx, "gw")
     assert [r["runbook"] for r in rb] == ["cfg.hosts", "cfg.firewall", "cfg.tls", "cfg.gromox"]
     g = rb[-1]["params"]
     assert c.check_gromox(g, {"enabled": True}) == g                    # what the ICS sends is what the agent accepts
+    assert g["sso"]["client_id"] == "ou-webmail" and g["sso"]["redirect_url"] == "https://mail.e2e.example/web"
+    assert g["sso"]["auth_url"] == "https://auth.e2e.example/" and g["sso"]["bearer_pubkey"] == configure.realm_public_key(KEY)
+    assert g["sso"]["client_secret"] == secrets["webmail-client-secret"]
     assert g["hostname"] == "mail.e2e.example" and g["ldap_host"] == "ldap.e2e.example" and g["mailboxes"] == ["ou-admin@e2e.example"]
     assert g["bind_password"] == secrets["ldap-bind-password"] and g["db_password"] == secrets["gw-db-password"]
     assert rb[2]["params"]["names"] == ["autodiscover.e2e.example", "mail.e2e.example"]
     assert configure.BUILDERS["groupware"] is configure.groupware_runbooks and "groupware" in configure.CONFIGURED
     red = json.dumps(configure.redact("cfg.gromox", g))
-    assert secrets["ldap-bind-password"] not in red and secrets["gw-db-password"] not in red
+    assert secrets["ldap-bind-password"] not in red and secrets["gw-db-password"] not in red and secrets["webmail-client-secret"] not in red
 
 
 def test_cfg_gromox_is_enabled_only_where_the_groupware_may_be_installed():
