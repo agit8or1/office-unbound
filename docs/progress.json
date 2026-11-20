@@ -1138,6 +1138,15 @@
             "docs/roadmap/post-core-expansion.md"
           ],
           "note": "Planned future capability, not available. Planning only (owner, 2026-11-16)."
+        },
+        {
+          "id": "P10.11",
+          "title": "Network deployment modes: single public IP (default) / multiple public IPs / private-internal only, hybrid shared-dedicated IP allocation, IP address management, shared mail ingress + separate egress, gateway HA, network-mode migration, MSP IP billing hooks (ADR-0019, phases F1-F7)",
+          "status": "deferred",
+          "evidence": [
+            "docs/adr/0019-network-deployment-modes.md"
+          ],
+          "note": "Planned future capability, not available, not authorized for development (owner, 2026-11-20: documentation only). Already implemented and unaffected: single-IP routing by name, gateway certificates, Network & domains checks, management access (see ADR-0019 'What exists today')."
         }
       ]
     }
