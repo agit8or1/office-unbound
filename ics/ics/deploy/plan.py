@@ -13,7 +13,7 @@ import hashlib
 import json
 import re
 from dataclasses import dataclass, field
-from typing import Any
+from typing import Any, Literal
 
 from pydantic import BaseModel, ConfigDict, Field, field_validator
 
@@ -107,6 +107,8 @@ class PlanInput(_M):
     backup_retention_days: int | None = Field(default=None, ge=1, le=3650)
     sizing: SizingSpec | None = Field(default=None, description="sizing-engine parameters (POST /deployments/size output); None = legacy profile formulas")
     names: NameSettings | None = Field(default=None, description="host names and tenant domains; None = catalog defaults under `domain`")
+    vm_names: Literal["role", "legacy"] | None = Field(default=None, description="VM naming: 'role' = <deployment>[-<tenant>]-<role> (gateway, "
+                                                       "mail, files, ...); unset/'legacy' = <customer>-<deployment>-<layout> (deployments made before 0.7.2)")
 
 
 def input_dump(inp: "PlanInput") -> dict:
@@ -116,6 +118,8 @@ def input_dump(inp: "PlanInput") -> dict:
         d.pop("sizing", None)
     if d.get("names") is None:
         d.pop("names", None)
+    if d.get("vm_names") is None:
+        d.pop("vm_names", None)
     return d
 
 
@@ -220,6 +224,24 @@ def _port_open(cname: str, p, inp: "PlanInput") -> bool:
     return p.default_enabled or f"{cname}:{p.name}" in inp.enabled_ports
 
 
+ROLES = (("edge", "gateway"), ("groupware", "mail"), ("files", "files"), ("identity", "identity"), ("meetings", "meet"), ("chat", "chat"),
+         ("telephony", "phone"))
+SERVICE_WORDS = {"identity": "sign-in and directory", "edge": "web entry (gateway)", "portal": "user portal", "files": "files", "office": "documents",
+                 "groupware": "mail, calendar, contacts", "meetings": "video meetings", "chat": "chat", "telephony": "telephony"}
+
+
+def vm_role(components: list[str]) -> str | None:
+    """The one-word purpose of a VM from its components (the first match wins: a gateway that also runs identity is 'gateway')."""
+    return next((role for comp, role in ROLES if comp in components), None)
+
+
+def vm_description(slug: str, components: list[str], tenant: str | None = None) -> str:
+    """Proxmox notes of a VM: what it is and what it runs, in plain words."""
+    words = [SERVICE_WORDS[c] for c in components if c in SERVICE_WORDS]
+    who = f"{slug} (customer {tenant})" if tenant else slug
+    return f"Office Unbound · {who} · {vm_role(components) or 'service'} VM: " + ", ".join(words)
+
+
 def _expand(inp: PlanInput, prof: Profile, cat: Catalog, errors: list[dict]) -> tuple[list[_Vm], set[str]]:
     layout = _layout(inp, prof, errors)
     enabled_opt = {o for o in prof.optional_components if inp.optional.get(o, o in prof.default_optional)}
@@ -227,8 +249,10 @@ def _expand(inp: PlanInput, prof: Profile, cat: Catalog, errors: list[dict]) -> 
         if o not in prof.optional_components:
             errors.append(_err("unknown_optional", f"{o!r} is not an optional component of profile {prof.name!r}"))
     disabled = set(prof.optional_components) - enabled_opt
-    base = f"{inp.customer_id}-{inp.deployment_id}"
+    role_names = inp.vm_names == "role"
+    base = inp.deployment_id if role_names else f"{inp.customer_id}-{inp.deployment_id}"
     vms: list[_Vm] = []
+    used: set[str] = set()
     tenants = _tenant_ids(inp, prof)
     for lay in layout:
         comps = [c for c in lay.components if c not in disabled]
@@ -246,7 +270,13 @@ def _expand(inp: PlanInput, prof: Profile, cat: Catalog, errors: list[dict]) -> 
         for t in (tenants if lay.per_tenant else [None]):
             users = inp.users * (len(tenants) if (tenancy_of(inp, prof) == "multi" and t is None) else 1)
             for r in range(1, lay.replicas + 1):
-                name = "-".join(p for p in (base, t, lay.name, f"r{r}" if lay.replicas > 1 else None) if p)
+                label = lay.name
+                if role_names:   # what the VM is for, readable in Proxmox (owner 2026-11-20: "name the vm's something clear")
+                    label = vm_role(comps) or lay.name
+                    if "-".join(p for p in (base, t, label) if p) in used and r == 1:
+                        label = f"{label}-{lay.name}"
+                name = "-".join(p for p in (base, t, label, f"r{r}" if lay.replicas > 1 else None) if p)
+                used.add("-".join(p for p in (base, t, label) if p))
                 if len(name) > 63:
                     errors.append(_err("name_too_long", f"VM name {name!r} exceeds 63 characters; shorten customer/deployment ids"))
                 vms.append(_Vm(name, lay.name, t, r, "-".join(p for p in (base, t, lay.name) if p), sorted(comps, key=comps.index),

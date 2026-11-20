@@ -52,8 +52,13 @@ def _put_state(db, st: dict) -> None:
 
 
 def web_names(plan: dict, tenant: str | None = None) -> list[str]:
-    """The names the gateway serves for a scope (portal, sign-in, files, documents): exactly what the certificate must cover."""
-    return sorted(configure.fq(plan, tenant, label) for label, (comp, _) in configure.LOCAL_PORT.items() if configure.vm_of(plan, comp, tenant))
+    """The names the gateway serves for a scope (portal, sign-in, files, documents, and mail/autodiscover when the groupware has its own VM):
+    exactly what the certificate must cover."""
+    edge = configure.vm_of(plan, "edge", tenant) or configure.vm_of(plan, "edge", None)
+    names = {configure.fq(plan, tenant, label) for label, (comp, _) in configure.LOCAL_PORT.items() if configure.vm_of(plan, comp, tenant)}
+    names |= {configure.fq(plan, tenant, label) for label, comp in configure.EDGE_HTTPS.items()
+              if configure.vm_of(plan, comp, tenant) and configure.vm_of(plan, comp, tenant) != edge}
+    return sorted(names)
 
 
 def _edge(plan: dict) -> str:
@@ -115,7 +120,33 @@ def exec_issue(rt, db, m: CertIssue, plan_row, known) -> dict:
             if rb["runbook"] in ("cfg.nginx_site", "cfg.nginx_default"):
                 _run(rt, node, rb["runbook"], rb["params"])
                 switched.append(rb["params"].get("name", rb["runbook"]))
+        converted = convert_checks(db, d, names)
+    else:
+        converted = []
     audit.append(db, "gateway.certificate_issued", actor_name="worker", resource="deployment", resource_id=str(d.id),
-                 details={"deployment": d.slug, "directory": m.directory, "names": names, "sites_switched": switched,
+                 details={"deployment": d.slug, "directory": m.directory, "names": names, "sites_switched": switched, "checks_converted": converted,
                           "certificate": res.get("certificate", "")[:300], "plan_id": str(plan_row.id), "seconds": int(time.monotonic() - t0)})
-    return {"deployment": d.slug, "directory": m.directory, "names": names, "certificate": res.get("certificate"), "sites_switched": switched}
+    return {"deployment": d.slug, "directory": m.directory, "names": names, "certificate": res.get("certificate"), "sites_switched": switched,
+            "checks_converted": converted}
+
+
+LE_ROOTS = ("/etc/ssl/certs/ISRG_Root_X1.pem", "/etc/ssl/certs/ISRG_Root_X2.pem")
+
+
+def convert_checks(db, d, names: list[str], roots: tuple[str, ...] = LE_ROOTS) -> list[str]:
+    """The gateway's TLS checks run on the gateway VM and trust ONLY the deployment CA (agent guest.probe, by design). Once a name serves the
+    public certificate they would fail forever (2026-11-20: edge-tls critical right after the switch). Convert them in place into the ICS's own
+    TLS check of the public name, pinned to Let's Encrypt's roots, which also warns before expiry (21 days) and goes critical at 7: same check
+    id, so an open incident recovers on its own."""
+    from . import checks as checkmod
+    pem = "".join(open(r).read() for r in roots)
+    out = []
+    for c in db.execute(text("SELECT id, name, config FROM checks WHERE deployment_id = :d AND kind = 'agent_probe'"), {"d": str(d.id)}).all():
+        pr = (c.config or {}).get("probe") or {}
+        if pr.get("kind") != "tls" or pr.get("server_name") not in names or int(pr.get("port") or 0) != 443:
+            continue
+        cfg = checkmod.validate_config("tcp_tls", {"host": pr["server_name"], "port": 443, "ca_pem": pem})
+        db.execute(text("UPDATE checks SET kind = 'tcp_tls', config = CAST(:c AS jsonb), enabled = true, next_run_at = now() WHERE id = :i"),
+                   {"c": json.dumps(cfg), "i": str(c.id)})
+        out.append(c.name)
+    return out

@@ -277,7 +277,7 @@ def h_provider_task(ctx: StepCtx) -> dict:
                             cloudinit_storage=p["disks"][0]["storage"] if ci else None,
                             ciuser=bc.get("ciuser"), sshkeys=tuple(bc.get("sshkeys", ())), smbios_serial=bc.get("smbios_serial"), smbios_sku=bc.get("smbios_sku"), smbios_family=bc.get("smbios_family"),
                             ipconfigs=_ipconfigs(p, bool(bc)), nameserver=_nameserver(ctx), ciupgrade=False if bc else None,
-                            description=f"Office Unbound deployment {ctx.slug}: {ci.get('hostname', vm)}" if ci else None)
+                            description=_vm_notes(ctx, vm) if ci else None)
         done = _poll(ctx, prov.configure_vm(ref, spec), f"configure {vm}")
         leaked = False
         if spec.smbios_serial or spec.sshkeys:
@@ -364,6 +364,18 @@ def _node_for(ctx: StepCtx, vm: str) -> str:
     return r["node_id"]
 
 
+def _vm_notes(ctx, vm: str) -> str:
+    from .plan import vm_description
+    v = next((x for x in ctx.plan.get("vms", []) if x["name"] == vm), {})
+    return vm_description(ctx.slug, [c for c in v.get("components", []) if c != "monitoring-agent"], v.get("tenant"))
+
+
+def template_base(name: str) -> str:
+    """Templates are named <base>-v<N> since 0.7.2 (version visible in Proxmox); the catalog names the base."""
+    import re
+    return re.sub(r"-v\d+$", "", name or "")
+
+
 def pick_template(templates: list[dict], name: str) -> dict | None:
     """Several templates may carry the catalog name after a newer golden image was imported (image.import never deletes the previous one): take
     the Office Unbound image (tag ou-image) with the newest release tag (ou-rel-<os>-<YYYYMMDD>), then the highest signed manifest version
@@ -374,7 +386,7 @@ def pick_template(templates: list[dict], name: str) -> dict | None:
         rel = max((x.rsplit("-", 1)[-1] for x in tags if x.startswith("ou-rel-")), default="")
         ver = max((int(x[7:]) for x in tags if x.startswith("ou-ver-") and x[7:].isdigit()), default=0)
         return ("ou-image" in tags, rel, ver, int(t.get("vmid") or 0))
-    cands = [t for t in templates if t.get("name") == name]
+    cands = [t for t in templates if template_base(t.get("name") or "") == template_base(name)]
     return max(cands, key=key) if cands else None
 
 

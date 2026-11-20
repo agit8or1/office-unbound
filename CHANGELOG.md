@@ -10,6 +10,12 @@ isolated lab; nothing is production supported ([ROADMAP.md](ROADMAP.md)).
 
 ## [Unreleased]
 
+## [0.7.2] - 2026-11-20
+
+- **Fix: webmail (`mail.<domain>`) showed a certificate error.** The groupware runs on its own VM with the deployment's own certificate. The gateway now serves `mail.` and `autodiscover.` too, with its certificate (the public one once issued, which now covers these two names as well), and proxies webmail, ActiveSync, EWS, MAPI, DAV and Autodiscover to the mail VM over HTTPS verified against the deployment CA. IMAP and SMTP are unchanged (direct to the mail VM; needed for external mail later). The temporary host bridge used on 2026-11-20 is removed with this release.
+- **Fix: issuing public certificates turned the gateway's health check critical** ("TLS certificate not valid ... unable to get local issuer certificate"). That check runs on the gateway VM and trusts only the deployment CA, by design. Issuing public certificates now converts it in place into the ICS's own TLS check of the public name, pinned to Let's Encrypt's two root certificates. The check id stays the same, so an open incident recovers by itself. It also warns 21 days before expiry and goes critical at 7, which monitors the automatic renewal.
+- **New: clear names for VMs and templates** (owner: "name the vm's something clear"). New deployments name VMs by what they do: `<deployment>-gateway` (sign-in, portal, web entry), `-mail`, `-files`, `-identity`, `-meet`, `-chat`, `-phone`, with the customer for MSP tenants (`<deployment>-t01-mail`). Each VM's Proxmox notes say what it runs ("Office Unbound · ou-test3 · gateway VM: sign-in and directory, web entry (gateway), user portal"). Deployments made before keep their names (a rename would look like a replacement); the plan field `vm_names: "role"` selects the new scheme and the deploy wizard always sets it. Imported golden images are named with their signed version (`ou-tpl-ubuntu-2404-v10`); deployments still find them by the catalog name.
+
 ## [0.7.1] - 2026-11-20
 
 - **Security: dnspython 2.7.0 -> 2.9.2** (two high-severity advisories: excessive CPU and memory use when parsing crafted DNS messages; Dependabot alerts 4 and 5). It is used only for the read-only DNS checks in Settings → Network & domains, against public resolvers. 2.7.0 should not have been chosen when it was added in 0.6.1: the fixed release already existed.
@@ -324,6 +330,7 @@ editing, chat/meetings, telephony prototype, migration tooling and package pipel
 - `SECURITY.md` (private reporting) and `CONTRIBUTING.md` (DCO sign-off) added; AGPL-3.0 license. [SECURITY](SECURITY.md)
 
 [Unreleased]: https://github.com/agit8or1/office-unbound/compare/v0.4.7...HEAD
+[0.7.2]: https://github.com/agit8or1/office-unbound/compare/v0.7.1...v0.7.2
 [0.7.1]: https://github.com/agit8or1/office-unbound/compare/v0.7.0...v0.7.1
 [0.7.0]: https://github.com/agit8or1/office-unbound/compare/v0.6.2...v0.7.0
 [0.6.2]: https://github.com/agit8or1/office-unbound/compare/v0.6.1...v0.6.2

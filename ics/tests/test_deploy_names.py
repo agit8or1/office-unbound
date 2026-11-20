@@ -207,3 +207,21 @@ def test_tenant_secret_names_fit_the_database(rt):
     a = configure.secret(rt, did, configure.sname("t01", "admin-password"))
     b = configure.secret(rt, did, configure.sname("t02", "admin-password"))
     assert a != b and configure.secret(rt, did, configure.sname("t01", "admin-password")) == a
+
+
+def test_role_names_say_what_each_vm_is_and_legacy_deployments_keep_theirs():
+    """Owner 2026-11-20: "name the vm's something clear ... same with templates"."""
+    from ics.deploy.executor import pick_template, template_base
+    from ics.deploy.plan import vm_description
+    legacy = _ok(generate_plan(inp(), cap(), pinned()))
+    assert sorted(v["name"] for v in legacy["vms"]) == ["acme-prod-files", "acme-prod-groupware", "acme-prod-id"]   # unchanged without the field
+    new = _ok(generate_plan(inp(vm_names="role"), cap(), pinned()))
+    assert sorted(v["name"] for v in new["vms"]) == ["prod-files", "prod-gateway", "prod-mail"]
+    gw = next(v for v in new["vms"] if v["name"] == "prod-gateway")
+    assert vm_description("prod", gw["components"]) .startswith("Office Unbound · prod · gateway VM: sign-in and directory, web entry (gateway), user portal")
+    multi = _ok(generate_plan(inp(profile="msp-multi", tenants=2, users=20, vm_names="role"), cap(nodes=3, cores=128, mem=1_000_000, sto=20000), pinned()))
+    names = sorted(v["name"] for v in multi["vms"])
+    assert "prod-t01-mail" in names and "prod-t02-identity" in names and len(set(names)) == len(names)
+    tpls = [{"name": "ou-tpl-ubuntu-2404", "vmid": 148, "tags": ["ou-image", "ou-rel-ubuntu-2404-20261119", "ou-ver-8"]},
+            {"name": "ou-tpl-ubuntu-2404-v10", "vmid": 147, "tags": ["ou-image", "ou-rel-ubuntu-2404-20261120", "ou-ver-10"]}]
+    assert template_base("ou-tpl-ubuntu-2404-v10") == "ou-tpl-ubuntu-2404" and pick_template(tpls, "ou-tpl-ubuntu-2404")["vmid"] == 147

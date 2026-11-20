@@ -92,7 +92,8 @@ export function nameSettings(m: WizardModel): Raw | undefined {
 /** The plan input the reviewed size response produced, with the address settings. */
 export function withNames(planInput: Raw, m: WizardModel): Raw {
   const n = nameSettings(m)
-  return n ? { ...planInput, names: n } : planInput
+  // new deployments name their VMs by role (<deployment>-gateway, -mail, -files ...): readable in Proxmox
+  return { ...planInput, ...(n ? { names: n } : {}), vm_names: 'role' }
 }
 /** Full name of a service address as it will be used (for hints in the form). */
 export function hostPreview(m: WizardModel, id: string): string {

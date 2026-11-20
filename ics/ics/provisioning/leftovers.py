@@ -56,7 +56,8 @@ def _recorded_vmids(db: Session, endpoint_id: str) -> set[int]:
 
 
 def _vm_name_of(slug: str, name: str) -> bool:
-    return re.fullmatch(r"c-[0-9a-z]+-" + re.escape(slug) + r"-[a-z0-9-]+", name or "") is not None
+    # legacy <customer>-<deployment>-<layout> and, since 0.7.2, <deployment>-<role>
+    return re.fullmatch(r"(c-[0-9a-z]+-)?" + re.escape(slug) + r"-[a-z0-9-]+", name or "") is not None
 
 
 def leftover_reason(g: dict, is_template: bool, templates: list[dict], deployments: dict[str, str], recorded: set[int]) -> str:

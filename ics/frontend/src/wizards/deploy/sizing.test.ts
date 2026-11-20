@@ -229,7 +229,7 @@ describe('service addresses and customer domains (name settings)', () => {
     const { newModel, nameSettings, withNames } = await import('./sizing')
     const m = newModel(); m.domain = 'acme.tld'
     expect(nameSettings(m)).toBeUndefined()
-    expect(withNames({ domain: 'acme.tld' }, m)).toEqual({ domain: 'acme.tld' })
+    expect(withNames({ domain: 'acme.tld' }, m)).toEqual({ domain: 'acme.tld', vm_names: 'role' })
   })
   it('carries renamed services and per-customer domains into the plan input', async () => {
     const { newModel, withNames } = await import('./sizing')

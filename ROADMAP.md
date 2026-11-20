@@ -1,6 +1,6 @@
 # Office Unbound roadmap & progress
 
-> Generated from [`docs/progress.json`](docs/progress.json) by `scripts/render_roadmap.py` — edit the JSON, not this file. Last updated **2026-11-19** · stage: **pre-alpha (lab)** · current version: **0.7.1**.
+> Generated from [`docs/progress.json`](docs/progress.json) by `scripts/render_roadmap.py` — edit the JSON, not this file. Last updated **2026-11-19** · stage: **pre-alpha (lab)** · current version: **0.7.2**.
 
 Core platform components are integrated and tested in an isolated lab: own source build of Exchange-compatible groupware with single sign-on webmail, Keycloak SSO, file sync and browser document editing, backup/restore drills, chat and video meetings, and an infrastructure control server with monitoring, self-healing and a real Proxmox integration (VM lifecycle verified on a live cluster). Guided deployment wizards, provisioning automation and the credential vault are being integrated.
 
@@ -171,6 +171,7 @@ Core platform components are integrated and tested in an isolated lab: own sourc
 
 | Version | Date | Status | Highlights |
 |---|---|---|---|
+| [0.7.2](https://github.com/agit8or1/office-unbound/blob/main/CHANGELOG.md) | 2026-11-20 | prepared | 0.7.2: webmail and Autodiscover through the gateway with the public certificate<br>0.7.2: public certificates keep the gateway health check green and monitor expiry<br>0.7.2: VMs named by role (<deployment>-gateway/-mail/-files) with plain Proxmox notes; templates named with their version |
 | [0.7.1](https://github.com/agit8or1/office-unbound/blob/main/CHANGELOG.md) | 2026-11-20 | released | 0.7.1: Management access setting for the console's public name (Public, LAN/VPN only, Allow list), applied through a root helper that checks nginx and restores the previous rules on failure |
 | [0.7.0](https://github.com/agit8or1/office-unbound/blob/main/CHANGELOG.md) | 2026-11-20 | released | 0.7.0: public Let's Encrypt certificates issued and renewed by the gateway itself (staging test, then production), renewal independent of the ICS<br>0.7.0: set a sign-in account per deployment (8-character person passwords); agent 0.7.0-ou13, golden image v11; sign-in address lands on the portal |
 | [0.6.2](https://github.com/agit8or1/office-unbound/blob/main/CHANGELOG.md) | 2026-11-20 | released | 0.6.2: dashboard apps card: portal address, every app's live status, every service's health<br>0.6.2: single public IP on the ICS host: routing by name without decryption, console LAN-only (verified from the internet) |

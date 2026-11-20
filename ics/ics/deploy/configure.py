@@ -34,6 +34,9 @@ DOCS_UID = "10001:10001"       # the non-root user of the Office Unbound Docs im
 # the loopback port each web-facing component's service listens on (catalog ports with exposure local), by DNS host name
 LOCAL_PORT = {"auth": ("identity", 8080), "cloud": ("files", 9200), "office": ("office", 9980), "portal": ("portal", 8090)}
 PORTAL_CLIENT, WEBMAIL_CLIENT = "ou-portal", "ou-webmail"
+# web names whose service has its own TLS front on another VM (the groupware's nginx: webmail, ActiveSync, EWS, MAPI, DAV, Autodiscover): the
+# gateway serves them with ITS certificate (the public one once issued) and proxies over verified HTTPS, like any other web name
+EDGE_HTTPS = {"mail": "groupware", "autodiscover": "groupware"}
 
 
 class ConfigError(Exception):
@@ -432,6 +435,18 @@ def edge_runbooks(ctx, vm: str) -> list[dict]:
                 out.append(_site(site, host, f"https://{ip}:443", host, tls=stls, upstream_ca=sca, root_redirect=rr))
             if label == "portal":
                 portals.append(host)
+        for label, comp in EDGE_HTTPS.items():
+            svc = vm_of(plan, comp, t)
+            if svc is None or svc == vm:
+                continue   # on the gateway's own VM the groupware's nginx serves the name itself
+            host = fq(plan, t, label)
+            site = label if t is None else f"{label}-{t}"
+            stls, sca = (public["cert_name"], tn) if (public and t == t_vm and host in public.get("names", [])) else (tn, None)
+            try:
+                ip = ctx.env.agent.address(svc)
+            except Exception as e:  # noqa: BLE001
+                raise ConfigError(f"the address of {svc} is unknown (not enrolled): {e}") from None
+            out.append(_site(site, host, f"https://{ip}:443", host, tls=stls, upstream_ca=sca))
     out.append({"runbook": "cfg.nginx_default", "params": {"redirect": f"https://{portals[0]}/" if len(portals) == 1 else None, "tls_name": "deployment"}})
     return out
 

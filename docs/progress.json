@@ -5,8 +5,22 @@
   "repository": "https://github.com/agit8or1/office-unbound",
   "updated": "2026-11-19",
   "stage": "pre-alpha (lab)",
-  "current_version": "0.7.1",
+  "current_version": "0.7.2",
   "releases": [
+    {
+      "version": "0.7.2",
+      "date": "2026-11-20",
+      "status": "prepared",
+      "codename": "Granite",
+      "channel": "pre-release",
+      "highlights": [
+        "0.7.2: webmail and Autodiscover through the gateway with the public certificate",
+        "0.7.2: public certificates keep the gateway health check green and monitor expiry",
+        "0.7.2: VMs named by role (<deployment>-gateway/-mail/-files) with plain Proxmox notes; templates named with their version"
+      ],
+      "notes_url": "https://github.com/agit8or1/office-unbound/blob/main/CHANGELOG.md",
+      "changelog": "CHANGELOG.md"
+    },
     {
       "version": "0.7.1",
       "date": "2026-11-20",

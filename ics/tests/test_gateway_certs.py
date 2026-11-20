@@ -24,7 +24,8 @@ def _plan():
 
 
 def test_the_certificate_covers_exactly_the_gateways_web_names():
-    assert gateway.web_names(_plan()) == ["app.acme.example", "auth.acme.example", "cloud.acme.example", "office.acme.example"]
+    assert gateway.web_names(_plan()) == ["app.acme.example", "auth.acme.example", "autodiscover.acme.example", "cloud.acme.example",
+                                          "mail.acme.example", "office.acme.example"]
 
 
 def test_sites_switch_to_the_public_certificate_and_keep_the_internal_ca_for_hops(monkeypatch):
@@ -79,6 +80,14 @@ def test_issue_runs_on_the_gateway_records_state_and_switches_sites(rt, client, 
     assert [x[1] for x in calls] == ["cfg.acme"] and calls[0][2]["cert_name"] == "public-staging"
     with rt.session() as db:
         assert gateway.state(db) == {}                                        # a staging test switches nothing
+    with rt.session() as db:   # the gateway's TLS probe, as the deployment registered it (agent guest.probe, trusts only the deployment CA)
+        uid = db.execute(text("SELECT id FROM users WHERE username = 'boss'")).scalar()
+        did = db.execute(text("SELECT id FROM deployments WHERE slug = 'prod'")).scalar()
+        db.execute(text("INSERT INTO checks (name, kind, config, interval_seconds, state, created_by, deployment_id) VALUES ('prod-edge-tls', 'agent_probe', "
+                        "CAST(:c AS jsonb), 60, 'critical', :u, :d)"),
+                   {"c": json.dumps({"probe": {"kind": "tls", "name": "prod-edge-tls", "port": 443, "server_name": "app.acme.example"}, "node_id": "n"}),
+                    "u": uid, "d": did})
+        db.commit()
     r = adm.post("/api/v1/plans", json={"action": "gateway.certificates.issue", "params": {"deployment": "prod", "directory": "production"}}, headers=ah)
     pid = r.json()["plan_id"]
     jid = r.json().get("job_id")
@@ -95,3 +104,23 @@ def test_issue_runs_on_the_gateway_records_state_and_switches_sites(rt, client, 
     assert sites and all(s["tls_name"] == "public" and s["upstream_ca"] == "deployment" for s in sites)
     with rt.session() as db:
         assert gateway.state(db)["prod"]["names"] == gateway.web_names(p)
+        chk = db.execute(text("SELECT kind, config, enabled FROM checks WHERE name = 'prod-edge-tls'")).first()
+    assert chk.kind == "tcp_tls" and chk.config["host"] == "app.acme.example" and chk.config["port"] == 443 and chk.enabled
+    assert chk.config["ca_pem"].count("BEGIN CERTIFICATE") == 2           # pinned to the two Let's Encrypt roots
+    assert job["result"]["checks_converted"] == ["prod-edge-tls"]
+
+
+def test_webmail_and_autodiscover_go_through_the_gateway_with_its_certificate(monkeypatch):
+    """Owner 2026-11-20: "https://mail.officeunbound.com/web/ - ssl error": the groupware has its own VM and TLS front, so the gateway serves
+    mail/autodiscover with the public certificate and proxies to it over HTTPS verified against the deployment CA."""
+    p = _plan()
+    ctx, _store = _ctx(p, monkeypatch)
+    ctx.rt = object()
+    monkeypatch.setattr(gateway, "public_for", lambda rt, slug: {"cert_name": "public", "names": gateway.web_names(p)})
+    sites = {r["params"]["name"]: r["params"] for r in configure.edge_runbooks(ctx, "acme-prod-id") if r["runbook"] == "cfg.nginx_site"}
+    mail_ip = ctx.env.agent.address("acme-prod-groupware")
+    for label in ("mail", "autodiscover"):
+        x = sites[label]
+        assert x["server_names"] == [f"{label}.acme.example"] and x["upstream"] == f"https://{mail_ip}:443"
+        assert x["upstream_name"] == f"{label}.acme.example" and x["tls_name"] == "public" and x["upstream_ca"] == "deployment"
+        assert c.check_nginx_site(x, {"enabled": True})["upstream_ca"] == "deployment"

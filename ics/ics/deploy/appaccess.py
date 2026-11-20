@@ -112,7 +112,8 @@ def apps_overview(db) -> list[dict]:
     out = []
     for d in db.execute(text("SELECT * FROM deployments WHERE status NOT IN ('destroyed', 'destroying') ORDER BY slug")).all():
         plan = _applied_plan(db, d)
-        checks = db.execute(text("SELECT name, state, last_raw, last_run_at FROM checks WHERE deployment_id = :d"), {"d": str(d.id)}).all()
+        # a disabled check says nothing about the app (2026-11-20: a disabled, last-critical check showed every gateway app "Down")
+        checks = db.execute(text("SELECT name, state, last_raw, last_run_at FROM checks WHERE deployment_id = :d AND enabled"), {"d": str(d.id)}).all()
         comp_of = {c["name"]: c.get("component") for c in (plan or {}).get("checks", [])}
         by_comp: dict[str, list] = {}
         for c in checks:

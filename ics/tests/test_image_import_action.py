@@ -113,7 +113,7 @@ def test_list_releases_verifies_each_and_reports_unverifiable_ones(rt, tmp_path,
 def test_precheck_shows_the_verified_image_and_binds_scope(rt, tmp_path, floor):
     configure(rt, tmp_path)
     x = imageimport.precheck(_DB(ep_row()), rt, model())
-    assert x["image"]["sha256"] == hashlib.sha256(BLOB).hexdigest() and x["template_name"] == "ou-tpl-debian-12" and x["downgrade"] is False
+    assert x["image"]["sha256"] == hashlib.sha256(BLOB).hexdigest() and x["template_name"] == "ou-tpl-debian-12-v1" and x["downgrade"] is False
     for kw, code in [(dict(pve_node="pve9"), 422), (dict(pool="other"), 422), (dict(import_storage="nfs"), 422), (dict(bridge="vmbr9"), 422),
                      (dict(release="nope"), 404), (dict(expected_sha256="0" * 64), 409)]:
         with pytest.raises(PlanError) as e:
@@ -147,7 +147,7 @@ def test_execution_imports_the_template_and_raises_the_db_floor(rt, tmp_path, fl
     monkeypatch.setattr(pmx, "open_mutations", lambda rt_, ep, known: mutations(sim, scope=SCOPE))
     r = imageimport.exec_import(rt, _DB(ep_row()), model(), None, [])
     vm = sim.sim.vms[r["vmid"]]
-    assert vm["cfg"]["template"] == 1 and r["template"] == "ou-tpl-debian-12" and r["version"] == 2
+    assert vm["cfg"]["template"] == 1 and r["template"] == "ou-tpl-debian-12-v2" and r["version"] == 2
     assert golden.get_floor(rt, "debian-12") == golden.Floor(2, hashlib.sha256(BLOB).hexdigest(), "20261115")
 
 

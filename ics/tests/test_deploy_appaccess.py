@@ -93,12 +93,14 @@ def test_dashboard_shows_the_portal_url_and_each_apps_status_from_its_own_checks
     v = mk_user("viewer1", "viewer")
     did = _deployment(rt, "e2e-gw1")
     plan = {**PLAN, "dns": [*PLAN["dns"], PORTAL],
-            "checks": [{"name": "c-portal", "component": "portal"}, {"name": "c-kc", "component": "identity"},
+            "checks": [{"name": "c-old", "component": "edge"}, {"name": "c-portal", "component": "portal"}, {"name": "c-kc", "component": "identity"},
                        {"name": "c-oc", "component": "files"}, {"name": "c-smtp", "component": "groupware"}]}
     monkeypatch.setattr(appaccess, "_applied_plan", lambda db, d: plan)
     monkeypatch.setattr(appaccess, "_addresses", lambda db, d: ADDR)
     with rt.session() as db:
         uid = db.execute(text("SELECT id FROM users WHERE username = 'viewer1'")).scalar()
+        db.execute(text("INSERT INTO checks (name, kind, config, interval_seconds, state, created_by, deployment_id, enabled) "
+                        "VALUES ('c-old', 'http', '{}'::jsonb, 60, 'critical', :u, :d, false)"), {"u": uid, "d": did})
         for n, st in (("c-portal", "ok"), ("c-kc", "ok"), ("c-oc", "critical"), ("c-smtp", "ok")):
             db.execute(text("INSERT INTO checks (name, kind, config, interval_seconds, state, created_by, deployment_id) "
                             "VALUES (:n, 'http', '{}'::jsonb, 60, :s, :u, :d)"), {"n": n, "s": st, "u": uid, "d": did})

@@ -66,6 +66,12 @@ def default_template(os_id: str) -> str:
     return t[:57]
 
 
+def versioned_template(os_id: str, version) -> str:
+    """The template's Proxmox name: the catalog name plus the signed version (ou-tpl-ubuntu-2404-v10), so the list in Proxmox shows which
+    golden image each template is (owner 2026-11-20). Deployments match the catalog name with or without the suffix (executor.template_base)."""
+    return f"{default_template(os_id)}-v{int(version)}" if version is not None else default_template(os_id)
+
+
 def _verify(rt: Runtime, m: ImageImport):
     from .guest import golden
     rel = golden.verify_for_import(rt, release_dir(rt, m.release), allow_downgrade=m.allow_downgrade)
@@ -120,7 +126,7 @@ def precheck(db: Session, rt: Runtime, p: ImageImport) -> dict:
         raise PlanError(409, str(e)) from None
     except (golden.ReleaseError, ValueError) as e:
         raise PlanError(422, f"release verification failed: {e}") from None
-    tpl = p.template_name or default_template(rel.os)
+    tpl = p.template_name or versioned_template(rel.os, rel.version)
     fl = golden.get_floor(rt, rel.os)
     extra = {"endpoint_name": ep.name, "image": {"os": rel.os, "version": rel.version, "file": os.path.basename(rel.path), "sha256": rel.sha256,
                                                   "attestation_run_id": rel.attestation_run_id},
@@ -141,7 +147,7 @@ def exec_import(rt: Runtime, db: Session, m: ImageImport, plan, known: list[str]
     rel = _verify(rt, m)                                     # re-verified at execution: Settings trust + current DB floor + the approved sha256
     rdir = release_dir(rt, m.release)
     prov = open_mutations(rt, ep, known)
-    tpl = m.template_name or default_template(rel.os)
+    tpl = m.template_name or versioned_template(rel.os, rel.version)
     res = prov.import_image(ImageImportSpec(node=m.pve_node, import_storage=m.import_storage, target_storage=m.target_storage, file_path=rel.path,
                                             sha256=rel.sha256, name=tpl, pool=m.pool, cores=m.cores, memory_mb=m.memory_mb, bridge=m.bridge,
                                             release_dir=rdir, allow_downgrade=m.allow_downgrade))
