@@ -1,6 +1,6 @@
 # ADR-0018: One public IP: gateway, routing, certificates and DNS
 
-Status: **accepted (design)**, 2026-11-20. Owner request: "Centralized Gateway, DNS Routing & SSL Certificate Management" (single public IPv4 per
+Status: **accepted (design)**, 2026-11-20; section 11 supersedes the ACME placement of sections 2 and 5. Owner request: "Centralized Gateway, DNS Routing & SSL Certificate Management" (single public IPv4 per
 installation, automatic routing/certificates/DNS, Gateway & Certificates UI, multi-tenant isolation, 90-day hands-off renewal).
 Status words: ADR-0000. Nothing below is "working" until a results document says so with executed evidence.
 
@@ -124,3 +124,35 @@ Owner inputs needed for G3/G4 production runs: the public IPv4 (and NAT forwards
 - **Acceptance (G7)** adds the owner's list: three subdomains on one IP, valid HTTPS, renewal, two customer domains, unknown FQDN rejected, duplicate
   FQDN rejected, tenant A cannot route to tenant B, backend move updates routing, new app adds its route, removal removes only its route, failed
   change restores the previous state, traffic survives an ICS outage, external mail and non-HTTP ingress, alerts for certificate and backend failures.
+
+## 11. Gateway independence from the ICS (owner, 2026-11-20: "Gateway independence & high availability") -- supersedes parts of 2 and 5
+**Decision change:** the gateway renews its own certificates. The ICS being down for longer than the renewal margin must not expire anything, so
+waiting for the ICS (section 5) is not enough.
+- **Split of ACME duties.** HTTP-01 issuance and renewal run **on the gateway** (certbot from Ubuntu, Apache-2.0, `certonly --webroot`, own ACME
+  account, keys generated on the gateway and never leaving it except as an encrypted backup to the ICS) for exactly the names in the signed
+  configuration the ICS approved; the gateway cannot add a name. DNS-01 (wildcards, names without public HTTP) stays **in the ICS**: a DNS
+  provider token can re-point the whole zone and is never placed on the internet-facing host. A DNS-01 certificate is pushed to the gateway
+  with 30 days of margin, so ICS outages shorter than that are covered; longer ones raise an alert on the gateway's local status page.
+- **Last known good, locally.** Gateway configuration is a **revision bundle** (routes, tenant/domain map, allowed backends, certificate
+  references) applied by one agent runbook (`cfg.gateway_apply`): validate the whole bundle (`nginx -t` on a staging tree), keep the previous
+  revision, switch atomically (symlink swap), graceful reload, local probe of every route, then commit; any failure restores the previous
+  revision. A transaction interrupted by a lost management connection is finished or reverted from the local journal at the next agent start.
+  The gateway never deletes routes or certificates because the ICS is unreachable; nginx has no runtime dependency on the ICS.
+- **Revisions and drift.** The gateway reports its active revision and certificate state with every agent health report. The ICS compares with its
+  desired revision: a newer valid gateway state (e.g. a renewed certificate) is adopted, never overwritten by an older ICS copy; a real difference
+  becomes a drift finding with an approval-gated reconciliation plan (`gateway.reconcile`), like VM drift today.
+- **Events during outages.** The agent keeps a bounded, deduplicated local event journal (renewals, reloads, probe failures) and the ICS collects it on
+  reconnect. An unreachable ICS is a management-connectivity warning on the gateway and in the ICS, never an "applications offline" state; ICS-side
+  alerts distinguish gateway failure, backend failure and management-channel loss.
+- **Concurrency.** One gateway transaction at a time (agent-side lock + ICS job serialisation per gateway).
+- **Not HA.** ICS independence is not gateway redundancy: one gateway VM and one public IP remain a single point of failure (UI and docs say so).
+  The bundle format and gateway-held state are designed so a standby gateway can be added later (config + encrypted key sync, VRRP) without a rewrite.
+- **Settings -> Network & Domains -> Gateway** (G6) shows: gateway host/management IP, public IP, running state, ICS connection, active revision, last
+  sync, routes, domains, certificates and renewal state, backend health summary, last configuration backup; actions: validate, test public
+  connectivity, synchronise (= reconcile plan), check certificates, staging renewal test, routing table, logs, redacted report, restore an approved
+  revision. No private key or credential is ever returned.
+- **Acceptance (G7)** adds: ICS service stop, ICS reboot, management channel cut, gateway restart (routes and certificates recovered), invalid
+  configuration rejected, failed update rolled back, unknown domains rejected, renewal while the ICS is down, reconciliation after reconnect,
+  tenant isolation through the gateway, customer traffic with the ICS database unavailable.
+
+Delivery order stays G1-G7; G2 now builds the gateway-side renewal (certbot, revision bundle) first and the ICS-side DNS-01 second.
