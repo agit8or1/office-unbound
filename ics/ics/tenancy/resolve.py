@@ -111,6 +111,7 @@ REFS: dict[str, list[tuple[str, str]]] = {
 
 # actions without a customer: MSP-wide administration. Scoped operators are refused for these (create_plan: cust is None -> 404).
 MSP_GLOBAL: dict[str, str] = {
+    "settings.network.update": "the installation's public address (Settings -> Network & domains): MSP-wide infrastructure, admin_only",
     "customer.create": "creates a customer: the MSP's own administration",
     "customer.update": "edits a customer record: MSP administration (admin_only)",
     "msp.client.create": "MSP API client administration: which customers a key may reach is decided here (admin_only, high risk)",

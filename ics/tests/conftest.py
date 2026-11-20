@@ -73,7 +73,7 @@ def rt(base_settings, owner_engine):
         c.execute(text("TRUNCATE users, sessions, login_attempts, rate_limits, audit_events, endpoints, plans, jobs, "
                        "worker_heartbeat, inventory_snapshots, plan_approvals, nodes, agent_requests, checks, check_results, incidents, "
                        "maintenance_windows, alert_channels, notifications, remediation_attempts, idm_stacks, idm_users, idm_enrollments, idm_reconcile_runs, "
-                       "guest_bootstrap, customers, credentials, credential_events, credential_alerts, customer_approvals, operator_customers, tenant_admin_bindings, tenant_requests, backup_policies, backup_runs, backup_verifications RESTART IDENTITY CASCADE"))
+                       "guest_bootstrap, customers, credentials, credential_events, credential_alerts, customer_approvals, operator_customers, tenant_admin_bindings, tenant_requests, backup_policies, backup_runs, backup_verifications, system_settings RESTART IDENTITY CASCADE"))
         c.execute(text("INSERT INTO customers (id, name, msp_owned, provisioning_mode) VALUES ('00000000-0000-0000-0000-00000000a001', 'MSP (internal)', true, 'auto')"))
         # every test starts as the active primary at epoch 1 (a test that fences the controller must not leak into the next one)
         c.execute(text("ALTER TABLE controller_state DISABLE TRIGGER controller_state_guard"))

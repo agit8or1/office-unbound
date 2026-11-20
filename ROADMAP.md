@@ -1,6 +1,6 @@
 # Office Unbound roadmap & progress
 
-> Generated from [`docs/progress.json`](docs/progress.json) by `scripts/render_roadmap.py` — edit the JSON, not this file. Last updated **2026-11-19** · stage: **pre-alpha (lab)** · current version: **0.6.0**.
+> Generated from [`docs/progress.json`](docs/progress.json) by `scripts/render_roadmap.py` — edit the JSON, not this file. Last updated **2026-11-19** · stage: **pre-alpha (lab)** · current version: **0.6.1**.
 
 Core platform components are integrated and tested in an isolated lab: own source build of Exchange-compatible groupware with single sign-on webmail, Keycloak SSO, file sync and browser document editing, backup/restore drills, chat and video meetings, and an infrastructure control server with monitoring, self-healing and a real Proxmox integration (VM lifecycle verified on a live cluster). Guided deployment wizards, provisioning automation and the credential vault are being integrated.
 
@@ -171,6 +171,7 @@ Core platform components are integrated and tested in an isolated lab: own sourc
 
 | Version | Date | Status | Highlights |
 |---|---|---|---|
+| [0.6.1](https://github.com/agit8or1/office-unbound/blob/main/CHANGELOG.md) | 2026-11-20 | prepared | 0.6.1: Settings → Network & domains: required DNS records and port forwards per deployment, public address, read-only checks that prove which machine answered<br>0.6.1: fix: multi-tenant secret names fit the database |
 | [0.6.0](https://github.com/agit8or1/office-unbound/blob/main/CHANGELOG.md) | 2026-11-20 | released | 0.6.0: user portal in every deployment, one Keycloak sign-in for mail, calendar, contacts, files and documents; webmail SSO<br>0.6.0: service addresses and per-customer domains as settings; unknown names never reach a backend; multi-tenant configured per tenant (own CA, secrets, portal)<br>0.6.0: node agent 0.6.0-ou11, golden image v9; one-public-IP gateway design (ADR-0018) |
 | [0.5.1](https://github.com/agit8or1/office-unbound/blob/main/CHANGELOG.md) | 2026-11-20 | released | 0.5.1: Open your apps: links, hosts-file lines, the deployment certificate, mail app settings and the administrator password (fresh authenticator code, audited)<br>0.5.1: every VM gets at least 8 vCPU, 8 GB RAM and a 40 GB system disk (owner minimum) |
 | [0.5.0](https://github.com/agit8or1/office-unbound/blob/main/CHANGELOG.md) | 2026-11-19 | released | 0.5.0: mail, calendar and contacts in the deployed stack: the ICS installs and configures gromox, Postfix, MariaDB, webmail, ActiveSync and CalDAV/CardDAV with directory sign-in<br>0.5.0: node agent 0.5.0-ou10 (runbook cfg.gromox, enabled only on groupware VMs) and golden image v8 |

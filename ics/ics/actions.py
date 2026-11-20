@@ -20,6 +20,7 @@ from sqlalchemy.orm import Session
 
 from . import release as release_ops
 from . import imageimport
+from . import netsettings
 from .provisioning import operate as guest_operate
 from .provisioning import leftovers as guest_leftovers
 from . import agentclient, alerts, audit, auth, checks as checkmod, endpoint_actions, identity, mailadmin, monitor, removal
@@ -124,6 +125,7 @@ class ActionType(StrEnum):
     release_promote = "release.promote"
     image_import = "image.import"
     guest_remove = "guest.remove"
+    settings_network_update = "settings.network.update"
     guest_power = "guest.power"
     msp_client_create = "msp.client.create"
     msp_client_set_permissions = "msp.client.set_permissions"
@@ -444,6 +446,8 @@ CATALOG: dict[ActionType, dict] = {
     # power control of an EXISTING guest the administrator authorized individually (operations preset; provisioning/operate.py)
     ActionType.guest_power: {"model": guest_operate.GuestPower, "risk": guest_operate.risk, "secrets": ()},
     ActionType.guest_remove: {"model": guest_leftovers.GuestRemove, "risk": "high", "secrets": (), "admin_only": True},
+    # Settings -> Network & domains (netsettings.py): the public address; nothing on the infrastructure changes
+    ActionType.settings_network_update: {"model": netsettings.NetworkSettings, "risk": "low", "secrets": (), "admin_only": True},
 }
 CATALOG.update({ActionType(k): v for k, v in prov_actions.CATALOG.items()})   # provider provisioning (ics/provisioning/actions.py)
 _PROV = {ActionType(k) for k in prov_actions.CATALOG}
@@ -1534,5 +1538,6 @@ _EXEC = {**{ActionType(k): v for k, v in ssh_actions.EXECUTORS.items()}, ActionT
          **{ActionType(k): v for k, v in endpoint_actions.EXECUTORS.items()},
          **{ActionType(k): v for k, v in prov_actions.EXECUTORS.items()},
          ActionType.release_promote: release_ops.exec_promote, ActionType.image_import: imageimport.exec_import, ActionType.guest_power: guest_operate.exec_power, ActionType.guest_remove: guest_leftovers.exec_remove,
+         ActionType.settings_network_update: netsettings.exec_update,
          **{ActionType(k): v for k, v in {**cred_actions.EXECUTORS, **ten_actions.EXECUTORS, **msp_actions.EXECUTORS}.items()},
          **{ActionType(k): v for k, v in backup_ops.EXECUTORS.items()}}

@@ -41,6 +41,7 @@ export const NAV: NavGroup[] = [
     { label: 'Integrations', to: '/endpoints', icon: 'plug' },
     { label: 'Images', to: '/images', icon: 'book', min: 'admin' },
     { label: 'Audit log', to: '/audit', icon: 'file', min: 'approver' },
+    { label: 'Network & domains', to: '/settings/network', icon: 'network', min: 'admin' },
     { label: 'System', to: '/system', icon: 'server', min: 'admin' },
     { label: 'Access policies', icon: 'shield', planned: true, min: 'admin' },
     { label: 'Configuration', icon: 'gear', planned: true, min: 'admin' },

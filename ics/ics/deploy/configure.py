@@ -139,7 +139,7 @@ def fq(plan: dict, tenant: str | None, label: str) -> str:
 
 def sname(tenant: str | None, name: str) -> str:
     """Secret name in its scope: a tenant's directory, Keycloak, mail and CA secrets are never shared with another tenant."""
-    return name if tenant is None else f"{tenant}.{name}"
+    return name if tenant is None else f"{tenant}-{name}"   # deployment_secrets.name CHECK: ^[a-z][a-z0-9-]{1,40}$
 
 
 def tls_name(tenant: str | None) -> str:

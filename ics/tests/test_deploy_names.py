@@ -99,7 +99,7 @@ def _ctx(plan, monkeypatch):
 
     def secret(rt, dep, name, make=None):
         if name not in store:
-            store[name] = make() if make else f"{name.replace('.', '-')}-" + "x" * 24
+            store[name] = make() if make else f"{name}-" + "x" * 24
         return store[name]
     monkeypatch.setattr(configure, "secret", secret)
     monkeypatch.setattr(configure, "realm_key", lambda rt, dep, t=None: secret(rt, dep, configure.sname(t, "realm-signing-key"), lambda: KEY))
@@ -172,7 +172,7 @@ def test_multi_tenant_scopes_have_their_own_secrets_ca_and_edge_certificates(mon
     # tenant VMs: their own scope only
     ids = sorted(v["name"] for v in p["vms"] if "identity" in v["components"])
     pw = [next(r for r in _runbooks(ctx, vm) if r["runbook"] == "cfg.ldap_user")["params"]["password"] for vm in ids]
-    assert pw[0] != pw[1] and "t01.admin-password" in store and "t02.admin-password" in store
+    assert pw[0] != pw[1] and "t01-admin-password" in store and "t02-admin-password" in store
     t01 = next(r for r in _runbooks(ctx, ids[0]) if r["runbook"] == "cfg.ldap_user")["params"]
     assert t01["mail"] == "ou-admin@customer-a.com"
     for r in rb:
@@ -190,3 +190,20 @@ def test_the_agent_refuses_a_portal_or_default_site_outside_https():
     with pytest.raises(Reject):
         c.check_nginx_default({"redirect": "http://evil.example/", "tls_name": "deployment"}, {"enabled": True})
     assert c.check_nginx_default({"redirect": None, "tls_name": "deployment"}, {"enabled": True})["redirect"] is None
+
+
+def test_tenant_secret_names_fit_the_database(rt):
+    """Regression (found 2026-11-20 before any multi-tenant run): tenant secret names must satisfy deployment_secrets.name's CHECK, and the
+    real store keeps tenants apart."""
+    import re
+    from sqlalchemy import text
+    for t in ("t01", "t50"):
+        for n in ("admin-password", "webmail-client-secret", "realm-signing-key", "deployment-ca", "portal-client-secret"):
+            assert re.fullmatch(r"[a-z][a-z0-9-]{1,40}", configure.sname(t, n))
+    with rt.session() as db:
+        did = str(db.execute(text("INSERT INTO deployments (slug, customer_id, profile, profile_version, status, desired_spec) "
+                                  "VALUES ('mt1', 'c-000000000000', 'msp-multi', '1', 'active', '{}'::jsonb) RETURNING id")).scalar())
+        db.commit()
+    a = configure.secret(rt, did, configure.sname("t01", "admin-password"))
+    b = configure.secret(rt, did, configure.sname("t02", "admin-password"))
+    assert a != b and configure.secret(rt, did, configure.sname("t01", "admin-password")) == a

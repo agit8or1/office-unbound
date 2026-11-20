@@ -56,6 +56,7 @@ export const routes: RouteRecordRaw[] = [
   { path: '/users/:rest(.*)*', name: 'users', component: () => import('./views/admin/users/UsersPage.vue'), meta: { title: 'Users & roles', section: 'Administration', min: 'viewer' } },
   { path: '/endpoints', name: 'endpoints', component: () => import('./views/Endpoints.vue'), meta: { title: 'Integrations', section: 'Administration' } },
   { path: '/inventory/:id?', name: 'inventory', component: () => import('./views/Inventory.vue'), meta: { title: 'Inventory snapshots', section: 'Administration' } },
+  { path: '/settings/network', name: 'network-settings', component: () => import('./views/NetworkSettings.vue'), meta: { title: 'Network & domains', section: 'Administration', min: 'admin' } },
   { path: '/system', name: 'system', component: () => import('./views/System.vue'), meta: { title: 'System', section: 'Administration', min: 'admin' } },
   { path: '/preview', name: 'preview', component: () => import('./views/Preview.vue'), meta: { title: 'Plan preview', section: 'Administration', min: 'operator' } },
   { path: '/audit', name: 'audit', component: () => import('./views/Audit.vue'), meta: { title: 'Audit log', section: 'Administration', min: 'approver' } },

@@ -10,6 +10,12 @@ isolated lab; nothing is production supported ([ROADMAP.md](ROADMAP.md)).
 
 ## [Unreleased]
 
+## [0.6.1] - 2026-11-20
+
+- **New: Settings → Network & domains** (administrators). It lists, for every deployment, the DNS records to create at your DNS provider and the port forwards your router needs, each with the internal machine and port to forward to. External-mail records and ports are marked "later". You enter the installation's public IPv4 address there; it is saved through an audited change. **Run checks** tests everything read-only. For DNS, it compares what public DNS answers with what is needed. For ports, it connects to the public address and proves *which* machine answered: this deployment's certificate for the name on 443/465/993, the redirect to the name on 80, the mail server's banner on 25/587. Results say what they prove: a test from inside needs the router to reach its own public address (hairpin), UDP is not testable by connecting, and every result is labelled "tested from inside" ([test_netsettings.py](ics/tests/test_netsettings.py)).
+- **Fix: multi-tenant deployments could not store their tenant secrets.** 0.6.0 named them `t01.<name>`, which the database refuses (names allow letters, digits and `-`). They are now `t01-<name>`, tested against the real database. No multi-tenant deployment had been run.
+- New dependency: dnspython 2.7.0 (ISC licence, hash-pinned) for the DNS checks and, later, ACME DNS-01.
+
 ## [0.6.0] - 2026-11-20
 
 First release of the 0.6 "Foundry" line: **one sign-in for everything, and service addresses you choose.**
@@ -296,6 +302,7 @@ editing, chat/meetings, telephony prototype, migration tooling and package pipel
 - `SECURITY.md` (private reporting) and `CONTRIBUTING.md` (DCO sign-off) added; AGPL-3.0 license. [SECURITY](SECURITY.md)
 
 [Unreleased]: https://github.com/agit8or1/office-unbound/compare/v0.4.7...HEAD
+[0.6.1]: https://github.com/agit8or1/office-unbound/compare/v0.6.0...v0.6.1
 [0.6.0]: https://github.com/agit8or1/office-unbound/compare/v0.5.1...v0.6.0
 [0.5.1]: https://github.com/agit8or1/office-unbound/compare/v0.5.0...v0.5.1
 [0.5.0]: https://github.com/agit8or1/office-unbound/compare/v0.4.10...v0.5.0
