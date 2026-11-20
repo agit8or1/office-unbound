@@ -1,6 +1,7 @@
 # ADR-0018: One public IP: gateway, routing, certificates and DNS
 
-Status: **accepted (design)**, 2026-11-20; section 11 supersedes the ACME placement of sections 2 and 5. Owner request: "Centralized Gateway, DNS Routing & SSL Certificate Management" (single public IPv4 per
+Status: **accepted (design)**, 2026-11-20; section 11 supersedes the ACME placement of sections 2 and 5. Multiple public IPs, hybrid
+allocation, private-only installations and IP address management: [ADR-0019](0019-network-deployment-modes.md) (PLANNED / FUTURE). Owner request: "Centralized Gateway, DNS Routing & SSL Certificate Management" (single public IPv4 per
 installation, automatic routing/certificates/DNS, Gateway & Certificates UI, multi-tenant isolation, 90-day hands-off renewal).
 Status words: ADR-0000. Nothing below is "working" until a results document says so with executed evidence.
 
