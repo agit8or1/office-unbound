@@ -30,6 +30,18 @@ WEB_PORTS = {80: "web (redirects to HTTPS; certificate validation)", 443: "web: 
 class NetworkSettings(BaseModel):
     model_config = ConfigDict(extra="forbid")
     public_ipv4: str | None = Field(default=None, description="the installation's public IPv4 address (the router forwards to the gateway)")
+    entry_address: str | None = Field(default=None, description="internal address the router forwards 80/443 to when it is not the gateway VM "
+                                                                 "(e.g. the ICS host routing by name, ics/deploy/public-entry); empty = the gateway VM")
+
+    @field_validator("entry_address")
+    @classmethod
+    def _entry(cls, v):
+        if v in (None, ""):
+            return None
+        a = ipaddress.ip_address(v)
+        if a.version != 4 or not a.is_private:
+            raise ValueError("a private IPv4 address inside your network")
+        return str(a)
 
     @field_validator("public_ipv4")
     @classmethod
@@ -57,53 +69,122 @@ def _deployments(db) -> list:
     return db.execute(text("SELECT * FROM deployments WHERE status NOT IN ('destroyed', 'destroying') ORDER BY slug")).all()
 
 
-def requirements_for(plan: dict, addresses: dict[str, str], public_ipv4: str | None) -> dict:
-    """Pure: the DNS records and port forwards one deployment needs."""
-    vms = {v["name"]: v for v in plan.get("vms", [])}
+# reserved / local-only names (RFC 2606, 6761, 6762, 8375): such a deployment can never be published on the internet
+LOCAL_SUFFIXES = (".example", ".test", ".invalid", ".localhost", ".local", ".internal", ".lan", ".home.arpa", ".localdomain")
+
+
+def publishable(domain: str | None) -> bool:
+    return bool(domain) and not any(domain == x[1:] or domain.endswith(x) for x in LOCAL_SUFFIXES)
+
+
+def _vm_label(plan: dict, vm: str, slug: str) -> str:
+    v = next((x for x in plan.get("vms", []) if x["name"] == vm), None)
+    comps = [c for c in (v or {}).get("components", []) if c != "monitoring-agent"]
+    role = "gateway" if "edge" in comps else ("mail" if "groupware" in comps else ("files" if "files" in comps else (comps[0] if comps else vm)))
+    return f"{role} VM of {slug}"
+
+
+def requirements_for(plan: dict, addresses: dict[str, str], public_ipv4: str | None, entry_address: str | None = None) -> dict:
+    """Pure: one deployment's DNS records and the public ports it needs (merged into one installation-wide forward table by overview())."""
     edge = next((v["name"] for v in plan.get("vms", []) if "edge" in (v.get("components") or []) and not v.get("tenant")), None) \
         or next((v["name"] for v in plan.get("vms", []) if "edge" in (v.get("components") or [])), None)
+    slug = plan["input"].get("deployment_id", "")
     want = public_ipv4 or "<public IPv4>"
     records = []
-    for r in sorted(plan.get("dns", []), key=lambda r: (r["name"], r["type"])):
+    for r in sorted(plan.get("dns", []), key=lambda r: (r["type"] not in ("A", "CNAME"), r["name"], r["type"])):
         if r["type"] == "A" and str(r["value"]).startswith("vm:"):
             records.append({"name": r["name"], "type": "A", "value": want, "component": r.get("component"), "required": True,
-                            "purpose": "points at the public address; the gateway routes it"})
+                            "purpose": "points at your public address; the gateway routes it"})
         elif r["type"] == "CNAME":
             records.append({"name": r["name"], "type": "CNAME", "value": r["value"], "component": r.get("component"), "required": True,
                             "purpose": "alias"})
-        else:   # MX / TXT: only once external mail is enabled (Stage 3: public IP, SPF/DKIM/DMARC)
+        else:   # MX / TXT: only once external mail is enabled
             records.append({"name": r["name"], "type": r["type"], "value": r["value"], "component": r.get("component"), "required": False,
-                            "purpose": "for external mail (later): leave the current record until external mail is enabled"})
+                            "purpose": "only when external mail is enabled: until then keep your current record"})
     ports: dict[tuple, dict] = {}
     for f in plan.get("firewall", []):
         if f.get("from") != "any":
             continue
         port, proto = int(f["port"]), f["proto"]
-        target = edge if (port in WEB_PORTS and edge) else f["vm"]
-        comp = str(f.get("purpose", "")).split(":")[0]
-        k = (port, proto)
-        if k in ports:
+        if (port, proto) in ports:
             continue
-        ports[k] = {"port": port, "port_end": f.get("port_end"), "proto": proto, "vm": target, "address": addresses.get(target),
-                    "component": comp, "purpose": WEB_PORTS.get(port) or MAIL_PORTS.get(port) or f.get("purpose"),
-                    "when": "now" if port in WEB_PORTS else ("when external mail is enabled" if port in MAIL_PORTS else "when this service is used")}
+        web = port in WEB_PORTS
+        target = edge if (web and edge) else f["vm"]
+        via_entry = bool(entry_address) and web
+        ports[(port, proto)] = {"port": port, "port_end": f.get("port_end"), "proto": proto,
+                                "vm": "this server (routes by name)" if via_entry else _vm_label(plan, target, slug),
+                                "address": entry_address if via_entry else addresses.get(target),
+                                "purpose": WEB_PORTS.get(port) or MAIL_PORTS.get(port) or f.get("purpose"),
+                                "when": "now" if web else ("when external mail is enabled" if port in MAIL_PORTS else "when this service is used")}
     names = {"web": next((r["name"] for r in plan.get("dns", []) if r["type"] == "A" and r.get("component") == "portal"),
                          next((r["name"] for r in plan.get("dns", []) if r["type"] == "A"), None)),
              "mail": next((r["name"] for r in plan.get("dns", []) if r["type"] == "A" and r.get("component") == "groupware"), None)}
     return {"domain": plan["input"]["domain"], "records": records, "ports": [ports[k] for k in sorted(ports)], "probe_names": names,
-            "edge_vm": edge, "edge_address": addresses.get(edge) if edge else None, "known_vms": sorted(vms)}
+            "edge_vm": edge, "edge_address": addresses.get(edge) if edge else None}
+
+
+def merge_forwards(deps: list[dict], entry_address: str | None) -> list[dict]:
+    """ONE router forward per public port for the whole installation. Web ports: to the entry (this server routing by name) or, without one,
+    the single published deployment's gateway. Any other port claimed by two deployments is a conflict: one public IP, one target."""
+    out: dict[tuple, dict] = {}
+    for d in deps:
+        for p in d["ports"]:
+            k = (p["port"], p["proto"])
+            names = [d["probe_names"]["web"]] if p["port"] in WEB_PORTS and d["probe_names"]["web"] else \
+                    ([d["probe_names"]["mail"]] if d["probe_names"]["mail"] else [])
+            if k not in out:
+                out[k] = {**p, "deployments": [d["deployment"]], "names": names, "conflict": None}
+                continue
+            o = out[k]
+            o["deployments"].append(d["deployment"])
+            o["names"] += [n for n in names if n not in o["names"]]
+            if p["port"] in WEB_PORTS and entry_address:
+                continue   # the entry routes every deployment's names on 80/443
+            o["conflict"] = ("several deployments need this port on one public address: " + ", ".join(o["deployments"]) +
+                             (". Set 'Router forwards 80/443 to' to this server, which routes web names to the right deployment."
+                              if p["port"] in WEB_PORTS else ". Only one can receive it until the shared mail entry exists (ADR-0018 G5); "
+                              "it goes to the first one listed."))
+    return [out[k] for k in sorted(out)]
+
+
+def _detect_public(names: list[str]) -> str | None:
+    """The address the deployment names already point at in public DNS (offered as the public address; never saved without the owner)."""
+    try:
+        r = _resolver()
+        r.lifetime = 2.0
+        for n in names[:3]:
+            try:
+                ans = sorted(x.to_text() for x in r.resolve(n, "A"))
+            except Exception:  # noqa: BLE001
+                continue
+            if ans:
+                return ans[0]
+    except Exception:  # noqa: BLE001
+        return None
+    return None
 
 
 def overview(db) -> dict:
     s = get(db)
-    out = []
+    from . import gateway
+    certs = gateway.state(db)
+    deps, local = [], []
     for d in _deployments(db):
         plan = appaccess._applied_plan(db, d)
         if plan is None:
-            out.append({"deployment": d.slug, "status": d.status, "ready": False})
+            local.append({"deployment": d.slug, "status": d.status, "domain": None, "reason": "not created yet"})
             continue
-        out.append({"deployment": d.slug, "status": d.status, "ready": True, **requirements_for(plan, appaccess._addresses(db, d), s.public_ipv4)})
-    return {"settings": s.model_dump(), "deployments": out,
+        dom = plan["input"]["domain"]
+        if not publishable(dom):
+            local.append({"deployment": d.slug, "status": d.status, "domain": dom,
+                          "reason": f"{dom} is a reserved test name: it can never be reached from the internet, so nothing is published"})
+            continue
+        req = requirements_for(plan, appaccess._addresses(db, d), s.public_ipv4, s.entry_address)
+        deps.append({"deployment": d.slug, "status": d.status, "ready": True, **req,
+                     "certificates": {"public": certs.get(d.slug), "names": gateway.web_names(plan)}})
+    detected = None if s.public_ipv4 else _detect_public([r["name"] for d in deps for r in d["records"] if r["type"] == "A"])
+    return {"settings": s.model_dump(), "detected_public_ipv4": detected, "forwards": merge_forwards(deps, s.entry_address),
+            "deployments": deps, "local_only": local,
             "notes": ["Checks run from this server. A port test reaches your public address from inside your network: it needs the router to "
                       "support that (hairpin NAT). 'No answer' can mean the forward is missing OR the router does not hairpin; test from outside "
                       "to be sure. Port 80 is proven from the internet when a public certificate is issued."]}
@@ -205,20 +286,30 @@ def check_port(p: dict, public_ipv4: str | None, names: dict, ca_pem: str | None
 
 
 def run_checks(rt, db, slug: str | None = None) -> dict:
-    """DNS + port checks for one or all deployments. Read-only; contacts only the public DNS and the configured public address."""
+    """DNS checks per published deployment and one check per router forward (per name it serves). Read-only; contacts only public DNS
+    and the configured public address."""
     ov = overview(db)
     pub = ov["settings"]["public_ipv4"]
-    res = []
+    r = _resolver()
+    cas = {}
     for d in ov["deployments"]:
-        if not d.get("ready") or (slug and d["deployment"] != slug):
-            continue
         dep = db.execute(text("SELECT id FROM deployments WHERE slug = :s"), {"s": d["deployment"]}).first()
         ca = appaccess._secret_if_present(rt, db, str(dep.id), "deployment-ca")   # read only: never creates a CA
-        ca_pem = json.loads(ca)["cert"] if ca else None
-        r = _resolver()
-        res.append({"deployment": d["deployment"], "records": [check_record(x, pub, r) for x in d["records"]],
-                    "ports": [check_port(x, pub, d["probe_names"], ca_pem) for x in d["ports"]]})
-    return {"public_ipv4": pub, "checked_at": time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime()), "results": res, "notes": ov["notes"]}
+        cas[d["deployment"]] = json.loads(ca)["cert"] if ca else None
+    records = [{"deployment": d["deployment"], "records": [check_record(x, pub, r) for x in d["records"]]}
+               for d in ov["deployments"] if not slug or d["deployment"] == slug]
+    by_name = {d["probe_names"][k]: d["deployment"] for d in ov["deployments"] for k in ("web", "mail") if d["probe_names"].get(k)}
+    forwards = []
+    for f in ov["forwards"]:
+        tests = []
+        for n in (f["names"] or [None]):
+            dep = by_name.get(n)
+            names = {"web": n, "mail": n} if n else {"web": None, "mail": None}
+            tests.append({"name": n, **{k: v for k, v in check_port(f, pub, names, cas.get(dep)).items() if k in ("status", "detail", "ms")}})
+        worst = next((t["status"] for t in tests if t["status"] not in ("ok", "open")), tests[0]["status"] if tests else "unknown")
+        forwards.append({**f, "status": worst, "tests": tests, "tested_from": "inside (this server)"})
+    return {"public_ipv4": pub, "checked_at": time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime()), "records": records, "forwards": forwards,
+            "notes": ov["notes"]}
 
 
 # ---------------------------------------------------------------- typed action + API
@@ -259,8 +350,8 @@ def register_routes(app, rt) -> None:
             out = run_checks(rt, db, body.deployment)
         finally:
             _RUNNING["busy"] = False
-        summary = {d["deployment"]: {"records_ok": sum(r["status"] == "ok" for r in d["records"]), "records": len(d["records"]),
-                                     "ports_ok": sum(p["status"] == "ok" for p in d["ports"]), "ports": len(d["ports"])} for d in out["results"]}
+        summary = {"records": {d["deployment"]: [sum(r["status"] == "ok" for r in d["records"]), len(d["records"])] for d in out["records"]},
+                   "forwards": {f"{f['port']}/{f['proto']}": f["status"] for f in out["forwards"]}}
         audit.append(db, "settings.network_checked", actor_id=user.id, actor_name=user.username, ip=client_ip(request), details={"summary": summary})
         db.commit()
         return out

@@ -86,3 +86,29 @@ def test_access_lists_nothing_before_the_deployment_is_created(rt, client, mk_us
     c, _ = login(admin)
     r = c.get("/api/v1/deployments/e2e-new/access")
     assert r.status_code == 200 and r.json()["ready"] is False and r.json()["apps"] == []
+
+
+def test_dashboard_shows_the_portal_url_and_each_apps_status_from_its_own_checks(rt, client, mk_user, login, monkeypatch):
+    """Owner 2026-11-20: "dashboard should show url for access, all apps status"."""
+    v = mk_user("viewer1", "viewer")
+    did = _deployment(rt, "e2e-gw1")
+    plan = {**PLAN, "dns": [*PLAN["dns"], PORTAL],
+            "checks": [{"name": "c-portal", "component": "portal"}, {"name": "c-kc", "component": "identity"},
+                       {"name": "c-oc", "component": "files"}, {"name": "c-smtp", "component": "groupware"}]}
+    monkeypatch.setattr(appaccess, "_applied_plan", lambda db, d: plan)
+    monkeypatch.setattr(appaccess, "_addresses", lambda db, d: ADDR)
+    with rt.session() as db:
+        uid = db.execute(text("SELECT id FROM users WHERE username = 'viewer1'")).scalar()
+        for n, st in (("c-portal", "ok"), ("c-kc", "ok"), ("c-oc", "critical"), ("c-smtp", "ok")):
+            db.execute(text("INSERT INTO checks (name, kind, config, interval_seconds, state, created_by, deployment_id) "
+                            "VALUES (:n, 'http', '{}'::jsonb, 60, :s, :u, :d)"), {"n": n, "s": st, "u": uid, "d": did})
+        db.commit()
+    c, _ = login(v)
+    r = c.get("/api/v1/dashboard/apps")
+    assert r.status_code == 200, r.text
+    d = r.json()[0]
+    assert d["portal"] == "https://portal.e2e-gw1.example/" and d["health"] == "critical"
+    st = {a["id"]: a["status"] for a in d["apps"]}
+    assert st["portal"] == "ok" and st["files"] == "critical" and st["groupware"] == "ok"
+    svc = {s["id"]: s for s in d["services"]}
+    assert svc["files"]["failing"] == ["c-oc"] and svc["identity"]["status"] == "ok"

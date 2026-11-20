@@ -8,6 +8,7 @@ import { hasPath } from '../router'
 import ErrorBox from '../components/ErrorBox.vue'
 import HealthMatrix from '../components/HealthMatrix.vue'
 import IncidentList from '../components/IncidentList.vue'
+import AppsDashboard from '../components/AppsDashboard.vue'
 import UtilizationPanel from '../components/UtilizationPanel.vue'
 import Donut from '../charts/Donut.vue'
 import Card from '../ui/Card.vue'
@@ -102,6 +103,7 @@ const notReady = computed(() => ready.data.value && !ready.data.value.ready ? Ob
       <StatCard label="Pending operations" :value="pendingOps" :sub="`${pendingPlans.length} awaiting approval, ${activeJobs.length} running`" icon="list" :tone="pendingPlans.length ? 'warn' : 'idle'" to="/plans" :loading="!loaded" />
       <StatCard label="Active incidents" :value="inc.length" :sub="inc.length ? inc.filter((x) => x.severity === 'critical').length + ' critical' : 'All clear'" icon="bell" :tone="inc.some((x) => x.severity === 'critical') ? 'bad' : inc.length ? 'warn' : 'ok'" to="/incidents" :loading="!loaded" />
     </section>
+    <AppsDashboard />
     <p v-if="visNote" class="muted small vis-note" data-testid="guest-visibility-note"><Icon name="info" />{{ visNote.text }} <router-link :to="visNote.to">Manage access</router-link></p>
 
     <Card title="Active incidents" :hint="inc.length ? 'Most severe first. Each shows the affected resource, how long it has lasted, and what to do next.' : undefined">

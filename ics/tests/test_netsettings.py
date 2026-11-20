@@ -11,7 +11,7 @@ from ics import worker
 from ics.deploy import configure
 
 H = "/api/v1"
-PLAN = {"input": {"domain": "officeunbound.com"},
+PLAN = {"input": {"domain": "officeunbound.com", "deployment_id": "ou-test1"},
         "vms": [{"name": "id", "components": ["identity", "edge", "portal"]}, {"name": "mail", "components": ["groupware"]}],
         "dns": [{"name": "app.officeunbound.com", "type": "A", "value": "vm:id", "component": "portal"},
                 {"name": "auth.officeunbound.com", "type": "A", "value": "vm:id", "component": "edge"},
@@ -34,7 +34,7 @@ def test_requirements_list_records_and_forwards_to_the_right_vm():
     assert rec[("autodiscover.officeunbound.com", "CNAME")]["value"] == "mail.officeunbound.com"
     assert rec[("officeunbound.com", "MX")]["required"] is False                         # only once external mail is enabled
     ports = {(p["port"], p["proto"]): p for p in r["ports"]}
-    assert ports[(443, "tcp")]["vm"] == "id" and ports[(443, "tcp")]["address"] == "192.168.22.214"   # web always to the gateway
+    assert ports[(443, "tcp")]["vm"] == "gateway VM of ou-test1" and ports[(443, "tcp")]["address"] == "192.168.22.214"   # web always to the gateway
     assert ports[(25, "tcp")]["address"] == "192.168.22.215" and ports[(25, "tcp")]["when"] == "when external mail is enabled"
     assert (636, "tcp") not in ports                                                      # internal ports are never forwarded
     assert r["probe_names"] == {"web": "app.officeunbound.com", "mail": "mail.officeunbound.com"}
@@ -156,8 +156,40 @@ def test_public_address_is_set_through_an_audited_action_and_only_admins_see_the
     assert worker.run_once(rt)
     assert adm.get(f"{H}/jobs/{r.json()['job_id']}").json()["status"] == "succeeded"
     ov = adm.get(f"{H}/settings/network").json()
-    assert ov["settings"] == {"public_ipv4": "184.175.230.187"} and ov["deployments"] == []
+    assert ov["settings"] == {"public_ipv4": "184.175.230.187", "entry_address": None} and ov["deployments"] == [] and ov["forwards"] == []
     c = adm.post(f"{H}/settings/network/check", json={}, headers=ah)
     assert c.status_code == 200, c.text
-    assert c.json()["public_ipv4"] == "184.175.230.187" and c.json()["results"] == []
+    assert c.json()["public_ipv4"] == "184.175.230.187" and c.json()["records"] == [] and c.json()["forwards"] == []
     assert adm.get(f"{H}/audit/verify").json()["ok"] is True
+
+
+def test_web_forwards_go_to_the_entry_host_when_the_router_forwards_there():
+    r = ns.requirements_for(PLAN, ADDR, "184.175.230.187", "192.168.22.167")
+    ports = {(p["port"], p["proto"]): p for p in r["ports"]}
+    assert ports[(443, "tcp")]["address"] == "192.168.22.167" and ports[(80, "tcp")]["address"] == "192.168.22.167"
+    assert ports[(25, "tcp")]["address"] == "192.168.22.215"                              # mail ports still straight to the mail VM
+    with pytest.raises(ValueError):
+        ns.NetworkSettings(entry_address="184.175.230.187")                              # must be inside the network
+
+
+def _dep(slug, plan, entry=None):
+    return {"deployment": slug, **ns.requirements_for(plan, ADDR, "184.175.230.187", entry)}
+
+
+def test_one_public_ip_means_one_forward_per_port_for_the_whole_installation():
+    other = {**PLAN, "input": {"domain": "customer-b.com", "deployment_id": "b"},
+             "dns": [{**r, "name": r["name"].replace("officeunbound.com", "customer-b.com"), "value": str(r["value"]).replace("officeunbound.com", "customer-b.com")} for r in PLAN["dns"]]}
+    a, b = _dep("a", {**PLAN, "input": {**PLAN["input"], "deployment_id": "a"}}), _dep("b", other)
+    f = {(x["port"], x["proto"]): x for x in ns.merge_forwards([a, b], None)}
+    assert f[(443, "tcp")]["conflict"] and "this server" in f[(443, "tcp")]["conflict"]          # without an entry: impossible, explained
+    assert f[(25, "tcp")]["conflict"] and f[(25, "tcp")]["deployments"] == ["a", "b"]
+    a, b = _dep("a", {**PLAN, "input": {**PLAN["input"], "deployment_id": "a"}}, "192.168.22.167"), _dep("b", other, "192.168.22.167")
+    f = {(x["port"], x["proto"]): x for x in ns.merge_forwards([a, b], "192.168.22.167")}
+    assert f[(443, "tcp")]["conflict"] is None and f[(443, "tcp")]["address"] == "192.168.22.167"
+    assert f[(443, "tcp")]["names"] == ["app.officeunbound.com", "app.customer-b.com"]        # the check tests every deployment's name
+    assert len([x for x in ns.merge_forwards([a, b], "192.168.22.167") if x["port"] == 443]) == 1
+
+
+@pytest.mark.parametrize("dom, ok", [("officeunbound.com", True), ("e2e-gw2.example", False), ("corp.internal", False), ("x.test", False), ("lan", False), ("a.home.arpa", False)])
+def test_reserved_test_domains_are_never_published(dom, ok):
+    assert ns.publishable(dom) is ok

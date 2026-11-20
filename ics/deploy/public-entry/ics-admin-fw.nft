@@ -1,0 +1,10 @@
+# Office Unbound ICS host: 80/443 are the public entry (owner's router forwards them here, 2026-11-20). Who may reach WHAT is decided by
+# nginx: /etc/nginx/ou-public-sni.conf (443 by TLS server name: deployment names -> their VMs; the ICS console only from LAN/VPN, every other
+# connection closed) and sites-enabled/ou-public-http.conf (80: deployment names only). Everything else on this host stays unreachable from
+# outside as before (no other port is opened here).
+table inet ics_admin {
+  chain input {
+    type filter hook input priority -10; policy accept;
+    tcp dport { 80, 443 } accept
+  }
+}

@@ -382,10 +382,15 @@ def identity_runbooks(ctx, vm: str) -> list[dict]:
     ]
 
 
-def _site(name: str, fqdn: str, upstream: str, upstream_name: str | None = None, tls: str = "deployment") -> dict:
+def _site(name: str, fqdn: str, upstream: str, upstream_name: str | None = None, tls: str = "deployment", upstream_ca: str | None = None,
+          root_redirect: str | None = None) -> dict:
     p = {"name": name, "server_names": [fqdn], "upstream": upstream, "tls_name": tls, "max_body_mb": 0 if name.split("-")[0] == "cloud" else 100}
     if upstream_name:
         p["upstream_name"] = upstream_name
+    if upstream_ca:
+        p["upstream_ca"] = upstream_ca
+    if root_redirect:
+        p["root_redirect"] = root_redirect
     return {"runbook": "cfg.nginx_site", "params": p}
 
 
@@ -398,6 +403,8 @@ def edge_runbooks(ctx, vm: str) -> list[dict]:
     out = [{"runbook": "cfg.hosts", "params": {"entries": hosts_entries(ctx, names_by_vm(plan))}}, firewall_runbook(ctx, vm), _tls(ctx, vm)]
     serve = [t_vm] if t_vm is not None else scopes(plan)
     portals = []
+    from .. import gateway
+    public = gateway.public_for(ctx.rt, ctx.slug) if ctx.rt is not None else None   # publicly trusted certificate on this gateway (cfg.acme)
     for t in serve:
         tn = "deployment"
         if t != t_vm:
@@ -412,14 +419,17 @@ def edge_runbooks(ctx, vm: str) -> list[dict]:
                 continue
             host = fq(plan, t, label)
             site = label if t is None else f"{label}-{t}"
+            # the sign-in host's front page is Keycloak's admin redirect: send people to their portal instead
+            rr = f"https://{fq(plan, t, 'portal')}/" if label == "auth" and vm_of(plan, "portal", t) else None
+            stls, sca = (public["cert_name"], tn) if (public and t == t_vm and host in public.get("names", [])) else (tn, None)
             if svc == vm:
-                out.append(_site(site, host, f"http://127.0.0.1:{port}", tls=tn))
+                out.append(_site(site, host, f"http://127.0.0.1:{port}", tls=stls, upstream_ca=sca, root_redirect=rr))
             else:
                 try:
                     ip = ctx.env.agent.address(svc)
                 except Exception as e:  # noqa: BLE001
                     raise ConfigError(f"the address of {svc} is unknown (not enrolled): {e}") from None
-                out.append(_site(site, host, f"https://{ip}:443", host, tls=tn))
+                out.append(_site(site, host, f"https://{ip}:443", host, tls=stls, upstream_ca=sca, root_redirect=rr))
             if label == "portal":
                 portals.append(host)
     out.append({"runbook": "cfg.nginx_default", "params": {"redirect": f"https://{portals[0]}/" if len(portals) == 1 else None, "tls_name": "deployment"}})
@@ -486,6 +496,10 @@ def groupware_runbooks(ctx, vm: str) -> list[dict]:
     t = tenant_of(ctx.plan, vm)
     domain = scope(ctx.plan, t)["domain"]
     mail = fq(ctx.plan, t, "mail")
+    extra = []
+    if t is None and ctx.rt is not None:   # accounts an administrator set (deploy/accounts.py) get their mailbox too
+        from . import accounts
+        extra = [f"{u}@{domain}" for u in accounts.accounts_for(ctx.rt, ctx.slug) if u != "ou-admin"]
     sso = {"auth_url": f"https://{fq(ctx.plan, t, 'auth')}/", "realm": REALM, "client_id": WEBMAIL_CLIENT,
            "client_secret": _sec(ctx, t, "webmail-client-secret"), "redirect_url": f"https://{mail}/web",
            "bearer_pubkey": realm_public_key(realm_key(ctx.rt, ctx.deployment_id, t))}
@@ -496,7 +510,7 @@ def groupware_runbooks(ctx, vm: str) -> list[dict]:
         {"runbook": "cfg.gromox", "params": {"domain": domain, "hostname": mail, "tls_name": "deployment",
                                              "db_password": _sec(ctx, t, "gw-db-password"), "ldap_host": f"ldap.{domain}",
                                              "bind_password": _sec(ctx, t, "ldap-bind-password"), "group": MAIL_GROUP,
-                                             "mailboxes": [f"ou-admin@{domain}"], "sso": sso}},
+                                             "mailboxes": [f"ou-admin@{domain}", *extra], "sso": sso}},
     ]
 
 

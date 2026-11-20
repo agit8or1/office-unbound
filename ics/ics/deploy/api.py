@@ -118,6 +118,12 @@ def register_routes(app: FastAPI, rt) -> None:
                                "WHERE deployment_id = :d ORDER BY kind, logical_name"), {"d": str(d.id)}).all()
         return [_clean(r) for r in rows]
 
+    @app.get(f"{API}/dashboard/apps")
+    def dashboard_apps(user: User = Depends(require("viewer")), db: Session = Depends(get_db)):
+        """Every deployment's app links and service health for the dashboard (no secret)."""
+        visible = {r.slug for r in db.execute(text(f"SELECT slug FROM deployments WHERE {tscope.endpoint_clause(db)}")).all()}
+        return [x for x in appaccess.apps_overview(db) if x["deployment"] in visible]
+
     @app.get(f"{API}/deployments/{{slug}}/access")
     def access(slug: str, user: User = Depends(require("admin")), db: Session = Depends(get_db)):
         """Open your apps: links, hosts-file lines, client settings, the deployment CA certificate (public). No secret."""

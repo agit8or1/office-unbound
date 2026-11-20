@@ -5,8 +5,34 @@
   "repository": "https://github.com/agit8or1/office-unbound",
   "updated": "2026-11-19",
   "stage": "pre-alpha (lab)",
-  "current_version": "0.6.1",
+  "current_version": "0.7.0",
   "releases": [
+    {
+      "version": "0.7.0",
+      "date": "2026-11-20",
+      "status": "prepared",
+      "codename": "Granite",
+      "channel": "pre-release",
+      "highlights": [
+        "0.7.0: public Let's Encrypt certificates issued and renewed by the gateway itself (staging test, then production), renewal independent of the ICS",
+        "0.7.0: set a sign-in account per deployment (8-character person passwords); agent 0.7.0-ou13, golden image v11; sign-in address lands on the portal"
+      ],
+      "notes_url": "https://github.com/agit8or1/office-unbound/blob/main/CHANGELOG.md",
+      "changelog": "CHANGELOG.md"
+    },
+    {
+      "version": "0.6.2",
+      "date": "2026-11-20",
+      "status": "prepared",
+      "codename": "Foundry",
+      "channel": "pre-release",
+      "highlights": [
+        "0.6.2: dashboard apps card: portal address, every app's live status, every service's health",
+        "0.6.2: single public IP on the ICS host: routing by name without decryption, console LAN-only (verified from the internet)"
+      ],
+      "notes_url": "https://github.com/agit8or1/office-unbound/blob/main/CHANGELOG.md",
+      "changelog": "CHANGELOG.md"
+    },
     {
       "version": "0.6.1",
       "date": "2026-11-20",
@@ -708,7 +734,7 @@
             "docs/adr/0018-gateway-certificates-dns.md",
             "ics/tests/test_deploy_names.py"
           ],
-          "note": "0.6.0: host name settings per deployment and tenant (labels or full names, conflict detection), per-tenant CAs, edge default site (portal or refuse). Next: G1 data model + routes/ports view, G2 ICS-side ACME against Pebble, G3 public certificates (needs public IP + domain), G4 DNS providers (Cloudflare first; needs a token), G5 L4 mail/TURN forwarding, G6 UI + wizard, G7 90-day acceptance."
+          "note": "0.6.0: host name settings per deployment and tenant (labels or full names, conflict detection), per-tenant CAs, edge default site (portal or refuse). 0.6.1: Settings → Network & domains with DNS/port checks; 0.6.2: single public IP on the ICS host (routing by name, console LAN-only); 0.7.0: public certificates by the gateway (G2/G3 HTTP-01). Next: G1 data model + routes/ports view, G2 ICS-side ACME against Pebble, G3 public certificates (needs public IP + domain), G4 DNS providers (Cloudflare first; needs a token), G5 L4 mail/TURN forwarding, G6 UI + wizard, G7 90-day acceptance."
         }
       ]
     },

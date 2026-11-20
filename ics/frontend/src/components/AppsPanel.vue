@@ -7,6 +7,8 @@ import { useLoad } from '../store'
 import Card from '../ui/Card.vue'
 import Button from '../ui/Button.vue'
 import ErrorBox from './ErrorBox.vue'
+import RunPanel from '../views/providers/RunPanel.vue'
+import { useRun } from '../views/providers/run'
 
 interface App { id: string; title: string; url: string; description: string }
 interface Access {
@@ -21,6 +23,16 @@ const a = computed(() => data.data.value)
 const hostsText = computed(() => (a.value?.hosts ?? []).map((h) => `${h.address}  ${h.names.join(' ')}`).join('\n'))
 
 const code = ref(''), busy = ref(false), err = ref<ApiError | null>(null), pw = ref(''), copied = ref('')
+// set a sign-in account (directory person + mailbox): typed action directory.account.set, the password only in the plan's encrypted secret
+const acct = ref({ username: 'admin', password: '' })
+const acctRun = useRun()
+const pwOk = computed(() => /^[A-Za-z0-9_-]{8,128}$/.test(acct.value.password))
+const userOk = computed(() => /^[a-z][a-z0-9.-]{0,30}[a-z0-9]$/.test(acct.value.username))
+async function setAccount() {
+  if (!pwOk.value || !userOk.value) return
+  await acctRun.start('directory.account.set', { deployment: props.slug, username: acct.value.username, password: acct.value.password })
+  acct.value.password = ''
+}
 let timer: number | undefined
 async function reveal() {
   busy.value = true; err.value = null
@@ -74,6 +86,16 @@ function downloadCa() {
       </form>
       <p v-else class="muted small">No administrator password is stored for this deployment.</p>
       <ErrorBox :error="err" />
+      <details class="ap-acct" data-testid="apps-account">
+        <summary class="small"><b>Set a sign-in account</b> (for example for testing): one user and password for every app, with a mailbox</summary>
+        <form class="ap-reveal" @submit.prevent="setAccount">
+          <label class="small">User<input v-model.trim="acct.username" autocomplete="off" placeholder="admin"></label>
+          <label class="small">Password<input v-model="acct.password" type="password" autocomplete="new-password" minlength="8" maxlength="128"></label>
+          <Button size="sm" type="submit" :disabled="!pwOk || !userOk" :loading="acctRun.busy.value">Set account</Button>
+          <span class="muted small">At least 8 characters: letters, digits, - and _. Signs in as {{ acct.username || 'user' }}@{{ a.domain }}; the account gets administrator rights in the apps.</span>
+        </form>
+        <RunPanel v-if="acctRun.created.value" :run="acctRun" what="Setting the sign-in account" />
+      </details>
 
       <template v-if="a.clients">
         <h4>Mail apps (Outlook, Thunderbird, phones)</h4>

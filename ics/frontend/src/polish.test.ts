@@ -31,9 +31,9 @@ describe('routes and navigation', () => {
     expect(hasPath('/deployments/abc')).toBe(false)
     expect(hasPath('/nope')).toBe(false)
   })
-  it('every nav item without a page is Planned, and Environments is not active on History', () => {
+  it('every nav item without a page is Planned, and All deployments is not active on History', () => {
     for (const g of NAV) for (const i of g.items) expect(!!i.to || !!i.planned).toBe(true)
-    const env = NAV.flatMap((g) => g.items).find((i) => i.label === 'Environments')!
+    const env = NAV.flatMap((g) => g.items).find((i) => i.label === 'All deployments')!
     expect(isActive(env, '/deployments/history')).toBe(false)
     expect(isActive(env, '/deployments/acme')).toBe(true)
   })

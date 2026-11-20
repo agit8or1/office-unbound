@@ -19,7 +19,7 @@ export const NAV: NavGroup[] = [
   { title: 'Deployments', items: [
     { label: 'Catalog', icon: 'book', planned: true },
     { label: 'New deployment', to: '/deployments/new', icon: 'plus', min: 'operator', ifPath: '/deployments/new' },
-    { label: 'Environments', to: '/deployments', icon: 'rocket', match: ['/deployments'] },
+    { label: 'All deployments', to: '/deployments', icon: 'rocket', match: ['/deployments'] },
     { label: 'History', to: '/deployments/history', icon: 'clock' },
   ] },
   { title: 'Operations', items: [

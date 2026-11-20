@@ -14,8 +14,11 @@ import { nextAction } from '../incidents'
 
 const filter = ref<'active' | 'recovered' | ''>('active')
 const list = useLoad(() => get<Incident[]>('incidents' + (filter.value ? `?status=${filter.value}` : '')), 5000)
+const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i
 const selId = computed(() => route.value.arg)
-const sel = useLoad(async () => (selId.value ? get<IncidentDetail>(`incidents/${selId.value}`) : null), 5000)
+// a malformed link (owner report 2026-11-20: "path.incident_id: Input should be a valid UUID") shows "not found" instead of an API error
+const badId = computed(() => !!selId.value && !UUID_RE.test(selId.value))
+const sel = useLoad(async () => (selId.value && !badId.value ? get<IncidentDetail>(`incidents/${selId.value}`) : null), 5000)
 function setFilter(f: 'active' | 'recovered' | '') { filter.value = f; void list.reload() }
 
 const err = ref<ApiError | null>(null), ok = ref(''), busy = ref(false), note = ref('')
@@ -51,7 +54,11 @@ const secs = (a: string, b: string | null) => (b ? Math.round((+new Date(b) - +n
           <EmptyState v-else-if="list.data.value" icon="check" :title="filter === 'active' ? 'No active incidents' : 'No incidents'" text="Everything monitored is healthy." />
         </div>
       </section>
-      <section v-if="selId" class="card detail" aria-label="Incident details">
+      <section v-if="badId" class="card detail" aria-label="Incident details" data-testid="incident-bad-id">
+        <div class="head"><h2>Incident not found</h2><Button size="sm" variant="ghost" icon="x" @click="go('incidents')">Close</Button></div>
+        <p class="muted">This link does not name an incident. Pick one from the list.</p>
+      </section>
+      <section v-else-if="selId" class="card detail" aria-label="Incident details">
         <div class="head"><h2>Incident {{ short(selId) }}</h2><Button size="sm" variant="ghost" icon="x" @click="go('incidents')">Close</Button></div>
         <ErrorBox :error="sel.error.value" />
         <template v-if="sel.data.value">

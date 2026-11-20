@@ -14,11 +14,14 @@ from .guestspec import DIGEST_RE, IPV4_RE, NAME_RE, REGISTRY_RE, REPO_RE, SECRET
 from .proto import Reject
 
 CFG_RUNBOOKS = ("cfg.hosts", "cfg.tls", "cfg.ldap_init", "cfg.ldap_user", "cfg.pg_db", "cfg.podman_secret", "cfg.volume_files", "cfg.nginx_site",
-                "cfg.firewall", "cfg.gromox", "cfg.nginx_default", "cfg.portal")
+                "cfg.firewall", "cfg.gromox", "cfg.nginx_default", "cfg.portal", "cfg.acme")
 FAMILY = "cfg"
 
 FQDN_RE = re.compile(r"^(?=.{4,200}$)([a-z0-9]([a-z0-9-]{0,61}[a-z0-9])?\.)+[a-z]{2,24}$")
 PASSWORD_RE = re.compile(r"^[A-Za-z0-9_-]{16,128}$")          # ICS-generated (secrets.token_urlsafe): safe in LDIF, SQL literals, env files
+# a PERSON's directory password (cfg.ldap_user), set by an administrator (owner 2026-11-20: "change password to 8 char min"); the same safe
+# character set, minimum 8. Machine secrets keep PASSWORD_RE.
+USER_PASSWORD_RE = re.compile(r"^[A-Za-z0-9_-]{8,128}$")
 ORG_RE = re.compile(r"^[A-Za-z0-9][A-Za-z0-9 .,&()-]{0,62}$")
 LDAPNAME_RE = re.compile(r"^[a-z][a-z0-9.-]{0,30}[a-z0-9]$")   # uid, mail local part
 GROUP_RE = re.compile(r"^[A-Za-z][A-Za-z0-9-]{0,30}[A-Za-z0-9]$")   # group cn (the role groups are camelCase: opencloudAdmin)
@@ -39,6 +42,12 @@ FILE_MODES = (0o600, 0o640, 0o644)
 def _password(v, what):
     if not isinstance(v, str) or not PASSWORD_RE.fullmatch(v):
         raise Reject("bad_params", f"{what} must be 16-128 characters of [A-Za-z0-9_-]")
+    return v
+
+
+def _user_password(v):
+    if not isinstance(v, str) or not USER_PASSWORD_RE.fullmatch(v):
+        raise Reject("bad_params", "password: 8-128 characters, letters, digits, - and _")
     return v
 
 
@@ -100,7 +109,7 @@ def check_ldap_user(p, cfg):
     _s(dom, FQDN_RE, "mail domain")
     return {"domain": _s(p["domain"], FQDN_RE, "domain"), "uid": _s(p["uid"], LDAPNAME_RE, "uid"),
             "given_name": _s(p["given_name"], PERSON_RE, "given_name"), "surname": _s(p["surname"], PERSON_RE, "surname"), "mail": mail,
-            "password": _password(p["password"], "password"), "groups": groups}
+            "password": _user_password(p["password"]), "groups": groups}
 
 
 def check_pg_db(p, cfg):
@@ -147,7 +156,8 @@ def check_volume_files(p, cfg):
 
 
 def check_nginx_site(p, cfg):
-    _exact(p, ("name", "server_names", "upstream", "upstream_name", "tls_name", "max_body_mb"), ("name", "server_names", "upstream", "tls_name", "max_body_mb"))
+    _exact(p, ("name", "server_names", "upstream", "upstream_name", "tls_name", "max_body_mb", "upstream_ca", "root_redirect"),
+           ("name", "server_names", "upstream", "tls_name", "max_body_mb"))
     names = [_s(n, FQDN_RE, "server name") for n in _list(p["server_names"], "server_names", MAX_NAMES)]
     if not names:
         raise Reject("bad_params", "server_names: at least one")
@@ -157,7 +167,9 @@ def check_nginx_site(p, cfg):
         raise Reject("bad_params", "upstream_name (the name the upstream certificate must carry) is required for, and only for, an https upstream")
     return {"name": _s(p["name"], NAME_RE, "name"), "server_names": names, "upstream": up,
             "upstream_name": _s(upn, FQDN_RE, "upstream_name") if upn is not None else None,
-            "tls_name": _s(p["tls_name"], NAME_RE, "tls_name"), "max_body_mb": _int(p["max_body_mb"], 0, 102400, "max_body_mb")}
+            "tls_name": _s(p["tls_name"], NAME_RE, "tls_name"), "max_body_mb": _int(p["max_body_mb"], 0, 102400, "max_body_mb"),
+            **({"upstream_ca": _s(p["upstream_ca"], NAME_RE, "upstream_ca")} if p.get("upstream_ca") else {}),
+            **({"root_redirect": _https_host(p["root_redirect"], "root_redirect", "/")} if p.get("root_redirect") else {})}
 
 
 def check_firewall(p, cfg):
@@ -235,6 +247,20 @@ def check_nginx_default(p, cfg):
     return {"redirect": _https_host(r, "redirect", "/") if r is not None else None, "tls_name": _s(p["tls_name"], NAME_RE, "tls_name")}
 
 
+MAX_ACME_NAMES = 20
+
+
+def check_acme(p, cfg):
+    """Publicly trusted certificate for exactly these names (HTTP-01 through the VM's own port 80), staging or production Let's Encrypt."""
+    _exact(p, ("names", "directory", "cert_name"))
+    names = [_s(n, FQDN_RE, "name") for n in _list(p["names"], "names", MAX_ACME_NAMES)]
+    if not names or len(set(names)) != len(names):
+        raise Reject("bad_params", "names: one or more distinct names")
+    if p["directory"] not in ("staging", "production"):
+        raise Reject("bad_params", "directory must be staging or production")
+    return {"names": names, "directory": p["directory"], "cert_name": _s(p["cert_name"], NAME_RE, "cert_name")}
+
+
 def check_portal(p, cfg):
     """The user portal (package ou-portal): its public URL, the Keycloak issuer and client, the apps it links to. Plain HTTP on 127.0.0.1:8090
     behind the TLS proxy; the client secret goes to a file, never into the environment file."""
@@ -256,7 +282,8 @@ def check_portal(p, cfg):
 
 CHECKS = {"cfg.firewall": check_firewall, "cfg.gromox": check_gromox, "cfg.hosts": check_hosts, "cfg.tls": check_tls, "cfg.ldap_init": check_ldap_init, "cfg.ldap_user": check_ldap_user,
           "cfg.pg_db": check_pg_db, "cfg.podman_secret": check_podman_secret, "cfg.volume_files": check_volume_files,
-          "cfg.nginx_site": check_nginx_site, "cfg.nginx_default": check_nginx_default, "cfg.portal": check_portal}
+          "cfg.nginx_site": check_nginx_site, "cfg.nginx_default": check_nginx_default, "cfg.portal": check_portal,
+          "cfg.acme": check_acme}
 
 
 def validate_runbook_config(name, c):

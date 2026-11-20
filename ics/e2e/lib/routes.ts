@@ -37,7 +37,7 @@ export const OPTIONAL_ROUTES: string[] = ['setup', 'deployments/new']
 export const IA_GROUPS: Record<string, string[]> = {
   Overview: [],
   Infrastructure: ['Clusters', 'Nodes', 'Virtual machines', 'Containers', 'Storage', 'Networks'],
-  Deployments: ['Catalog', 'New deployment', 'Environments', 'History'],
+  Deployments: ['Catalog', 'New deployment', 'All deployments', 'History'],
   Operations: ['Jobs', 'Approvals', 'Changes', 'Maintenance', 'Releases'],
   Monitoring: ['Health checks', 'Utilization', 'Alerts'],
   Administration: ['Users', 'Access policies', 'Integrations', 'Configuration', 'Audit', 'System'],

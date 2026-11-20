@@ -91,3 +91,46 @@ def access_info(rt, db, d) -> dict:
 
 def admin_password(rt, db, d) -> str | None:
     return _secret_if_present(rt, db, str(d.id), "admin-password")
+
+
+# ---------------------------------------------------------------- dashboard: every deployment's apps, links and health
+# which components an app depends on (its status = the worst state of their health checks)
+APP_COMPONENTS = {"portal": ("portal", "identity", "edge"), "files": ("files", "office", "edge"), "groupware": ("groupware",),
+                  "edge": ("identity", "edge")}
+SERVICE_TITLES = {"identity": "Sign-in and directory", "edge": "Gateway (web entry)", "portal": "User portal", "files": "Files",
+                  "office": "Documents (Office)", "groupware": "Mail, calendar, contacts"}
+_RANK = {"critical": 3, "warning": 2, "unknown": 1, "ok": 0}
+
+
+def _worst(states: list[str]) -> str:
+    return max(states, key=lambda s: _RANK.get(s, 1)) if states else "unknown"
+
+
+def apps_overview(db) -> list[dict]:
+    """For the dashboard: per deployment that is not destroyed, the app links (as in the apps panel) with a status from the deployment's own
+    health checks, and the status of every service. No secret, no address beyond what the apps panel shows."""
+    out = []
+    for d in db.execute(text("SELECT * FROM deployments WHERE status NOT IN ('destroyed', 'destroying') ORDER BY slug")).all():
+        plan = _applied_plan(db, d)
+        checks = db.execute(text("SELECT name, state, last_raw, last_run_at FROM checks WHERE deployment_id = :d"), {"d": str(d.id)}).all()
+        comp_of = {c["name"]: c.get("component") for c in (plan or {}).get("checks", [])}
+        by_comp: dict[str, list] = {}
+        for c in checks:
+            by_comp.setdefault(comp_of.get(c.name) or "", []).append(c)
+        services = []
+        for comp, title in SERVICE_TITLES.items():
+            cs = by_comp.get(comp)
+            if cs:
+                bad = [c for c in cs if c.state != "ok"]
+                services.append({"id": comp, "title": title, "status": _worst([c.state for c in cs]), "checks": len(cs),
+                                 "failing": [c.name for c in bad][:5]})
+        apps = []
+        if plan is not None:
+            b = build(plan, _addresses(db, d))
+            for a in b["apps"]:
+                st = _worst([c.state for comp in APP_COMPONENTS.get(a["id"], (a["id"],)) for c in by_comp.get(comp, [])])
+                apps.append({**a, "status": st})
+        out.append({"deployment": d.slug, "status": d.status, "domain": (plan or {}).get("input", {}).get("domain"),
+                    "portal": next((a["url"] for a in apps if a["id"] == "portal"), None), "apps": apps, "services": services,
+                    "health": _worst([s["status"] for s in services]) if services else "unknown"})
+    return out

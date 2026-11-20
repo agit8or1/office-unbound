@@ -10,6 +10,23 @@ isolated lab; nothing is production supported ([ROADMAP.md](ROADMAP.md)).
 
 ## [Unreleased]
 
+## [0.7.0] - 2026-11-20
+
+First release of the 0.7 "Granite" line: **real HTTPS certificates, issued and renewed by the gateway itself.**
+
+- **New: public certificates from Let's Encrypt** (Settings → Network & domains, per deployment). "Test (staging)" proves that the deployment's web names (portal, sign-in, files, documents) validate from the internet without counting against Let's Encrypt's limits. "Get certificates" then obtains the real certificate and switches the gateway's sites to it. The gateway VM requests the certificate itself (certbot from Ubuntu, HTTP validation on port 80, no e-mail registered) and renews it with certbot's own timer, so **renewal continues while the ICS is offline** (ADR-0018 section 11). The ICS stores only which deployment serves which names, never a private key. The hops from the gateway to the other VMs stay verified by the deployment's own CA. Typed action `gateway.certificates.issue` (staging: low risk; production: needs approval), audited ([test_gateway_certs.py](ics/tests/test_gateway_certs.py)).
+- **Fix: opening the sign-in address (`auth.<domain>`) directly led to Keycloak's "not found" admin redirect.** It now sends people to their portal.
+- **Fix: Settings → Network & domains showed one set of router forwards per deployment** (two deployments both "needed" 80/443 and the mail ports, to different machines) and ignored that the router forwards to the ICS host. One public address means **one forward per port**: the page now has a single forward table for the installation. It has a "Router forwards 80/443 to" setting ("Use this server" when this host routes by name; every deployment's web names are then tested through it). Ports two deployments both need are marked as a conflict with the reason. Deployments on reserved test domains (`.example`, `.test`, `.internal`, ...) are listed as not published. The public address found in DNS is offered with one click. Machines are named by role ("gateway VM of ou-test1"), not by internal ID.
+- **New: set a sign-in account on a deployment** (deployment page → "Open your apps" → "Set a sign-in account"). Enter a user name and password: the person is created or updated in the deployment's directory (portal, sign-in, files, documents; administrator groups) and gets a mailbox. Typed action `directory.account.set` (needs approval). The password exists only in the plan's encrypted secret and the signed agent request; it is never stored, logged or shown ([test_deploy_accounts.py](ics/tests/test_deploy_accounts.py)).
+- **Change: a person's password needs at least 8 characters** (letters, digits, `-`, `_`), down from 16. Owner decision for testing. Passwords the ICS generates for services (databases, directory binds, clients) stay 43 random characters, and their 16-character floor is unchanged.
+- **Node agent 0.7.0-ou13 and golden image v11:** new runbook `cfg.acme`; `cfg.nginx_site` serves ACME challenges on port 80, can verify upstreams with a different CA than the certificate it serves, and can redirect the front page. Existing deployments get public certificates and the 8-character rule after they are recreated from image v11 (their gateway's agent predates `cfg.acme`).
+
+## [0.6.2] - 2026-11-20
+
+- **New: the dashboard shows where people sign in and how every app is doing.** For each deployment, the Overview has an apps card: the portal address users open, a clickable tile per app (Portal, Files, Webmail, Account) with its live status from that deployment's own health checks (Healthy / Degraded / Down / No data yet), and every service (sign-in and directory, gateway, portal, files, documents, mail) with the checks that fail. Visible to every console role; no secret ([test_deploy_appaccess.py](ics/tests/test_deploy_appaccess.py)).
+- **Fix: an incident link that does not name an incident showed a raw validation error** ("path.incident_id: Input should be a valid UUID"). The Incidents page now checks the link and shows "Incident not found" without calling the API.
+- **Single public IP on the ICS host (in place since 2026-11-20 16:46, recorded here):** the owner's router forwards 80/443 to the ICS host, so the host routes by name without decrypting: the deployment's service names pass through to their gateway/mail VM; the console stays reachable from LAN/VPN only, everything else is closed (proven: an internet client got the portal, the bare IP timed out). Configuration and how it works: [ics/deploy/public-entry/](ics/deploy/public-entry/README.md).
+
 ## [0.6.1] - 2026-11-20
 
 - **New: Settings → Network & domains** (administrators). It lists, for every deployment, the DNS records to create at your DNS provider and the port forwards your router needs, each with the internal machine and port to forward to. External-mail records and ports are marked "later". You enter the installation's public IPv4 address there; it is saved through an audited change. **Run checks** tests everything read-only. For DNS, it compares what public DNS answers with what is needed. For ports, it connects to the public address and proves *which* machine answered: this deployment's certificate for the name on 443/465/993, the redirect to the name on 80, the mail server's banner on 25/587. Results say what they prove: a test from inside needs the router to reach its own public address (hairpin), UDP is not testable by connecting, and every result is labelled "tested from inside" ([test_netsettings.py](ics/tests/test_netsettings.py)).
@@ -302,6 +319,8 @@ editing, chat/meetings, telephony prototype, migration tooling and package pipel
 - `SECURITY.md` (private reporting) and `CONTRIBUTING.md` (DCO sign-off) added; AGPL-3.0 license. [SECURITY](SECURITY.md)
 
 [Unreleased]: https://github.com/agit8or1/office-unbound/compare/v0.4.7...HEAD
+[0.7.0]: https://github.com/agit8or1/office-unbound/compare/v0.6.2...v0.7.0
+[0.6.2]: https://github.com/agit8or1/office-unbound/compare/v0.6.1...v0.6.2
 [0.6.1]: https://github.com/agit8or1/office-unbound/compare/v0.6.0...v0.6.1
 [0.6.0]: https://github.com/agit8or1/office-unbound/compare/v0.5.1...v0.6.0
 [0.5.1]: https://github.com/agit8or1/office-unbound/compare/v0.5.0...v0.5.1
