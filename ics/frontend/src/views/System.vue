@@ -10,6 +10,7 @@ import StatusBadge from '../ui/StatusBadge.vue'
 import Skeleton from '../ui/Skeleton.vue'
 import Button from '../ui/Button.vue'
 import ErrorBox from '../components/ErrorBox.vue'
+import TenancyCard from '../components/TenancyCard.vue'
 
 interface Thread { name: string; state: 'ok' | 'stalled' | 'off'; last_progress_seconds: number | null }
 interface SystemInfo extends BuildSystemInfo {
@@ -33,6 +34,7 @@ const tone = (s: string) => (s === 'ok' ? 'ok' : s === 'off' ? 'idle' : 'critica
     <Skeleton v-if="!sys.data.value && !sys.error.value" />
     <template v-if="sys.data.value">
       <div class="grid cols-2">
+        <TenancyCard />
         <Card title="Status">
           <dl class="sys">
             <dt>Overall</dt><dd><StatusBadge :s="sys.data.value.ready ? 'ok' : 'critical'" :text="sys.data.value.ready ? 'Ready' : 'Not ready'" /></dd>

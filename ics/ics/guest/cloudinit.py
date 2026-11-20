@@ -24,6 +24,7 @@ CFG_RUNBOOKS = ("cfg.hosts", "cfg.tls", "cfg.ldap_init", "cfg.ldap_user", "cfg.p
 # booting from an image whose agent predates the runbook (agent < 0.5.0-ou10 refuses a configuration that enables a runbook it does not know)
 GROUPWARE_CFG = ("cfg.gromox",)
 PORTAL_CFG = ("cfg.portal",)
+DIRECTORY_CFG = ("cfg.ldap_list", "cfg.ldap_groups", "cfg.ldap_lock", "cfg.ldap_delete")   # account management: only on the identity VM (slapd; agent >= 0.8.0)
 ACME_CFG = ("cfg.acme",)       # public certificates: only where certbot may be installed (the gateway/edge; agent >= 0.7.0)   # same rule for the user portal (package ou-portal; agent >= 0.5.2)
 
 SERVICE_USER = "ou-svc"
@@ -301,6 +302,8 @@ def agent_config(s: GuestSpec) -> dict:
             rb.update({r: {"enabled": True} for r in PORTAL_CFG})
         if "certbot" in s.pkg_allowlist:
             rb.update({r: {"enabled": True} for r in ACME_CFG})
+        if "slapd" in s.pkg_allowlist:
+            rb.update({r: {"enabled": True} for r in DIRECTORY_CFG})
     return {"listen": {"address": "0.0.0.0", "port": s.agent_port}, "runbooks": dict(sorted(rb.items()))}
 
 

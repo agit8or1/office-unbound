@@ -22,7 +22,10 @@ const data = useLoad(() => get<Access>(`deployments/${enc}/access`).catch(() => 
 const a = computed(() => data.data.value)
 const hostsText = computed(() => (a.value?.hosts ?? []).map((h) => `${h.address}  ${h.names.join(' ')}`).join('\n'))
 
-const code = ref(''), busy = ref(false), err = ref<ApiError | null>(null), pw = ref(''), copied = ref('')
+const code = ref(''), busy = ref(false), err = ref<ApiError | null>(null), pw = ref(''), pwUser = ref(''), copied = ref('')
+const which = ref<'directory' | 'keycloak'>('directory')
+// the sign-in service's own admin console (Keycloak master realm, user kcadmin): same host as the Account app
+const kcConsole = computed(() => { const acc = a.value?.apps.find((x) => x.id === 'edge'); try { return acc ? new URL(acc.url).origin + '/admin/' : null } catch { return null } })
 // set a sign-in account (directory person + mailbox): typed action directory.account.set, the password only in the plan's encrypted secret
 const acct = ref({ username: 'admin', password: '' })
 const acctRun = useRun()
@@ -37,8 +40,8 @@ let timer: number | undefined
 async function reveal() {
   busy.value = true; err.value = null
   try {
-    const r = await post<{ username: string; password: string }>(`deployments/${enc}/admin-password`, { totp_code: code.value.replace(/\s/g, '') })
-    pw.value = r.password
+    const r = await post<{ username: string; password: string }>(`deployments/${enc}/admin-password`, { totp_code: code.value.replace(/\s/g, ''), which: which.value })
+    pw.value = r.password; pwUser.value = r.username
     timer = window.setTimeout(hide, 120000)
   } catch (e) { err.value = e as ApiError } finally { busy.value = false; code.value = '' }
 }
@@ -52,15 +55,18 @@ function downloadCa() {
   const url = URL.createObjectURL(new Blob([a.value.ca_pem], { type: 'application/x-pem-file' }))
   const l = document.createElement('a'); l.href = url; l.download = `${props.slug}-ca.crt`; l.click(); URL.revokeObjectURL(url)
 }
+const portal = computed(() => a.value?.apps.find((x) => x.id === 'portal') ?? a.value?.apps[0] ?? null)
 </script>
 <template>
   <Card v-if="a" title="Open your apps" :hint="a.ready ? a.domain : undefined" data-testid="apps-panel">
     <p v-if="!a.ready" class="muted small">{{ a.note }}</p>
     <template v-else>
-      <ul class="ap-apps">
-        <li v-for="x in a.apps" :key="x.id"><a :href="x.url" target="_blank" rel="noopener noreferrer"><b>{{ x.title }}</b></a>
-          <span class="muted small">{{ x.description }}</span><code class="small">{{ x.url }}</code></li>
-      </ul>
+      <p v-if="portal" class="ap-portal" data-testid="apps-portal">Everyone signs in once at <a :href="portal.url" target="_blank" rel="noopener noreferrer"><b>{{ portal.url }}</b></a>;
+        the portal opens files, documents and mail without a second sign-in.</p>
+      <details class="small"><summary>Direct addresses (for mail apps and troubleshooting)</summary>
+        <ul class="ap-apps">
+          <li v-for="x in a.apps" :key="x.id"><b>{{ x.title }}</b> <span class="muted">{{ x.description }}</span> <code>{{ x.url }}</code></li>
+        </ul></details>
 
       <h4>1. Let your computer find the names</h4>
       <p class="small">The deployment uses <b>{{ a.domain }}</b>, which has no public DNS yet. Add these lines to your hosts file
@@ -76,26 +82,21 @@ function downloadCa() {
 
       <h4>3. Sign in</h4>
       <p class="small">User <code>{{ a.admin?.username }}</code> (or <code>{{ a.admin?.email }}</code>): the same password for every app and for mail apps.</p>
-      <div v-if="pw" class="ap-pw" data-testid="apps-password"><code>{{ pw }}</code>
+      <p v-if="kcConsole" class="small">Sign-in service administration (sessions, sign-in policy, clients): <a :href="kcConsole" target="_blank" rel="noopener noreferrer">{{ kcConsole }}</a>,
+        user <code>kcadmin</code>. Add people in <b>People</b> below (that also creates their mailbox and app access).</p>
+      <div v-if="pw" class="ap-pw" data-testid="apps-password"><span class="small">{{ pwUser }}:</span> <code>{{ pw }}</code>
         <Button size="sm" variant="secondary" @click="copy('pw', pw)">{{ copied === 'pw' ? 'Copied' : 'Copy' }}</Button>
         <Button size="sm" variant="ghost" @click="hide">Hide</Button><span class="muted small">Hidden again after 2 minutes.</span></div>
       <form v-else-if="a.admin?.password_available" class="ap-reveal" @submit.prevent="reveal">
         <label class="small">Authenticator code<input v-model="code" inputmode="numeric" autocomplete="one-time-code" pattern="[0-9 ]{6,8}" required maxlength="8" placeholder="123456"></label>
+        <label class="small">Password of<select v-model="which"><option value="directory">{{ a.admin?.username }} (every app)</option>
+          <option value="keycloak">kcadmin (sign-in service console)</option></select></label>
         <Button size="sm" type="submit" :loading="busy">Show password</Button>
         <span class="muted small">A new code from your authenticator app (not the one you signed in with); showing it is recorded in the audit log.</span>
       </form>
       <p v-else class="muted small">No administrator password is stored for this deployment.</p>
       <ErrorBox :error="err" />
-      <details class="ap-acct" data-testid="apps-account">
-        <summary class="small"><b>Set a sign-in account</b> (for example for testing): one user and password for every app, with a mailbox</summary>
-        <form class="ap-reveal" @submit.prevent="setAccount">
-          <label class="small">User<input v-model.trim="acct.username" autocomplete="off" placeholder="admin"></label>
-          <label class="small">Password<input v-model="acct.password" type="password" autocomplete="new-password" minlength="8" maxlength="128"></label>
-          <Button size="sm" type="submit" :disabled="!pwOk || !userOk" :loading="acctRun.busy.value">Set account</Button>
-          <span class="muted small">At least 8 characters: letters, digits, - and _. Signs in as {{ acct.username || 'user' }}@{{ a.domain }}; the account gets administrator rights in the apps.</span>
-        </form>
-        <RunPanel v-if="acctRun.created.value" :run="acctRun" what="Setting the sign-in account" />
-      </details>
+      <p class="muted small">Add people, administrators and passwords in <b>People</b> below.</p>
 
       <template v-if="a.clients">
         <h4>Mail apps (Outlook, Thunderbird, phones)</h4>

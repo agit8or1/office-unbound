@@ -192,7 +192,8 @@ def test_unauthenticated_redirects(env):
         r = c.get(p)
         assert r.status_code == 303 and r.headers["location"].startswith("/login?next=")
     assert c.post("/new/document", data={"csrf": "x"}).status_code == 303
-    assert "Sign in" in c.get("/").text
+    r = c.get("/")                          # the start page goes straight to the sign-in service
+    assert r.status_code == 303 and r.headers["location"] == "/login"
 
 
 def test_home_recent_and_new_doc_flow(env):
@@ -263,7 +264,7 @@ def test_logout(env):
 
 def test_security_headers(env):
     c, _, _ = env
-    r = c.get("/")
+    r = c.get("/about")
     csp = r.headers["content-security-policy"]
     assert "default-src 'none'" in csp and "script-src" not in csp and "unsafe" not in csp and "frame-ancestors 'none'" in csp
     assert "https:" not in csp.replace("https://auth.test", "").replace("https://cloud.test", "")
@@ -339,7 +340,7 @@ def test_about_page_and_footer_show_version(env):
     c, m, _ = env
     r = c.get("/about")
     assert r.status_code == 200 and "Office Unbound" in r.text and PORTAL_VERSION in r.text
-    assert f"Office Unbound portal v{PORTAL_VERSION}" in c.get("/").text
+    assert f"Office Unbound portal v{PORTAL_VERSION}" in r.text                          # footer
     _, q = login(c, m)
     finish(c, q)
     assert PORTAL_VERSION in c.get("/about").text

@@ -234,6 +234,7 @@ export const api = {
   components: async () => ((await get<Raw>('catalog/components')).components as Raw[]).map(mapComponent),
   osImages: async () => ((await get<Raw>('catalog/components')).os_images as Raw[]).map((o): OsImage => ({ id: o.id, title: o.title })),
   endpoints: () => get<Endpoint[]>('endpoints'),
+  tenancy: () => get<{ mode: 'single' | 'multi' | null }>('settings/tenancy'),
   infra: async (kind: 'nodes' | 'storage' | 'networks', endpointId?: string) => {
     const rows = await get<Raw[]>(`infra/${kind}${endpointId ? `?endpoint=${encodeURIComponent(endpointId)}` : ''}`)
     return mapInfra(kind as 'nodes', rows) as unknown[]

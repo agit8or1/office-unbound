@@ -13,7 +13,8 @@ import re
 from .guestspec import DIGEST_RE, IPV4_RE, NAME_RE, REGISTRY_RE, REPO_RE, SECRET_RE, USER_RE, VOLNAME_RE, _exact, _int, _s
 from .proto import Reject
 
-CFG_RUNBOOKS = ("cfg.hosts", "cfg.tls", "cfg.ldap_init", "cfg.ldap_user", "cfg.pg_db", "cfg.podman_secret", "cfg.volume_files", "cfg.nginx_site",
+CFG_RUNBOOKS = ("cfg.hosts", "cfg.tls", "cfg.ldap_init", "cfg.ldap_user", "cfg.ldap_list", "cfg.ldap_groups", "cfg.ldap_lock", "cfg.ldap_delete",
+                "cfg.pg_db", "cfg.podman_secret", "cfg.volume_files", "cfg.nginx_site",
                 "cfg.firewall", "cfg.gromox", "cfg.nginx_default", "cfg.portal", "cfg.acme")
 FAMILY = "cfg"
 
@@ -110,6 +111,44 @@ def check_ldap_user(p, cfg):
     return {"domain": _s(p["domain"], FQDN_RE, "domain"), "uid": _s(p["uid"], LDAPNAME_RE, "uid"),
             "given_name": _s(p["given_name"], PERSON_RE, "given_name"), "surname": _s(p["surname"], PERSON_RE, "surname"), "mail": mail,
             "password": _user_password(p["password"]), "groups": groups}
+
+
+PROTECTED_UID = "ou-admin"   # the deployment's own administrator (cfg.ldap_delete refuses it)
+
+
+def _groups(v, what):
+    groups = [_s(g, GROUP_RE, "group") for g in _list(v, what, MAX_GROUPS)]
+    if len(set(groups)) != len(groups):
+        raise Reject("bad_params", f"duplicate group in {what}")
+    return groups
+
+
+def check_ldap_list(p, cfg):
+    _exact(p, ("domain",))
+    return {"domain": _s(p["domain"], FQDN_RE, "domain")}
+
+
+def check_ldap_groups(p, cfg):
+    _exact(p, ("domain", "uid", "add", "remove"))
+    add, remove = _groups(p["add"], "add"), _groups(p["remove"], "remove")
+    if set(add) & set(remove):
+        raise Reject("bad_params", "a group may not be both added and removed")
+    return {"domain": _s(p["domain"], FQDN_RE, "domain"), "uid": _s(p["uid"], LDAPNAME_RE, "uid"), "add": add, "remove": remove}
+
+
+def check_ldap_lock(p, cfg):
+    _exact(p, ("domain", "uid", "locked"))
+    if not isinstance(p["locked"], bool):
+        raise Reject("bad_params", "locked must be true or false")
+    return {"domain": _s(p["domain"], FQDN_RE, "domain"), "uid": _s(p["uid"], LDAPNAME_RE, "uid"), "locked": p["locked"]}
+
+
+def check_ldap_delete(p, cfg):
+    _exact(p, ("domain", "uid"))
+    uid = _s(p["uid"], LDAPNAME_RE, "uid")
+    if uid == PROTECTED_UID:
+        raise Reject("bad_params", f"{PROTECTED_UID} (the deployment's administrator) cannot be deleted")
+    return {"domain": _s(p["domain"], FQDN_RE, "domain"), "uid": uid}
 
 
 def check_pg_db(p, cfg):
@@ -281,6 +320,7 @@ def check_portal(p, cfg):
 
 
 CHECKS = {"cfg.firewall": check_firewall, "cfg.gromox": check_gromox, "cfg.hosts": check_hosts, "cfg.tls": check_tls, "cfg.ldap_init": check_ldap_init, "cfg.ldap_user": check_ldap_user,
+          "cfg.ldap_list": check_ldap_list, "cfg.ldap_groups": check_ldap_groups, "cfg.ldap_lock": check_ldap_lock, "cfg.ldap_delete": check_ldap_delete,
           "cfg.pg_db": check_pg_db, "cfg.podman_secret": check_podman_secret, "cfg.volume_files": check_volume_files,
           "cfg.nginx_site": check_nginx_site, "cfg.nginx_default": check_nginx_default, "cfg.portal": check_portal,
           "cfg.acme": check_acme}

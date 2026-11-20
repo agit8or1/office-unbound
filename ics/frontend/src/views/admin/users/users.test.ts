@@ -86,11 +86,12 @@ describe('Users & roles', () => {
     expect(host.querySelector('.ux-drawer')).not.toBeNull()
     expect(host.textContent).toContain('Role history'); expect(host.textContent).toContain('10.0.0.9')
   })
-  it('invitations explain the out-of-band token flow and never show a token', async () => {
+  it('invitations: an admin issues the token in the console with a fresh code; the listing never shows one', async () => {
     as('admin'); await mount('invitations')
     const t = host.textContent ?? ''
-    expect(t).toContain('never shown in this console'); expect(t).toContain('ics.cli issue-enrollment --username USERNAME')
-    expect(t).toContain('Not issued yet')
+    expect(t).toContain('fresh authenticator code'); expect(t).toContain('ics.cli issue-enrollment --username USERNAME')
+    expect(t).toContain('Not issued yet'); expect(host.querySelector('[data-testid="token-shown"]')).toBeNull()
+    expect(host.querySelector('[data-testid^="issue-"]')).not.toBeNull()
   })
   it('privileged workflow requires justification + acknowledgement and submits user.set_role with it', async () => {
     as('admin'); await mount('privileged/change/bob')

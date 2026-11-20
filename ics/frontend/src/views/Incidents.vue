@@ -15,7 +15,7 @@ import { nextAction } from '../incidents'
 const filter = ref<'active' | 'recovered' | ''>('active')
 const list = useLoad(() => get<Incident[]>('incidents' + (filter.value ? `?status=${filter.value}` : '')), 5000)
 const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i
-const selId = computed(() => route.value.arg)
+const selId = computed(() => (route.value.page === 'incidents' ? route.value.arg : ''))
 // a malformed link (owner report 2026-11-20: "path.incident_id: Input should be a valid UUID") shows "not found" instead of an API error
 const badId = computed(() => !!selId.value && !UUID_RE.test(selId.value))
 const sel = useLoad(async () => (selId.value && !badId.value ? get<IncidentDetail>(`incidents/${selId.value}`) : null), 5000)

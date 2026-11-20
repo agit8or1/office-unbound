@@ -43,10 +43,8 @@ async function lab_token() {            // lab-only direct grant client, used ON
   const consoleErrors = [];
   page.on('console', m => { if (m.type() === 'error' && /Content Security Policy|CSP/i.test(m.text())) consoleErrors.push(m.text()); });
 
-  // 1. landing page, sign in through Keycloak ----------------------------------------------------------------------
+  // 1. signed out, the portal address goes straight to the sign-in service (no landing page) -----------------------
   await page.goto(PORTAL + '/');
-  check('landing page (signed out)', (await page.locator('h1').innerText()).includes('Everything'), await page.title());
-  await page.click('a:has-text("Sign in")');
   await page.waitForURL(/auth\.ou-lab\.internal/);
   check('redirected to Keycloak with code+PKCE', /code_challenge_method=S256/.test(page.url()) && /response_type=code/.test(page.url()) && /client_id=ou-portal/.test(page.url()));
   await page.fill('#username', USER);

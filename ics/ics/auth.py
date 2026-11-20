@@ -64,7 +64,7 @@ def _new_enrollment(rt: Runtime) -> tuple[str, str, datetime]:
 def create_invite(db: Session, rt: Runtime, username: str, role: str, *, created_by=None, actor: str = "cli", commit: bool = True,
                   extra: dict | None = None) -> str:
     """Creates an account in the 'invited' state (no password, no TOTP, cannot log in). Returns the user id.
-    Credentials are never chosen or seen by the creator; the enrollment token is issued separately on the host (CLI)."""
+    Credentials are never chosen or seen by the creator; the one-time enrollment token is issued separately (console: issue_invitation_token, or the host CLI)."""
     if role not in ROLES:
         raise ValueError(f"role must be one of {ROLES}")
     _check_username(username)
@@ -108,8 +108,37 @@ def issue_enrollment_token(db: Session, rt: Runtime, username: str, *, actor: st
     return token
 
 
+def issue_invitation_token(db: Session, rt: Runtime, username: str, *, actor: "User") -> tuple[str, datetime]:
+    """Console path (owner 2026-11-20: "yes, show tokens in the console"): an admin issues the one-time token of an account that was
+    INVITED and never enrolled, after a fresh authenticator code (step_up, by the caller). Never for an enrolled account (that would
+    let one admin take over another's sign-in; the host CLI stays the recovery path), never for a revoked invitation or for yourself."""
+    if actor.customer_ids is not None:   # like every other user.* action: MSP all-customers scope only
+        raise HTTPException(403, "issuing sign-up tokens needs the all-customers scope")
+    row = db.execute(text("SELECT id, role, enrolled, disabled FROM users WHERE username = :u FOR UPDATE"), {"u": username}).first()
+    if row is None:
+        raise HTTPException(404, "no such user")
+    # "never enrolled" must survive a host recovery (issue_enrollment_token resets `enrolled`): the audit chain remembers every enrollment
+    ever = db.execute(text("SELECT 1 FROM audit_events WHERE action = 'user.enrolled' AND actor_id = :i LIMIT 1"), {"i": row.id}).first()
+    if row.enrolled or ever:
+        raise HTTPException(409, "this account has enrolled before; a new token for it is issued only on the host (recovery)")
+    from .actions import single_admin
+    if row.role in ("approver", "admin") and not single_admin(rt):
+        # two-person mode: the issuer is not in the approval-exclusion chain, so a console token could create an approver alter ego
+        raise HTTPException(409, "approver and admin tokens are issued on the host in two-person approval mode")
+    if row.disabled:
+        raise HTTPException(409, "this invitation was revoked")
+    if str(row.id) == str(actor.id):
+        raise HTTPException(409, "you cannot issue a token for your own account")
+    token, h, exp = _new_enrollment(rt)
+    db.execute(text("UPDATE users SET enrollment_token_hash = :h, enrollment_expires_at = :e WHERE id = :i"), {"h": h, "e": exp, "i": row.id})
+    db.execute(text("DELETE FROM login_attempts WHERE username = :u"), {"u": "enroll:" + username})
+    audit.append(db, "user.enrollment_issued", actor_id=actor.id, actor_name=actor.username, resource="user", resource_id=str(row.id),
+                 details={"username": username, "via": "console"})
+    return token, exp
+
+
 def create_account_cli(db: Session, rt: Runtime, username: str, role: str) -> str:
-    """Bootstrap from the host: invite + enrollment token (printed once by the CLI, never returned over the API)."""
+    """Bootstrap from the host: invite + enrollment token (printed once by the CLI)."""
     create_invite(db, rt, username, role, created_by=None, actor="cli")
     return issue_enrollment_token(db, rt, username, actor="cli")
 

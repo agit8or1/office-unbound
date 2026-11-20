@@ -23,6 +23,7 @@ from . import imageimport
 from . import console_access, netsettings
 from . import gateway as gateway_ops
 from .deploy import accounts as deploy_accounts
+from . import tenancy_mode
 from .provisioning import operate as guest_operate
 from .provisioning import leftovers as guest_leftovers
 from . import agentclient, alerts, audit, auth, checks as checkmod, endpoint_actions, identity, mailadmin, monitor, removal
@@ -131,6 +132,9 @@ class ActionType(StrEnum):
     settings_management_update = "settings.management.update"
     gateway_certificates_issue = "gateway.certificates.issue"
     directory_account_set = "directory.account.set"
+    directory_account_lock = "directory.account.lock"
+    directory_account_delete = "directory.account.delete"
+    settings_tenancy_set = "settings.tenancy.set"
     guest_power = "guest.power"
     msp_client_create = "msp.client.create"
     msp_client_set_permissions = "msp.client.set_permissions"
@@ -459,6 +463,10 @@ CATALOG: dict[ActionType, dict] = {
     ActionType.gateway_certificates_issue: {"model": gateway_ops.CertIssue, "risk": gateway_ops.risk, "secrets": (), "admin_only": True},
     # a sign-in account on a deployment (deploy/accounts.py): administrator rights in the deployment's apps -> needs approval
     ActionType.directory_account_set: {"model": deploy_accounts.AccountSet, "risk": "normal", "secrets": ("password",), "admin_only": True},
+    ActionType.directory_account_lock: {"model": deploy_accounts.AccountLock, "risk": "normal", "secrets": (), "admin_only": True},
+    ActionType.directory_account_delete: {"model": deploy_accounts.AccountDelete, "risk": "high", "secrets": (), "admin_only": True},
+    # installation tenancy mode (tenancy_mode.py): chosen once; a change with deployments present is refused (no live conversion)
+    ActionType.settings_tenancy_set: {"model": tenancy_mode.TenancyMode, "risk": "normal", "secrets": (), "admin_only": True},
 }
 CATALOG.update({ActionType(k): v for k, v in prov_actions.CATALOG.items()})   # provider provisioning (ics/provisioning/actions.py)
 _PROV = {ActionType(k) for k in prov_actions.CATALOG}
@@ -1117,7 +1125,7 @@ def reap_expired(rt: Runtime) -> int:
 
 
 _SAFE_ERRORS = (cred_service.CredentialUnavailable, ProviderError, ProxmoxError, VaultError, PlanIntegrityError, JobTimeout, AgentError, IdentityError, DeployError, backup_ops.BackupError,
-                console_access.ApplyError)   # the access helper's own message (nginx -t output; no parameter values beyond address ranges)
+                console_access.ApplyError, gateway_ops.GatewayError, tenancy_mode.ModeLocked)   # the access helper's own message (nginx -t output; no parameter values beyond address ranges)
 
 
 def _error_dict(e: BaseException, known: list[str]) -> dict:
@@ -1554,5 +1562,7 @@ _EXEC = {**{ActionType(k): v for k, v in ssh_actions.EXECUTORS.items()}, ActionT
          ActionType.settings_management_update: console_access.exec_update,
          ActionType.gateway_certificates_issue: gateway_ops.exec_issue,
          ActionType.directory_account_set: deploy_accounts.exec_set,
+         ActionType.directory_account_lock: deploy_accounts.exec_lock, ActionType.directory_account_delete: deploy_accounts.exec_delete,
+         ActionType.settings_tenancy_set: tenancy_mode.exec_set,
          **{ActionType(k): v for k, v in {**cred_actions.EXECUTORS, **ten_actions.EXECUTORS, **msp_actions.EXECUTORS}.items()},
          **{ActionType(k): v for k, v in backup_ops.EXECUTORS.items()}}

@@ -93,6 +93,13 @@ def admin_password(rt, db, d) -> str | None:
     return _secret_if_present(rt, db, str(d.id), "admin-password")
 
 
+KC_ADMIN_UID = "kcadmin"   # KC_BOOTSTRAP_ADMIN_USERNAME (catalog identity.yaml); master realm, admin console at https://<auth>/admin/
+
+
+def keycloak_admin_password(rt, db, d) -> str | None:
+    return _secret_if_present(rt, db, str(d.id), "kc-admin-password")
+
+
 # ---------------------------------------------------------------- dashboard: every deployment's apps, links and health
 # which components an app depends on (its status = the worst state of their health checks)
 APP_COMPONENTS = {"portal": ("portal", "identity", "edge"), "files": ("files", "office", "edge"), "groupware": ("groupware",),

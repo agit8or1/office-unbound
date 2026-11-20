@@ -1,6 +1,7 @@
 <script setup lang="ts">
 // Dashboard: where people sign in (portal URL), every app with its live status, and every service's health, per deployment.
-// Owner 2026-11-20: "dashboard should show url for access, all apps status".
+// Owner 2026-11-20: "dashboard should show url for access, all apps status"; "links for services go to different locations, should be ONE
+// login portal": every tile opens the portal (one sign-in, then the app); the apps' own addresses are not entry points.
 import { get } from '../api'
 import { useLoad } from '../store'
 import Card from '../ui/Card.vue'
@@ -20,8 +21,8 @@ const LABEL: Record<string, string> = { ok: 'Healthy', warning: 'Degraded', crit
       <StatusBadge :s="TONE[d.health] ?? 'idle'" :text="'Overall: ' + (LABEL[d.health] ?? d.health)" /></p>
     <p v-else class="muted small">Links appear once the deployment has been created ({{ d.status }}).</p>
     <div class="ad-apps">
-      <a v-for="a in d.apps" :key="a.id" class="ad-app" :class="TONE[a.status] ?? 'idle'" :href="a.url" target="_blank" rel="noopener noreferrer" :title="a.description">
-        <span class="ad-t">{{ a.title }}</span><span class="ad-u">{{ a.url.replace('https://', '') }}</span>
+      <a v-for="a in d.apps" :key="a.id" class="ad-app" :class="TONE[a.status] ?? 'idle'" :href="d.portal ?? a.url" target="_blank" rel="noopener noreferrer" :title="a.description + ' (through the portal)'">
+        <span class="ad-t">{{ a.title }}</span><span class="ad-u">{{ a.description }}</span>
         <StatusBadge :s="TONE[a.status] ?? 'idle'" :text="LABEL[a.status] ?? a.status" />
       </a>
     </div>

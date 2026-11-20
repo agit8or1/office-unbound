@@ -276,10 +276,10 @@ def test_branding_is_applied_safely(env):
     m.branding = {**m.branding, "accent": "red;}body{display:none", "display_name": "<b>Evil</b>"}
     c.app.state.state["ics"].forget_branding()
     assert c.get("/branding.css").text == ""                                       # anything that is not #rrggbb is dropped
-    assert "<b>Evil</b>" not in c.get("/").text and "&lt;b&gt;Evil" in c.get("/").text    # escaped
+    assert "<b>Evil</b>" not in c.get("/about").text and "&lt;b&gt;Evil" in c.get("/about").text    # escaped
     m.branding = {**m.branding, "accent": "#1a5fb4", "display_name": "Acme Brothers"}
     c.app.state.state["ics"].forget_branding()
-    land = c.get("/").text
+    land = c.get("/about").text                                                     # signed-out pages carry the branding
     assert "/branding.css" in land and "Acme Brothers" in land and 'src="/branding/logo"' in land
     lg = c.get("/branding/logo")
     assert lg.headers["content-type"] == "image/svg+xml" and "sandbox" in lg.headers["content-security-policy"]

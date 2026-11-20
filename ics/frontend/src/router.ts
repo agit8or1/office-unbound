@@ -1,8 +1,10 @@
 import { createRouter, createWebHashHistory } from 'vue-router'
 import { routes } from './routes'
+import { syncRoute } from './store'
 
 // Hash history keeps the existing '#/page/arg' URLs; the server only ever serves /ui/ (no history-API fallback needed).
 export const router = createRouter({ history: createWebHashHistory('/ui/'), routes, scrollBehavior: () => ({ top: 0 }) })
+router.afterEach(() => syncRoute())
 
 /** True when a path is registered (used to show or hide links into wizards that may not be merged yet). */
 export function hasPath(path: string): boolean {

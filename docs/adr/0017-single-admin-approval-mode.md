@@ -24,3 +24,13 @@ In `single_admin` mode:
 - One compromised admin session can make high-risk changes. Login TOTP, session limits and the full audit are the remaining controls.
   Switch back to `two_person` when a second approver exists.
 - Invalid values refuse to start (`RuntimeError`).
+
+## Amendment 2026-11-20: enrollment tokens in the console
+
+Owner decision ("yes, show tokens in the console"): an administrator can issue an invited account's one-time enrollment token in
+Users & roles → Invitations (`POST /api/v1/invitations/{username}/token`). Conditions: admin role, a fresh authenticator code (`step_up`,
+single use, throttled), only an account that was invited and never enrolled (not revoked, not yourself), shown once with
+`Cache-Control: no-store`, never listed again, audited as `user.enrollment_issued` with `via: console`. Enrolled accounts are not
+reset from the console (that would let one admin take over another's sign-in); the host CLI remains the recovery path. The person
+still chooses their own password and authenticator. Trade-off accepted: the token now passes through the admin's browser.
+

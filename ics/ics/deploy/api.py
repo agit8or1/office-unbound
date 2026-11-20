@@ -25,6 +25,9 @@ class ChangePreviewIn(BaseModel):
 class RevealIn(BaseModel):
     model_config = ConfigDict(extra="forbid")
     totp_code: str
+    # "directory": ou-admin (every app); "keycloak": the sign-in service's own administrator (kcadmin, its admin console:
+    # realm settings, sessions, clients). People are added in People, which also creates their mailbox.
+    which: Literal["directory", "keycloak"] = "directory"
 
 
 class ResizeIn(BaseModel):
@@ -124,6 +127,21 @@ def register_routes(app: FastAPI, rt) -> None:
         visible = {r.slug for r in db.execute(text(f"SELECT slug FROM deployments WHERE {tscope.endpoint_clause(db)}")).all()}
         return [x for x in appaccess.apps_overview(db) if x["deployment"] in visible]
 
+    @app.get(f"{API}/deployments/{{slug}}/people")
+    def deployment_people(slug: str, user: User = Depends(require("admin")), db: Session = Depends(get_db)):
+        """The deployment's people, read live from its directory through the agent (no password). Changes are typed actions
+        (directory.account.set / .lock / .delete)."""
+        from . import accounts
+        from ..gateway import GatewayError
+        from ..agentclient import AgentError
+        d = _get(db, slug)
+        try:
+            return {"available": True, "reason": None, **accounts.people(rt, db, d.slug)}
+        except (GatewayError, AgentError) as e:
+            # an expected state (not created yet, VM offline, older image without the runbooks): shown in the panel, not an HTTP error
+            return {"available": False, "reason": f"The directory could not be read: {e}", "deployment": d.slug, "domain": None,
+                    "people": [], "truncated": False}
+
     @app.get(f"{API}/deployments/{{slug}}/access")
     def access(slug: str, user: User = Depends(require("admin")), db: Session = Depends(get_db)):
         """Open your apps: links, hosts-file lines, client settings, the deployment CA certificate (public). No secret."""
@@ -136,15 +154,16 @@ def register_routes(app: FastAPI, rt) -> None:
         d = _get(db, slug)
         ip = client_ip(request)
         step_up(db, rt, user, body.totp_code, ip, f"deployment.admin_password:{d.slug}")
-        pw = appaccess.admin_password(rt, db, d)
+        uid, pw = ((appaccess.ADMIN_UID, appaccess.admin_password(rt, db, d)) if body.which == "directory"
+                   else (appaccess.KC_ADMIN_UID, appaccess.keycloak_admin_password(rt, db, d)))
         if pw is None:
             db.commit()
-            raise HTTPException(404, "this deployment has no administrator password (it was never configured, or it was destroyed)")
+            raise HTTPException(404, "this deployment has no such administrator password (it was never configured, or it was destroyed)")
         audit.append(db, "deployment.admin_password_revealed", actor_id=user.id, actor_name=user.username, ip=ip,
-                     details={"deployment": d.slug, "username": appaccess.ADMIN_UID})
+                     details={"deployment": d.slug, "username": uid, "which": body.which})
         db.commit()
         response.headers["Cache-Control"] = "no-store"
-        return {"username": appaccess.ADMIN_UID, "password": pw}
+        return {"username": uid, "password": pw}
 
     @app.get(f"{API}/deployments/{{slug}}/events")
     def events(slug: str, limit: int = 200, user: User = Depends(require("viewer")), db: Session = Depends(get_db)):

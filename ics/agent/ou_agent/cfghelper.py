@@ -159,11 +159,14 @@ def ldapi(x, ldif, what, add=False):
     return x.run(argv, input=ldif, what=what)
 
 
-def ldap_search(x, base, flt, attrs, scope="sub"):
-    r = x.run([BIN["ldapsearch"], "-LLL", "-o", "ldif-wrap=no", "-Q", "-Y", "EXTERNAL", "-H", "ldapi:///", "-s", scope, "-b", base, flt, *attrs],
-              check=False, what="ldapsearch")
+def ldap_search(x, base, flt, attrs, scope="sub", limit=None):
+    """`limit`: a size limit (-z); hitting it (rc 4, sizeLimitExceeded) still returns the entries read so far."""
+    r = x.run([BIN["ldapsearch"], "-LLL", "-o", "ldif-wrap=no", "-Q", "-Y", "EXTERNAL", "-H", "ldapi:///", "-s", scope, "-b", base,
+               *(["-z", str(limit)] if limit else []), flt, *attrs], check=False, what="ldapsearch")
     if r.returncode == 32:   # no such object
         return ""
+    if limit and r.returncode == 4:
+        return r.stdout
     if r.returncode != 0:
         raise Failed(f"ldapsearch failed (rc {r.returncode}): {x.scrub(r.stderr)}")
     return r.stdout
@@ -276,6 +279,189 @@ def ldap_user(p, x):
             ldapi(x, f"dn: {gdn}\nchangetype: modify\nadd: member\nmember: {dn}\n", f"group {g}")
             added.append(g)
     return {"uid": p["uid"], "created": created, "groups_added": added}
+
+
+# ---------------------------------------------------------------- directory accounts (list, groups, lock, delete)
+# Fixed bases (ou=people / ou=groups of the domain's suffix), fixed filters, fixed attribute lists; the only request value in a DN is the
+# regex-checked uid or group name. Locking uses the ppolicy overlay cfg.ldap_init loads (olcPPolicyUseLockout): pwdAccountLockedTime
+# 000001010000Z is the administrative lock (binds refused until it is removed); the password itself is never touched.
+MAX_LIST = 2000
+LIST_BUDGET = 48 * 1024          # bytes of JSON result; the agent's cfg result cap and the ICS response cap are above this
+ADMIN_LOCK = "000001010000Z"
+PROTECTED_UID = "ou-admin"
+ORG_ADMIN = "org-admin"
+PEOPLE_ATTRS = ("uid", "mail", "displayName", "givenName", "sn", "cn", "pwdAccountLockedTime")   # never a password attribute
+
+
+def ldif_entries(text):
+    """[(dn, {attr_lowercase: [values]})] from ldapsearch LDIF: folded lines, `::` base64 values, comments; attribute options are dropped,
+    `:<` URL values ignored, password attributes never kept."""
+    lines = []
+    for ln in (text or "").splitlines():
+        if ln.startswith(" ") and lines:
+            lines[-1] += ln[1:]
+        else:
+            lines.append(ln)
+    out, dn, attrs = [], None, {}
+    for ln in lines + [""]:
+        if not ln.strip():
+            if dn is not None:
+                out.append((dn, attrs))
+            dn, attrs = None, {}
+            continue
+        if ln.startswith("#") or ":" not in ln:
+            continue
+        name, _, val = ln.partition(":")
+        if val.startswith(":"):
+            try:
+                val = base64.b64decode(val[1:].strip(), validate=True).decode("utf-8")
+            except (ValueError, UnicodeDecodeError):
+                continue
+        elif val.startswith("<"):
+            continue
+        else:
+            val = val[1:] if val.startswith(" ") else val
+        name = name.split(";")[0].strip().lower()
+        if name == "dn":
+            dn = val
+        elif dn is not None and "password" not in name and name not in ("pwdhistory",):
+            attrs.setdefault(name, []).append(val)
+    return out
+
+
+def _people_dn(uid, base):
+    return f"uid={uid},ou=people,{base}"
+
+
+def _member_uid(member, base):
+    """The uid of a member DN directly under ou=people of this suffix, else None (svc-bind and other non-people members)."""
+    rdn, _, rest = member.partition(",")
+    if _dnkey(rest) != f"ou=people,{base}".lower() or not rdn.strip().lower().startswith("uid="):
+        return None
+    return rdn.strip()[4:]
+
+
+def _groups(x, base):
+    """{cn: [member DNs]} of every groupOfNames under ou=groups."""
+    out = {}
+    for dn, a in ldif_entries(ldap_search(x, f"ou=groups,{base}", "(objectClass=groupOfNames)", ["cn", "member"], scope="one", limit=MAX_LIST)):
+        cn = (a.get("cn") or [dn.split(",")[0].partition("=")[2]])[0]
+        out[cn] = a.get("member", [])
+    return out
+
+
+def _dnkey(dn):
+    return re.sub(r"\s*,\s*", ",", dn.strip()).lower()
+
+
+def _is_member(members, dn):
+    return _dnkey(dn) in {_dnkey(m) for m in members}
+
+
+def _remove_member(x, base, group, members, dn):
+    """Delete one member value; groupOfNames needs a member, so a group the person was alone in keeps the bind account (as cfg.ldap_init creates it)."""
+    gdn = f"cn={group},ou=groups,{base}"
+    if len([m for m in members if not _is_member([m], dn)]) == 0:
+        ldapi(x, f"dn: {gdn}\nchangetype: modify\nreplace: member\nmember: cn=svc-bind,ou=system,{base}\n", f"group {group}")
+    else:
+        ldapi(x, f"dn: {gdn}\nchangetype: modify\ndelete: member\nmember: {dn}\n", f"group {group}")
+
+
+def _last_org_admin(groups, base, dn):
+    """True when `dn` is the only person in org-admin (removing it would leave the organization without an administrator)."""
+    members = groups.get(ORG_ADMIN)
+    if members is None or not _is_member(members, dn):
+        return False
+    return not [m for m in members if _member_uid(m, base) is not None and not _is_member([m], dn)]
+
+
+def ldap_list(p, x):
+    base = c.base_dn(p["domain"])
+    groups = _groups(x, base)
+    people_ldif = ldap_search(x, f"ou=people,{base}", "(objectClass=inetOrgPerson)", list(PEOPLE_ATTRS), scope="one", limit=MAX_LIST)
+    people = []
+    for dn, a in ldif_entries(people_ldif)[:MAX_LIST]:
+        uid = (a.get("uid") or [None])[0]
+        if uid is None:
+            continue
+        first = lambda k: (a.get(k) or [""])[0]   # noqa: E731
+        people.append({"uid": uid, "mail": first("mail"), "display_name": first("displayname") or first("cn"), "given_name": first("givenname"),
+                       "surname": first("sn"), "groups": sorted(g for g, m in groups.items() if _is_member(m, dn)),
+                       "locked": bool(a.get("pwdaccountlockedtime"))})
+    people.sort(key=lambda e: e["uid"])
+    glist = [{"cn": g, "members": sorted(u for u in (_member_uid(m, base) for m in groups[g]) if u)} for g in sorted(groups)][:MAX_LIST]
+    truncated = len(people) >= MAX_LIST or len(groups) >= MAX_LIST
+    res = {"suffix": base, "people": people, "groups": glist, "truncated": truncated}
+    while len(json.dumps(res)) > LIST_BUDGET:   # keep the result within what the agent relays: people first, then the longest member lists
+        res["truncated"] = True
+        if res["people"]:
+            del res["people"][-max(1, len(res["people"]) // 10):]
+            continue
+        big = max(res["groups"], key=lambda g: len(g["members"]), default=None)
+        if big is None or not big["members"]:
+            res["groups"] = res["groups"][:len(res["groups"]) // 2]
+            continue
+        del big["members"][-max(1, len(big["members"]) // 10):]
+    return res
+
+
+def ldap_groups(p, x):
+    base = c.base_dn(p["domain"])
+    dn = _people_dn(p["uid"], base)
+    if not exists(x, dn):
+        raise Failed(f"person {p['uid']} does not exist")
+    groups = _groups(x, base)
+    unknown = sorted(g for g in (*p["add"], *p["remove"]) if g not in groups)
+    if unknown:
+        raise Failed("unknown group: " + ", ".join(unknown))
+    if ORG_ADMIN in p["remove"] and _last_org_admin(groups, base, dn):
+        raise Failed(f"{p['uid']} is the last member of {ORG_ADMIN}")
+    added, removed = [], []
+    for g in p["add"]:
+        if not _is_member(groups[g], dn):
+            ldapi(x, f"dn: cn={g},ou=groups,{base}\nchangetype: modify\nadd: member\nmember: {dn}\n", f"group {g}")
+            added.append(g)
+    for g in p["remove"]:
+        if _is_member(groups[g], dn):
+            _remove_member(x, base, g, groups[g], dn)
+            removed.append(g)
+    return {"uid": p["uid"], "added": added, "removed": removed}
+
+
+def ldap_lock(p, x):
+    base = c.base_dn(p["domain"])
+    dn = _people_dn(p["uid"], base)
+    found = ldif_entries(ldap_search(x, dn, "(objectClass=*)", ["pwdAccountLockedTime"], scope="base"))
+    if not found:
+        raise Failed(f"person {p['uid']} does not exist")
+    cur = found[0][1].get("pwdaccountlockedtime", [])
+    changed = False
+    if p["locked"] and cur != [ADMIN_LOCK]:   # also turns a failure lockout (a timestamp) into the administrative lock
+        ldapi(x, f"dn: {dn}\nchangetype: modify\nreplace: pwdAccountLockedTime\npwdAccountLockedTime: {ADMIN_LOCK}\n", "lock")
+        changed = True
+    elif not p["locked"] and cur:
+        ldapi(x, f"dn: {dn}\nchangetype: modify\ndelete: pwdAccountLockedTime\n", "unlock")
+        changed = True
+    return {"uid": p["uid"], "locked": p["locked"], "changed": changed}
+
+
+def ldap_delete(p, x):
+    if p["uid"] == PROTECTED_UID:   # cfgspec refuses it too; the helper never trusts the spool
+        raise Failed(f"{PROTECTED_UID} cannot be deleted")
+    base = c.base_dn(p["domain"])
+    dn = _people_dn(p["uid"], base)
+    if not exists(x, dn):
+        return {"uid": p["uid"], "deleted": False, "groups_removed": []}
+    groups = _groups(x, base)
+    if _last_org_admin(groups, base, dn):
+        raise Failed(f"{p['uid']} is the last member of {ORG_ADMIN}")
+    removed = []
+    for g in sorted(groups):
+        if _is_member(groups[g], dn):
+            _remove_member(x, base, g, groups[g], dn)
+            removed.append(g)
+    ldapi(x, f"dn: {dn}\nchangetype: delete\n", "delete person")
+    return {"uid": p["uid"], "deleted": True, "groups_removed": removed}
 
 
 # ---------------------------------------------------------------- PostgreSQL
@@ -951,7 +1137,8 @@ def portal(p, x):
     return {"base_url": p["base_url"], "config_changed": changed}
 
 
-DISPATCH = {"cfg.firewall": firewall, "cfg.hosts": hosts, "cfg.tls": tls, "cfg.ldap_init": ldap_init, "cfg.ldap_user": ldap_user, "cfg.pg_db": pg_db,
+DISPATCH = {"cfg.firewall": firewall, "cfg.hosts": hosts, "cfg.tls": tls, "cfg.ldap_init": ldap_init, "cfg.ldap_user": ldap_user, "cfg.ldap_list": ldap_list,
+            "cfg.ldap_groups": ldap_groups, "cfg.ldap_lock": ldap_lock, "cfg.ldap_delete": ldap_delete, "cfg.pg_db": pg_db,
             "cfg.podman_secret": podman_secret, "cfg.volume_files": volume_files, "cfg.nginx_site": nginx_site, "cfg.gromox": gromox,
             "cfg.nginx_default": nginx_default, "cfg.portal": portal, "cfg.acme": acme}
 

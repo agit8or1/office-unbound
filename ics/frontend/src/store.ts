@@ -41,6 +41,9 @@ function parse() {
   return { page, arg: rest.join('/') }
 }
 window.addEventListener('hashchange', () => { route.value = parse() })
+/** Called by the router after every navigation: router links change the URL with pushState, which fires no 'hashchange',
+ *  so without this the legacy route kept the previous page's argument (e.g. "directory" from #/users/directory became a job id). */
+export function syncRoute() { route.value = parse() }
 export function go(page: string, arg = '') { location.hash = `#/${page}${arg ? '/' + arg : ''}` }
 
 // ---- data loading helper ----

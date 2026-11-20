@@ -42,6 +42,7 @@ SIP_DEVICES = ("web", "native", "desk")
 SECRET_DIR = "/run/ou-rb-secret"   # 0700 dir owned by ou-agent (made by the helper); the credential result is 0600, the agent unlinks it after reading
 RESULT_DIR = "/run/ou-rb"
 MAX_RESULT = 24576
+MAX_CFG_RESULT = 56 * 1024   # cfg.ldap_list returns the directory listing (cfghelper.LIST_BUDGET 48 KiB); below the ICS response cap (64 KiB)
 _ENV = {"PATH": "/usr/bin:/bin", "LANG": "C"}
 
 
@@ -267,7 +268,7 @@ def _cfg_runbook(action: str, params: dict) -> dict:
         r = _systemctl("start", "--wait", f"ou-rb-cfg@{rid}.service", timeout=1000)
         path = os.path.join(RESULT_ROOT, "ou-rb-cfg", rid + ".json")
         try:
-            if os.stat(path).st_size > MAX_RESULT:
+            if os.stat(path).st_size > MAX_CFG_RESULT:
                 raise ValueError("result too large")
             with open(path) as f:
                 data = json.load(f)

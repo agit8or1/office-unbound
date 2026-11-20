@@ -12,7 +12,7 @@ import Segmented from '../ui/Segmented.vue'
 import Button from '../ui/Button.vue'
 
 const jobs = useLoad(() => get<Job[]>('jobs'), 5000)
-const selId = computed(() => route.value.arg)
+const selId = computed(() => (route.value.page === 'jobs' && /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(route.value.arg) ? route.value.arg : ''))
 const sel = useLoad(async () => (selId.value ? get<Job>(`jobs/${selId.value}`) : null), 5000)
 </script>
 <template>

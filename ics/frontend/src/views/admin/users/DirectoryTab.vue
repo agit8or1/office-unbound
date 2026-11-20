@@ -37,6 +37,11 @@ function onDone() { emit('changed') }
 </script>
 <template>
   <section class="ux-stack">
+    <div v-if="hasRole('admin')" class="row" data-testid="dir-add">
+      <a class="ux-btn primary" href="#/users/privileged/create">Add an administrator or approver</a>
+      <a class="ux-btn" href="#/users/invitations">Add a viewer or operator</a>
+      <span class="muted small">Console accounts (this admin console). People who use mail and files are added on the deployment page, under People.</span>
+    </div>
     <div class="ux-toolbar">
       <label class="ux-search"><span class="sr">Search users</span>
         <input v-model="q" type="search" placeholder="Search by username" autocomplete="off"></label>

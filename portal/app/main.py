@@ -214,7 +214,8 @@ def create_app(cfg: Settings | None = None, transport: httpx.AsyncBaseTransport 
     async def home(request: Request) -> Response:
         s = await current(request)
         if not s:
-            return render(request, "landing.html")
+            # owner 2026-11-20: "https://app.<domain>/ should go right to auth": no intermediate page, straight to the sign-in service
+            return RedirectResponse("/login", status_code=303)
         notices, recent = [], []
         try:
             recent = await services.recent_files(cfg, state["http"], s.access_token, s.claims.get("preferred_username", ""))

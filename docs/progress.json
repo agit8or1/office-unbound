@@ -5,8 +5,22 @@
   "repository": "https://github.com/agit8or1/office-unbound",
   "updated": "2026-11-19",
   "stage": "pre-alpha (lab)",
-  "current_version": "0.7.2",
+  "current_version": "0.8.0",
   "releases": [
+    {
+      "version": "0.8.0",
+      "date": "2026-11-20",
+      "status": "prepared",
+      "codename": "Harbor",
+      "channel": "pre-release",
+      "highlights": [
+        "0.8.0: People per deployment from the console: add administrators and users, change, lock/unlock, delete (typed, audited)",
+        "0.8.0: installation tenancy mode (single / multi tenant), fixed once deployments exist",
+        "0.8.0: agent 0.8.0-ou14, golden image version 11"
+      ],
+      "notes_url": "https://github.com/agit8or1/office-unbound/blob/main/CHANGELOG.md",
+      "changelog": "CHANGELOG.md"
+    },
     {
       "version": "0.7.2",
       "date": "2026-11-20",

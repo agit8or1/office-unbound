@@ -2,14 +2,17 @@
 // Guided approval workflow for privileged access: grant a role to an existing user, change a role, or create a privileged account.
 // Final step submits ONE high-risk plan (user.set_role or user.invite) with the justification inside the approved params.
 import { computed, ref } from 'vue'
-import { ApiError, get, ROLES, type PlanCreated, type Role } from '../../../api'
+import { ApiError, get, ROLES, type ApprovalPolicy, type PlanCreated, type Role } from '../../../api'
 import { go, session, useLoad } from '../../../store'
 import ErrorBox from '../../../components/ErrorBox.vue'
 import { PRIVILEGED, submitPlan, USERNAME_RE, type DirUser, type Policy } from './users'
 
 const props = defineProps<{ mode: 'grant' | 'create' | 'change'; preset: string; users: DirUser[] }>()
 const policy = useLoad(() => get<Policy>('access-policy'))
-const need = computed(() => policy.data.value?.approvals.find((a) => a.risk === 'high')?.required ?? 2)
+const apolicy = useLoad(() => get<ApprovalPolicy>('approvals/policy'))
+// ADR-0017 single-admin install: the only admin approves their own plans (one approval); otherwise the high-risk count from the policy
+const solo = computed(() => apolicy.data.value?.mode === 'single_admin')
+const need = computed(() => (solo.value ? 1 : policy.data.value?.approvals.find((a) => a.risk === 'high')?.required ?? apolicy.data.value?.high ?? 2))
 
 const step = ref(1)
 const username = ref(props.preset)
@@ -85,7 +88,8 @@ async function submit() {
           <strong>What happens next</strong>
           <ol>
             <li>Nothing changes now. A plan is created and recorded with your name and the justification above.</li>
-            <li><strong>{{ need }} approvers</strong> must approve it. You cannot approve your own plan, and neither can anyone you created or elevated.</li>
+            <li v-if="solo">You approve it yourself in Approvals (single-administrator installation; recorded in the audit log).</li>
+            <li v-else><strong>{{ need }} approvers</strong> must approve it. You cannot approve your own plan, and neither can anyone you created or elevated.</li>
             <li v-if="create">After approval the account exists <strong>without credentials</strong>. A host operator issues a one-time token (Invitations tab); the person then chooses their own password and authenticator.</li>
             <li v-else>After approval the role changes immediately on the next job run{{ grants ? '' : ', and any elevated rights are removed' }}.</li>
           </ol>
@@ -94,15 +98,16 @@ async function submit() {
           <strong>Provenance rule.</strong> You will be recorded as the person who {{ create ? 'created' : 'elevated' }} <strong>{{ username.trim() }}</strong>.
           As an {{ role }} they will never be able to approve plans that <em>you</em> request. This stops one admin from creating their own approvers.
         </div>
-        <label class="inline"><input v-model="ack" type="checkbox"> I understand that this grants {{ role }} access and needs {{ need }} independent approvals.</label>
+        <label class="inline"><input v-model="ack" type="checkbox"> I understand that this grants {{ role }} access and needs {{ solo ? 'your approval' : need + ' independent approvals' }}.</label>
         <ErrorBox :error="err" />
         <div class="row end"><button class="ghost" @click="step = 2">Back</button>
           <button class="primary" :disabled="!ack || busy" @click="submit">{{ busy ? 'Submitting…' : 'Submit for approval' }}</button></div>
       </div>
 
       <div v-if="step === 4 && result" class="ux-form">
-        <div class="alert ok" role="status"><strong>Submitted.</strong> Plan <span class="mono">{{ result.plan_id.slice(0, 8) }}</span> is waiting for {{ result.approvals_required }} approvals.</div>
-        <p>Ask two approvers (not you, and not anyone you created or elevated) to open the plan in Approvals and approve it.</p>
+        <div class="alert ok" role="status"><strong>Submitted.</strong> Plan <span class="mono">{{ result.plan_id.slice(0, 8) }}</span> is waiting for {{ result.approvals_required }} approval{{ result.approvals_required === 1 ? '' : 's' }}.</div>
+        <p v-if="solo">Open the plan in Approvals and approve it. Then issue the person's one-time token (Invitations tab).</p>
+        <p v-else>Ask {{ need }} approvers (not you, and not anyone you created or elevated) to open the plan in Approvals and approve it.</p>
         <div class="row">
           <a class="ux-btn primary" :href="'#/plans/' + result.plan_id">Open in Approvals</a>
           <button class="ghost" @click="go('users', 'directory')">Back to directory</button>

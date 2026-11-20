@@ -18,6 +18,10 @@ import {
 } from './sizing'
 
 const m = reactive(newModel())
+// single-tenant installations offer no multi-customer layout (installation tenancy mode, Settings -> System)
+const tenancy = ref<string | null>(null)
+onMounted(async () => { try { tenancy.value = (await api.tenancy()).mode } catch { tenancy.value = null } })
+const deploymentTypes = computed(() => DEPLOYMENT_TYPES.filter((t) => !(tenancy.value === 'single' && t.id === 'msp')))
 const resp = ref<SizeResponse | null>(null)
 const respKey = ref('')
 const sizeError = ref('')
@@ -108,7 +112,7 @@ function submit() {
             <h2>What kind of deployment is this?</h2>
             <p v-if="err('type')" class="dw-bad" role="alert">{{ err('type') }}</p>
             <div class="wz-cards" role="group" aria-label="Deployment type">
-              <button v-for="t in DEPLOYMENT_TYPES" :key="t.id" type="button" class="wz-pick" :aria-pressed="m.type === t.id" @click="applyType(m, t.id)">
+              <button v-for="t in deploymentTypes" :key="t.id" type="button" class="wz-pick" :aria-pressed="m.type === t.id" @click="applyType(m, t.id)">
                 <b>{{ t.title }}</b><span class="muted">{{ t.blurb }}</span>
               </button>
             </div>

@@ -459,6 +459,8 @@ def create_app(settings: Settings | None = None, runtime: Runtime | None = None)
     if not rt.settings.guest_callback_dedicated:
         guest_callback.register(app, rt)  # golden-image bootstrap callback (guest/callback.py): HMAC-authenticated, single use, rate limited
     console_api.register(app, rt, API)  # GET releases, GET deployments/{slug}/bootstrap (read-only console views)
+    from .tenancy_mode import register_routes as register_tenancy_routes
+    register_tenancy_routes(app, rt)  # installation tenancy mode (tenancy_mode.py)
     from .netsettings import register_routes as register_network_routes
     register_network_routes(app, rt)  # Settings -> Network & domains (netsettings.py)
     register_deploy_routes(app, rt)  # catalog, deployments, drift, change preview, job steps (deploy/api.py)

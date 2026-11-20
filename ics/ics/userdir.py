@@ -7,7 +7,8 @@ live session details are admin only. Enrollment tokens are never exposed over th
 from datetime import datetime, timedelta, timezone
 from uuid import UUID
 
-from fastapi import Depends, FastAPI, HTTPException
+from fastapi import Depends, FastAPI, HTTPException, Request, Response
+from pydantic import BaseModel, ConfigDict
 from sqlalchemy import text
 from sqlalchemy.orm import Session
 
@@ -39,6 +40,11 @@ CAPABILITIES = [
 
 def _iso(v):
     return v.isoformat() if isinstance(v, datetime) else v
+
+
+class TokenIn(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+    totp_code: str
 
 
 def _status(r, locked: bool) -> str:
@@ -145,7 +151,7 @@ def register(app: FastAPI, rt: Runtime, API: str) -> None:
 
     @app.get(f"{API}/invitations")
     def invitations(status: str | None = None, user: User = Depends(require("viewer")), db: Session = Depends(get_db)):
-        """Accounts that never completed enrollment. status: pending|expired|revoked. Tokens are never returned."""
+        """Accounts that never completed enrollment. status: pending|expired|revoked. Tokens are never listed (issued once: POST .../token)."""
         if status not in (None, "pending", "expired", "revoked"):
             raise HTTPException(422, "status must be pending, expired or revoked")
         rows = db.execute(text(
@@ -169,6 +175,18 @@ def register(app: FastAPI, rt: Runtime, API: str) -> None:
                         "token_expires_at": _iso(r.enrollment_expires_at) if r.has_token else None})
         return out
 
+    @app.post(f"{API}/invitations/{{username}}/token")
+    def invitation_token(username: str, body: TokenIn, request: Request, response: Response, user: User = Depends(require("admin")),
+                         db: Session = Depends(get_db)):
+        """Issue an invited account's one-time enrollment token in the console: fresh authenticator code, audited, shown once."""
+        ip = auth.client_ip(request)
+        auth.step_up(db, rt, user, body.totp_code, ip, f"user.enrollment_token:{username}")
+        db.commit()   # the code is used up even when the request is refused below
+        token, exp = auth.issue_invitation_token(db, rt, username, actor=user)
+        db.commit()
+        response.headers["Cache-Control"] = "no-store"
+        return {"username": username, "token": token, "expires_at": _iso(exp)}
+
     @app.get(f"{API}/access-policy")
     def access_policy(user: User = Depends(require("viewer"))):
         """The effective policy, read from the running settings (read-only; changing it is a deployment/host decision)."""
@@ -185,7 +203,7 @@ def register(app: FastAPI, rt: Runtime, API: str) -> None:
                         "backoff_base_seconds": s.login_backoff_base_seconds, "backoff_cap_seconds": s.login_backoff_cap_seconds,
                         "per_ip_max_failures": s.login_ip_max_failures},
             "mfa": {"mandatory": True, "method": "TOTP (RFC 6238), one use per time step"},
-            "enrollment": {"token_ttl_seconds": s.enrollment_ttl_seconds, "token_channel": "host CLI only (never returned by the API)",
+            "enrollment": {"token_ttl_seconds": s.enrollment_ttl_seconds, "token_channel": "console (admin, fresh authenticator code, shown once, audited; invited accounts only) or host CLI (also recovery)",
                            "password_min_length": 12},
             "plan_expiry_seconds": s.plan_expiry_seconds,
             "rules": [

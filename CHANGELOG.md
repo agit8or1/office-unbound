@@ -10,6 +10,33 @@ isolated lab; nothing is production supported ([ROADMAP.md](ROADMAP.md)).
 
 ## [Unreleased]
 
+## [0.8.0] - 2026-11-20
+
+First release of the 0.8 "Harbor" line: **people and administrators of a deployment are managed from the console, and the installation has a tenancy mode.**
+
+- **New: People on every deployment page** (administrators). The list is read live from the deployment's directory: user, name, email, role (Administrator or User), Active or Locked. The deployment's own administrator (`ou-admin`) is marked.
+  - **Add a person** with a role and a password (8 characters or more). An administrator gets administrator rights in files and the portal's organisation admin role, plus a mailbox. A user gets mail, files and documents.
+  - **Change** a person's password, name or role. Changing the role removes the groups of the other role.
+  - **Lock / Unlock**: the directory's password-policy lock. The password is kept; new sign-ins are refused while locked.
+  - **Delete**: memberships are removed first. The deployment administrator and the last organisation administrator can't be deleted.
+  - Every change is a typed action (`directory.account.set`, `.lock`, `.delete`) with approval and audit. Delete is high risk. Passwords exist only in the plan's encrypted secret and the signed agent request.
+  - The directory is changed only through new agent runbooks on that deployment's identity VM (`cfg.ldap_list`, `cfg.ldap_groups`, `cfg.ldap_lock`, `cfg.ldap_delete`; closed schemas, no free-form LDAP). They are enabled only on identity VMs, so VMs from older images keep booting ([test_deploy_accounts.py](ics/tests/test_deploy_accounts.py), [test_agent_ldap_accounts.py](ics/tests/test_agent_ldap_accounts.py)).
+- **New: installation tenancy mode** (System → "Tenancy mode"): single tenant (one organisation; the deploy wizard offers no multi-customer layout) or multi tenant (MSP: customers, each with a separate stack). It can be changed only while no deployment exists. Converting live deployments needs a migration plan that does not exist yet, so it is refused rather than half-done (typed action `settings.tenancy.set`, issue #32).
+- **Node agent 0.8.0-ou14 and golden image version 11** carry the directory runbooks. Deployments created before 0.8.0 need recreating, or their identity VM's agent configuration updating, before People works on them.
+- **One sign-in entry point.** The dashboard's app tiles all open the portal (`https://app.<domain>/`), which opens files, documents and mail without a second sign-in; the apps' own addresses are listed only under "Direct addresses" on the deployment page.
+- **Sign-in service administration.** The deployment page links the sign-in service's admin console (`https://auth.<domain>/admin/`) and can show its administrator password (`kcadmin`) after a fresh authenticator code (audited, like the `ou-admin` password). People are still added under People, which also creates their mailbox.
+- **Users & roles: adding console accounts is visible.** The Directory tab has "Add an administrator or approver" and "Add a viewer or operator". In a single-administrator installation the privileged-account flow now says plainly that you approve it yourself (it claimed two other approvers were needed).
+- Fixed: "Job director ... path.job_id: Input should be a valid UUID" (and the same on Incidents). Router links change the address without a `hashchange` event, so pages that read the old hash parser kept the previous page's argument (`directory` from Users & roles). The parser now follows every navigation ([routesync.test.ts](ics/frontend/src/routesync.test.ts)).
+- Fixed: the People card on a deployment whose directory can't be read shows the reason instead of an HTTP error; the grey "idle" badge colour now meets the 4.5:1 contrast minimum in the light theme.
+- **New: enrollment tokens in the console** (owner decision, [ADR-0017 amendment](docs/adr/0017-single-admin-approval-mode.md)). Users & roles → Invitations → "Issue token": after a fresh authenticator code the one-time token is shown once, with the enrollment link, and recorded in the audit log. Only for invited accounts that never enrolled; resetting an enrolled account stays a host-CLI recovery step ([test_invitation_token.py](ics/tests/test_invitation_token.py)).
+- **Portal 0.2.1: the portal address goes straight to sign-in.** Signed-out visitors to `https://app.<domain>/` are sent directly to the sign-in service (no intermediate landing page) and come back to the portal signed in.
+- **Hardened before release (independent security review).**
+  - Console sign-up tokens are refused for any account that ever enrolled, including one reset on the host for recovery; for administrators scoped to particular customers; and, in two-person approval mode, for approver and admin invitations (those stay on the host). The authenticator code is used up even when the request is refused, and a shown token hides itself after 2 minutes.
+  - People can't change or lock `ou-admin`, the deployment's own administrator. Its password stays the one shown under "Open your apps", and an organisation administrator therefore always remains.
+  - Names are checked by the same rule as the directory agent when the change is requested, not after approval.
+  - The matching agent-side checks ship with the next agent build. Known limit: changing an existing person's name is not applied yet (the password and role are).
+- Known limit: locking stops new sign-ins; existing Keycloak, mail and files sessions end only when they expire (session revocation is planned). The portal's own admin area for tenant administrators comes next.
+
 ## [0.7.2] - 2026-11-20
 
 - **Fix: webmail (`mail.<domain>`) showed a certificate error.** The groupware runs on its own VM with the deployment's own certificate. The gateway now serves `mail.` and `autodiscover.` too, with its certificate (the public one once issued, which now covers these two names as well), and proxies webmail, ActiveSync, EWS, MAPI, DAV and Autodiscover to the mail VM over HTTPS verified against the deployment CA. IMAP and SMTP are unchanged (direct to the mail VM; needed for external mail later). The temporary host bridge used on 2026-11-20 is removed with this release.
@@ -330,6 +357,7 @@ editing, chat/meetings, telephony prototype, migration tooling and package pipel
 - `SECURITY.md` (private reporting) and `CONTRIBUTING.md` (DCO sign-off) added; AGPL-3.0 license. [SECURITY](SECURITY.md)
 
 [Unreleased]: https://github.com/agit8or1/office-unbound/compare/v0.4.7...HEAD
+[0.8.0]: https://github.com/agit8or1/office-unbound/compare/v0.7.2...v0.8.0
 [0.7.2]: https://github.com/agit8or1/office-unbound/compare/v0.7.1...v0.7.2
 [0.7.1]: https://github.com/agit8or1/office-unbound/compare/v0.7.0...v0.7.1
 [0.7.0]: https://github.com/agit8or1/office-unbound/compare/v0.6.2...v0.7.0

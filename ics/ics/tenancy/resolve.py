@@ -61,6 +61,8 @@ REFS: dict[str, list[tuple[str, str]]] = {
     "deployment.destroy": [("deployment_id", "deployment")],
     "gateway.certificates.issue": [("deployment", "deployment")],
     "directory.account.set": [("deployment", "deployment")],
+    "directory.account.lock": [("deployment", "deployment")],
+    "directory.account.delete": [("deployment", "deployment")],
     "endpoint.disable": [("endpoint_id", "endpoint")],
     "endpoint.enable": [("endpoint_id", "endpoint")],
     "endpoint.register": [("customer_id", "customer")],
@@ -113,6 +115,7 @@ REFS: dict[str, list[tuple[str, str]]] = {
 
 # actions without a customer: MSP-wide administration. Scoped operators are refused for these (create_plan: cust is None -> 404).
 MSP_GLOBAL: dict[str, str] = {
+    "settings.tenancy.set": "the installation's tenancy mode (single / multi tenant): MSP-wide, admin_only",
     "settings.network.update": "the installation's public address (Settings -> Network & domains): MSP-wide infrastructure, admin_only",
     "settings.management.update": "who may reach the ICS console under its public name (Settings -> Network & domains): the ICS host itself, admin_only",
     "customer.create": "creates a customer: the MSP's own administration",
