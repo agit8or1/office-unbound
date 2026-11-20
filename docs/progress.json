@@ -10,7 +10,7 @@
     {
       "version": "0.5.0",
       "date": "2026-11-19",
-      "status": "prepared",
+      "status": "released",
       "codename": "Ember",
       "channel": "pre-release",
       "highlights": [
@@ -563,9 +563,10 @@
           "status": "integrated_lab",
           "evidence": [
             "docs/status/multi-vm-deploy-results.md",
+            "docs/status/groupware-deploy-results.md",
             "docs/status/deployment-engine.md"
           ],
-          "note": "Milestone 2026-11-19: repeatable multi-VM deployment of identity + edge + files + Office through the production ICS onto real pve06 (e2e-fo7/fo8/fo9: create 267-314 s, 6/6 health checks, destroy 14-17 s leaves no checks or incidents; 3 of 3 since 0.4.7). Mail/groupware has no configuration runbook yet; chat, meetings, telephony artifacts unsigned/placeholder."
+          "note": "Milestone 2026-11-19: repeatable multi-VM deployment of identity + edge + files + Office through the production ICS onto real pve06 (e2e-fo7/fo8/fo9: create 267-314 s, 6/6 health checks, destroy 14-17 s leaves no checks or incidents; 3 of 3 since 0.4.7). Milestone 2026-11-20: full stack including mail (identity + edge, files + Office, groupware) deployed on pve06 by ICS 0.5.0 (e2e-gw1, 3 VMs, 10/10 health checks incl. SMTP, submission, IMAPS, webmail TLS; groupware-deploy-results.md). Chat, meetings, telephony artifacts unsigned/placeholder."
         },
         {
           "id": "P2.3",

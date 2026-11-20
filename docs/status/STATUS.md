@@ -1,6 +1,8 @@
 # Office Unbound — status
 
-**Milestone (2026-11-19):** first repeatable multi-VM deployment of the core stack (identity, edge, files, Office) through the production ICS onto real Proxmox pve06, 3 of 3 green with clean destroy (`multi-vm-deploy-results.md`). Current release 0.4.10. Next: mail/groupware in the deployed stack, then external mail (owner: public IP + domain). Beta plan and scorecard: `ALPHA-EXECUTION-QUEUE.md`; public roadmap: ROADMAP.md / docs/progress.json.
+**Milestone (2026-11-20):** first deployment of the full stack including mail (identity, edge, files, Office, groupware: gromox, Postfix, webmail, ActiveSync, CalDAV/CardDAV) through ICS 0.5.0 onto pve06, all ten health checks green (`groupware-deploy-results.md`). Current release 0.5.0.
+
+**Milestone (2026-11-19):** first repeatable multi-VM deployment of the core stack (identity, edge, files, Office) through the production ICS onto real Proxmox pve06, 3 of 3 green with clean destroy (`multi-vm-deploy-results.md`). Next: external mail (owner: public IP + domain). Beta plan and scorecard: `ALPHA-EXECUTION-QUEUE.md`; public roadmap: ROADMAP.md / docs/progress.json.
 **Constraints:** ADR-0007 zero mandatory licensing cost / no artificial limits. Proxmox: cluster agit8or1 connected (pve06 only; pve01-05, ha-zfs, PBS1 never touched; VM 126 = the ICS, protected).
 
 ## Component status (ADR-0000)

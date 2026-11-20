@@ -46,7 +46,13 @@ Functional checks (`gwverify.py`, TLS verified against the deployment CA, the ad
 **13/13**, again **13/13 after a reboot** of the machine (every service enabled and active, socket directory and lockdown re-applied), and a
 second run of `cfg.gromox` succeeds without changes (idempotent). A directory address that has no entry is skipped with its reason.
 
+## Real-VM result (ICS 0.5.0, deployment e2e-gw1, pve06, 2026-11-19 23:58 - 2026-11-20 00:21Z)
+Three VMs (identity+edge, files+office, groupware) cloned from golden image v8 (template 136, agent 0.5.0-ou10), configured end to end by
+the deployment job: **all ten health checks ok**, among them the four groupware checks: SMTP 25 banner + EHLO, submission 587 banner + EHLO,
+IMAPS 993 TLS 1.3 and web 8447 TLS 1.3 (certificate valid for the deployment names). First attempt, no defect. A send/receive test on the
+real VM is still to be run (the lab ran it, 13/13).
+
 ## Not yet
-- Real-VM deployment through the ICS (golden image v8 with agent 0.5.0-ou10): next, results below once run.
+- Send/receive and client tests on the real VM; signing in needs the administrator password, which the console does not show yet (0.5.1).
 - Outbound internet mail, SPF/DKIM/DMARC, spam and virus filtering, MX in public DNS: Stage 3, needs the owner's public IP and domain.
 - Edge route for webmail; single sign-on (Keycloak) for webmail; mailbox lifecycle actions for users created after the deployment.
