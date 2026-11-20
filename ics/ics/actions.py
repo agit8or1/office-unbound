@@ -20,7 +20,7 @@ from sqlalchemy.orm import Session
 
 from . import release as release_ops
 from . import imageimport
-from . import netsettings
+from . import console_access, netsettings
 from . import gateway as gateway_ops
 from .deploy import accounts as deploy_accounts
 from .provisioning import operate as guest_operate
@@ -128,6 +128,7 @@ class ActionType(StrEnum):
     image_import = "image.import"
     guest_remove = "guest.remove"
     settings_network_update = "settings.network.update"
+    settings_management_update = "settings.management.update"
     gateway_certificates_issue = "gateway.certificates.issue"
     directory_account_set = "directory.account.set"
     guest_power = "guest.power"
@@ -452,6 +453,8 @@ CATALOG: dict[ActionType, dict] = {
     ActionType.guest_remove: {"model": guest_leftovers.GuestRemove, "risk": "high", "secrets": (), "admin_only": True},
     # Settings -> Network & domains (netsettings.py): the public address; nothing on the infrastructure changes
     ActionType.settings_network_update: {"model": netsettings.NetworkSettings, "risk": "low", "secrets": (), "admin_only": True},
+    # who may reach this console under its public name (console_access.py): changes the ICS host's nginx through a fixed root helper
+    ActionType.settings_management_update: {"model": console_access.ManagementAccess, "risk": "normal", "secrets": (), "admin_only": True},
     # publicly trusted certificates on a deployment's gateway (gateway.py, ADR-0018): staging = low, production = normal
     ActionType.gateway_certificates_issue: {"model": gateway_ops.CertIssue, "risk": gateway_ops.risk, "secrets": (), "admin_only": True},
     # a sign-in account on a deployment (deploy/accounts.py): administrator rights in the deployment's apps -> needs approval
@@ -1113,7 +1116,8 @@ def reap_expired(rt: Runtime) -> int:
     return n
 
 
-_SAFE_ERRORS = (cred_service.CredentialUnavailable, ProviderError, ProxmoxError, VaultError, PlanIntegrityError, JobTimeout, AgentError, IdentityError, DeployError, backup_ops.BackupError)
+_SAFE_ERRORS = (cred_service.CredentialUnavailable, ProviderError, ProxmoxError, VaultError, PlanIntegrityError, JobTimeout, AgentError, IdentityError, DeployError, backup_ops.BackupError,
+                console_access.ApplyError)   # the access helper's own message (nginx -t output; no parameter values beyond address ranges)
 
 
 def _error_dict(e: BaseException, known: list[str]) -> dict:
@@ -1547,6 +1551,7 @@ _EXEC = {**{ActionType(k): v for k, v in ssh_actions.EXECUTORS.items()}, ActionT
          **{ActionType(k): v for k, v in prov_actions.EXECUTORS.items()},
          ActionType.release_promote: release_ops.exec_promote, ActionType.image_import: imageimport.exec_import, ActionType.guest_power: guest_operate.exec_power, ActionType.guest_remove: guest_leftovers.exec_remove,
          ActionType.settings_network_update: netsettings.exec_update,
+         ActionType.settings_management_update: console_access.exec_update,
          ActionType.gateway_certificates_issue: gateway_ops.exec_issue,
          ActionType.directory_account_set: deploy_accounts.exec_set,
          **{ActionType(k): v for k, v in {**cred_actions.EXECUTORS, **ten_actions.EXECUTORS, **msp_actions.EXECUTORS}.items()},

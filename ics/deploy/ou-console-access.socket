@@ -1,0 +1,13 @@
+[Unit]
+Description=Office Unbound: console access rules helper (root, reachable by the ICS service only)
+
+[Socket]
+ListenStream=/run/ou-console-access.sock
+SocketUser=root
+SocketGroup=ics
+SocketMode=0660
+Accept=yes
+MaxConnections=1
+
+[Install]
+WantedBy=sockets.target

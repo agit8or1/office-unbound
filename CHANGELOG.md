@@ -10,6 +10,11 @@ isolated lab; nothing is production supported ([ROADMAP.md](ROADMAP.md)).
 
 ## [Unreleased]
 
+## [0.7.1] - 2026-11-20
+
+- **Security: dnspython 2.7.0 -> 2.9.2** (two high-severity advisories: excessive CPU and memory use when parsing crafted DNS messages; Dependabot alerts 4 and 5). It is used only for the read-only DNS checks in Settings → Network & domains, against public resolvers. 2.7.0 should not have been chosen when it was added in 0.6.1: the fixed release already existed.
+- **New: Management access setting for the console's public name** (Settings → Network & domains → "Management access (this console)"). Three modes: Public (anyone can reach the sign-in page; signing in still needs the password and the authenticator code), LAN/VPN only (192.168.22.0/24 and 10.0.0.0/8 unless other ranges are listed) and Allow list (only the listed IPv4/IPv6 ranges, at most 32; `0.0.0.0/0` and `::/0` are refused). The page warns when the chosen list does not contain the address the console sees for you. Typed action `settings.management.update` (needs approval, admin only, audited with the old and new mode and lists). The console (which itself can never become root: its service sandbox forbids it) hands the rendered rules to a new root helper through a local socket, `ou-console-access.socket` (owned by root, only the console's service group may connect, one request at a time, installed and enabled by `install.sh`). The helper accepts only comment, `allow <range>;`, `allow all;` and `deny all;` lines, replaces `/etc/nginx/ou-console-access.conf` atomically, runs `nginx -t`, restores the previous file when nginx refuses it, reloads nginx only on success and answers one line. The setting is stored only after the helper succeeded. The bare-IP console (LAN/VPN only) is not changed ([test_console_access.py](ics/tests/test_console_access.py), [public-entry README](ics/deploy/public-entry/README.md)).
+
 ## [0.7.0] - 2026-11-20
 
 First release of the 0.7 "Granite" line: **real HTTPS certificates, issued and renewed by the gateway itself.**
@@ -319,6 +324,7 @@ editing, chat/meetings, telephony prototype, migration tooling and package pipel
 - `SECURITY.md` (private reporting) and `CONTRIBUTING.md` (DCO sign-off) added; AGPL-3.0 license. [SECURITY](SECURITY.md)
 
 [Unreleased]: https://github.com/agit8or1/office-unbound/compare/v0.4.7...HEAD
+[0.7.1]: https://github.com/agit8or1/office-unbound/compare/v0.7.0...v0.7.1
 [0.7.0]: https://github.com/agit8or1/office-unbound/compare/v0.6.2...v0.7.0
 [0.6.2]: https://github.com/agit8or1/office-unbound/compare/v0.6.1...v0.6.2
 [0.6.1]: https://github.com/agit8or1/office-unbound/compare/v0.6.0...v0.6.1

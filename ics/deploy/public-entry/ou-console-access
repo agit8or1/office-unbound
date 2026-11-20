@@ -1,0 +1,16 @@
+#!/usr/bin/python3 -I
+"""ou-console-access apply: replace /etc/nginx/ou-console-access.conf (who may reach the ICS console under its public name) with the rules on
+stdin, check with `nginx -t` (previous file restored on failure), reload nginx. Runs as root, started by systemd per connection of ou-console-access.socket (group ics only).
+Fixed paths only; the logic is ics/ics/console_access_core.py from the root-owned install in /opt/office-unbound/ics (see README.md)."""
+import importlib.util
+import sys
+
+CORE = "/opt/office-unbound/ics/ics/console_access_core.py"
+TARGET = "/etc/nginx/ou-console-access.conf"
+TEST = ["/usr/sbin/nginx", "-t", "-q"]
+RELOAD = ["/usr/bin/systemctl", "reload", "nginx.service"]
+
+spec = importlib.util.spec_from_file_location("ou_console_access_core", CORE)
+core = importlib.util.module_from_spec(spec)
+spec.loader.exec_module(core)
+sys.exit(core.main(sys.argv[1:], sys.stdin.buffer, TARGET, TEST, RELOAD))

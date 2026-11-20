@@ -20,13 +20,16 @@ interface Fwd { port: number; port_end?: number | null; proto: string; vm: strin
 interface Certs { public: { names: string[]; issued_at: string; certificate: string } | null; names: string[] }
 interface Dep { deployment: string; status: string; domain: string; records: Rec[]; certificates?: Certs }
 interface Local { deployment: string; status: string; domain: string | null; reason: string }
-interface Overview { settings: { public_ipv4: string | null; entry_address: string | null }; detected_public_ipv4: string | null; forwards: Fwd[];
-  deployments: Dep[]; local_only: Local[]; notes: string[] }
+type Mode = 'public' | 'lan_vpn' | 'allowlist'
+interface Mgmt { mode: Mode; allowed: string[] }
+interface Overview { settings: { public_ipv4: string | null; entry_address: string | null }; management: Mgmt; your_address: string | null;
+  detected_public_ipv4: string | null; forwards: Fwd[]; deployments: Dep[]; local_only: Local[]; notes: string[] }
 interface Checked { checked_at: string; records: { deployment: string; records: Rec[] }[]; forwards: Fwd[]; notes: string[] }
 
 const ov = useLoad(() => get<Overview>('settings/network'), 60000)
 const ip = ref(''), entry = ref('')
-const thisServer = window.location.hostname
+// offered only when the console is opened on its private LAN address (a public name is not where the router can forward to)
+const thisServer = /^(10\.|192\.168\.|172\.(1[6-9]|2\d|3[01])\.)\d{1,3}\.\d{1,3}(\.\d{1,3})?$/.test(window.location.hostname) ? window.location.hostname : ''
 watch(() => ov.data.value, (v) => {
   if (!v) return
   if (!ip.value) ip.value = v.settings.public_ipv4 ?? ''
@@ -50,6 +53,36 @@ const portText = (f: Fwd) => `${f.port}${f.port_end ? '-' + f.port_end : ''} ${f
 const nowFwds = computed(() => (ov.data.value?.forwards ?? []).filter((f) => f.when === 'now'))
 const laterFwds = computed(() => (ov.data.value?.forwards ?? []).filter((f) => f.when !== 'now'))
 
+// Management access: who may reach this console under its public name (settings.management.update, console_access.py)
+const MODES: { v: Mode; label: string; text: string }[] = [
+  { v: 'public', label: 'Public', text: 'Anyone can reach the sign-in page. Signing in still needs the password and the authenticator code.' },
+  { v: 'lan_vpn', label: 'LAN/VPN only', text: 'Only addresses inside your network or VPN can reach the public name. Leave the list empty for 192.168.22.0/24 and 10.0.0.0/8.' },
+  { v: 'allowlist', label: 'Allow list', text: 'Only the address ranges listed below can reach the public name; everyone else is refused.' },
+]
+const mgMode = ref<Mode>('public'), mgList = ref('')
+watch(() => ov.data.value?.management, (m) => { if (m) { mgMode.value = m.mode; mgList.value = m.allowed.join('\n') } }, { immediate: true })
+const mgRanges = computed(() => mgList.value.split('\n').map((x) => x.trim()).filter(Boolean))
+const mgDirty = computed(() => { const m = ov.data.value?.management; return !!m && (m.mode !== mgMode.value || (mgMode.value !== 'public' && m.allowed.join('\n') !== mgRanges.value.join('\n'))) })
+function v4(a: string): number | null { const p = a.split('.'); if (p.length !== 4 || p.some((x) => !/^\d{1,3}$/.test(x) || +x > 255)) return null; return p.reduce((n, x) => n * 256 + +x, 0) }
+function inRange(ip: string, cidr: string): boolean | null {
+  const [net, len = '32'] = cidr.split('/'), a = v4(ip), b = v4(net), l = +len
+  if (a === null || b === null || !(l >= 0 && l <= 32)) return null
+  const size = 2 ** (32 - l)
+  return Math.floor(a / size) === Math.floor(b / size)
+}
+// null = cannot tell (IPv6 or unknown address); true = the chosen mode keeps out the address this console sees for you
+const mgLocksYouOut = computed(() => {
+  const me = ov.data.value?.your_address
+  if (mgMode.value === 'public' || !me) return false
+  const list = mgRanges.value.length || mgMode.value === 'allowlist' ? mgRanges.value : ['192.168.22.0/24', '10.0.0.0/8']
+  const hits = list.map((c) => inRange(me, c))
+  if (hits.some((h) => h === true)) return false
+  return hits.every((h) => h === false) && v4(me) !== null ? true : null
+})
+const mgRun = useRun()
+async function saveMgmt() { await mgRun.start('settings.management.update', { mode: mgMode.value, allowed: mgMode.value === 'public' ? [] : mgRanges.value }) }
+watch(() => mgRun.job.value?.status, (s) => { if (s === 'succeeded') void ov.reload() })
+
 const certRun = useRun()
 const certFor = ref('')
 async function issue(dep: string, directory: 'staging' | 'production') { certFor.value = dep; await certRun.start('gateway.certificates.issue', { deployment: dep, directory }) }
@@ -69,11 +102,35 @@ watch(() => certRun.job.value?.status, (s) => { if (s === 'succeeded') void ov.r
           Use {{ ov.data.value?.detected_public_ipv4 }} (found in your DNS)</Button>
         <label class="small">Router forwards 80/443 to
           <input v-model.trim="entry" inputmode="decimal" placeholder="the gateway VM" autocomplete="off" data-testid="ns-entry"></label>
-        <Button v-if="entry !== thisServer" size="sm" variant="ghost" type="button" @click="entry = thisServer">Use this server ({{ thisServer }})</Button>
+        <Button v-if="thisServer && entry !== thisServer" size="sm" variant="ghost" type="button" @click="entry = thisServer">Use this server ({{ thisServer }})</Button>
         <Button size="sm" type="submit" :disabled="!dirty" :loading="run.busy.value">Save</Button>
       </form>
       <p class="muted small">"This server" routes each web name to the right deployment, so one forward serves every deployment. Saving is an audited change.</p>
       <RunPanel v-if="run.created.value" :run="run" what="Saving the network settings" />
+    </Card>
+
+    <Card title="Management access (this console)" hint="Who can reach this console under its public name. The address of this server inside your network is not affected."
+          data-testid="ns-mgmt">
+      <p class="small">Now: <b>{{ MODES.find((x) => x.v === ov.data.value?.management.mode)?.label ?? '...' }}</b>
+        <span v-if="ov.data.value?.management.allowed.length" class="muted"> ({{ ov.data.value.management.allowed.join(', ') }})</span></p>
+      <form @submit.prevent="saveMgmt">
+        <label v-for="m in MODES" :key="m.v" class="ns-mode small">
+          <input v-model="mgMode" type="radio" name="ns-mgmt-mode" :value="m.v" :data-testid="'ns-mgmt-' + m.v">
+          <span><b>{{ m.label }}</b> <span class="muted">{{ m.text }}</span></span>
+        </label>
+        <label v-if="mgMode !== 'public'" class="small ns-list">Allowed address ranges, one per line (for example 203.0.113.7 or 198.51.100.0/24)
+          <textarea v-model="mgList" rows="4" spellcheck="false" autocomplete="off" data-testid="ns-mgmt-list"
+                    :placeholder="mgMode === 'lan_vpn' ? '192.168.22.0/24\n10.0.0.0/8' : ''"></textarea></label>
+        <p v-if="mgMode !== 'public'" class="small" :class="{ 'ns-bad': mgLocksYouOut === true }" data-testid="ns-mgmt-warn">
+          <template v-if="mgLocksYouOut === true">Your current address ({{ ov.data.value?.your_address }}) is not in this list: after saving you can
+            no longer reach this console under its public name.</template>
+          <template v-else>If your own address is not in the list, you lock yourself out of the public name.</template>
+          The address of this server inside your network keeps working from your network.
+          <span v-if="ov.data.value?.your_address" class="muted">This console sees you as {{ ov.data.value.your_address }}.</span></p>
+        <Button size="sm" type="submit" :disabled="!mgDirty" :loading="mgRun.busy.value" data-testid="ns-mgmt-save">Save</Button>
+      </form>
+      <p class="muted small">Saving is an audited change that needs approval. The server checks the new rules and keeps the old ones if they are refused.</p>
+      <RunPanel v-if="mgRun.created.value" :run="mgRun" what="Saving the management access" />
     </Card>
 
     <Card title="2. Router port forwards" :hint="checked ? 'Checked ' + checked.checked_at : 'One forward per port, from your public address'" flush data-testid="ns-forwards">
@@ -95,8 +152,8 @@ watch(() => certRun.job.value?.status, (s) => { if (s === 'succeeded') void ov.r
             <td>{{ portText(f) }}</td>
             <td><code>{{ f.address ?? '?' }}</code><div class="muted small">{{ f.vm }}</div></td>
             <td class="small">{{ f.purpose }}<div v-if="f.conflict" class="ns-bad">{{ f.conflict }}</div></td>
-            <td><template v-if="fwdOf(f)"><StatusBadge :s="TONE[fwdOf(f)!.status!] ?? 'idle'" :text="LABEL[fwdOf(f)!.status!] ?? fwdOf(f)!.status" />
-              <div v-for="t in fwdOf(f)!.tests" :key="String(t.name)" class="muted small">{{ t.detail }}</div></template>
+            <td><template v-if="fwdOf(f)"><StatusBadge :s="fwdOf(f)!.status === 'ok' ? 'ok' : 'idle'" :text="fwdOf(f)!.status === 'ok' ? 'OK' : 'Not set up (not needed yet)'" />
+              <div v-if="fwdOf(f)!.status === 'ok'" class="muted small">{{ fwdOf(f)!.tests?.[0]?.detail }}</div></template>
               <span v-else class="muted small">not needed yet</span></td>
           </tr>
         </tbody></table>
@@ -134,6 +191,8 @@ watch(() => certRun.job.value?.status, (s) => { if (s === 'succeeded') void ov.r
 .ns-row label { display: grid; gap: 2px; } .ns-row input { width: 13em; }
 .pad { padding: 4px 16px 12px; } .ns-certs h4 { margin: 12px 0 4px; font-size: 14px; }
 .ns-later td { opacity: .75; } .ns-sub { font-weight: 600; padding-top: 14px; }
+.ns-mode { display: flex; gap: 8px; align-items: baseline; margin: 4px 0; }
+.ns-list { display: grid; gap: 2px; margin: 8px 0; } .ns-list textarea { max-width: 28em; font-family: var(--mono, monospace); }
 .ns-bad { color: var(--bad, #b91c1c); margin-top: 4px; }
 td code { overflow-wrap: anywhere; }
 </style>

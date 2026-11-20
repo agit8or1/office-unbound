@@ -183,7 +183,8 @@ def overview(db) -> dict:
         deps.append({"deployment": d.slug, "status": d.status, "ready": True, **req,
                      "certificates": {"public": certs.get(d.slug), "names": gateway.web_names(plan)}})
     detected = None if s.public_ipv4 else _detect_public([r["name"] for d in deps for r in d["records"] if r["type"] == "A"])
-    return {"settings": s.model_dump(), "detected_public_ipv4": detected, "forwards": merge_forwards(deps, s.entry_address),
+    from . import console_access
+    return {"settings": s.model_dump(), "management": console_access.get(db).model_dump(), "detected_public_ipv4": detected, "forwards": merge_forwards(deps, s.entry_address),
             "deployments": deps, "local_only": local,
             "notes": ["Checks run from this server. A port test reaches your public address from inside your network: it needs the router to "
                       "support that (hairpin NAT). 'No answer' can mean the forward is missing OR the router does not hairpin; test from outside "
@@ -336,9 +337,10 @@ def register_routes(app, rt) -> None:
     from .auth import User, client_ip, get_db, require
 
     @app.get("/api/v1/settings/network")
-    def network_overview(user: User = Depends(require("admin")), db: Session = Depends(get_db)):
-        """Required DNS records and port forwards per deployment, and the network settings. Read-only, no secret."""
-        return overview(db)
+    def network_overview(request: Request, user: User = Depends(require("admin")), db: Session = Depends(get_db)):
+        """Required DNS records and port forwards per deployment, the network settings and who may reach this console under its public
+        name (with the address this console sees for the caller, for the lock-out warning). Read-only, no secret."""
+        return {**overview(db), "your_address": client_ip(request)}
 
     @app.post("/api/v1/settings/network/check")
     def network_check(body: CheckIn, request: Request, user: User = Depends(require("admin")), db: Session = Depends(get_db)):

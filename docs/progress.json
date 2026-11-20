@@ -5,8 +5,20 @@
   "repository": "https://github.com/agit8or1/office-unbound",
   "updated": "2026-11-19",
   "stage": "pre-alpha (lab)",
-  "current_version": "0.7.0",
+  "current_version": "0.7.1",
   "releases": [
+    {
+      "version": "0.7.1",
+      "date": "2026-11-20",
+      "status": "prepared",
+      "codename": "Granite",
+      "channel": "pre-release",
+      "highlights": [
+        "0.7.1: Management access setting for the console's public name (Public, LAN/VPN only, Allow list), applied through a root helper that checks nginx and restores the previous rules on failure"
+      ],
+      "notes_url": "https://github.com/agit8or1/office-unbound/blob/main/CHANGELOG.md",
+      "changelog": "CHANGELOG.md"
+    },
     {
       "version": "0.7.0",
       "date": "2026-11-20",

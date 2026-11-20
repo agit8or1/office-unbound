@@ -33,9 +33,12 @@ install -d -m 0755 /opt/office-unbound/blueprints
 rsync -a --delete "$CAT_SRC"/ "$CAT_DST"/
 chown -R root:root /opt/office-unbound/blueprints; chmod -R go-w,a+rX /opt/office-unbound/blueprints
 install -m 0644 "$DST/deploy/ics.service" "$DST/deploy/ics-migrate.service" "$DST/deploy/ics-bootstrap.service" /etc/systemd/system/
+# console access rules helper (Settings -> Network & domains -> Management access): root, one request per connection, group ics only
+install -m 0644 "$DST/deploy/ou-console-access.socket" "$DST/deploy/ou-console-access@.service" /etc/systemd/system/
 rm -f /etc/systemd/system/ics-callback.service   # renamed to ics-bootstrap.service
 systemctl daemon-reload
 systemctl enable ics-migrate.service ics.service ics-bootstrap.service
+systemctl enable --now ou-console-access.socket
 systemctl restart ics-migrate.service ics.service
 # the guest-bootstrap listener only runs once /etc/office-unbound/callback.env exists (ConditionPathExists; written by bootstrap.sh --callback-listen)
 if [ -f /etc/office-unbound/callback.env ]; then systemctl restart ics-bootstrap.service; else systemctl stop ics-bootstrap.service 2>/dev/null || true; fi

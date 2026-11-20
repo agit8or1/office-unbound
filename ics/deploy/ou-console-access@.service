@@ -1,0 +1,19 @@
+[Unit]
+Description=Office Unbound: apply console access rules (one request)
+
+[Service]
+Type=simple
+User=root
+StandardInput=socket
+StandardOutput=socket
+StandardError=journal
+ExecStart=/usr/bin/python3 -I /opt/office-unbound/ics/deploy/public-entry/ou-console-access apply --socket
+TimeoutStartSec=0
+RuntimeMaxSec=120
+ProtectHome=yes
+PrivateTmp=yes
+ProtectKernelTunables=yes
+ProtectKernelModules=yes
+ProtectControlGroups=yes
+RestrictSUIDSGID=yes
+LockPersonality=yes
