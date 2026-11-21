@@ -1147,6 +1147,16 @@
             "docs/adr/0019-network-deployment-modes.md"
           ],
           "note": "Planned future capability, not available, not authorized for development (owner, 2026-11-20: documentation only). Already implemented and unaffected: single-IP routing by name, gateway certificates, Network & domains checks, management access (see ADR-0019 'What exists today')."
+        },
+        {
+          "id": "P10.12",
+          "title": "Office Unbound Connect: desktop sign-in and device enrollment for Windows, macOS and Linux with the organisational identity, SSO, central device revocation and MSP device administration (Entra ID–style, not Entra-compatible; phases C1-C8) [complexity XL]",
+          "status": "deferred",
+          "evidence": [
+            "docs/requirements/office-unbound-connect.md",
+            "docs/roadmap/post-core-expansion.md"
+          ],
+          "note": "PLANNED / NOT IMPLEMENTED. Planning only, not authorized for development (owner, 2026-11-21); after the current priorities, builds on P10.6 and P10.10."
         }
       ]
     }
