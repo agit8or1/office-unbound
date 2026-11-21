@@ -1,0 +1,52 @@
+/* Office Unbound shared design system: THE one definition of the look every app of a deployment wears (portal, sign-in and account pages,
+   Files, Docs, webmail). Derived from the user portal (portal/app/static/portal.css: same values, test-guarded in ics/tests/test_brand.py).
+   ics/ics/deploy/brand.py reads the two token blocks below and renders each app's skin from them through that app's own theming hook;
+   the "components" part is copied verbatim into every skin. Organisation branding (portal admin: accent colour, logo) arrives at run time
+   from https://<portal>/brand/org.css as --ou-org-* properties; --ou-a / --ou-a-soft / --ou-logo pick it up when it is set. */
+:root {
+  --ou-bg: #f6f5f1;
+  --ou-bg2: #eceae3;
+  --ou-surface: #ffffff;
+  --ou-text: #1f2430;
+  --ou-muted: #596073;
+  --ou-line: #dedbd2;
+  --ou-accent: #2f6f6a;
+  --ou-accent-ink: #ffffff;
+  --ou-accent-soft: #e2efec;
+  --ou-bad: #a32020;
+  --ou-bad-bg: #f9e1e1;
+  --ou-shadow: 0 1px 2px rgba(31,36,48,.06), 0 6px 18px rgba(31,36,48,.06);
+  --ou-radius: 16px;
+  --ou-radius-sm: 10px;
+  --ou-radius-btn: 12px;
+  --ou-bar: 3.5rem;
+  --ou-font: system-ui, -apple-system, "Segoe UI", Roboto, "Helvetica Neue", Arial, sans-serif;
+}
+@media (prefers-color-scheme: dark) {
+  :root {
+    --ou-bg: #14181f;
+    --ou-bg2: #1a2029;
+    --ou-surface: #1d232d;
+    --ou-text: #e9ecf2;
+    --ou-muted: #a2abbb;
+    --ou-line: #2c3442;
+    --ou-accent: #6cc4b9;
+    --ou-accent-ink: #0f1a19;
+    --ou-accent-soft: #1d3430;
+    --ou-bad: #ff9c9c;
+    --ou-bad-bg: #3d1b1b;
+    --ou-shadow: 0 1px 2px rgba(0,0,0,.4), 0 8px 22px rgba(0,0,0,.35);
+  }
+}
+/* components */
+/* "Dashboard": the way back to the portal, the same pill in every app (OpenCloud top bar, webmail tab bar; Keycloak links its logo). */
+.ou-home {
+  display: inline-flex; align-items: center; gap: .5rem; box-sizing: border-box; height: 2.25rem; padding: 0 .85rem 0 .4rem;
+  border: 1px solid var(--ou-line); border-radius: 999px; background: var(--ou-surface); color: var(--ou-text); box-shadow: var(--ou-shadow);
+  font: 600 .92rem/1 var(--ou-font); text-decoration: none; white-space: nowrap; cursor: pointer;
+}
+.ou-home::before {
+  content: ""; flex: none; width: 1.45rem; height: 1.45rem; border-radius: 7px; background: var(--ou-logo) center / contain no-repeat;
+}
+.ou-home:hover { border-color: var(--ou-a); color: var(--ou-text); text-decoration: none; }
+.ou-home:focus-visible { outline: 3px solid var(--ou-a); outline-offset: 2px; }

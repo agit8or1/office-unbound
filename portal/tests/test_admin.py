@@ -348,3 +348,31 @@ def test_mailbox_admin_pages_are_admin_only(env):
         assert c.get(path).status_code == 404, path
     for path in ("/admin/addresses/anna", "/admin/shared", "/admin/shared/support/grant", "/admin/storage/anna"):
         assert c.post(path, data={"csrf": "x"}).status_code == 404, path
+
+
+def test_org_branding_for_the_other_apps_is_public_cross_origin_and_strict(env):
+    """/brand/org.css + /brand/logo: what the sign-in pages, Files/Docs and webmail skins @import (ics/ics/deploy/brand.py)."""
+    c, m, _ = env
+    r = c.get("/brand/org.css")                                                     # signed out: the apps' pages load it for anyone
+    assert r.status_code == 200 and r.headers["content-type"].startswith("text/css") and r.headers["cache-control"] == "no-cache"
+    assert r.headers["cross-origin-resource-policy"] == "cross-origin"              # cloud./mail./auth. are other origins
+    assert r.text.startswith(":root{--ou-org-accent:#1a5fb4;--ou-org-accent-dark:color-mix(in srgb,#1a5fb4 55%,#fff)")
+    assert f'--ou-org-logo:url("{BASE}/brand/logo")' in r.text
+    assert '--ou-org-name:"Acme Brothers"' in r.text                               # the sign-in page header names the organisation
+    lg = c.get("/brand/logo")
+    assert lg.status_code == 200 and lg.headers["cross-origin-resource-policy"] == "cross-origin" and "sandbox" in lg.headers["content-security-policy"]
+    assert c.get("/branding.css").headers["cross-origin-resource-policy"] == "same-origin"   # everything else stays same-origin
+    m.branding = {**m.branding, "display_name": 'Evil"}body{display:none} </style>', "accent": None, "has_logo": False}
+    c.app.state.state["ics"].forget_branding()
+    css = c.get("/brand/org.css").text                                              # a name cannot end the string, declaration or rule
+    assert css.startswith(':root{--ou-org-name:"Evil\\22 \\7d body\\7b display\\3a none\\7d  \\3c \\2f style\\3e "}')
+    assert css.count('"') == 2 and css.count("{") == 1 and css.count("}") == 1
+    m.branding = {**m.branding, "display_name": CFG.mail_domain, "accent": "red;}body{display:none", "has_logo": False}
+    c.app.state.state["ics"].forget_branding()
+    assert c.get("/brand/org.css").text == ""                                      # nothing set (or nothing valid): the deployment look applies
+
+
+def test_org_branding_without_ics_is_empty():
+    with TestClient(create_app(CFG), base_url=BASE) as c:
+        r = c.get("/brand/org.css")
+        assert r.status_code == 200 and r.text == "" and c.get("/brand/logo").status_code == 404

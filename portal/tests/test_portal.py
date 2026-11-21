@@ -45,6 +45,7 @@ class Mock:
         self.calls = []
         self.token_form = None
         self.refresh_fail = False
+        self.app_list = None                       # OpenCloud /app/list body; None = 404 (the portal falls back to cfg.editor_app)
 
     def id_token(self, **over):
         c = dict(iss=ISS, aud="ou-portal", azp="ou-portal", sub="u1", exp=int(time.time()) + 300, iat=int(time.time()), nonce=self.nonce,
@@ -81,6 +82,8 @@ class Mock:
             return httpx.Response(207, content=REPORT)
         if u.startswith(FILES + "/app/new"):
             return httpx.Response(200, json={"file_id": "s$a!newfile"})
+        if u == FILES + "/app/list" and self.app_list is not None:
+            return httpx.Response(200, json=self.app_list)
         return httpx.Response(404)
 
 
@@ -211,7 +214,7 @@ def test_home_recent_and_new_doc_flow(env):
     r = c.post("/new/spreadsheet", data={"csrf": csrf})
     assert r.status_code == 303
     loc = r.headers["location"]
-    assert loc.startswith(FILES + "/external-collaboraonline/personal/bob/New%20spreadsheet") and ".xlsx?fileId=s%24a%21newfile" in loc
+    assert loc.startswith(FILES + "/external-documents/personal/bob/New%20spreadsheet") and ".xlsx?fileId=s%24a%21newfile" in loc
     new_call = [u for (mth, u, h) in m.calls if "/app/new" in u][0]
     assert "filename=New%20spreadsheet" in new_call and "parent_container_id=s%24a%21root" in new_call
 
@@ -359,3 +362,43 @@ def test_mail_calendar_contacts_tiles_use_sso_deep_links_and_no_separate_passwor
     assert CFG.mail_view_url("calendar") == "https://mail.test/web/?action=context&view=calendar"
     with pytest.raises(ValueError):
         CFG.mail_view_url("calendar&view=x")
+
+
+def test_devices_page_links_mailcraft(env):
+    """Owner 2026-11-21: "add link for mailcraft"."""
+    c, m, _ = env
+    _, q = login(c, m)
+    finish(c, q)
+    page = c.get("/devices").text
+    assert 'href="https://github.com/ZIDAN44/mailcraft"' in page and 'rel="noopener noreferrer"' in page
+
+
+def _app_list(name, ext="docx"):
+    mime = {"docx": "application/vnd.openxmlformats-officedocument.wordprocessingml.document"}.get(ext, "application/x-" + ext)
+    return {"mime-types": [{"mime_type": "text/plain", "ext": "txt", "app_providers": [{"name": "TextEditor"}]},
+                           {"mime_type": mime, "ext": ext, "name": "Document", "default_application": name,
+                            "app_providers": [{"name": name, "icon": "x"}, {"name": "Other"}]}]}
+
+
+@pytest.mark.parametrize("listed,route", [("Documents", "external-documents"),           # this release (ICS brand.EDITOR_APP)
+                                          ("CollaboraOnline", "external-collaboraonline"),  # a deployment configured before the rename
+                                          ("bad name/..", "external-documents"),            # not a valid app name: the configured route
+                                          (None, "external-documents")])                    # no registry answer: the configured route
+def test_new_document_opens_the_editor_route_opencloud_lists(env, listed, route):
+    from app import services
+    services._editor_cache.clear()
+    c, m, _ = env
+    m.app_list = _app_list(listed) if listed else None
+    _, q = login(c, m)
+    finish(c, q)
+    csrf = re.search(r'name="csrf" value="([^"]+)"', c.get("/").text).group(1)
+    loc = c.post("/new/document", data={"csrf": csrf}).headers["location"]
+    assert loc.startswith(f"{FILES}/{route}/personal/bob/New%20document"), loc
+    services._editor_cache.clear()
+
+
+def test_the_portal_default_editor_route_is_the_deployments():
+    """Settings.editor_app = external-<COLLABORATION_APP_NAME lower case> of the ICS's opencloud.env (one name, two places)."""
+    env = (Path(__file__).resolve().parents[2] / "blueprints/catalog/templates/files/opencloud.env").read_text()
+    name = re.search(r"^COLLABORATION_APP_NAME=(\w+)$", env, re.M).group(1)
+    assert CFG.editor_app == f"external-{name.lower()}" == "external-documents"

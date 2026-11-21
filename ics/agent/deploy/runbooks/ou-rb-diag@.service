@@ -1,0 +1,42 @@
+[Unit]
+Description=Office Unbound read-only diagnostics runbook (guest.journal) request %i
+
+[Service]
+Type=oneshot
+# uid 0 only to read the system journal, the service user's journal and the allowlisted log files. Its single capability is
+# CAP_DAC_READ_SEARCH (read anything, write nothing it does not own); no network, read-only file system. Group ou-agent: the result
+# (redacted log lines) is 0640 root:ou-agent in a 0750 directory, readable by the agent and nobody else.
+User=root
+Group=ou-agent
+Environment=PYTHONPATH=/opt/ou-agent PYTHONDONTWRITEBYTECODE=1
+ExecStart=/usr/bin/python3 -m ou_agent.diaghelper %i
+RuntimeDirectory=ou-rb-diag
+RuntimeDirectoryMode=0750
+RuntimeDirectoryPreserve=yes
+UMask=0027
+TimeoutStartSec=90
+CapabilityBoundingSet=CAP_DAC_READ_SEARCH
+AmbientCapabilities=
+NoNewPrivileges=true
+ProtectSystem=strict
+ProtectHome=true
+PrivateTmp=true
+PrivateDevices=true
+PrivateNetwork=true
+IPAddressDeny=any
+RestrictAddressFamilies=AF_UNIX
+RestrictNamespaces=true
+ProtectKernelTunables=true
+ProtectKernelModules=true
+ProtectKernelLogs=true
+ProtectControlGroups=true
+ProtectClock=true
+ProtectHostname=true
+LockPersonality=true
+RestrictRealtime=true
+RestrictSUIDSGID=true
+SystemCallArchitectures=native
+SystemCallFilter=@system-service
+SystemCallFilter=~@privileged
+# No podman runs here (the service user's journal is read from /var/log/journal), so the mount-namespace options are safe in this unit, unlike
+# ou-rb-podman@ / ou-rb-cfg@ (see their comments).

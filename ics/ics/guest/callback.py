@@ -22,6 +22,7 @@ import re
 import socket
 import time
 from datetime import datetime, timezone
+from typing import Annotated
 
 from fastapi import HTTPException, Request
 from pydantic import BaseModel, ConfigDict, Field
@@ -62,6 +63,8 @@ class ReportIn(BaseModel):
     agent: AgentIn
     enroll_token: str = Field(max_length=64)
     proof: str = Field(max_length=64)
+    # optional runbooks the image knows (firstboot.FEATURES). Not MAC'd: it can only REMOVE optional runbooks from the returned configuration
+    features: list[Annotated[str, Field(max_length=40)]] = Field(default=[], max_length=8)
 
 
 def canonical(bid: str, nonce: str, ts: int, address: str, port: int, tls: str, key: str, token: str) -> bytes:
@@ -181,7 +184,7 @@ def handle_report(rt, body: ReportIn, src: str) -> dict:
                      details={"deployment_id": str(row.deployment_id), "vm": row.vm, "vmid": row.vmid, "address": a.address, "port": a.port,
                               "tls_fingerprint": a.tls_fingerprint_sha256, "agent_key_fingerprint": a.agent_key_fingerprint_sha256})
         db.commit()
-    conf = _resolve_config(rt, row.config, src)
+    conf = gate_features(_resolve_config(rt, row.config, src), body.features)
     return {"ok": True, "ack": ack(secret, body.nonce), "config": conf, "config_mac": config_mac(secret, body.nonce, conf)}
 
 
@@ -191,6 +194,18 @@ def config_mac(secret_hex: str, nonce: str, conf: dict) -> str:
 
 def canon_json(v) -> str:
     return json.dumps(v, sort_keys=True, separators=(",", ":"), ensure_ascii=True)
+
+
+def gate_features(conf: dict, features: list[str]) -> dict:
+    """Optional runbooks (cloudinit.OPTIONAL_RUNBOOKS) stay in the configuration only for an image that reported knowing them: an older golden
+    image refuses a configuration with an unknown runbook name and would fail its first boot closed."""
+    from .cloudinit import OPTIONAL_RUNBOOKS
+    rb = (conf.get("agent_config") or {}).get("runbooks")
+    if isinstance(rb, dict):
+        for name in OPTIONAL_RUNBOOKS:
+            if name not in features:
+                rb.pop(name, None)
+    return conf
 
 
 def _resolve_config(rt, conf: dict | None, guest_ip: str) -> dict:

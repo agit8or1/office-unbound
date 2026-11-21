@@ -11,7 +11,8 @@ USER_UNITS = {"gromox.sync_user": "ou-rb-gromox-sync", "gromox.kick_user": "ou-r
               "pbx.sync_extensions": "ou-rb-pbx-sync", "pbx.kick_user": "ou-rb-pbx-kick", "pbx.user_state": "ou-rb-pbx-state", "pbx.issue_credential": "ou-rb-pbx-issue",
               "podman.pull_verified": "ou-rb-podman", "podman.deploy_unit": "ou-rb-podman", "podman.remove_unit": "ou-rb-podman",
               "podman.status": "ou-rb-podman", "guest.facts": "ou-rb-podman", "pkg.install_pinned": "ou-rb-pkg",
-              "backup.run": "ou-rb-backup", "backup.verify": "ou-rb-backup", "backup.prune": "ou-rb-backup"}
+              "backup.run": "ou-rb-backup", "backup.verify": "ou-rb-backup", "backup.prune": "ou-rb-backup",
+              "guest.journal": "ou-rb-diag"}   # read-only diagnostics (agent >= 0.8.1)
 USER_UNITS.update({r: "ou-rb-cfg" for r in ("cfg.hosts", "cfg.tls", "cfg.ldap_init", "cfg.ldap_user", "cfg.ldap_list", "cfg.ldap_groups",
                                                "cfg.ldap_lock", "cfg.ldap_delete", "cfg.pg_db", "cfg.podman_secret",
                                                "cfg.volume_files", "cfg.nginx_site", "cfg.firewall")})

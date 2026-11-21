@@ -122,7 +122,7 @@ async function lab_token() {            // lab-only direct grant client, used ON
     const p = await ctx.newPage();
     await p.goto(PORTAL + '/');
     await p.click(`button[data-new=${kind}]`);
-    await p.waitForURL(/external-collaboraonline/, { timeout: 30000 });
+    await p.waitForURL(/external-(documents|collaboraonline)\//, { timeout: 30000 });
     const fr = await p.waitForSelector('iframe', { timeout: 30000 }).catch(() => null);
     await p.waitForTimeout(3000);
     const frames = p.frames().map(f => f.url());

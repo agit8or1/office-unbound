@@ -25,7 +25,8 @@ artifacts:
             KC_HTTP_ENABLED: "true", KC_HTTP_HOST: 127.0.0.1, KC_HTTP_PORT: "8080", KC_PROXY_HEADERS: xforwarded, KC_HEALTH_ENABLED: "true",
             KC_TRUSTSTORE_PATHS: /opt/ou-tls/trust.crt, KC_BOOTSTRAP_ADMIN_USERNAME: kcadmin}
       secrets: [{name: kc-db-password, env: KC_DB_PASSWORD}, {name: kc-admin-password, env: KC_BOOTSTRAP_ADMIN_PASSWORD}]
-      volumes: [{name: data, path: /opt/keycloak/data}, {name: tls, path: /opt/ou-tls, read_only: true}]
+      # themes: the Office Unbound sign-in/account theme "ou" (ics/ics/deploy/brand.py, written by cfg.volume_files; realm loginTheme/accountTheme)
+      volumes: [{name: data, path: /opt/keycloak/data}, {name: tls, path: /opt/ou-tls, read_only: true}, {name: themes, path: /opt/keycloak/themes, read_only: true}]
 resources:
   cores:     {base: 2,    per_user: 0.004, source: "lab ou-id1: Keycloak java 0.65-0.87 GB RSS; +1 core per 250 users is a planning assumption (docs/status/identity-files-lab-results.md)"}
   memory_mb: {base: 2048, per_user: 2,     source: "identity-files-lab-results.md: ou-id1 MemoryMax 2G, machine total 0.87 GB idle; 2 MB/user JVM cache growth is an unmeasured assumption"}

@@ -1,5 +1,6 @@
 # Derived from opencloud-compose@d4695d2 config/opencloud/csp.yaml with the lab
-# hostnames substituted by install-files.sh (@IDP_HOST@, @OFFICE_HOST@).
+# hostnames substituted by install-files.sh (@IDP_HOST@, @OFFICE_HOST@). @PORTAL_ORIGIN@: the portal, origin of the
+# organisation branding stylesheet and logo the Office Unbound skin loads (ics/ics/deploy/brand.py).
 # Trimmed: no companion / euro-office / OSM tiles / update server (lab has no
 # internet egress requirement).
 directives:
@@ -25,6 +26,7 @@ directives:
     - 'data:'
     - 'blob:'
     - 'https://@OFFICE_HOST@/'
+    - '@PORTAL_ORIGIN@'
   manifest-src:
     - "'self'"
   media-src:
@@ -41,6 +43,7 @@ directives:
     - "'self'"
     - "'unsafe-inline'"
     - 'blob:'
+    - '@PORTAL_ORIGIN@'
   worker-src:
     - "'self'"
     - 'blob:'

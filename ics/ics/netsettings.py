@@ -10,6 +10,7 @@ from __future__ import annotations
 
 import ipaddress
 import json
+import re
 import socket
 import ssl
 import time
@@ -22,6 +23,8 @@ from sqlalchemy.orm import Session
 from .deploy import appaccess
 
 KEY = "network"
+# a DNS name with a letter-only top-level label: never an IPv4 address (the agent's cfg.portal schema refuses addresses too)
+FQDN = re.compile(r"^(?=.{4,200}$)([a-z0-9]([a-z0-9-]{0,61}[a-z0-9])?\.)+[a-z]{2,24}$")
 TIMEOUT = 4.0
 MAIL_PORTS = {25: "incoming mail (SMTP)", 465: "sending from mail apps (SMTPS)", 587: "sending from mail apps (submission)", 993: "mail apps (IMAPS)"}
 WEB_PORTS = {80: "web (redirects to HTTPS; certificate validation)", 443: "web: portal, sign-in, files, documents, webmail, mail apps over HTTPS"}
@@ -32,6 +35,20 @@ class NetworkSettings(BaseModel):
     public_ipv4: str | None = Field(default=None, description="the installation's public IPv4 address (the router forwards to the gateway)")
     entry_address: str | None = Field(default=None, description="internal address the router forwards 80/443 to when it is not the gateway VM "
                                                                  "(e.g. the ICS host routing by name, ics/deploy/public-entry); empty = the gateway VM")
+
+    console_name: str | None = Field(default=None, description="the public name of THIS console (e.g. console.example.com, Management access). "
+                                                                "Deployed portals reach the ICS under https://<this name> for their admin area; "
+                                                                "empty = deployed portals get no admin area")
+
+    @field_validator("console_name")
+    @classmethod
+    def _console(cls, v):
+        if v in (None, ""):
+            return None
+        v = str(v).strip().lower().rstrip(".")
+        if not FQDN.fullmatch(v):
+            raise ValueError("a full DNS name such as console.example.com (not an address, no https://, no port)")
+        return v
 
     @field_validator("entry_address")
     @classmethod
@@ -311,6 +328,12 @@ def run_checks(rt, db, slug: str | None = None) -> dict:
         forwards.append({**f, "status": worst, "tests": tests, "tested_from": "inside (this server)"})
     return {"public_ipv4": pub, "checked_at": time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime()), "records": records, "forwards": forwards,
             "notes": ov["notes"]}
+
+
+def ics_url_for_vms(db) -> str | None:
+    """The ICS base URL deployed VMs use (the portal's admin area): https://<console public name>. Never an address; None when not set."""
+    n = get(db).console_name
+    return f"https://{n}" if n else None
 
 
 # ---------------------------------------------------------------- typed action + API

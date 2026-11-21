@@ -1,0 +1,46 @@
+/* Keycloak 26 sign-in pages (login theme "ou", parent keycloak.v2 = PatternFly 5): the portal's calm card on its warm background. */
+:root {
+  --pf-v5-global--FontFamily--text: var(--ou-font);
+  --pf-v5-global--FontFamily--heading: var(--ou-font);
+  --pf-v5-global--primary-color--100: var(--ou-a);
+  --pf-v5-global--primary-color--200: var(--ou-a);
+  --pf-v5-global--link--Color: var(--ou-a);
+  --pf-v5-global--link--Color--hover: var(--ou-a);
+  --pf-v5-global--BackgroundColor--100: var(--ou-surface);
+  --pf-v5-global--Color--100: var(--ou-text);
+  --pf-v5-global--Color--200: var(--ou-muted);
+  --pf-v5-global--BorderColor--100: var(--ou-line);
+  --pf-v5-global--BorderRadius--sm: var(--ou-radius-sm);
+  --keycloak-card-top-color: transparent;
+}
+.login-pf body, body#keycloak-bg {
+  background: radial-gradient(1200px 500px at 85% -10%, var(--ou-a-soft), transparent 60%) no-repeat, var(--ou-bg);
+  color: var(--ou-text); font-family: var(--ou-font);
+}
+#kc-header { padding-block: 2rem 1rem; }
+#kc-header-wrapper {
+  display: inline-flex; align-items: center; justify-content: center; gap: .6rem; width: 100%;
+  font: 650 1.35rem/1.2 var(--ou-font); letter-spacing: -.01em; color: var(--ou-text); text-transform: none;
+}
+#kc-header-wrapper::before { content: ""; width: 2rem; height: 2rem; border-radius: 9px; background: var(--ou-logo) center / contain no-repeat; flex: none; }
+/* the header names the organisation when the portal branding has a name (org.css --ou-org-name), otherwise the product (loginTitleHtml,
+   brand.keycloak_login_messages): the element's own text is hidden and the name drawn after the mark */
+#kc-header-wrapper { font-size: 0; }
+#kc-header-wrapper::after { content: var(--ou-org-name, "Office Unbound"); font-size: 1.35rem; }
+#kc-header-wrapper .kc-logo-text { display: none; }
+.pf-v5-c-login__main {
+  background: var(--ou-surface); border: 1px solid var(--ou-line); border-radius: var(--ou-radius); box-shadow: var(--ou-shadow); overflow: hidden;
+}
+.pf-v5-c-login__main-header { border-top: 0; }
+.pf-v5-c-login__main-header h1, #kc-page-title { font-weight: 650; letter-spacing: -.01em; color: var(--ou-text); }
+.pf-v5-c-form-control { border-radius: var(--ou-radius-sm); }
+.pf-v5-c-form-control::after { border-radius: var(--ou-radius-sm); }
+.pf-v5-c-button { border-radius: var(--ou-radius-btn); min-height: 2.75rem; font-weight: 550; }
+.pf-v5-c-button.pf-m-primary {
+  --pf-v5-c-button--m-primary--BackgroundColor: var(--ou-a); --pf-v5-c-button--m-primary--hover--BackgroundColor: var(--ou-a);
+  --pf-v5-c-button--m-primary--focus--BackgroundColor: var(--ou-a); --pf-v5-c-button--m-primary--active--BackgroundColor: var(--ou-a);
+  --pf-v5-c-button--m-primary--Color: var(--ou-a-ink); --pf-v5-c-button--m-primary--hover--Color: var(--ou-a-ink);
+}
+.pf-v5-c-button.pf-m-primary:hover { filter: brightness(1.08); }
+a { color: var(--ou-a); text-underline-offset: 3px; }
+:focus-visible { outline: 3px solid var(--ou-a); outline-offset: 3px; }

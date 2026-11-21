@@ -195,7 +195,7 @@ def check_volume_files(p, cfg):
 
 
 def check_nginx_site(p, cfg):
-    _exact(p, ("name", "server_names", "upstream", "upstream_name", "tls_name", "max_body_mb", "upstream_ca", "root_redirect"),
+    _exact(p, ("name", "server_names", "upstream", "upstream_name", "tls_name", "max_body_mb", "upstream_ca", "root_redirect", "lockdown"),
            ("name", "server_names", "upstream", "tls_name", "max_body_mb"))
     names = [_s(n, FQDN_RE, "server name") for n in _list(p["server_names"], "server_names", MAX_NAMES)]
     if not names:
@@ -208,7 +208,18 @@ def check_nginx_site(p, cfg):
             "upstream_name": _s(upn, FQDN_RE, "upstream_name") if upn is not None else None,
             "tls_name": _s(p["tls_name"], NAME_RE, "tls_name"), "max_body_mb": _int(p["max_body_mb"], 0, 102400, "max_body_mb"),
             **({"upstream_ca": _s(p["upstream_ca"], NAME_RE, "upstream_ca")} if p.get("upstream_ca") else {}),
-            **({"root_redirect": _https_host(p["root_redirect"], "root_redirect", "/")} if p.get("root_redirect") else {})}
+            **({"root_redirect": _https_host(p["root_redirect"], "root_redirect", "/")} if p.get("root_redirect") else {}),
+            **({"lockdown": _lockdown(p["lockdown"])} if p.get("lockdown") is not None else {})}
+
+
+# which app's own administration surfaces the site refuses (fixed rules in cfghelper.LOCKDOWN; the ICS names a profile, never sends nginx text)
+LOCKDOWN_PROFILES = ("keycloak", "opencloud", "collabora", "groupware")
+
+
+def _lockdown(v):
+    if v not in LOCKDOWN_PROFILES:
+        raise Reject("bad_params", "lockdown must be one of " + ", ".join(LOCKDOWN_PROFILES))
+    return v
 
 
 def check_firewall(p, cfg):
@@ -259,11 +270,32 @@ def check_sso(p):
             "redirect_url": _https_host(p["redirect_url"], "sso.redirect_url", "/web"), "bearer_pubkey": _pem(p["bearer_pubkey"], "pubkey")}
 
 
+MAX_BRAND_CSS, MAX_BRAND_SVG = 65536, 16384
+SVG_BAD_RE = re.compile(r"<\s*(script|foreignobject|iframe|object|embed|style)|\bon[a-z]+\s*=|javascript:|data:|<!|href\s*=\s*[\"']?(?!#)", re.I)
+
+
+def _text(v, what, n):
+    if not isinstance(v, str) or not v or len(v.encode()) > n or re.search(r"[\x00-\x08\x0b-\x1f\x7f]", v):
+        raise Reject("bad_params", f"{what}: text up to {n} bytes without control characters")
+    return v
+
+
+def check_brand(p):
+    """The Office Unbound skin of the webmail (ics/ics/deploy/brand.py): /brand/brand.css (grommunio-web's own branding hook), the mark it
+    references (/brand/ou-mark.svg: a plain SVG, served with a sandboxing CSP) and the portal the oudashboard plugin's button returns to."""
+    _exact(p, ("css", "mark_svg", "portal_url"), ("css", "mark_svg"))
+    svg = _text(p["mark_svg"], "brand.mark_svg", MAX_BRAND_SVG)
+    if not re.fullmatch(r"\s*<svg\b[^>]*>[\s\S]*</svg>\s*", svg) or SVG_BAD_RE.search(svg):
+        raise Reject("bad_params", "brand.mark_svg must be one plain <svg> element (no script, handlers, foreign content or external references)")
+    return {"css": _text(p["css"], "brand.css", MAX_BRAND_CSS), "mark_svg": svg,
+            **({"portal_url": _https_host(p["portal_url"], "brand.portal_url", "/")} if p.get("portal_url") is not None else {})}
+
+
 def check_gromox(p, cfg):
     """The groupware node (gromox + Postfix + MariaDB + grommunio web/sync/dav behind nginx): mail domain, the VM's mail host name, the
     deployment TLS material (cfg.tls), the database password, the read-only directory bind (cfg.ldap_init's svc-bind) and the entitlement
     group. `mailboxes` are directory addresses whose mailbox is created when the directory entry exists and is in the group."""
-    _exact(p, ("domain", "hostname", "tls_name", "db_password", "ldap_host", "bind_password", "group", "mailboxes", "sso"),
+    _exact(p, ("domain", "hostname", "tls_name", "db_password", "ldap_host", "bind_password", "group", "mailboxes", "sso", "brand"),
            ("domain", "hostname", "tls_name", "db_password", "ldap_host", "bind_password", "group", "mailboxes"))
     domain = _s(p["domain"], FQDN_RE, "domain")
     host = _s(p["hostname"], FQDN_RE, "hostname")      # the mail host may be any name (name settings), the directory is the deployment's own
@@ -276,7 +308,8 @@ def check_gromox(p, cfg):
     return {"domain": domain, "hostname": host, "tls_name": _s(p["tls_name"], NAME_RE, "tls_name"),
             "db_password": _password(p["db_password"], "db_password"), "ldap_host": ldap_host,
             "bind_password": _password(p["bind_password"], "bind_password"), "group": _s(p["group"], GROUP_RE, "group"), "mailboxes": boxes,
-            **({"sso": check_sso(p["sso"])} if p.get("sso") is not None else {})}
+            **({"sso": check_sso(p["sso"])} if p.get("sso") is not None else {}),
+            **({"brand": check_brand(p["brand"])} if p.get("brand") is not None else {})}
 
 
 def check_nginx_default(p, cfg):
@@ -300,10 +333,28 @@ def check_acme(p, cfg):
     return {"names": names, "directory": p["directory"], "cert_name": _s(p["cert_name"], NAME_RE, "cert_name")}
 
 
+# the portal's credential for the ICS tenant-admin API of ITS deployment (configure.portal_key): tdk_<deployment id>.<secret>
+PORTAL_ICS_KEY_RE = re.compile(r"^tdk_[0-9a-f]{32}\.[A-Za-z0-9_-]{43}$")
+PORTAL_KEYS = ("base_url", "issuer", "client_id", "client_secret", "files_url", "mail_web_url", "mail_host", "mail_domain", "org_name")
+FEATURES = {"cfg.portal": ["admin"]}   # optional parameters this agent understands, reported in its capabilities (the ICS sends them only then)
+
+
+def check_portal_admin(a):
+    """The admin area's link to the ICS: the ICS base URL (https://<name>, never an address) and the deployment's portal credential."""
+    if not isinstance(a, dict):
+        raise Reject("bad_params", "admin must be an object or null")
+    _exact(a, ("ics_url", "ics_key"))
+    if not isinstance(a["ics_key"], str) or not PORTAL_ICS_KEY_RE.fullmatch(a["ics_key"]):
+        raise Reject("bad_params", "admin.ics_key has the wrong form")
+    return {"ics_url": _https_host(a["ics_url"], "admin.ics_url"), "ics_key": a["ics_key"]}
+
+
 def check_portal(p, cfg):
     """The user portal (package ou-portal): its public URL, the Keycloak issuer and client, the apps it links to. Plain HTTP on 127.0.0.1:8090
-    behind the TLS proxy; the client secret goes to a file, never into the environment file."""
-    _exact(p, ("base_url", "issuer", "client_id", "client_secret", "files_url", "mail_web_url", "mail_host", "mail_domain", "org_name"))
+    behind the TLS proxy; the client secret goes to a file, never into the environment file. Optional `admin` (agents that report the feature, FEATURES): the ICS
+    tenant-admin API the portal's admin area calls; absent or null = no admin area."""
+    _exact(p, (*PORTAL_KEYS, "admin"), PORTAL_KEYS)
+    admin = check_portal_admin(p["admin"]) if p.get("admin") is not None else None
     base = _https_host(p["base_url"], "base_url")
     iss = p["issuer"]
     if not isinstance(iss, str) or "/realms/" not in iss:
@@ -316,7 +367,7 @@ def check_portal(p, cfg):
     return {"base_url": base, "issuer": iss, "client_id": _s(p["client_id"], CLIENT_RE, "client_id"),
             "client_secret": _password(p["client_secret"], "client_secret"), "files_url": files, "mail_web_url": web,
             "mail_host": _s(p["mail_host"], FQDN_RE, "mail_host") if p["mail_host"] else "", "mail_domain": _s(p["mail_domain"], FQDN_RE, "mail_domain"),
-            "org_name": _s(p["org_name"], ORG_RE, "org_name")}
+            "org_name": _s(p["org_name"], ORG_RE, "org_name"), **({"admin": admin} if admin else {})}
 
 
 CHECKS = {"cfg.firewall": check_firewall, "cfg.gromox": check_gromox, "cfg.hosts": check_hosts, "cfg.tls": check_tls, "cfg.ldap_init": check_ldap_init, "cfg.ldap_user": check_ldap_user,

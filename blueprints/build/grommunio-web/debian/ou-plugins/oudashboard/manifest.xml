@@ -1,0 +1,32 @@
+<?xml version="1.0"?>
+<!--
+  SPDX-FileCopyrightText: 2026 Office Unbound contributors
+  SPDX-License-Identifier: AGPL-3.0-or-later
+-->
+<plugin version="2">
+	<info>
+		<version>1.0</version>
+		<name>oudashboard</name>
+		<title>Dashboard link</title>
+		<author>Office Unbound</author>
+		<authorURL>https://officeunbound.com</authorURL>
+		<description>Adds a "Dashboard" button to the left of the top tab bar that returns to the Office Unbound user portal.</description>
+	</info>
+	<config>
+		<configfile>config.php</configfile>
+	</config>
+	<components>
+		<component>
+			<files>
+				<server>
+					<serverfile>php/plugin.oudashboard.php</serverfile>
+				</server>
+				<client>
+					<clientfile load="release">js/oudashboard.js</clientfile>
+					<clientfile load="debug">js/oudashboard.js</clientfile>
+					<clientfile load="source">js/oudashboard.js</clientfile>
+				</client>
+			</files>
+		</component>
+	</components>
+</plugin>

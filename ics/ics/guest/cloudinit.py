@@ -25,6 +25,9 @@ CFG_RUNBOOKS = ("cfg.hosts", "cfg.tls", "cfg.ldap_init", "cfg.ldap_user", "cfg.p
 GROUPWARE_CFG = ("cfg.gromox",)
 PORTAL_CFG = ("cfg.portal",)
 DIRECTORY_CFG = ("cfg.ldap_list", "cfg.ldap_groups", "cfg.ldap_lock", "cfg.ldap_delete")   # account management: only on the identity VM (slapd; agent >= 0.8.0)
+# OPTIONAL runbooks: enabled on every VM, but removed again by the bootstrap callback (guest/callback.py) from the configuration of a golden
+# image that does not report them in its `features` (an older image refuses a configuration naming a runbook it does not know and fails closed)
+OPTIONAL_RUNBOOKS = ("guest.journal",)   # read-only diagnostics: allowlisted journal units and log files, redacted (agent >= 0.8.1, diagspec.py)
 ACME_CFG = ("cfg.acme",)       # public certificates: only where certbot may be installed (the gateway/edge; agent >= 0.7.0)   # same rule for the user portal (package ou-portal; agent >= 0.5.2)
 
 SERVICE_USER = "ou-svc"
@@ -273,7 +276,7 @@ def build_agent_bundle(agent_dir: str) -> bytes:
     for f in ("install-agent.sh", "ou-agent.service", "render_polkit.py", "render_image_policy.py"):
         entries.append((f, os.path.join(dep, f)))
     for f in os.listdir(os.path.join(dep, "runbooks")):
-        if f.startswith("ou-rb-podman@") or f.startswith("ou-rb-pkg@") or f.startswith("ou-rb-cfg@"):
+        if f.startswith(("ou-rb-podman@", "ou-rb-pkg@", "ou-rb-cfg@", "ou-rb-diag@")):
             entries.append(("runbooks/" + f, os.path.join(dep, "runbooks", f)))
     raw = io.BytesIO()
     with tarfile.open(fileobj=raw, mode="w", format=tarfile.PAX_FORMAT) as t:
@@ -287,7 +290,7 @@ def build_agent_bundle(agent_dir: str) -> bytes:
 
 def agent_config(s: GuestSpec) -> dict:
     rb = {"disk.usage": {"paths": ["/", SERVICE_HOME]}, "guest.facts": {"enabled": True}, "podman.status": {"enabled": True},
-          "podman.remove_unit": {"enabled": True}}
+          "podman.remove_unit": {"enabled": True}, **{r: {"enabled": True} for r in OPTIONAL_RUNBOOKS}}
     if s.image_registries:
         extra = {"insecure": sorted(s.insecure_registries)} if s.insecure_registries else {}
         rb["podman.pull_verified"] = {"registries": sorted(s.image_registries), **extra}

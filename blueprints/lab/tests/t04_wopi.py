@@ -2,7 +2,7 @@
 """T04 WOPI / Collabora: OpenCloud collaboration service <-> real Collabora session, including an edit + save.
 
 VERIFIED against OpenCloud 9.1.0 + Collabora CODE 26.04.6.1 (vendor .deb) in the nspawn lab.
-PROVES: discovery up; OpenCloud's app registry lists CollaboraOnline; /app/open mints a WOPI token; a request WITHOUT
+PROVES: discovery up; OpenCloud's app registry lists the office app (L.EDITOR_APP); /app/open mints a WOPI token; a request WITHOUT
 Collabora's proof-key headers is refused (so a WOPI-less client cannot read files with a leaked token alone);
 a real Collabora websocket session loads the document (Collabora -> OpenCloud CheckFileInfo + GetFile over lab-CA TLS,
 proof-key verified by OpenCloud); typing text and sending `save` makes Collabora PutFile the document back, the stored
@@ -48,11 +48,11 @@ if not dav.discover():
 end = time.time() + 90
 while True:
     apps = requests.get("https://%s/app/list" % L.HOST_FILES, headers={"Authorization": "Bearer " + tok}, verify=V, timeout=30)
-    if apps.status_code == 200 and "CollaboraOnline" in apps.text or time.time() > end:
+    if apps.status_code == 200 and L.EDITOR_APP in apps.text or time.time() > end:
         break
     time.sleep(3)
-rep.check("app registry lists Collabora", apps.status_code == 200 and "CollaboraOnline" in apps.text,
-          "CollaboraOnline registered", "HTTP %s %s (collaboration service not registered? journalctl -u opencloud-collaboration)"
+rep.check("app registry lists the office app", apps.status_code == 200 and L.EDITOR_APP in apps.text,
+          L.EDITOR_APP + " registered", "HTTP %s %s (collaboration service not registered? journalctl -u opencloud-collaboration)"
           % (apps.status_code, apps.text[:150]))
 
 d = docx.Document(); d.add_paragraph("WOPI check %s" % L.RUN_ID)

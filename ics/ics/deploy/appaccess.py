@@ -96,7 +96,8 @@ def admin_password(rt, db, d) -> str | None:
     return _secret_if_present(rt, db, str(d.id), "admin-password")
 
 
-KC_ADMIN_UID = "kcadmin"   # KC_BOOTSTRAP_ADMIN_USERNAME (catalog identity.yaml); master realm, admin console at https://<auth>/admin/
+KC_ADMIN_UID = "kcadmin"   # KC_BOOTSTRAP_ADMIN_USERNAME (catalog identity.yaml); master realm. Its admin console is NOT served on https://<auth>/
+# (agent cfghelper.LOCKDOWN["keycloak"]): setup and recovery only, from the identity VM itself (kcadm.sh --server http://127.0.0.1:8080)
 
 
 def keycloak_admin_password(rt, db, d) -> str | None:

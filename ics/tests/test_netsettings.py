@@ -156,7 +156,7 @@ def test_public_address_is_set_through_an_audited_action_and_only_admins_see_the
     assert worker.run_once(rt)
     assert adm.get(f"{H}/jobs/{r.json()['job_id']}").json()["status"] == "succeeded"
     ov = adm.get(f"{H}/settings/network").json()
-    assert ov["settings"] == {"public_ipv4": "184.175.230.187", "entry_address": None} and ov["deployments"] == [] and ov["forwards"] == []
+    assert ov["settings"] == {"public_ipv4": "184.175.230.187", "entry_address": None, "console_name": None} and ov["deployments"] == [] and ov["forwards"] == []
     c = adm.post(f"{H}/settings/network/check", json={}, headers=ah)
     assert c.status_code == 200, c.text
     assert c.json()["public_ipv4"] == "184.175.230.187" and c.json()["records"] == [] and c.json()["forwards"] == []

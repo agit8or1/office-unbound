@@ -143,7 +143,9 @@ class Sim:
                 return h._send(400, {"error": "bad"})
             b = json.loads(h.rfile.read(n))
             a = b["agent"]
-            if set(b) != {"v", "bid", "nonce", "ts", "agent", "enroll_token", "proof"} or set(a) != {"address", "port", "tls_fingerprint_sha256", "agent_key_fingerprint_sha256"}:
+            # `features` (optional, agent >= 0.8.1): the optional runbooks the image knows; the real ICS uses it only to REMOVE runbooks
+            if not {"v", "bid", "nonce", "ts", "agent", "enroll_token", "proof"} <= set(b) <= {"v", "bid", "nonce", "ts", "agent", "enroll_token", "proof", "features"} \
+                    or not (isinstance(b.get("features", []), list) and all(isinstance(x, str) and len(x) <= 40 for x in b.get("features", []))) or set(a) != {"address", "port", "tls_fingerprint_sha256", "agent_key_fingerprint_sha256"}:
                 raise ValueError("schema")
             if (b["v"] != 1 or not BID.match(b["bid"]) or not NONCE.match(b["nonce"]) or not HEX64.match(a["tls_fingerprint_sha256"])
                     or not HEX64.match(a["agent_key_fingerprint_sha256"]) or not TOKEN.match(b["enroll_token"]) or not HEX64.match(b["proof"])):

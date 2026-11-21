@@ -2,6 +2,7 @@
 no token exchange needed — verified in the lab, see docs/status/portal-results.md)."""
 from __future__ import annotations
 
+import re
 import time
 import xml.etree.ElementTree as ET
 from datetime import datetime, timedelta, timezone
@@ -84,6 +85,38 @@ def stamp_name(kind: str, ext: str) -> str:
     return f"New {label.lower()} {datetime.now().strftime('%Y-%m-%d %H%M%S')}.{ext}"
 
 
+APP_NAME_RE = re.compile(r"^[A-Za-z0-9]{1,64}$")     # OpenCloud: one word, no whitespace (collaboration COLLABORATION_APP_NAME)
+_EDITOR_TTL = 300.0
+_editor_cache: dict[tuple[str, str], tuple[float, str]] = {}
+
+
+async def editor_route(cfg: Settings, http: httpx.AsyncClient, ext: str) -> str:
+    """OpenCloud Web's route of the office app that opens `.ext` files: `external-<app name, lower case>` (web-app-external), the app name
+    being what OpenCloud's app registry lists (/app/list, public) as the default application for that extension. The deployment names the
+    app (ICS opencloud.env COLLABORATION_APP_NAME, "Documents" -> /external-documents/); asking OpenCloud keeps the portal right for a
+    deployment configured before or after a rename. Falls back to the configured route when the registry cannot be read."""
+    key = (cfg.files_url, ext)
+    hit = _editor_cache.get(key)
+    if hit and time.monotonic() - hit[0] < _EDITOR_TTL:
+        return hit[1]
+    route = cfg.editor_app
+    try:
+        r = await http.get(cfg.files_url + "/app/list")
+        if r.status_code == 200:
+            for mt in r.json().get("mime-types") or []:
+                if not isinstance(mt, dict) or mt.get("ext") != ext:
+                    continue
+                names = [p.get("name") for p in mt.get("app_providers") or [] if isinstance(p, dict)]
+                name = mt.get("default_application") if mt.get("default_application") in names else (names[0] if names else None)
+                if isinstance(name, str) and APP_NAME_RE.fullmatch(name):
+                    route = f"external-{name.lower()}"
+                    _editor_cache[key] = (time.monotonic(), route)
+                break
+    except (httpx.HTTPError, ValueError, AttributeError):
+        pass
+    return route
+
+
 async def create_document(cfg: Settings, http: httpx.AsyncClient, token: str, drive: dict, kind: str) -> str:
     """Create an empty office file in the user's home via OpenCloud's app-provider (/app/new) and return the URL that opens it
     in the editor inside OpenCloud web (same URL the OpenCloud UI navigates to after its own New > Document)."""
@@ -95,7 +128,8 @@ async def create_document(cfg: Settings, http: httpx.AsyncClient, token: str, dr
     alias = drive["alias"]                                   # e.g. personal/bob
     q = (f"fileId={quote(file_id, safe='')}&contextRouteName=files-spaces-generic"
          f"&contextRouteParams.driveAliasAndItem={quote(alias, safe='/')}&contextRouteQuery.fileId={quote(drive['root'], safe='')}")
-    return f"{cfg.files_url}/{cfg.editor_app}/{quote(alias, safe='/')}/{quote(name)}?{q}"
+    route = await editor_route(cfg, http, cfg.doc_ext[kind])
+    return f"{cfg.files_url}/{route}/{quote(alias, safe='/')}/{quote(name)}?{q}"
 
 
 async def account_sessions(cfg: Settings, http: httpx.AsyncClient, token: str) -> list[dict]:

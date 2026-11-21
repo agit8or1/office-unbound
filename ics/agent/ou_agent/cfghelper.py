@@ -549,7 +549,7 @@ server {{
   proxy_read_timeout 3600s;
   proxy_buffer_size 16k;
   proxy_buffers 8 16k;
-{root_redirect}  location / {{
+{lockdown}{root_redirect}  location / {{
     proxy_pass {upstream};{upstream_tls}
     proxy_http_version 1.1;
     proxy_set_header Host $host;
@@ -563,6 +563,45 @@ server {{
   }}
 }}
 """
+
+
+# Administration happens in the Office Unbound console and portal (owner 2026-11-21: "make sure all apps dont have their own admin settings
+# (should all be done via OUR portal)"). Each app's own administration surfaces are therefore not served on its public name: fixed rules per
+# app, chosen by the closed `lockdown` parameter (the ICS sends a profile name, never nginx text). What each app still serves: the comments below.
+LOCKDOWN = {
+    # Keycloak 26: admin console (/admin/, /admin/master/console/, /admin/<realm>/console/) and the admin REST API (/admin/realms/...) under
+    # /admin; the master realm is kcadmin's (its sign-in, tokens for admin-cli, its account console). Nothing of the deployment uses either
+    # through the gateway: the realm is imported from the data volume, health checks use 127.0.0.1:8080/9000 on the identity VM, the portal uses
+    # /realms/<realm>/ (sign-in, account REST). kcadmin stays for setup and recovery ON the identity VM (kcadm.sh --server http://127.0.0.1:8080).
+    "keycloak": ("  # administration through the Office Unbound console: no Keycloak admin console/API and no master realm on this name\n"
+                 "  location ^~ /admin { return 404; }\n"
+                 "  location ^~ /realms/master/ { return 404; }\n"
+                 "  location = /realms/master { return 404; }\n"),
+    # OpenCloud: the Web admin-settings app (users, groups, roles, spaces, general) and the server APIs behind it: Graph writes on users,
+    # groups (incl. members, appRoleAssignments) and education, and the settings service's role-assignment and bundle writes. Reads stay (the
+    # share dialog searches users and groups); /graph/.../drives stays (space quotas are set by the ICS, mailadmin.py); /graph/v1.0/me stays.
+    "opencloud": ("  # administration through the Office Unbound console: no OpenCloud admin-settings app, no user/group/role writes on this name\n"
+                  "  location ^~ /admin-settings { return 404; }\n"
+                  "  location ~ ^/api/v0/settings/(assignments-add|assignments-remove|bundle-save|bundles-add-setting|bundles-remove-setting)$ { return 403; }\n"
+                  "  set $ou_admin_write \"\";\n"
+                  "  if ($request_method !~ ^(GET|HEAD|OPTIONS)$) { set $ou_admin_write \"w\"; }\n"
+                  "  if ($uri ~ \"^/graph/(v1\\.0|v1beta1)/(users|groups|education)(/|$)\") { set $ou_admin_write \"${ou_admin_write}a\"; }\n"
+                  "  if ($ou_admin_write = \"wa\") { return 403; }\n"),
+    # Collabora Online 26.04: admin console pages and bundle (/browser/<hash or dist>/admin/...), its websocket (/cool/adminws) and the
+    # Prometheus metrics (/cool/getMetrics); admin_console.enable=false in the image entrypoint already refuses them, this keeps them off the
+    # public name even if that setting changes. /hosting/discovery, /hosting/capabilities, /cool/<WOPISrc>/ws, /cool/clipboard stay.
+    "collabora": ("  # administration through the Office Unbound console: no Collabora admin console or metrics on this name\n"
+                  "  location ~ ^/(browser|loleaflet)/[^/]+/admin/ { return 404; }\n"
+                  "  location ~ ^/(cool|lool)/(adminws|getMetrics)(/|$) { return 404; }\n"
+                  # the conversion service (any file in, any format out) is not used through the public name (the office health check converts
+                  # on the node itself); Collabora trusts the gateway as a private address, so without this it is a free converter for anyone
+                  "  location ~ ^/(cool|lool)/convert-to(/|$) { return 404; }\n"),
+    # grommunio: the admin API (/api/v1/) and admin web UI are separate packages (grommunio-admin-api/-web) that the groupware component does not
+    # install; refused here as well so an added package never appears on the public mail name. Webmail, EWS, MAPI, DAV, ActiveSync stay.
+    "groupware": ("  # administration through the Office Unbound console: no grommunio admin API or admin UI on this name\n"
+                  "  location ^~ /api/v1/ { return 404; }\n"
+                  "  location ^~ /admin { return 404; }\n"),
+}
 
 
 def nginx_site(p, x):
@@ -580,8 +619,9 @@ def nginx_site(p, x):
         up_tls = (f"\n    proxy_ssl_verify on;\n    proxy_ssl_verify_depth 2;\n    proxy_ssl_trusted_certificate {TLS_DIR}/{cafile};\n"
                   f"    proxy_ssl_name {p['upstream_name']};\n    proxy_ssl_server_name on;\n    proxy_ssl_protocols TLSv1.2 TLSv1.3;")
     rr = f"  location = / {{ return 302 {p['root_redirect']}; }}\n" if p.get("root_redirect") else ""
+    ld = LOCKDOWN[p["lockdown"]] if p.get("lockdown") else ""
     atomic_write(path, NGINX_SITE.format(names=" ".join(p["server_names"]), tls=TLS_DIR, cert=p["tls_name"], body=body, upstream=p["upstream"],
-                                         upstream_tls=up_tls, acme_root=ACME_ROOT, root_redirect=rr), 0o644)
+                                         upstream_tls=up_tls, acme_root=ACME_ROOT, root_redirect=rr, lockdown=ld), 0o644)
     if not os.path.islink(link):
         if os.path.lexists(link):
             os.unlink(link)
@@ -677,6 +717,23 @@ server {{
     fastcgi_read_timeout 360;
     fastcgi_pass ou_fpm_dav;
   }}
+  # grommunio-web links /brand/brand.css last on every page (its documented branding hook; upstream nginx serves it from /run/grommunio-brand,
+  # empty when absent): the Office Unbound skin written by cfg.gromox `brand`
+  location = /brand/brand.css {{
+    root {brand_root};
+    default_type text/css;
+    add_header Cache-Control "no-cache" always;
+    add_header X-Content-Type-Options nosniff always;
+    try_files $uri @ou_brand_none;
+  }}
+  location ^~ /brand/ {{
+    root {brand_root};
+    add_header Cache-Control "no-cache" always;
+    add_header X-Content-Type-Options nosniff always;
+    add_header Content-Security-Policy "default-src 'none'; style-src 'unsafe-inline'; sandbox" always;
+    try_files $uri =404;
+  }}
+  location @ou_brand_none {{ default_type text/css; return 200 ""; }}
   location = / {{ return 301 "/web/"; }}
   location = /web {{ return 301 "/web/$is_args$args"; }}
   location /web/ {{
@@ -719,6 +776,14 @@ SUBMISSION = ("-o syslog_name=postfix/{svc} -o smtpd_tls_security_level=encrypt 
               "-o smtpd_sender_login_maps=mysql:/etc/postfix/mysql-sender-login.cf "
               "-o smtpd_sender_restrictions=reject_sender_login_mismatch,reject_unlisted_sender "
               "-o smtpd_recipient_restrictions=permit_sasl_authenticated,reject -o milter_macro_daemon_name=ORIGINATING")
+
+BRAND_ROOT = "/etc/ou-brand"                       # nginx root: /brand/brand.css -> /etc/ou-brand/brand/brand.css
+# edits of the packages' own config.php (conffiles): no device provisioning, no developer mode, and the name the calendar/contacts server
+# gives in its password prompt (Basic auth realm, shown by calendar apps and browsers; upstream "grommunio dav") is the product's
+GW_PHP_EDITS = (("/etc/grommunio-sync/config.php", r"define\('PROVISIONING',\s*true\);", "define('PROVISIONING', false);"),
+                ("/etc/grommunio-dav/config.php", r"define\('DEVELOPER_MODE',\s*true\);", "define('DEVELOPER_MODE', false);"),
+                ("/etc/grommunio-dav/config.php", r"define\('SABRE_AUTH_REALM',\s*'[^'\\\n]*'\);", "define('SABRE_AUTH_REALM', 'Office Unbound');"))
+GW_DASHBOARD = "/etc/grommunio-web/ou-dashboard.json"   # read by the oudashboard plugin of ou-grommunio-web (>= 5.2-ou3)
 
 ZCORE_SOCKPERM = """#!/bin/sh
 # generated by ou-agent (cfg.gromox). Security review 4 M1: zcore.sock offers mailbox logon without a password to anyone who can connect;
@@ -848,6 +913,26 @@ def _self_resolvable():
     return True
 
 
+def _brand(b):
+    """Static files for nginx (world-readable: nothing secret) and the plugin's settings file (read by the web pool)."""
+    d = os.path.join(BRAND_ROOT, "brand")
+    if not b:
+        for f in (os.path.join(d, "brand.css"), os.path.join(d, "ou-mark.svg"), GW_DASHBOARD):
+            if os.path.exists(f):
+                os.unlink(f)
+        return
+    os.makedirs(d, mode=0o755, exist_ok=True)
+    for q in (BRAND_ROOT, d):
+        os.chmod(q, 0o755)
+    atomic_write(os.path.join(d, "brand.css"), b["css"], 0o644)
+    atomic_write(os.path.join(d, "ou-mark.svg"), b["mark_svg"], 0o644)
+    if b.get("portal_url"):
+        os.makedirs(os.path.dirname(GW_DASHBOARD), mode=0o755, exist_ok=True)
+        atomic_write(GW_DASHBOARD, json.dumps({"url": b["portal_url"], "label": "Dashboard"}) + "\n", 0o644)
+    elif os.path.exists(GW_DASHBOARD):
+        os.unlink(GW_DASHBOARD)
+
+
 def gromox(p, x):
     missing = [k for k in GW_NEEDS if not _installed(x, k)]
     if missing:
@@ -973,10 +1058,9 @@ def gromox(p, x):
     x.run([BIN["phpenmod"], "-v", phpv, "-s", "fpm", "mapi"], what="phpenmod mapi")
     for name, user, timeout in (("grommunio-web", "groweb", 360), ("grommunio-sync", "grosync", 3660), ("grommunio-dav", "grodav", 360)):
         atomic_write(os.path.join(fpm[0], name + ".conf"), GW_POOL.format(name=name, user=user, timeout=timeout), 0o644)
-    for path, pat, rep in (("/etc/grommunio-sync/config.php", r"define\('PROVISIONING',\s*true\);", "define('PROVISIONING', false);"),
-                           ("/etc/grommunio-dav/config.php", r"define\('DEVELOPER_MODE',\s*true\);", "define('DEVELOPER_MODE', false);")):
+    for path, pat, rep in GW_PHP_EDITS:
         t = read(path)
-        if t is not None and re.search(pat, t):
+        if t is not None and re.search(pat, t) and re.sub(pat, rep, t) != t:
             atomic_write(path, re.sub(pat, rep, t), 0o644)
     # --- webmail sign-in through Keycloak (webmail-sso-results.md): keycloak.json for grommunio-web, the realm's public key for gromox (zcore
     # verifies the token's RS256 signature with it); without `sso` webmail keeps its own login form (directory password)
@@ -994,10 +1078,12 @@ def gromox(p, x):
             if os.path.exists(f):
                 os.unlink(f)
                 changed = True
+    # --- the Office Unbound skin (/brand/brand.css + mark) and the webmail's Dashboard button target; without `brand` both are removed
+    _brand(p.get("brand"))
     # --- nginx: mail.<domain> + autodiscover on 443 (clients) and 8447 (the edge), TLS with the deployment certificate
     path, link = os.path.join(NGINX_AVAIL, GW_SITE), os.path.join(NGINX_ENABLED, GW_SITE)
     old = read(path)
-    atomic_write(path, GW_NGINX.format(names=f"{host} autodiscover.{dom}", tls=GX_TLS), 0o644)
+    atomic_write(path, GW_NGINX.format(names=f"{host} autodiscover.{dom}", tls=GX_TLS, brand_root=BRAND_ROOT), 0o644)
     if not os.path.islink(link):
         if os.path.lexists(link):
             os.unlink(link)
@@ -1127,14 +1213,24 @@ def portal(p, x):
            "PORTAL_OIDC_CLIENT_SECRET_FILE": PORTAL_ETC + "/client-secret", "PORTAL_FILES_URL": p["files_url"] or p["base_url"],
            "PORTAL_MAIL_WEB_URL": p["mail_web_url"], "PORTAL_MAIL_HOST": p["mail_host"] or p["mail_domain"], "PORTAL_MAIL_DOMAIN": p["mail_domain"],
            "PORTAL_ORG_NAME": p["org_name"], "PORTAL_CA_BUNDLE": "/etc/ssl/certs/ca-certificates.crt"}
+    key_file = os.path.join(PORTAL_ETC, "ics-tenant-key")
+    admin = p.get("admin")
+    if admin:   # the admin area: the ICS tenant-admin API of this deployment (the key goes to a file, never into the environment file)
+        env.update({"PORTAL_ICS_URL": admin["ics_url"], "PORTAL_ICS_KEY_FILE": key_file,
+                    "PORTAL_ICS_CA_BUNDLE": "/etc/ssl/certs/ca-certificates.crt", "PORTAL_ADMIN_ROLE": "org-admin"})
     text = "# generated by ou-agent (cfg.portal); no secret in this file\n" + "".join(f"{k}={v}\n" for k, v in env.items())
     changed = _cfgfile(os.path.join(PORTAL_ETC, "portal.env"), text, 0o640, 0, gid)
     changed |= _cfgfile(os.path.join(PORTAL_ETC, "client-secret"), p["client_secret"], 0o640, 0, gid)
+    if admin:
+        changed |= _cfgfile(key_file, admin["ics_key"], 0o640, 0, gid)
+    elif os.path.lexists(key_file):   # admin area switched off: no credential is left behind
+        os.unlink(key_file)
+        changed = True
     x.run([BIN["systemctl"], "enable", "ou-portal"], what="systemctl enable ou-portal")
     x.run([BIN["systemctl"], "restart" if changed else "start", "ou-portal"], what="systemctl start ou-portal")
     if x.run([BIN["systemctl"], "is-active", "ou-portal"], check=False).stdout.strip() != "active":
         raise Failed("ou-portal is not running after start")
-    return {"base_url": p["base_url"], "config_changed": changed}
+    return {"base_url": p["base_url"], "config_changed": changed, "admin_area": bool(admin)}
 
 
 DISPATCH = {"cfg.firewall": firewall, "cfg.hosts": hosts, "cfg.tls": tls, "cfg.ldap_init": ldap_init, "cfg.ldap_user": ldap_user, "cfg.ldap_list": ldap_list,

@@ -24,6 +24,8 @@ override_dh_auto_install:
 	# the upstream build precompressed the old logos (.gz/.br): drop them or gzip_static would serve the old artwork
 	for f in grommunio-logo.svg grommunio_icon.svg favicon.ico grommunio.ico; do rm -f $(APP)/client/resources/images/$$f.gz $(APP)/client/resources/images/$$f.br; done
 	rm -f $(APP)/config.php $(APP)/debug.php
+	# Office Unbound plugin (debian/ou-plugins): the Dashboard button back to the user portal; its target comes from /etc/grommunio-web/ou-dashboard.json (cfg.gromox)
+	cp -a debian/ou-plugins/oudashboard $(APP)/plugins/oudashboard
 	install -D -m0644 deploy/config.php.dist $(PKG)/etc/grommunio-web/config.php
 	ln -s /etc/grommunio-web/config.php $(APP)/config.php
 	install -D -m0644 debian/ou-grommunio-web.sysusers $(PKG)/usr/lib/sysusers.d/ou-grommunio-web.conf

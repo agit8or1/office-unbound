@@ -7,7 +7,7 @@ import secrets
 import subprocess
 import time
 
-from . import cfgspec, guestspec, mbxspec, probespec
+from . import cfgspec, diagspec, guestspec, mbxspec, probespec
 from .proto import Reject
 
 SYSTEMCTL = "/usr/bin/systemctl"
@@ -42,19 +42,22 @@ SIP_DEVICES = ("web", "native", "desk")
 SECRET_DIR = "/run/ou-rb-secret"   # 0700 dir owned by ou-agent (made by the helper); the credential result is 0600, the agent unlinks it after reading
 RESULT_DIR = "/run/ou-rb"
 MAX_RESULT = 24576
-MAX_CFG_RESULT = 56 * 1024   # cfg.ldap_list returns the directory listing (cfghelper.LIST_BUDGET 48 KiB); below the ICS response cap (64 KiB)
+MAX_CFG_RESULT = 56 * 1024
+MAX_DIAG_RESULT = 56 * 1024   # guest.journal: at most diagspec.MAX_TOTAL_BYTES of redacted lines plus JSON overhead   # cfg.ldap_list returns the directory listing (cfghelper.LIST_BUDGET 48 KiB); below the ICS response cap (64 KiB)
 _ENV = {"PATH": "/usr/bin:/bin", "LANG": "C"}
 
 
 def validate_config(cfg: dict) -> dict:
     """Shape of /etc/ou-agent/agent.json: {"listen": {"address","port"}, "runbooks": {name: {"units":[...]} | {"paths":[...]}}}"""
     rb = cfg.get("runbooks")
-    known = RUNBOOKS + tuple(USER_RUNBOOKS) + guestspec.GUEST_RUNBOOKS + BACKUP_RUNBOOKS + mbxspec.MBX_RUNBOOKS + cfgspec.CFG_RUNBOOKS + (probespec.PROBE_RUNBOOK,)
+    known = RUNBOOKS + tuple(USER_RUNBOOKS) + guestspec.GUEST_RUNBOOKS + BACKUP_RUNBOOKS + mbxspec.MBX_RUNBOOKS + cfgspec.CFG_RUNBOOKS + (probespec.PROBE_RUNBOOK, diagspec.DIAG_RUNBOOK)
     if not isinstance(rb, dict) or set(rb) - set(known):
         raise ValueError("runbooks must be a subset of " + ", ".join(known))
     for name in (*cfgspec.CFG_RUNBOOKS, probespec.PROBE_RUNBOOK):
         if name in rb:
             cfgspec.validate_runbook_config(name, rb[name])
+    if diagspec.DIAG_RUNBOOK in rb:
+        diagspec.validate_runbook_config(diagspec.DIAG_RUNBOOK, rb[diagspec.DIAG_RUNBOOK])
     for name in BACKUP_RUNBOOKS:
         if name in rb and (not {"tiers"} <= set(rb[name]) <= {"tiers", "customers"} or not isinstance(rb[name]["tiers"], list) or not rb[name]["tiers"]
                            or not set(rb[name]["tiers"]) <= set(BACKUP_TIERS)
@@ -81,8 +84,8 @@ def capabilities(cfg: dict) -> dict:
     rb = cfg["runbooks"]
     out = {}
     for k, v in rb.items():
-        if k in USER_RUNBOOKS or k in mbxspec.MBX_RUNBOOKS or k in cfgspec.CFG_RUNBOOKS or k == probespec.PROBE_RUNBOOK:
-            out[k] = {"enabled": True}
+        if k in USER_RUNBOOKS or k in mbxspec.MBX_RUNBOOKS or k in cfgspec.CFG_RUNBOOKS or k in (probespec.PROBE_RUNBOOK, diagspec.DIAG_RUNBOOK):
+            out[k] = {"enabled": True, **({"features": list(cfgspec.FEATURES[k])} if k in cfgspec.FEATURES else {})}
         elif k in BACKUP_RUNBOOKS:
             out[k] = {"tiers": sorted(v["tiers"]), **({"customers": sorted(v["customers"])} if v.get("customers") else {})}
         elif k in guestspec.GUEST_RUNBOOKS:
@@ -105,6 +108,8 @@ def check_allowed(cfg: dict, action: str, params: dict) -> dict:
         return cfgspec.CHECKS[action](params, spec)
     if action == probespec.PROBE_RUNBOOK:
         return probespec.check(params, spec)
+    if action == diagspec.DIAG_RUNBOOK:
+        return diagspec.check(params, spec)   # closed schema: keys of fixed tables only; the helper validates again
     if action in BACKUP_RUNBOOKS:
         return check_backup(action, params, spec)
     if action == "pbx.issue_credential":
@@ -286,6 +291,37 @@ def _cfg_runbook(action: str, params: dict) -> dict:
             pass
 
 
+def _diag_runbook(params: dict) -> dict:
+    """guest.journal (read-only): spool the validated, non-secret request, start ou-rb-diag@<rid>.service (polkit allows exactly that template),
+    read the helper's result (0640 root:ou-agent: already redacted log lines)."""
+    rid = "r" + secrets.token_hex(8)
+    spool = os.path.join(SPOOL_DIR, rid + ".json")
+    fd = os.open(spool, os.O_WRONLY | os.O_CREAT | os.O_EXCL, 0o644)
+    os.fchmod(fd, 0o644)
+    with os.fdopen(fd, "w") as f:
+        json.dump({"action": diagspec.DIAG_RUNBOOK, "params": params}, f)
+    try:
+        r = _systemctl("start", "--wait", f"ou-rb-diag@{rid}.service", timeout=120)
+        path = os.path.join(RESULT_ROOT, "ou-rb-diag", rid + ".json")
+        try:
+            if os.stat(path).st_size > MAX_DIAG_RESULT:
+                raise ValueError("result too large")
+            with open(path) as f:
+                data = json.load(f)
+            if data.get("rid") != rid:
+                raise ValueError("foreign result")
+        except (OSError, ValueError):
+            raise RuntimeError("helper produced no result") from None
+        out = {"returncode": r.returncode}
+        out.update({k: data[k] for k in ("result", "rejected", "error") if k in data})
+        return out
+    finally:
+        try:
+            os.unlink(spool)
+        except OSError:
+            pass
+
+
 def _backup_runbook(action: str, params: dict) -> dict:
     """Spool the validated params, start ou-rb-backup@<rid>.service (polkit allows exactly that template), read the helper's result file.
     The result is data from the root helper (counts, durations, canary comparison): never a credential."""
@@ -323,6 +359,8 @@ def execute(action: str, params: dict) -> dict:
         return _backup_runbook(action, params)
     if action in cfgspec.CFG_RUNBOOKS:
         return _cfg_runbook(action, params)
+    if action == diagspec.DIAG_RUNBOOK:
+        return _diag_runbook(params)
     if action == probespec.PROBE_RUNBOOK:
         return probespec.execute(params)   # in-process, unprivileged, loopback only
     if action in guestspec.GUEST_RUNBOOKS or action in mbxspec.MBX_RUNBOOKS:

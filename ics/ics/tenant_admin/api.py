@@ -9,7 +9,8 @@ from sqlalchemy import text
 from sqlalchemy.orm import Session
 
 from ..auth import User, client_ip, get_db, require
-from . import dnscheck, service
+from . import deployment as dep, dnscheck, service
+from .deployment import DeploymentCtx
 from .service import Ctx, TenantError
 
 T = "/api/v1/tenant"
@@ -113,6 +114,8 @@ def mount(app: FastAPI) -> None:
     # ---- who am I / overview --------------------------------------------------------------------------------------------------
     @app.get(f"{T}/me")
     def me(ctx: Ctx = Depends(ctx_read)):
+        if isinstance(ctx, DeploymentCtx):
+            return dep.me(ctx)
         c = ctx.db.execute(text("SELECT name FROM customers WHERE id = :i"), {"i": ctx.customer_id}).scalar()
         counts = ctx.db.execute(text("SELECT state, count(*) AS n FROM idm_users WHERE stack_id = :s AND state <> 'deleted' GROUP BY state"), {"s": str(ctx.stack_row.id)}).all()
         pol = ctx.policy
@@ -126,12 +129,14 @@ def mount(app: FastAPI) -> None:
     # ---- branding for the portal itself (service credential only: any signed-in user's page needs it) ------------------------------
     @app.get(f"{T}/branding")
     def branding(ctx: Ctx = Depends(ctx_service)):
+        if isinstance(ctx, DeploymentCtx):
+            return dep.branding(ctx)
         n = ctx.db.execute(text("SELECT name FROM customers WHERE id = :i"), {"i": ctx.customer_id}).scalar()
         return service.public_branding(ctx.binding, n)
 
     @app.get(f"{T}/branding/logo")
     def logo(ctx: Ctx = Depends(ctx_service)):
-        if ctx.binding.logo is None:
+        if isinstance(ctx, DeploymentCtx) or ctx.binding.logo is None:
             raise HTTPException(404, "no logo")
         return Response(bytes(ctx.binding.logo), media_type=ctx.binding.logo_type, headers={"X-Content-Type-Options": "nosniff", "Content-Security-Policy": "default-src 'none'; sandbox"})
 
@@ -160,6 +165,8 @@ def mount(app: FastAPI) -> None:
 
     @app.get(f"{T}/apps")
     def apps(ctx: Ctx = Depends(ctx_read)):
+        if isinstance(ctx, DeploymentCtx):
+            return dep.apps_view(ctx)
         return {"apps": {a: {"label": service.APP_LABELS.get(a, a), "enabled": bool((ctx.binding.app_access or {}).get(a)), "group": g}
                          for a, g in (ctx.policy.get("app_groups") or {}).items()}}
 
@@ -170,12 +177,16 @@ def mount(app: FastAPI) -> None:
     # ---- users ----------------------------------------------------------------------------------------------------------------
     @app.get(f"{T}/users")
     def users(ctx: Ctx = Depends(ctx_read)):
+        if isinstance(ctx, DeploymentCtx):
+            return dep.users(ctx)
         return service.list_users(ctx)
 
     @app.get(f"{T}/users/{{uid}}")
     def user(uid: str, ctx: Ctx = Depends(ctx_read)):
         if not re.match(UID, uid):
             raise HTTPException(404, "user not found")
+        if isinstance(ctx, DeploymentCtx):
+            return dep.user(ctx, uid)
         return _wrap(lambda: service.get_user(ctx, uid))
 
     def _groups_for(ctx: Ctx, apps_: dict, groups: list[str]) -> list[str]:
@@ -238,6 +249,8 @@ def mount(app: FastAPI) -> None:
     # ---- aliases, shared mailboxes, quotas -------------------------------------------------------------------------------------
     @app.get(f"{T}/aliases")
     def aliases(ctx: Ctx = Depends(ctx_read)):
+        if isinstance(ctx, DeploymentCtx):
+            raise dep.not_here()
         return service.aliases_view(ctx)
 
     @app.post(f"{T}/users/{{uid}}/aliases", status_code=202)
@@ -246,6 +259,8 @@ def mount(app: FastAPI) -> None:
 
     @app.get(f"{T}/shared")
     def shared(ctx: Ctx = Depends(ctx_read)):
+        if isinstance(ctx, DeploymentCtx):
+            raise dep.not_here()
         return service.shared_view(ctx)
 
     @app.post(f"{T}/shared", status_code=202)
@@ -270,6 +285,8 @@ def mount(app: FastAPI) -> None:
 
     @app.get(f"{T}/quotas")
     def quotas(live: bool = True, ctx: Ctx = Depends(ctx_read)):
+        if isinstance(ctx, DeploymentCtx):
+            raise dep.not_here()
         return service.quotas_view(ctx, live)
 
     @app.post(f"{T}/users/{{uid}}/quota/mail", status_code=202)
@@ -283,6 +300,8 @@ def mount(app: FastAPI) -> None:
     # ---- groups ---------------------------------------------------------------------------------------------------------------
     @app.get(f"{T}/groups")
     def groups(ctx: Ctx = Depends(ctx_read)):
+        if isinstance(ctx, DeploymentCtx):
+            return dep.groups(ctx)
         ok = service.assignable_groups(ctx)
         rows = ctx.db.execute(text("SELECT groups FROM idm_users WHERE stack_id = :s AND state = 'active'"), {"s": str(ctx.stack_row.id)}).all()
         return [{"name": g, "label": l, "members": sum(1 for r in rows if g in r.groups)} for g, l in ok.items()]
@@ -290,10 +309,14 @@ def mount(app: FastAPI) -> None:
     # ---- requests (the audit-visible work list) --------------------------------------------------------------------------------
     @app.get(f"{T}/requests")
     def requests(ctx: Ctx = Depends(ctx_read)):
+        if isinstance(ctx, DeploymentCtx):
+            return []   # no changes are requested through this API on a deployment yet
         return service.requests_view(ctx, limit=100)
 
     @app.get(f"{T}/requests/{{plan_id}}")
     def request_one(plan_id: UUID, ctx: Ctx = Depends(ctx_read)):
+        if isinstance(ctx, DeploymentCtx):
+            raise HTTPException(404, "request not found")
         r = service.requests_view(ctx, plan_id=plan_id)
         if not r:
             raise HTTPException(404, "request not found")
@@ -315,6 +338,8 @@ def mount(app: FastAPI) -> None:
     # ---- domains --------------------------------------------------------------------------------------------------------------
     @app.get(f"{T}/domains")
     def domains(check: bool = False, ctx: Ctx = Depends(ctx_read)):
+        if isinstance(ctx, DeploymentCtx):
+            return dep.domains(ctx, check)
         d = ctx.cfg["mail_domain"]
         out = {"domains": [{"name": d, "primary": True}], "managed_by": "Your service provider adds or removes domains."}
         if check:

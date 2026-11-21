@@ -1,7 +1,11 @@
 {
   "realm": "@REALM@",
-  "displayName": "Office Unbound Lab",
+  "displayName": "Office Unbound",
+  "displayNameHtml": "Office Unbound",
   "enabled": true,
+  "loginTheme": "ou",
+  "accountTheme": "ou",
+  "emailTheme": "ou",
   "sslRequired": "all",
   "registrationAllowed": false,
   "registrationEmailAsUsername": false,

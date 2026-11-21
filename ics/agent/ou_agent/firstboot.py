@@ -27,12 +27,15 @@ import sys
 import time
 import urllib.parse
 
-from . import cfgspec, guestspec, probespec
+from . import cfgspec, diagspec, guestspec, probespec
 
 SMBIOS_DIR = "/sys/class/dmi/id"
 STATE_DIR = "/var/lib/ou-bootstrap"
 PATH = "/api/v1/guest-bootstrap/report"
-RUNBOOKS = {"disk.usage", "guest.facts", "podman.status", "podman.remove_unit", "podman.pull_verified", "podman.deploy_unit", "pkg.install_pinned", *cfgspec.CFG_RUNBOOKS, probespec.PROBE_RUNBOOK}
+RUNBOOKS = {"disk.usage", "guest.facts", "podman.status", "podman.remove_unit", "podman.pull_verified", "podman.deploy_unit", "pkg.install_pinned", *cfgspec.CFG_RUNBOOKS, probespec.PROBE_RUNBOOK,
+            diagspec.DIAG_RUNBOOK}
+# optional runbooks this image knows; reported to the ICS, which removes them from the configuration of an image that does not report them
+FEATURES = (diagspec.DIAG_RUNBOOK,)
 CFG_ALLOW_DIR = "/etc/ou-agent/nft-allow.d"   # cfg.firewall writes ou-peers.nft here (root); included by /etc/nftables.conf
 CIDR_RE = re.compile(r"^[0-9a-f:.]{2,45}/\d{1,3}$")
 HOST_RE = re.compile(r"^[A-Za-z0-9.\[\]:-]{1,100}$")
@@ -82,7 +85,10 @@ def build_report(cfg: dict, agent: dict, token: str, *, nonce: str | None = None
     ts = int(time.time()) if ts is None else ts
     msg = "\n".join(["ou-bootstrap-report-v1", cfg["bid"], nonce, str(ts), agent["address"], str(agent["port"]), agent["tls_fingerprint_sha256"],
                      agent["agent_key_fingerprint_sha256"], hashlib.sha256(token.encode()).hexdigest()])
-    return {"v": 1, "bid": cfg["bid"], "nonce": nonce, "ts": ts, "agent": agent, "enroll_token": token, "proof": _mac(cfg["secret"], msg)}
+    # `features` is outside the MAC on purpose: it can only make the ICS REMOVE optional runbooks from the configuration it returns (an image that
+    # does not report a feature gets no such runbook), never add one, and this image validates the returned configuration itself
+    return {"v": 1, "bid": cfg["bid"], "nonce": nonce, "ts": ts, "agent": agent, "enroll_token": token, "proof": _mac(cfg["secret"], msg),
+            "features": list(FEATURES)}
 
 
 def post_pinned(cfg: dict, body: dict, timeout: float = 20.0) -> dict:
@@ -166,6 +172,8 @@ def validate_config(c: dict) -> dict:
             if name == "disk.usage":
                 if not isinstance(rc, dict) or set(rc) != {"paths"} or not all(isinstance(x, str) and re.fullmatch(r"/[A-Za-z0-9_./-]{0,100}", x) for x in rc["paths"]):
                     raise ValueError
+            elif name == diagspec.DIAG_RUNBOOK:
+                diagspec.validate_runbook_config(name, rc)
             elif name in cfgspec.CFG_RUNBOOKS or name == probespec.PROBE_RUNBOOK:
                 cfgspec.validate_runbook_config(name, rc)
             else:

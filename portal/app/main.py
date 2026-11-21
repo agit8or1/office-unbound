@@ -30,6 +30,12 @@ KINDS = ("document", "spreadsheet", "presentation")
 HEXRE = re.compile(r"^#[0-9a-fA-F]{6}$")
 
 
+def css_string(text: str) -> str:
+    """A CSS string literal of untrusted text: letters, digits and spaces as they are, everything else as a CSS hex escape, so nothing can
+    end the string, the declaration or the rule."""
+    return '"' + "".join(ch if (ch.isalnum() and ch.isascii()) or ch == " " else f"\\{ord(ch):x} " for ch in text) + '"'
+
+
 def safe_next(p: str | None) -> str:
     """Only same-site absolute paths: blocks open redirects (//evil, /\\evil, schemes)."""
     if (p and p.startswith("/") and not p.startswith("//") and "\\" not in p
@@ -75,7 +81,8 @@ def create_app(cfg: Settings | None = None, transport: httpx.AsyncBaseTransport 
         h.setdefault("Referrer-Policy", "same-origin")
         h["Strict-Transport-Security"] = "max-age=31536000"
         h["Cross-Origin-Opener-Policy"] = "same-origin"
-        h["Cross-Origin-Resource-Policy"] = "same-origin"
+        # /brand/*: the organisation branding every other app of the deployment loads (cloud., mail., auth. are other origins)
+        h["Cross-Origin-Resource-Policy"] = "cross-origin" if request.url.path.startswith("/brand/") else "same-origin"
         h["Permissions-Policy"] = "camera=(), microphone=(), geolocation=(), payment=(), usb=()"
         if not request.url.path.startswith("/static/") and "Cache-Control" not in h:
             h["Cache-Control"] = "no-store"
@@ -84,7 +91,7 @@ def create_app(cfg: Settings | None = None, transport: httpx.AsyncBaseTransport 
     @app.middleware("http")
     async def brand_mw(request: Request, call_next):
         ics = state.get("ics")
-        request.state.brand = await ics.branding() if ics and not request.url.path.startswith(("/static/", "/healthz", "/branding")) else None
+        request.state.brand = await ics.branding() if ics and not request.url.path.startswith(("/static/", "/healthz", "/branding", "/brand/")) else None
         return await call_next(request)
 
     # ---- helpers --------------------------------------------------------------------------------------------------
@@ -309,6 +316,34 @@ def create_app(cfg: Settings | None = None, transport: httpx.AsyncBaseTransport 
             return login_redirect(request)
         return Response(devices.autoconfig_xml(cfg), media_type="application/xml",
                         headers={"Content-Disposition": 'attachment; filename="config-v1.1.xml"'})
+
+    # ---- organisation branding for the OTHER apps (sign-in pages, Files, Docs, webmail: ics/ics/deploy/brand.py skins @import this) ----
+    @app.get("/brand/org.css", include_in_schema=False)
+    async def brand_org_css() -> Response:
+        """--ou-org-* custom properties: the organisation accent (light/dark, soft tints) and logo; empty when none is set. Public: the same
+        values the signed-out portal pages show. Light and dark tints mix with the portal's own background tokens."""
+        b = (await state["ics"].branding() if state.get("ics") else None) or {}
+        a = b.get("accent") or ""
+        props = []
+        if HEXRE.match(a):
+            props += [f"--ou-org-accent:{a}", f"--ou-org-accent-dark:color-mix(in srgb,{a} 55%,#fff)",
+                      f"--ou-org-soft:color-mix(in srgb,{a} 14%,#f6f5f1)", f"--ou-org-soft-dark:color-mix(in srgb,{a} 28%,#14181f)"]
+        if b.get("has_logo") and re.fullmatch(r"https://[a-z0-9.-]+(:[0-9]{1,5})?", cfg.base_url):
+            props.append(f'--ou-org-logo:url("{cfg.base_url}/brand/logo")')
+        name = (b.get("display_name") or "").strip()
+        # the organisation's name for the other apps' headers (sign-in page). A deployment without a name of its own reports its mail
+        # domain: that is not a name, the apps then say Office Unbound.
+        if name and name.lower() != (cfg.mail_domain or "").lower():
+            props.append(f"--ou-org-name:{css_string(name[:80])}")
+        css = (":root{" + ";".join(props) + "}\n") if props else ""
+        return Response(css, media_type="text/css", headers={"Cache-Control": "no-cache"})
+
+    @app.get("/brand/logo", include_in_schema=False)
+    async def brand_logo() -> Response:
+        r = await state["ics"].logo() if state.get("ics") else None
+        if not r:
+            return Response(status_code=404)
+        return Response(r[0], media_type=r[1], headers={"Cache-Control": "no-cache", "Content-Security-Policy": "default-src 'none'; sandbox"})
 
     if cfg.ics_url:
         class H:  # what the admin area needs from this module

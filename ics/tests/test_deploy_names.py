@@ -143,6 +143,21 @@ def test_single_tenant_edge_sends_unknown_names_to_the_portal_and_everything_pas
     assert store["portal-client-secret"] not in red and KEY not in red
 
 
+def test_every_app_site_refuses_the_apps_own_administration_and_the_portal_keeps_its_name(monkeypatch):
+    """Owner 2026-11-21: no app keeps its own admin settings; administration is done through the Office Unbound console and portal."""
+    for p in (_ok(generate_plan(inp(), cap(), pinned())), _multi(tenants={"t01": TenantNames(domain="customer-a.com")})):
+        ctx, _ = _ctx(p, monkeypatch)
+        rb = [r for vm in (v["name"] for v in p["vms"]) for r in _runbooks(ctx, vm)]
+        sites = [r["params"] for r in rb if r["runbook"] == "cfg.nginx_site"]
+        assert sites
+        for s in sites:
+            label = s["name"].split("-")[0]
+            want = {"auth": "keycloak", "cloud": "opencloud", "office": "collabora", "mail": "groupware", "autodiscover": "groupware"}.get(label)
+            assert s.get("lockdown") == want, s["name"]
+            assert c.check_nginx_site(s, {"enabled": True}).get("lockdown") == want
+        assert {s["lockdown"] for s in sites if "lockdown" in s} >= {"keycloak", "opencloud", "collabora"}
+
+
 def test_the_webmail_trusts_exactly_the_realm_key_the_ics_made(monkeypatch):
     p = _ok(generate_plan(inp(), cap(), pinned()))
     ctx, store = _ctx(p, monkeypatch)

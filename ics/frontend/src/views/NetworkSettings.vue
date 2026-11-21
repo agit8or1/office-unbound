@@ -22,22 +22,27 @@ interface Dep { deployment: string; status: string; domain: string; records: Rec
 interface Local { deployment: string; status: string; domain: string | null; reason: string }
 type Mode = 'public' | 'lan_vpn' | 'allowlist'
 interface Mgmt { mode: Mode; allowed: string[] }
-interface Overview { settings: { public_ipv4: string | null; entry_address: string | null }; management: Mgmt; your_address: string | null;
+interface Overview { settings: { public_ipv4: string | null; entry_address: string | null; console_name?: string | null }; management: Mgmt; your_address: string | null;
   detected_public_ipv4: string | null; forwards: Fwd[]; deployments: Dep[]; local_only: Local[]; notes: string[] }
 interface Checked { checked_at: string; records: { deployment: string; records: Rec[] }[]; forwards: Fwd[]; notes: string[] }
 
 const ov = useLoad(() => get<Overview>('settings/network'), 60000)
-const ip = ref(''), entry = ref('')
+const ip = ref(''), entry = ref(''), consoleName = ref('')
 // offered only when the console is opened on its private LAN address (a public name is not where the router can forward to)
 const thisServer = /^(10\.|192\.168\.|172\.(1[6-9]|2\d|3[01])\.)\d{1,3}\.\d{1,3}(\.\d{1,3})?$/.test(window.location.hostname) ? window.location.hostname : ''
 watch(() => ov.data.value, (v) => {
   if (!v) return
   if (!ip.value) ip.value = v.settings.public_ipv4 ?? ''
   if (!entry.value) entry.value = v.settings.entry_address ?? ''
+  if (!consoleName.value) consoleName.value = v.settings.console_name ?? ''
 }, { immediate: true })
-const dirty = computed(() => (ip.value || null) !== (ov.data.value?.settings.public_ipv4 ?? null) || (entry.value || null) !== (ov.data.value?.settings.entry_address ?? null))
+const dirty = computed(() => (ip.value || null) !== (ov.data.value?.settings.public_ipv4 ?? null) || (entry.value || null) !== (ov.data.value?.settings.entry_address ?? null)
+  || (consoleName.value || null) !== (ov.data.value?.settings.console_name ?? null))
 const run = useRun()
-async function save() { await run.start('settings.network.update', { public_ipv4: ip.value.trim() || null, entry_address: entry.value.trim() || null }) }
+async function save() {
+  await run.start('settings.network.update', { public_ipv4: ip.value.trim() || null, entry_address: entry.value.trim() || null,
+    console_name: consoleName.value.trim().toLowerCase() || null })
+}
 watch(() => run.job.value?.status, (s) => { if (s === 'succeeded') { checked.value = null; void ov.reload() } })
 
 const checking = ref(false), checkErr = ref<ApiError | null>(null), checked = ref<Checked | null>(null)
@@ -103,9 +108,13 @@ watch(() => certRun.job.value?.status, (s) => { if (s === 'succeeded') void ov.r
         <label class="small">Router forwards 80/443 to
           <input v-model.trim="entry" inputmode="decimal" placeholder="the gateway VM" autocomplete="off" data-testid="ns-entry"></label>
         <Button v-if="thisServer && entry !== thisServer" size="sm" variant="ghost" type="button" @click="entry = thisServer">Use this server ({{ thisServer }})</Button>
+        <label class="small">Console public name
+          <input v-model.trim="consoleName" placeholder="console.example.com" autocomplete="off" spellcheck="false" data-testid="ns-console-name"></label>
         <Button size="sm" type="submit" :disabled="!dirty" :loading="run.busy.value">Save</Button>
       </form>
       <p class="muted small">"This server" routes each web name to the right deployment, so one forward serves every deployment. Saving is an audited change.</p>
+      <p class="muted small">Console public name: the portals of your deployments reach this console under https://&lt;this name&gt; for their admin area
+        (administrators of an organization). Empty: the portals have no admin area. A deployment picks up a change the next time it is configured.</p>
       <RunPanel v-if="run.created.value" :run="run" what="Saving the network settings" />
     </Card>
 

@@ -30,6 +30,9 @@ REALM = os.environ.get("OU_REALM", "ou-lab")
 HOST_KC = os.environ.get("OU_HOST_KC", "auth." + LAB_DOMAIN)
 HOST_FILES = os.environ.get("OU_HOST_FILES", "cloud." + LAB_DOMAIN)
 HOST_OFFICE = os.environ.get("OU_HOST_OFFICE", "office." + LAB_DOMAIN)
+# OpenCloud's name of the office app (COLLABORATION_APP_NAME): "Documents" on ICS deployments (ics/ics/deploy/brand.py EDITOR_APP);
+# the older lab spikes registered CollaboraOnline (set OU_EDITOR_APP=CollaboraOnline for them)
+EDITOR_APP = os.environ.get("OU_EDITOR_APP", "Documents")
 HOST_MAIL = os.environ.get("OU_HOST_MAIL", "mail." + LAB_DOMAIN)
 HOST_AUTODISCOVER = os.environ.get("OU_HOST_AUTODISCOVER", "autodiscover." + LAB_DOMAIN)
 MAIL_DOMAIN = os.environ.get("OU_MAIL_DOMAIN", LAB_DOMAIN)
@@ -166,7 +169,7 @@ def wait_http(requests, url, timeout=120, **kw):
     raise RuntimeError("timeout waiting for %s (%s)" % (url, last))
 
 
-def wait_app_ready(requests, app_name="CollaboraOnline", timeout=120):
+def wait_app_ready(requests, app_name=EDITOR_APP, timeout=120):
     """KI-1: OpenCloud answers OIDC discovery ~5 s before the collaboration app is
     re-registered after a restart; /app/list is the accurate readiness signal."""
     end = time.time() + timeout
@@ -248,7 +251,7 @@ class CollaboraSession:
     def __init__(self, requests, websocket, token, file_id):
         import urllib.parse as up
         self.websocket, self.up = websocket, up
-        r = requests.post("https://%s/app/open?file_id=%s&app_name=CollaboraOnline" % (HOST_FILES, up.quote(file_id, safe="")),
+        r = requests.post("https://%s/app/open?file_id=%s&app_name=%s" % (HOST_FILES, up.quote(file_id, safe=""), EDITOR_APP),
                           headers={"Authorization": "Bearer " + token}, verify=verify(), timeout=60)
         self.open_status, self.open_text = r.status_code, r.text
         self.ok_open = r.status_code == 200 and "app_url" in r.text

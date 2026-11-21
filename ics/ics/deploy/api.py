@@ -25,8 +25,8 @@ class ChangePreviewIn(BaseModel):
 class RevealIn(BaseModel):
     model_config = ConfigDict(extra="forbid")
     totp_code: str
-    # "directory": ou-admin (every app); "keycloak": the sign-in service's own administrator (kcadmin, its admin console:
-    # realm settings, sessions, clients). People are added in People, which also creates their mailbox.
+    # "directory": ou-admin (every app); "keycloak": the sign-in service's own administrator (kcadmin; setup and recovery from the identity VM
+    # only: its admin console is not served on the public sign-in name). People are added in People, which also creates their mailbox.
     which: Literal["directory", "keycloak"] = "directory"
 
 
@@ -164,6 +164,29 @@ def register_routes(app: FastAPI, rt) -> None:
         db.commit()
         response.headers["Cache-Control"] = "no-store"
         return {"username": uid, "password": pw}
+
+    @app.get(f"{API}/deployments/{{slug}}/diagnostics")
+    def diagnostics_sources(slug: str, user: User = Depends(require("admin")), db: Session = Depends(get_db)):
+        """What can be read: the deployment's VMs (and whether their agent offers guest.journal) and the fixed unit/file/filter lists."""
+        from . import diagnostics
+        return diagnostics.sources(db, _get(db, slug))
+
+    @app.post(f"{API}/deployments/{{slug}}/diagnostics/logs")
+    def diagnostics_logs(slug: str, body: dict, request: Request, response: Response, user: User = Depends(require("admin")),
+                         db: Session = Depends(get_db)):
+        """READ-ONLY: the last lines of an allowlisted unit journal or log file of one of this deployment's VMs, redacted on the VM.
+        Audited without the content (deploy/diagnostics.py)."""
+        from . import diagnostics
+        d = _get(db, slug)   # scope first: an out-of-scope deployment is a 404 before the body is even looked at
+        try:
+            req = diagnostics.LogsIn.model_validate(body)
+        except ValidationError as e:
+            raise HTTPException(422, "; ".join(x.get("msg", "invalid") for x in e.errors())[:400]) from None
+        response.headers["Cache-Control"] = "no-store"
+        try:
+            return diagnostics.read_logs(rt, db, d, req, user, client_ip(request))
+        except diagnostics.DiagError as e:
+            raise HTTPException(e.status, str(e)) from None
 
     @app.get(f"{API}/deployments/{{slug}}/events")
     def events(slug: str, limit: int = 200, user: User = Depends(require("viewer")), db: Session = Depends(get_db)):

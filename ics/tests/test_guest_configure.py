@@ -263,6 +263,46 @@ def test_nginx_site_is_rendered_from_the_fixed_template_and_rolled_back_when_ref
     assert not (fake.path / "avail" / "ou-cloud").exists() and not os.path.lexists(fake.path / "enabled" / "ou-cloud")
 
 
+@pytest.mark.parametrize("profile,refused,kept", [
+    ("keycloak", ["location ^~ /admin { return 404; }", "location ^~ /realms/master/ { return 404; }", "location = /realms/master { return 404; }"],
+     []),
+    ("opencloud", ["location ^~ /admin-settings { return 404; }",
+                   "location ~ ^/api/v0/settings/(assignments-add|assignments-remove|bundle-save|bundles-add-setting|bundles-remove-setting)$ { return 403; }",
+                   'if ($request_method !~ ^(GET|HEAD|OPTIONS)$) { set $ou_admin_write "w"; }',
+                   'if ($uri ~ "^/graph/(v1\\.0|v1beta1)/(users|groups|education)(/|$)") { set $ou_admin_write "${ou_admin_write}a"; }',
+                   'if ($ou_admin_write = "wa") { return 403; }'], ["drives", "/me"]),
+    ("collabora", ["location ~ ^/(browser|loleaflet)/[^/]+/admin/ { return 404; }", "location ~ ^/(cool|lool)/(adminws|getMetrics)(/|$) { return 404; }",
+                   "location ~ ^/(cool|lool)/convert-to(/|$) { return 404; }"],
+     ["hosting", "clipboard"]),
+    ("groupware", ["location ^~ /api/v1/ { return 404; }", "location ^~ /admin { return 404; }"], ["/web", "EWS", "dav"]),
+])
+def test_nginx_site_refuses_the_apps_own_administration_before_proxying(fake, profile, refused, kept):
+    (fake.path / "tls").mkdir()
+    for f in ("deployment.crt", "deployment.key"):
+        (fake.path / "tls" / f).write_text("x")
+    (fake.path / "enabled").mkdir()
+    p = {"name": "site", "server_names": ["site.e2e.example"], "upstream": "http://127.0.0.1:8080", "tls_name": "deployment", "max_body_mb": 0,
+         "lockdown": profile}
+    _run("cfg.nginx_site", p)
+    site = (fake.path / "avail" / "ou-site").read_text()
+    tls_server = site.split("listen 443 ssl;", 1)[1]
+    for rule in refused:
+        assert rule in tls_server and tls_server.index(rule) < tls_server.index("location / {"), rule
+    assert site.count("return 404") + site.count("return 403") >= len([r for r in refused if "return" in r])
+    for k in kept:   # what the app and its clients need is never in the refused paths
+        assert all(k not in line for line in tls_server.splitlines() if "return 40" in line), k
+    _run("cfg.nginx_site", {k: v for k, v in p.items() if k != "lockdown"})   # no profile: the plain proxy, nothing refused
+    assert "return 404" not in (fake.path / "avail" / "ou-site").read_text().split("listen 443 ssl;", 1)[1]
+
+
+@pytest.mark.parametrize("bad", ["", "nextcloud", "keycloak;", ["keycloak"], 1])
+def test_nginx_site_lockdown_is_a_closed_choice(bad):
+    p = {"name": "auth", "server_names": ["auth.e2e.example"], "upstream": "http://127.0.0.1:8080", "tls_name": "deployment", "max_body_mb": 1, "lockdown": bad}
+    with pytest.raises(Reject):
+        c.check_nginx_site(p, {"enabled": True})
+    assert set(c.LOCKDOWN_PROFILES) == set(h.LOCKDOWN)
+
+
 def test_unknown_or_disabled_actions_are_refused(fake):
     with pytest.raises(Reject):
         h.handle({"action": "cfg.hosts", "params": {"entries": []}}, {"runbooks": {}})

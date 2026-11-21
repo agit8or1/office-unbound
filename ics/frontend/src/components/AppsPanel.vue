@@ -24,8 +24,6 @@ const hostsText = computed(() => (a.value?.hosts ?? []).map((h) => `${h.address}
 
 const code = ref(''), busy = ref(false), err = ref<ApiError | null>(null), pw = ref(''), pwUser = ref(''), copied = ref('')
 const which = ref<'directory' | 'keycloak'>('directory')
-// the sign-in service's own admin console (Keycloak master realm, user kcadmin): same host as the Account app
-const kcConsole = computed(() => { const acc = a.value?.apps.find((x) => x.id === 'edge'); try { return acc ? new URL(acc.url).origin + '/admin/' : null } catch { return null } })
 // set a sign-in account (directory person + mailbox): typed action directory.account.set, the password only in the plan's encrypted secret
 const acct = ref({ username: 'admin', password: '' })
 const acctRun = useRun()
@@ -94,7 +92,9 @@ const portal = computed(() => a.value?.apps.find((x) => x.id === 'portal') ?? a.
       <!-- owner 2026-11-21: "remove the complicated sign in": the built-in administrator accounts are for setup and recovery only -->
       <details class="small ap-builtin" data-testid="apps-builtin"><summary>Built-in administrator accounts (setup and recovery)</summary>
         <p><code>{{ a.admin?.username }}</code> is this deployment's own administrator (every app).
-          <template v-if="kcConsole"><code>kcadmin</code> manages the sign-in service itself at <a :href="kcConsole" target="_blank" rel="noopener noreferrer">{{ kcConsole }}</a>.</template></p>
+          <code>kcadmin</code> is the sign-in service's own administrator, for setup and recovery only. Every app is administered here and in the portal:
+          the apps' own admin pages (sign-in service console, file and document admin settings) are switched off on their public names, so
+          <code>kcadmin</code> works only from inside the deployment (on the sign-in VM).</p>
         <div v-if="pw" class="ap-pw" data-testid="apps-password"><span>{{ pwUser }}:</span> <code>{{ pw }}</code>
           <Button size="sm" variant="secondary" @click="copy('pw', pw)">{{ copied === 'pw' ? 'Copied' : 'Copy' }}</Button>
           <Button size="sm" variant="ghost" @click="hide">Hide</Button><span class="muted">Hidden again after 2 minutes.</span></div>

@@ -14,6 +14,7 @@ import ErrorBox from '../components/ErrorBox.vue'
 import BootstrapPanel from '../components/BootstrapPanel.vue'
 import AppsPanel from '../components/AppsPanel.vue'
 import PeoplePanel from '../components/PeoplePanel.vue'
+import DiagnosticsPanel from '../components/DiagnosticsPanel.vue'
 import ResizePanel from '../wizards/deploy/ResizePanel.vue'
 import { hasRole } from '../store'
 
@@ -41,6 +42,7 @@ const s = (v: unknown) => (v === undefined || v === null ? '-' : String(v))
       <PeoplePanel v-if="hasRole('admin')" :slug="props.id" />
       <AppsPanel v-if="hasRole('admin')" :slug="props.id" />
       <BootstrapPanel :slug="props.id" />
+      <DiagnosticsPanel v-if="hasRole('admin')" :slug="props.id" />
       <div class="grid cols-2">
         <Card title="Resources" flush>
           <EmptyState v-if="!resources.data.value?.length" compact title="No resources recorded" />

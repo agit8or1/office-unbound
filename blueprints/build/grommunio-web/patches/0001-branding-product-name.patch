@@ -1,13 +1,37 @@
 Description: Rebrand user-visible product name, page title and web manifest
  Default WEBAPP_TITLE, fallback title, version banner, PWA manifest name, desktop
  app title and the logo aria-label say "Office Unbound Web" instead of the
- trademarked "grommunio Web". Logos and icons are replaced at package build time
+ trademarked "grommunio Web". Since ou4 also the fallback login/welcome pages
+ (meta description and author, logo label), the iconset description, and the
+ Help button (upstream product manual) is off by default. Logos and icons are replaced at package build time
  from debian/branding (binary files cannot be carried in a quilt patch).
  Upstream copyright/SPDX headers are untouched.
 Author: Office Unbound
 Forwarded: not-needed
-Last-Update: 2026-11-15
+Last-Update: 2026-11-21
 
+diff -ruN a/client/grommunio/settings/data/SettingsDefaultValues.js b/client/grommunio/settings/data/SettingsDefaultValues.js
+--- a/client/grommunio/settings/data/SettingsDefaultValues.js
++++ b/client/grommunio/settings/data/SettingsDefaultValues.js
+@@ -448,7 +448,7 @@
+ 								 * @property
+ 								 * @type Boolean
+ 								 */
+-								show: true
++								show: false
+ 							},
+ 
+ 							/**
+diff -ruN a/client/resources/iconsets/breeze/iconset.json b/client/resources/iconsets/breeze/iconset.json
+--- a/client/resources/iconsets/breeze/iconset.json
++++ b/client/resources/iconsets/breeze/iconset.json
+@@ -4,5 +4,5 @@
+ 	"stylesheet": "breeze-icons.css",
+ 	"primary-color": "#6d6d70",
+ 	"secondary-color": "#19b5f1",
+-	"about": "The Breeze iconset is the default grommunio Iconset, based on Fluent (MIT)"
++	"about": "The Breeze iconset is the default iconset, based on Fluent (MIT)"
+ }
 diff -ruN a/config.php.dist b/config.php.dist
 --- a/config.php.dist
 +++ b/config.php.dist
@@ -67,10 +91,45 @@ diff -ruN a/server/includes/templates/deskapp.php b/server/includes/templates/de
  </head>
  <body>
  	<!-- This file helps DeskApp to inject local storage into grommunio Webs origin -->
+diff -ruN a/server/includes/templates/login.php b/server/includes/templates/login.php
+--- a/server/includes/templates/login.php
++++ b/server/includes/templates/login.php
+@@ -7,8 +7,8 @@
+ 		<meta http-equiv="X-UA-Compatible" content="IE=edge,chrome=1">
+ 
+ 		<title><?php echo $webappTitle; ?></title>
+-		<meta name="description" content="grommunio-web is the ultimate frontend client for grommunio. A rich collaboration platform utilizing e-mail, calendars, webmeetings, file sharing and more.">
+-		<meta name="author" content="grommunio.com">
++		<meta name="description" content="Office Unbound Web: mail, calendar, contacts and tasks">
++		<meta name="author" content="Office Unbound">
+ 
+ 		<meta name="viewport" content="width=device-width, initial-scale=1.0">
+ 
+@@ -47,7 +47,7 @@
+ 			<span class="product-badge" aria-hidden="true"></span>
+ 			<div id="content" role="main">
+ 				<div class="left">
+-					<div id="logo" role="img" aria-label="grommunio"></div>
++					<div id="logo" role="img" aria-label="Office Unbound"></div>
+ 				</div>
+ 				<div class="product-chip"><span class="icon"></span>Web</div>
+ 				<div class="right">
 diff -ruN a/server/includes/templates/webclient.php b/server/includes/templates/webclient.php
 --- a/server/includes/templates/webclient.php
 +++ b/server/includes/templates/webclient.php
 @@ -156,7 +156,7 @@
+ 				<span class="product-badge" aria-hidden="true"></span>
+ 				<div id="content">
+ 					<div class="left">
+-						<div id="logo" role="img" aria-label="grommunio"></div>
++						<div id="logo" role="img" aria-label="Office Unbound"></div>
+ 					</div>
+ 					<div class="product-chip"><span class="icon"></span>Web</div>
+ 					<div class="right">
+diff -ruN a/server/includes/templates/welcome.php b/server/includes/templates/welcome.php
+--- a/server/includes/templates/welcome.php
++++ b/server/includes/templates/welcome.php
+@@ -60,7 +60,7 @@
  				<span class="product-badge" aria-hidden="true"></span>
  				<div id="content">
  					<div class="left">

@@ -33,7 +33,9 @@ def _public_key(jwk: dict):
     raise TokenError("unsupported key type")
 
 
-def verify(token: str, jwks: dict, *, issuer: str, client_id: str, now: float | None = None) -> dict:
+def verify(token: str, jwks: dict | None, *, issuer: str, client_id: str, now: float | None = None, pinned=None) -> dict:
+    """`pinned`: ONE RSA public key the ICS itself made for the realm (a deployed stack: configure.realm_key). Then only RS256 is accepted and
+    the token's `kid` selects nothing: the key comes from the ICS, never from the token or a network fetch."""
     now = time.time() if now is None else now
     try:
         h, p, s = token.split(".")
@@ -45,11 +47,15 @@ def verify(token: str, jwks: dict, *, issuer: str, client_id: str, now: float | 
     alg = header.get("alg")
     if alg not in ("RS256", "ES256"):
         raise TokenError("unsupported algorithm")
-    keys = [k for k in jwks.get("keys", []) if k.get("kid") == header.get("kid") and k.get("use", "sig") == "sig"]
-    if len(keys) != 1:
-        raise TokenError("unknown signing key")
+    if pinned is not None:
+        if alg != "RS256":
+            raise TokenError("unsupported algorithm")
+    else:
+        keys = [k for k in (jwks or {}).get("keys", []) if k.get("kid") == header.get("kid") and k.get("use", "sig") == "sig"]
+        if len(keys) != 1:
+            raise TokenError("unknown signing key")
     try:
-        pub = _public_key(keys[0])
+        pub = pinned if pinned is not None else _public_key(keys[0])
         signed = f"{h}.{p}".encode()
         if alg == "RS256":
             if not isinstance(pub, rsa.RSAPublicKey):

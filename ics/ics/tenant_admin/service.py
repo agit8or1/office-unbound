@@ -220,11 +220,14 @@ def _fail(db, request: Request, why: str, status: int, **d):
     raise HTTPException(status, "not authorised" if status in (401, 403) else why)
 
 
-def authenticate(db, rt, request: Request, *, need_user: bool = True, mutating: bool = False) -> Ctx:
+def authenticate(db, rt, request: Request, *, need_user: bool = True, mutating: bool = False) -> "Ctx | deployment.DeploymentCtx":
     if _over_limit(auth.client_ip(request)):
         _agg["throttled"] += 1
         raise HTTPException(429, "too many failed attempts; try again in a minute")
     key = request.headers.get("x-ou-tenant-key", "")
+    if key.startswith("tdk_"):   # the portal of a deployment the ICS created (tenant_admin/deployment.py)
+        from . import deployment
+        return deployment.authenticate(db, rt, request, key, need_user=need_user, mutating=mutating)
     m = KEY_RE.match(key)
     row = None
     if m:

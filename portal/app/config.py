@@ -38,7 +38,9 @@ class Settings:
     dav_host: str
     dav_base: str                     # path prefix of CalDAV/CardDAV, e.g. /dav
     autodiscover_host: str
-    editor_app: str = "external-collaboraonline"   # OpenCloud web route of the editor app
+    # OpenCloud web route of the office app when OpenCloud's app registry cannot be asked (services.editor_route): the deployment names the
+    # app "Documents" (ICS brand.EDITOR_APP, opencloud.env COLLABORATION_APP_NAME), web-app-external routes it as external-<name lower case>
+    editor_app: str = "external-documents"
     doc_ext: dict = field(default_factory=lambda: {"document": "docx", "spreadsheet": "xlsx", "presentation": "pptx"})
     session_ttl: int = 8 * 3600       # absolute lifetime of a portal session
     http_timeout: float = 8.0
@@ -90,7 +92,7 @@ def load() -> Settings:
         dav_host=_env("PORTAL_DAV_HOST", mail_host),
         dav_base=_env("PORTAL_DAV_BASE", "/dav").rstrip("/"),
         autodiscover_host=_env("PORTAL_AUTODISCOVER_HOST", f"autodiscover.{mail_domain}"),
-        editor_app=_env("PORTAL_EDITOR_APP", "external-collaboraonline"),
+        editor_app=_env("PORTAL_EDITOR_APP", "external-documents"),
         ca_bundle=os.environ.get("PORTAL_CA_BUNDLE") or None,
         ics_url=(os.environ.get("PORTAL_ICS_URL") or "").rstrip("/") or None,
         ics_key=_secret("PORTAL_ICS_KEY") if (os.environ.get("PORTAL_ICS_URL") or "") else "",
