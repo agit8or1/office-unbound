@@ -235,6 +235,8 @@ If these are missing, several modules would need expensive rework. Most already 
 
 **Native vs integrated:** integrate rem0te with osquery or Fleet behind a native device console. The **device agent is separate from the ICS node agent (F8).**
 
+Desktop sign-in and device enrollment with the organisational identity are planned as [P10.12 Office Unbound Connect](#p1012-office-unbound-connect-desktop-sign-in-and-device-enrollment--xl), which uses this module's device console and agent.
+
 **Depends on:** F6 for conditional access, identity, F3.
 
 **Acceptance:**
@@ -346,6 +348,20 @@ If these are missing, several modules would need expensive rework. Most already 
 - AD users sync both ways in a lab domain.
 - A third-party application is registered with scoped consent.
 
+## P10.12 Office Unbound Connect: desktop sign-in and device enrollment — XL
+
+**PLANNED / NOT IMPLEMENTED.** Owner, 2026-11-21: documentation only, not authorized for development; after the current priorities.
+Entra ID–style experience (not Entra-compatible): enrol Windows, macOS and Linux computers with the organisation address and the
+person's account, sign in to the computer with the same identity, SSO to the apps, central device revocation and policies.
+Requirements, platform options, licensing review and decisions: [office-unbound-connect.md](../requirements/office-unbound-connect.md).
+
+**Builds on, does not duplicate:** OpenLDAP and Keycloak (identity, no second user database), P10.6 (device console and agent,
+F8), P10.10 (conditional access on device signals, Samba AD option), F1 tenancy, F6 device posture.
+
+**Phases (provisional):** C1 architecture, licensing and security design; C2 Windows sign-in and enrollment proof of concept;
+C3 Windows device administration and recovery; C4 Linux; C5 macOS Platform SSO and MDM; C6 device dashboard and MSP
+administration; C7 passwordless, device trust, conditional access; C8 hardening and validation.
+
 ---
 
 ## Proposed order (owner directive: proposed, not permission to start)
@@ -360,6 +376,7 @@ If these are missing, several modules would need expensive rework. Most already 
 8. Advanced Office (P10.8)
 9. BI (P10.9)
 10. Advanced Identity (P10.10)
+11. Office Unbound Connect (P10.12), after P10.6 and P10.10 (owner, 2026-11-21: planning only)
 
 **Note for the future planner:** P10.4 SecOps and P10.10 conditional access both depend on the P10.6 device agent. P10.3 AI and P10.5 eDiscovery both depend on F2 and F4. Building F2, F4 and the P10.6 agent decision early inside P10 avoids rework, even though the module order above stays as the owner proposed.
 
@@ -377,3 +394,4 @@ If these are missing, several modules would need expensive rework. Most already 
 | P10.8 Office | templates, automation, fidelity tests | Collabora (our build), LibreOffice desktop |
 | P10.9 BI | embedding, datasets | Superset, ECharts |
 | P10.10 Identity | PAM, reviews, app registry UI | Keycloak, OpenLDAP, Samba AD, API gateway |
+| P10.12 Connect | enrollment app, device identity, admin wizard | Keycloak, OpenLDAP, SSSD/PAM, Samba AD (option), Apple Platform SSO, NanoMDM, P10.6 agent |
