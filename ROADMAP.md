@@ -173,7 +173,7 @@ Core platform components are integrated and tested in an isolated lab: own sourc
 
 | Version | Date | Status | Highlights |
 |---|---|---|---|
-| [0.8.2](https://github.com/agit8or1/office-unbound/blob/main/CHANGELOG.md) | 2026-11-21 | prepared | 0.8.2: documents open on published deployments: OpenCloud and Keycloak trust the deployment CA plus Let's Encrypt roots |
+| [0.8.2](https://github.com/agit8or1/office-unbound/blob/main/CHANGELOG.md) | 2026-11-21 | released | 0.8.2: documents open on published deployments: OpenCloud and Keycloak trust the deployment CA plus Let's Encrypt roots |
 | [0.8.1](https://github.com/agit8or1/office-unbound/blob/main/CHANGELOG.md) | 2026-11-21 | released | 0.8.1: Deployments list shows live deployments first; destroyed ones behind a toggle<br>0.8.1: People links from the deployments list and the dashboard |
 | [0.8.0](https://github.com/agit8or1/office-unbound/blob/main/CHANGELOG.md) | 2026-11-20 | released | 0.8.0: People per deployment from the console: add administrators and users, change, lock/unlock, delete (typed, audited)<br>0.8.0: installation tenancy mode (single / multi tenant), fixed once deployments exist<br>0.8.0: agent 0.8.0-ou14, golden image version 11 |
 | [0.7.2](https://github.com/agit8or1/office-unbound/blob/main/CHANGELOG.md) | 2026-11-20 | released | 0.7.2: webmail and Autodiscover through the gateway with the public certificate<br>0.7.2: public certificates keep the gateway health check green and monitor expiry<br>0.7.2: VMs named by role (<deployment>-gateway/-mail/-files) with plain Proxmox notes; templates named with their version |
