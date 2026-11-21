@@ -5,8 +5,20 @@
   "repository": "https://github.com/agit8or1/office-unbound",
   "updated": "2026-11-19",
   "stage": "pre-alpha (lab)",
-  "current_version": "0.8.1",
+  "current_version": "0.8.2",
   "releases": [
+    {
+      "version": "0.8.2",
+      "date": "2026-11-21",
+      "status": "prepared",
+      "codename": "Harbor",
+      "channel": "pre-release",
+      "highlights": [
+        "0.8.2: documents open on published deployments: OpenCloud and Keycloak trust the deployment CA plus Let's Encrypt roots"
+      ],
+      "notes_url": "https://github.com/agit8or1/office-unbound/blob/main/CHANGELOG.md",
+      "changelog": "CHANGELOG.md"
+    },
     {
       "version": "0.8.1",
       "date": "2026-11-21",

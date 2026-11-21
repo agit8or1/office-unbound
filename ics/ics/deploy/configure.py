@@ -380,7 +380,8 @@ def identity_runbooks(ctx, vm: str) -> list[dict]:
         {"runbook": "cfg.podman_secret", "params": {"name": "kc-db-password", "value": _sec(ctx, t, "kc-db-password")}},
         {"runbook": "cfg.podman_secret", "params": {"name": "kc-admin-password", "value": _sec(ctx, t, "kc-admin-password")}},
         {"runbook": "cfg.volume_files", "params": {"component": "identity", "volume": "tls", "image": img, "owner": KEYCLOAK_UID,
-                                                   "files": [{"path": "ca.crt", "mode": 0o644, "content": ca_pem}]}},
+                                                   "files": [{"path": "ca.crt", "mode": 0o644, "content": ca_pem},
+                                                             {"path": "trust.crt", "mode": 0o644, "content": office_trust(ca_pem)}]}},
         {"runbook": "cfg.volume_files", "params": {"component": "identity", "volume": "data", "image": img, "owner": KEYCLOAK_UID,
                                                    "files": [{"path": f"import/realm-{REALM}.json", "mode": 0o600, "content": realm}]}},
     ]
@@ -482,7 +483,8 @@ def files_runbooks(ctx, vm: str) -> list[dict]:
         {"runbook": "cfg.podman_secret", "params": {"name": "ldap-bind-password", "value": _sec(ctx, t, "ldap-bind-password")}},
         {"runbook": "cfg.podman_secret", "params": {"name": "oc-admin-password", "value": _sec(ctx, t, "oc-admin-password")}},
         {"runbook": "cfg.volume_files", "params": {"component": "files", "volume": "tls", "image": img, "owner": OPENCLOUD_UID,
-                                                   "files": [{"path": "ca.crt", "mode": 0o644, "content": ca_pem}]}},
+                                                   "files": [{"path": "ca.crt", "mode": 0o644, "content": ca_pem},
+                                                             {"path": "trust.crt", "mode": 0o644, "content": office_trust(ca_pem)}]}},
         {"runbook": "cfg.volume_files", "params": {"component": "files", "volume": "config", "image": img, "owner": OPENCLOUD_UID,
                                                    "files": [{"path": "ou.env", "mode": 0o640, "content": _template("files/opencloud.env", **hosts)},
                                                              {"path": "csp.yaml", "mode": 0o644, "content": _template("files/csp.yaml", **hosts)}]}},
@@ -498,7 +500,9 @@ PUBLIC_ROOTS = ("/etc/ssl/certs/ISRG_Root_X1.pem", "/etc/ssl/certs/ISRG_Root_X2.
 
 
 def office_trust(ca_pem: str, roots: tuple[str, ...] = PUBLIC_ROOTS) -> str:
-    """Collabora's WOPI trust (ssl.ca_file_path): the deployment CA plus the public roots, so documents open before AND after the switch."""
+    """trust.crt of the containers that call other names of the deployment (Collabora WOPI fetch, OpenCloud's collaboration service and OIDC,
+    Keycloak): the deployment CA plus the public roots, so those calls work before AND after gateway.certificates.issue switches the names to the
+    public certificate (2026-11-21: OpenCloud trusted only ca.crt via SSL_CERT_FILE, its WOPI service answered 500, documents stayed blank)."""
     out = ca_pem.rstrip("\n") + "\n"
     for r in roots:
         with open(r) as f:

@@ -10,6 +10,14 @@ isolated lab; nothing is production supported ([ROADMAP.md](ROADMAP.md)).
 
 ## [Unreleased]
 
+## [0.8.2] - 2026-11-21
+
+- **Fixed: documents still opened blank on a deployment with public certificates.** The 0.8.1 fix covered Collabora; the remaining cause was OpenCloud.
+  - OpenCloud and its collaboration (WOPI) service trusted only the deployment CA (`SSL_CERT_FILE`). The collaboration service reaches the Office server at `office.<domain>` through the gateway, which serves the Let's Encrypt certificate after `gateway.certificates.issue`, so it answered 500. Collabora then reported "unauthorized" and the editor stayed blank. Found live: the editor's WebSocket upgraded (101) and returned `kind=unauthorized`, and WOPI CheckFileInfo answered 500.
+  - The same trust gap would have broken Files sign-in after any OpenCloud restart (its OIDC key fetch from `auth.<domain>`).
+  - OpenCloud (`SSL_CERT_FILE`) and Keycloak (`KC_TRUSTSTORE_PATHS`) now use `trust.crt`: the deployment CA plus ISRG Root X1/X2, like Collabora since 0.8.1. The LDAP connection stays on the deployment CA alone ([test_deploy_configure_office_trust.py](ics/tests/test_deploy_configure_office_trust.py)).
+  - Applies to deployments configured from this release on.
+
 ## [0.8.1] - 2026-11-21
 
 - **Fixed: the Deployments page now shows your live deployments.** It listed every deployment alphabetically, so old destroyed test environments filled the page and the live stack was easy to miss. Live deployments now come first, most recently changed first. Destroyed ones are hidden behind "Show N destroyed" ([deployments.test.ts](ics/frontend/src/deployments.test.ts)).
@@ -372,6 +380,7 @@ editing, chat/meetings, telephony prototype, migration tooling and package pipel
 - `SECURITY.md` (private reporting) and `CONTRIBUTING.md` (DCO sign-off) added; AGPL-3.0 license. [SECURITY](SECURITY.md)
 
 [Unreleased]: https://github.com/agit8or1/office-unbound/compare/v0.4.7...HEAD
+[0.8.2]: https://github.com/agit8or1/office-unbound/compare/v0.8.1...v0.8.2
 [0.8.1]: https://github.com/agit8or1/office-unbound/compare/v0.8.0...v0.8.1
 [0.8.0]: https://github.com/agit8or1/office-unbound/compare/v0.7.2...v0.8.0
 [0.7.2]: https://github.com/agit8or1/office-unbound/compare/v0.7.1...v0.7.2

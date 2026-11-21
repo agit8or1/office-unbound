@@ -23,7 +23,7 @@ artifacts:
       memory_mib: 1400
       env: {KC_DB: postgres, KC_DB_URL: "jdbc:postgresql://127.0.0.1:5432/keycloak", KC_DB_USERNAME: keycloak, KC_HOSTNAME: "https://{host:auth}",
             KC_HTTP_ENABLED: "true", KC_HTTP_HOST: 127.0.0.1, KC_HTTP_PORT: "8080", KC_PROXY_HEADERS: xforwarded, KC_HEALTH_ENABLED: "true",
-            KC_TRUSTSTORE_PATHS: /opt/ou-tls/ca.crt, KC_BOOTSTRAP_ADMIN_USERNAME: kcadmin}
+            KC_TRUSTSTORE_PATHS: /opt/ou-tls/trust.crt, KC_BOOTSTRAP_ADMIN_USERNAME: kcadmin}
       secrets: [{name: kc-db-password, env: KC_DB_PASSWORD}, {name: kc-admin-password, env: KC_BOOTSTRAP_ADMIN_PASSWORD}]
       volumes: [{name: data, path: /opt/keycloak/data}, {name: tls, path: /opt/ou-tls, read_only: true}]
 resources:
