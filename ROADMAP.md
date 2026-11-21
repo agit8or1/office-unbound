@@ -173,7 +173,7 @@ Core platform components are integrated and tested in an isolated lab: own sourc
 
 | Version | Date | Status | Highlights |
 |---|---|---|---|
-| [0.9.2](https://github.com/agit8or1/office-unbound/blob/main/CHANGELOG.md) | 2026-11-22 | prepared | 0.9.2: gateway certificate covers mail/autodiscover before public certificates; Collabora trusts the deployment CA for file access |
+| [0.9.2](https://github.com/agit8or1/office-unbound/blob/main/CHANGELOG.md) | 2026-11-22 | released | 0.9.2: gateway certificate covers mail/autodiscover before public certificates; Collabora trusts the deployment CA for file access |
 | [0.9.1](https://github.com/agit8or1/office-unbound/blob/main/CHANGELOG.md) | 2026-11-21 | released | 0.9.1: documents open: per-deployment WOPI proof key, Office image 26.04.6-ou4<br>0.9.1: webmail works after sign-in: mailbox store listens on both loopbacks (agent 0.9.1-ou17, image version 13) |
 | [0.9.0](https://github.com/agit8or1/office-unbound/blob/main/CHANGELOG.md) | 2026-11-21 | released | 0.9.0: every app rebranded as Office Unbound with one look and a Dashboard link back to the portal<br>0.9.0: app admin pages closed; administration only in the Office Unbound console and portal<br>0.9.0: read-only Diagnostics (service logs, redacted) on the deployment page<br>0.9.0: portal admin area wired on ICS-created deployments (reads)<br>0.9.0: agent 0.9.0-ou16, portal 0.3.0, webmail 5.2-ou4, golden image version 12 |
 | [0.8.2](https://github.com/agit8or1/office-unbound/blob/main/CHANGELOG.md) | 2026-11-21 | released | 0.8.2: documents open on published deployments: OpenCloud and Keycloak trust the deployment CA plus Let's Encrypt roots |
