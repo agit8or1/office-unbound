@@ -372,6 +372,7 @@ def identity_runbooks(ctx, vm: str) -> list[dict]:
         _tls(ctx, vm),
         {"runbook": "cfg.ldap_init", "params": {"domain": domain, "organization": "Office Unbound", "admin_password": _sec(ctx, t, "ldap-admin-password"),
                                                 "bind_password": bind_pw, "tls_name": "deployment", "groups": list(LDAP_GROUPS)}},
+        # ou-admin is the only OpenCloud Admin (hidden built-in account, recovery through the Graph API); the web UI has no admin-settings app
         {"runbook": "cfg.ldap_user", "params": {"domain": domain, "uid": "ou-admin", "given_name": "Office Unbound", "surname": "Administrator",
                                                 "mail": f"ou-admin@{domain}", "password": _sec(ctx, t, "admin-password"),
                                                 "groups": ["opencloudAdmin", MAIL_GROUP, ORG_ADMIN_GROUP]}},
@@ -491,13 +492,31 @@ def files_runbooks(ctx, vm: str) -> list[dict]:
     ]
 
 
+# Let's Encrypt's roots (the ICS host's own trust store, Ubuntu ca-certificates): the names behind the gateway serve the public certificate once
+# gateway.certificates.issue ran, so a service that fetches from another name of the deployment must trust both (same files as gateway.LE_ROOTS)
+PUBLIC_ROOTS = ("/etc/ssl/certs/ISRG_Root_X1.pem", "/etc/ssl/certs/ISRG_Root_X2.pem")
+
+
+def office_trust(ca_pem: str, roots: tuple[str, ...] = PUBLIC_ROOTS) -> str:
+    """Collabora's WOPI trust (ssl.ca_file_path): the deployment CA plus the public roots, so documents open before AND after the switch."""
+    out = ca_pem.rstrip("\n") + "\n"
+    for r in roots:
+        with open(r) as f:
+            pem = f.read()
+        if "-----BEGIN CERTIFICATE-----" not in pem:
+            raise ValueError(f"{r} is not a PEM certificate")
+        out += pem.rstrip("\n") + "\n"
+    return out
+
+
 def office_runbooks(ctx, vm: str) -> list[dict]:
     t = tenant_of(ctx.plan, vm)
     img = _image(ctx, vm, "office")
     ca_pem = scope_ca(ctx, t)["cert"]
     return [
         {"runbook": "cfg.volume_files", "params": {"component": "office", "volume": "tls", "image": img, "owner": DOCS_UID,
-                                                   "files": [{"path": "ca.crt", "mode": 0o644, "content": ca_pem}]}},
+                                                   "files": [{"path": "ca.crt", "mode": 0o644, "content": ca_pem},
+                                                             {"path": "trust.crt", "mode": 0o644, "content": office_trust(ca_pem)}]}},
         {"runbook": "cfg.volume_files", "params": {"component": "office", "volume": "work", "image": img, "owner": DOCS_UID,
                                                    "files": [{"path": "ou-volume", "mode": 0o644, "content": "Office Unbound Docs work volume\n"}]}},
         *_local_sites(ctx, vm, None, ("office",)),

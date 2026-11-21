@@ -22,7 +22,10 @@ artifacts:
       # :9980 without answering (it serves HTTP only after the first one), discovery timed out; lab run with exactly this capability answered.
       capabilities: [SYS_CHROOT]
       memory_mib: 2048
-      env: {OU_WOPI_HOST: "https://{host:cloud}:443", OU_SERVER_NAME: "{host:office}", OU_CA_FILE: /opt/ou-tls/ca.crt}
+      # trust.crt = the deployment CA + Let's Encrypt's roots: the WOPI host (cloud.<domain>) is reached through the gateway, which serves the
+      # PUBLIC certificate once gateway.certificates.issue ran; with the deployment CA alone every document stayed blank (2026-11-21: the editor's
+      # websocket closed because coolwsd could not fetch the file)
+      env: {OU_WOPI_HOST: "https://{host:cloud}:443", OU_SERVER_NAME: "{host:office}", OU_CA_FILE: /opt/ou-tls/trust.crt}
       volumes: [{name: work, path: /opt/ou-docs/work}, {name: tls, path: /opt/ou-tls, read_only: true}]
 resources:
   cores:     {base: 2,    per_user: 0.02, source: "identity-files-lab-results.md: document load + conversion bursts; 1 core per 50 users is an assumption (no concurrency test)"}

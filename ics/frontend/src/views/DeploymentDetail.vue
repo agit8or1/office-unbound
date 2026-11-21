@@ -1,5 +1,6 @@
 <script setup lang="ts">
-import { watchEffect } from 'vue'
+import { nextTick, watch, watchEffect } from 'vue'
+import { useRoute } from 'vue-router'
 import { useLoad } from '../store'
 import { ago, crumbLabel } from '../format'
 import { asList, normDeployment, tryGet } from '../infra'
@@ -23,6 +24,11 @@ const resources = useLoad(async () => asList((await tryGet<unknown>(`deployments
 const events = useLoad(async () => asList((await tryGet<unknown>(`deployments/${enc}/events`, [])).data), 10000)
 watchEffect(() => { crumbLabel.value = dep.data.value?.name ?? '' })
 const canResize = () => hasRole('operator')
+// "People" links from the deployments list and the dashboard open this page scrolled to the People card
+const route = useRoute()
+watch(() => !!dep.data.value, async (ok) => {
+  if (ok && route.query.section === 'people') { await nextTick(); document.querySelector('[data-testid="people-panel"]')?.scrollIntoView({ block: 'start' }) }
+}, { immediate: true })
 const s = (v: unknown) => (v === undefined || v === null ? '-' : String(v))
 </script>
 <template>
@@ -32,8 +38,8 @@ const s = (v: unknown) => (v === undefined || v === null ? '-' : String(v))
     <EmptyState v-else-if="!dep.data.value" icon="rocket" title="Deployment not found" text="It may have been removed, or deployments are not available yet."><Button to="/deployments">All deployments</Button></EmptyState>
     <template v-else>
       <PageHeader :title="dep.data.value.name" :sub="dep.data.value.profile ? 'Profile: ' + dep.data.value.profile : undefined"><template #actions><StatusBadge :s="dep.data.value.status" /></template></PageHeader>
-      <AppsPanel v-if="hasRole('admin')" :slug="props.id" />
       <PeoplePanel v-if="hasRole('admin')" :slug="props.id" />
+      <AppsPanel v-if="hasRole('admin')" :slug="props.id" />
       <BootstrapPanel :slug="props.id" />
       <div class="grid cols-2">
         <Card title="Resources" flush>

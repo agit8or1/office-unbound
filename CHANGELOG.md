@@ -10,6 +10,21 @@ isolated lab; nothing is production supported ([ROADMAP.md](ROADMAP.md)).
 
 ## [Unreleased]
 
+## [0.8.1] - 2026-11-21
+
+- **Fixed: the Deployments page now shows your live deployments.** It listed every deployment alphabetically, so old destroyed test environments filled the page and the live stack was easy to miss. Live deployments now come first, most recently changed first. Destroyed ones are hidden behind "Show N destroyed" ([deployments.test.ts](ics/frontend/src/deployments.test.ts)).
+- **"Open your apps" uses your published names.** Once the deployment has public certificates (Settings, Network & domains), the card says the names use your DNS records and a Let's Encrypt certificate, and drops the hosts-file and certificate-import steps. The hosts lines stay available under a fold, for networks whose router can't reach its own public address. The access API has a new `public` field ([test_deploy_appaccess.py](ics/tests/test_deploy_appaccess.py)).
+- **Simpler sign-in section.** One line: everyone signs in at the portal with the account created in People. The built-in administrator accounts (`ou-admin`, `kcadmin`) and their password reveal, which still needs an authenticator code and is audited, are folded under "Built-in administrator accounts (setup and recovery)".
+- **Fixed: new documents opened blank once a deployment had public certificates.** Collabora fetches each file from `cloud.<domain>` through the gateway. After `gateway.certificates.issue` that name serves the Let's Encrypt certificate, but Collabora trusted only the deployment CA, so it could not fetch the file and the editor's connection closed.
+  - The office VM now gets `trust.crt` (the deployment CA plus Let's Encrypt's ISRG Root X1 and X2), and the office unit uses it (`OU_CA_FILE`). Changing the unit also restarts Collabora ([test_deploy_configure_office_trust.py](ics/tests/test_deploy_configure_office_trust.py)).
+  - Applies to deployments configured from this release on.
+- **No administration inside OpenCloud.** People administrators are normal OpenCloud users; they administer through the Office Unbound console and portal. Saving a person removes the OpenCloud admin group.
+  - The OpenCloud "Admin settings" app is removed from the web UI for everyone (`WEB_UI_CORE_APPS`, OpenCloud 9.1 default list without `admin-settings`).
+  - The built-in `ou-admin` keeps OpenCloud's admin role for recovery through its API only.
+- **Mail apps: link to MailCraft**, a free open-source Outlook-like desktop client (Apache-2.0), in "Open your apps".
+- Known issue, under investigation: Webmail answers 500 right after sign-in on deployed stacks. Diagnosing it needs a read-only log runbook in the agent (next agent build).
+- **Easier to find People.** Each live deployment in the list and each deployment card on the dashboard has a **People** link that opens the deployment page at its People card. People now comes before "Open your apps" on that page.
+
 ## [0.8.0] - 2026-11-20
 
 First release of the 0.8 "Harbor" line: **people and administrators of a deployment are managed from the console, and the installation has a tenancy mode.**
@@ -357,6 +372,7 @@ editing, chat/meetings, telephony prototype, migration tooling and package pipel
 - `SECURITY.md` (private reporting) and `CONTRIBUTING.md` (DCO sign-off) added; AGPL-3.0 license. [SECURITY](SECURITY.md)
 
 [Unreleased]: https://github.com/agit8or1/office-unbound/compare/v0.4.7...HEAD
+[0.8.1]: https://github.com/agit8or1/office-unbound/compare/v0.8.0...v0.8.1
 [0.8.0]: https://github.com/agit8or1/office-unbound/compare/v0.7.2...v0.8.0
 [0.7.2]: https://github.com/agit8or1/office-unbound/compare/v0.7.1...v0.7.2
 [0.7.1]: https://github.com/agit8or1/office-unbound/compare/v0.7.0...v0.7.1

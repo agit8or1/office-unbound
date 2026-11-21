@@ -793,6 +793,10 @@ def test_files_and_office_are_configured_and_the_edge_reaches_them_over_verified
     with rt.session() as db:
         did = str(db.execute(text("SELECT id FROM deployments WHERE slug = 'prod'")).scalar())
     assert configure.secret(rt, did, "ldap-bind-password") not in env_                     # the bind password is a podman secret, never in the file
+    # no administration inside OpenCloud: the web core apps are the 9.1.0 defaults minus admin-settings; roles come from the OIDC "roles" claim
+    kv = dict(line.split("=", 1) for line in env_.splitlines() if line and not line.startswith("#"))
+    assert kv["WEB_UI_CORE_APPS"].split(",") == ["files", "search", "text-editor", "pdf-viewer", "external", "epub-reader", "preview", "app-store", "rclone-crypt"]
+    assert kv["PROXY_ROLE_ASSIGNMENT_DRIVER"] == "oidc" and kv["PROXY_ROLE_ASSIGNMENT_OIDC_CLAIM"] == "roles"
     fw = next(prm for n, prm in rb if n == "cfg.firewall")["rules"]
     assert {"source": idip, "proto": "tcp", "port": 443} in fw and all(r["source"] == idip for r in fw)
     local = {prm["name"]: prm for n, prm in rb if n == "cfg.nginx_site"}

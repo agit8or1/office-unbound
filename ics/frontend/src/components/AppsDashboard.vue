@@ -16,7 +16,8 @@ const LABEL: Record<string, string> = { ok: 'Healthy', warning: 'Degraded', crit
 </script>
 <template>
   <Card v-for="d in (data.data.value ?? [])" :key="d.deployment" :title="'Apps: ' + d.deployment" :hint="d.domain ?? undefined" data-testid="apps-dashboard">
-    <template #actions><router-link :to="'/deployments/' + d.deployment" class="small">Deployment details</router-link></template>
+    <template #actions><router-link :to="{ path: '/deployments/' + d.deployment, query: { section: 'people' } }" class="small" data-testid="apps-dashboard-people">People</router-link>
+      <router-link :to="'/deployments/' + d.deployment" class="small">Deployment details</router-link></template>
     <p v-if="d.portal" class="ad-portal">Users sign in at <a :href="d.portal" target="_blank" rel="noopener noreferrer" data-testid="apps-dashboard-portal"><b>{{ d.portal }}</b></a>
       <StatusBadge :s="TONE[d.health] ?? 'idle'" :text="'Overall: ' + (LABEL[d.health] ?? d.health)" /></p>
     <p v-else class="muted small">Links appear once the deployment has been created ({{ d.status }}).</p>

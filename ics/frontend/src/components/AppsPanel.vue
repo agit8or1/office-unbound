@@ -14,7 +14,7 @@ interface App { id: string; title: string; url: string; description: string }
 interface Access {
   deployment: string; ready: boolean; domain?: string; apps: App[]; hosts: { address: string; names: string[] }[]
   clients: { imap: { host: string; port: number; security: string }; smtp: { host: string; port: number; security: string }; activesync: string; caldav: string } | null
-  ca_pem: string | null; admin: { username: string; email: string; password_available: boolean } | null; note?: string
+  ca_pem: string | null; public?: { names: string[]; issued_at: string | null } | null; admin: { username: string; email: string; password_available: boolean } | null; note?: string
 }
 const props = defineProps<{ slug: string }>()
 const enc = encodeURIComponent(props.slug)
@@ -68,8 +68,15 @@ const portal = computed(() => a.value?.apps.find((x) => x.id === 'portal') ?? a.
           <li v-for="x in a.apps" :key="x.id"><b>{{ x.title }}</b> <span class="muted">{{ x.description }}</span> <code>{{ x.url }}</code></li>
         </ul></details>
 
+      <p v-if="a.public" class="small ap-public" data-testid="apps-public">Published: these names use your public DNS records and a Let's Encrypt certificate
+        (issued {{ a.public.issued_at ? a.public.issued_at.slice(0, 10) : '' }}). Nothing to set up on computers; just open the portal.</p>
+      <details v-if="a.public" class="small"><summary>Inside your own network, if the names don't load</summary>
+        <p>Some routers can't reach their own public address from inside. Then point the names at the machines directly (hosts file or local DNS):</p>
+        <pre class="ap-pre">{{ hostsText }}</pre></details>
+      <template v-else>
       <h4>1. Let your computer find the names</h4>
-      <p class="small">The deployment uses <b>{{ a.domain }}</b>, which has no public DNS yet. Add these lines to your hosts file
+      <p class="small">The deployment uses <b>{{ a.domain }}</b>, which is not published yet (Settings, Network &amp; domains: DNS records and
+        certificates). Until then, add these lines to your hosts file
         (Windows: <code>C:\Windows\System32\drivers\etc\hosts</code>, macOS/Linux: <code>/etc/hosts</code>, as administrator):</p>
       <pre class="ap-pre" data-testid="apps-hosts">{{ hostsText }}</pre>
       <Button size="sm" variant="secondary" @click="copy('hosts', hostsText)">{{ copied === 'hosts' ? 'Copied' : 'Copy lines' }}</Button>
@@ -79,24 +86,27 @@ const portal = computed(() => a.value?.apps.find((x) => x.id === 'portal') ?? a.
         "Install certificate", Local machine, "Trusted Root Certification Authorities"; macOS: Keychain Access, System, set to Always Trust;
         Firefox: Settings, Certificates, Import). Without it the browser shows a warning.</p>
       <Button size="sm" variant="secondary" :disabled="!a.ca_pem" @click="downloadCa">Download certificate</Button>
+      </template>
 
-      <h4>3. Sign in</h4>
-      <p class="small">User <code>{{ a.admin?.username }}</code> (or <code>{{ a.admin?.email }}</code>): the same password for every app and for mail apps.</p>
-      <p v-if="kcConsole" class="small">Sign-in service administration (sessions, sign-in policy, clients): <a :href="kcConsole" target="_blank" rel="noopener noreferrer">{{ kcConsole }}</a>,
-        user <code>kcadmin</code>. Add people in <b>People</b> below (that also creates their mailbox and app access).</p>
-      <div v-if="pw" class="ap-pw" data-testid="apps-password"><span class="small">{{ pwUser }}:</span> <code>{{ pw }}</code>
-        <Button size="sm" variant="secondary" @click="copy('pw', pw)">{{ copied === 'pw' ? 'Copied' : 'Copy' }}</Button>
-        <Button size="sm" variant="ghost" @click="hide">Hide</Button><span class="muted small">Hidden again after 2 minutes.</span></div>
-      <form v-else-if="a.admin?.password_available" class="ap-reveal" @submit.prevent="reveal">
-        <label class="small">Authenticator code<input v-model="code" inputmode="numeric" autocomplete="one-time-code" pattern="[0-9 ]{6,8}" required maxlength="8" placeholder="123456"></label>
-        <label class="small">Password of<select v-model="which"><option value="directory">{{ a.admin?.username }} (every app)</option>
-          <option value="keycloak">kcadmin (sign-in service console)</option></select></label>
-        <Button size="sm" type="submit" :loading="busy">Show password</Button>
-        <span class="muted small">A new code from your authenticator app (not the one you signed in with); showing it is recorded in the audit log.</span>
-      </form>
-      <p v-else class="muted small">No administrator password is stored for this deployment.</p>
-      <ErrorBox :error="err" />
-      <p class="muted small">Add people, administrators and passwords in <b>People</b> below.</p>
+      <h4>{{ a.public ? 'Sign in' : '3. Sign in' }}</h4>
+      <p class="small" data-testid="apps-signin">Everyone signs in at <a v-if="portal" :href="portal.url" target="_blank" rel="noopener noreferrer"><b>{{ portal.url }}</b></a>
+        with the account you create in <b>People</b>; the same password works for every app and for mail apps.</p>
+      <!-- owner 2026-11-21: "remove the complicated sign in": the built-in administrator accounts are for setup and recovery only -->
+      <details class="small ap-builtin" data-testid="apps-builtin"><summary>Built-in administrator accounts (setup and recovery)</summary>
+        <p><code>{{ a.admin?.username }}</code> is this deployment's own administrator (every app).
+          <template v-if="kcConsole"><code>kcadmin</code> manages the sign-in service itself at <a :href="kcConsole" target="_blank" rel="noopener noreferrer">{{ kcConsole }}</a>.</template></p>
+        <div v-if="pw" class="ap-pw" data-testid="apps-password"><span>{{ pwUser }}:</span> <code>{{ pw }}</code>
+          <Button size="sm" variant="secondary" @click="copy('pw', pw)">{{ copied === 'pw' ? 'Copied' : 'Copy' }}</Button>
+          <Button size="sm" variant="ghost" @click="hide">Hide</Button><span class="muted">Hidden again after 2 minutes.</span></div>
+        <form v-else-if="a.admin?.password_available" class="ap-reveal" @submit.prevent="reveal">
+          <label>Show the password of<select v-model="which"><option value="directory">{{ a.admin?.username }}</option>
+            <option value="keycloak">kcadmin</option></select></label>
+          <label>Authenticator code<input v-model="code" inputmode="numeric" autocomplete="one-time-code" pattern="[0-9 ]{6,8}" required maxlength="8" placeholder="123456"></label>
+          <Button size="sm" type="submit" :loading="busy">Show password</Button>
+          <span class="muted">Needs a fresh code from your authenticator app; recorded in the audit log.</span>
+        </form>
+        <ErrorBox :error="err" />
+      </details>
 
       <template v-if="a.clients">
         <h4>Mail apps (Outlook, Thunderbird, phones)</h4>
@@ -106,6 +116,8 @@ const portal = computed(() => a.value?.apps.find((x) => x.id === 'portal') ?? a.
           <tr><td>Exchange ActiveSync</td><td><code>{{ a.clients.activesync }}</code></td></tr>
           <tr><td>Calendar and contacts (CalDAV/CardDAV)</td><td><code>{{ a.clients.caldav }}</code></td></tr>
         </tbody></table>
+        <p class="small">Desktop mail app: <a href="https://github.com/ZIDAN44/mailcraft" target="_blank" rel="noopener noreferrer">MailCraft</a>
+          (free, open source, works like Outlook; Windows, macOS, Linux), or any IMAP app with the settings above.</p>
         <p class="muted small">Mail between addresses of this deployment works now; mail to and from the internet needs your public address and domain.</p>
       </template>
     </template>

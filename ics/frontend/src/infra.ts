@@ -152,6 +152,12 @@ export async function loadDeployments(): Promise<Loaded<Deployment[]>> {
   const r = await tryGet<unknown>('deployments', [])
   return { state: r.state, data: asList(r.data).map(normDeployment) }
 }
+/** Deployments list (owner 2026-11-21: "it isnt showing any deployments"): live ones first, most recently changed first;
+ *  destroyed ones are history, returned separately so the page can hide them behind a toggle. */
+export function splitDeployments(list: Deployment[]): { live: Deployment[]; gone: Deployment[] } {
+  const recent = (a: Deployment, b: Deployment) => String(b.updated ?? b.created ?? '').localeCompare(String(a.updated ?? a.created ?? ''))
+  return { live: list.filter((d) => d.status !== 'destroyed').sort(recent), gone: list.filter((d) => d.status === 'destroyed').sort(recent) }
+}
 export const DEPLOY_ACTIVE = ['planning', 'applying', 'in_progress', 'running', 'deploying', 'changing', 'pending']
 
 /** Deterministic roll-up used by the dashboard. */

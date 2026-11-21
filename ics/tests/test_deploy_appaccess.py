@@ -114,3 +114,17 @@ def test_dashboard_shows_the_portal_url_and_each_apps_status_from_its_own_checks
     assert st["portal"] == "ok" and st["files"] == "critical" and st["groupware"] == "ok"
     svc = {s["id"]: s for s in d["services"]}
     assert svc["files"]["failing"] == ["c-oc"] and svc["identity"]["status"] == "ok"
+
+
+def test_access_says_published_once_public_certificates_exist(rt, monkeypatch):
+    """Owner 2026-11-21: "it should use existing dns records we already created": with public certificates, no hosts-file / CA steps."""
+    from ics import gateway
+    did = _deployment(rt, "e2e-pub")
+    monkeypatch.setattr(appaccess, "_applied_plan", lambda db, d: PLAN)
+    monkeypatch.setattr(appaccess, "_addresses", lambda db, d: ADDR)
+    with rt.session() as db:
+        d = db.execute(text("SELECT * FROM deployments WHERE id = :i"), {"i": did}).first()
+        monkeypatch.setattr(gateway, "state", lambda db_: {})
+        assert appaccess.access_info(rt, db, d)["public"] is None
+        monkeypatch.setattr(gateway, "state", lambda db_: {"e2e-pub": {"names": ["auth.e2e-gw1.example"], "issued_at": "2026-11-21T04:20:00Z", "certificate": "x"}})
+        assert appaccess.access_info(rt, db, d)["public"] == {"names": ["auth.e2e-gw1.example"], "issued_at": "2026-11-21T04:20:00Z"}

@@ -1,7 +1,7 @@
 """Sign-in accounts an administrator sets on a deployment (owner 2026-11-20: "make the login admin/...", "change password to 8 char min").
 
 Typed action directory.account.set {deployment, username, password}: creates or updates the directory person `username@<domain>` (portal,
-sign-in, files, documents through the directory; groups opencloudAdmin, mail-users, org-admin) and gives it a mailbox. The password travels only
+sign-in, files, documents through the directory; groups opencloudUser, mail-users, org-admin) and gives it a mailbox. The password travels only
 as the plan's encrypted secret and inside the signed agent request; the ICS keeps the account NAME (to recreate the mailbox list), never the
 password."""
 from __future__ import annotations
@@ -18,8 +18,13 @@ from .. import audit
 from . import appaccess, configure
 
 KEY = "deployment.accounts"
-GROUPS = ["opencloudAdmin", configure.MAIL_GROUP, configure.ORG_ADMIN_GROUP]          # administrator: admin in the apps + portal admin area
+# administrator: portal admin area (org-admin) but an ordinary OpenCloud user - administration happens in the console, never inside
+# OpenCloud (owner 2026-11-21). opencloudAdmin is kept only by the built-in ou-admin (configure.identity_runbooks) for recovery.
+GROUPS = ["opencloudUser", configure.MAIL_GROUP, configure.ORG_ADMIN_GROUP]
 USER_GROUPS = ["opencloudUser", configure.MAIL_GROUP]                                    # regular user
+# never held by a People account: removed on every set, so an administrator made earlier (then in opencloudAdmin) loses OpenCloud Admin
+# when saved again (OpenCloud's OIDC role mapper picks the highest mapped role, so opencloudAdmin would otherwise win over opencloudUser)
+NEVER_GROUPS = ["opencloudAdmin"]
 ROLE_GROUPS = {"admin": GROUPS, "user": USER_GROUPS}
 SLUG = r"^[a-z0-9][a-z0-9-]{1,30}$"
 UID = r"^[a-z][a-z0-9.-]{0,30}[a-z0-9]$"
@@ -145,7 +150,7 @@ def exec_set(rt, db, m: AccountSet, plan_row, known: list[str]) -> dict:
     groups = ROLE_GROUPS[m.role]
     res = _run(rt, node, "cfg.ldap_user", {"domain": domain, "uid": m.username, "given_name": given, "surname": surname,
                                            "mail": f"{m.username}@{domain}", "password": pw, "groups": groups})
-    other = [g for g in ROLE_GROUPS["user" if m.role == "admin" else "admin"] if g not in groups]
+    other = [g for g in NEVER_GROUPS + ROLE_GROUPS["user" if m.role == "admin" else "admin"] if g not in groups]
     _run(rt, node, "cfg.ldap_groups", {"domain": domain, "uid": m.username, "add": [], "remove": other})
     _remember(db, m.deployment, m.username, True)
     db.commit()   # the mailbox list below reads it

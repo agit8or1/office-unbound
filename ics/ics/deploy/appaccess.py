@@ -85,7 +85,10 @@ def access_info(rt, db, d) -> dict:
     ca = _secret_if_present(rt, db, str(d.id), "deployment-ca")
     out = build(plan, _addresses(db, d))
     pw_set = db.execute(text("SELECT 1 FROM deployment_secrets WHERE deployment_id = :d AND name = 'admin-password'"), {"d": str(d.id)}).first()
+    from .. import gateway
+    pub = gateway.state(db).get(d.slug)   # set by gateway.certificates.issue (production): the names use public DNS + a public certificate
     return {"deployment": d.slug, "ready": True, **out, "ca_pem": json.loads(ca)["cert"] if ca else None,
+            "public": {"names": pub.get("names", []), "issued_at": pub.get("issued_at")} if pub else None,
             "admin": {**out["admin"], "password_available": pw_set is not None}}
 
 

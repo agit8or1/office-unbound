@@ -64,7 +64,10 @@ def test_account_is_created_with_a_mailbox_and_the_password_is_never_stored(rt, 
     ldap = next(x for x in calls if x[1] == "cfg.ldap_user")
     assert ldap[0] == "node-acme-prod-id" and ldap[2]["uid"] == "admin" and ldap[2]["password"] == PW
     assert c.check_ldap_user(ldap[2], {"enabled": True}) == ldap[2]
-    assert set(ldap[2]["groups"]) == {"opencloudAdmin", "mail-users", "org-admin"}
+    assert set(ldap[2]["groups"]) == {"opencloudUser", "mail-users", "org-admin"}    # portal admin, but an ordinary OpenCloud user
+    grp = next(x for x in calls if x[1] == "cfg.ldap_groups")[2]
+    assert grp["add"] == [] and grp["remove"] == ["opencloudAdmin"]                     # an earlier administrator loses OpenCloud Admin
+    assert c.check_ldap_groups(grp, {"enabled": True}) == grp
     gro = next(x for x in calls if x[1] == "cfg.gromox")
     assert gro[0] == "node-acme-prod-groupware" and "admin@acme.example" in gro[2]["mailboxes"]
     with rt.session() as db:
@@ -180,3 +183,10 @@ def test_ou_admin_and_bad_names_are_refused_when_the_plan_is_made():
         with pytest.raises(ValidationError):
             bad()
     assert AccountSet(deployment="prod", username="jane", password="abcdefgh1", display_name="Jane O'Neil").display_name == "Jane O'Neil"
+
+
+def test_no_people_role_is_an_opencloud_admin():
+    """Administration happens in the console: no People role maps to OpenCloud's Admin role (only the built-in ou-admin keeps it)."""
+    assert all("opencloudAdmin" not in g and "opencloudUser" in g for g in accounts.ROLE_GROUPS.values())
+    assert configure.ORG_ADMIN_GROUP in accounts.ROLE_GROUPS["admin"] and configure.ORG_ADMIN_GROUP not in accounts.ROLE_GROUPS["user"]
+    assert accounts.NEVER_GROUPS == ["opencloudAdmin"] and set(accounts.NEVER_GROUPS) <= set(configure.LDAP_GROUPS)
