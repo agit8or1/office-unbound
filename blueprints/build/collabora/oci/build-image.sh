@@ -4,7 +4,7 @@
 # usage: build-image.sh <artifact.tar> <oci-dir-with-Containerfile-and-scripts>
 set -euo pipefail
 TAR=${1:?artifact tar}; SRC=${2:?dir with Containerfile entrypoint.sh healthcheck.sh}
-VER=${OU_DOCS_VERSION:-26.04.6-ou3}
+VER=${OU_DOCS_VERSION:-26.04.6-ou4}
 CTX=/home/imgbuild/ctx
 KEYDIR=/home/imgbuild/ou-lab-image-key              # PRIVATE lab signing key lives only here (mode 700, never in the repo)
 REG=127.0.0.1:5000

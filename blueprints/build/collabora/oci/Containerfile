@@ -3,7 +3,10 @@
 # Base pinned by the multi-arch index digest (docker.io/library/ubuntu:24.04, created 2026-11-10); the tag is only a comment.
 FROM docker.io/library/ubuntu@sha256:2198e4c65076e9cb0b3d695219df667c0e3b0072da64ca3c2648aca17dcecaf5
 ARG DEBIAN_FRONTEND=noninteractive
-ARG OU_VERSION=26.04.6-ou3
+# ou4 (2026-11-21): /etc/coolwsd/proof_key is a symlink to /opt/ou-tls/proof_key, the per-deployment WOPI proof key the ICS writes into the
+# read-only tls volume (ics/ics/deploy/configure.py office_proof_key). No key is ever baked into the image; without the file coolwsd sends no
+# X-WOPI-Proof headers and OpenCloud refuses every WOPI call ("ProofKeys verification failed"), so the entrypoint warns loudly.
+ARG OU_VERSION=26.04.6-ou4
 # runtime libs only (set verified by `ldd` of coolwsd/coolforkit-ns); versions are whatever the noble archive serves
 # on the build day and are recorded by build-image.sh (dpkg -l) - apt is the non-reproducible part of this image.
 RUN apt-get -o APT::Sandbox::User=root update \
@@ -22,8 +25,9 @@ RUN rm -rf /etc/nginx /etc/apache2 \
  && mkdir -p /opt/ou-docs/systemplate /opt/ou-docs/work \
  && coolwsd-systemplate-setup /opt/ou-docs/systemplate /opt/officeunbound-office >/tmp/systemplate.log 2>&1 \
  && rm -f /tmp/systemplate.log \
- && chown -R cool:cool /opt/ou-docs /etc/coolwsd \
- && (chmod 600 /etc/coolwsd/proof_key 2>/dev/null || true)
+ && rm -f /etc/coolwsd/proof_key /etc/coolwsd/proof_key.pub \
+ && ln -s /opt/ou-tls/proof_key /etc/coolwsd/proof_key \
+ && chown -R cool:cool /opt/ou-docs /etc/coolwsd
 LABEL org.opencontainers.image.title="Office Unbound Docs" \
       org.opencontainers.image.description="Collabora Online cp-26.04.6-1 built from source by Office Unbound (MPL-2.0)" \
       org.opencontainers.image.version="$OU_VERSION" \

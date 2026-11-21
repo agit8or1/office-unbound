@@ -473,8 +473,16 @@ async function filesHome(page) {
   });
   if (filesOk && helperOk) {
     await check('upload a small text file', fp, async () => {
-      const inp = fp.locator('#files-file-upload-input, input[type=file]:not([webkitdirectory])').first();
-      await inp.setInputFiles({ name: txtName, mimeType: 'text/plain', buffer: Buffer.from(txtBody) });
+      // OpenCloud Web 8: upload sits under "New" -> "Files Upload" (no separate Upload button, no file input until then)
+      let inp = fp.locator('#files-file-upload-input, input[type=file]:not([webkitdirectory])').first();
+      if (!(await inp.count())) {
+        await fp.getByRole('button', { name: /^\s*New\s*$/ }).first().click();
+        const chooser = fp.waitForEvent('filechooser', { timeout: 15000 });
+        await fp.getByText('Files Upload', { exact: true }).first().click();
+        await (await chooser).setFiles({ name: txtName, mimeType: 'text/plain', buffer: Buffer.from(txtBody) });
+      } else {
+        await inp.setInputFiles({ name: txtName, mimeType: 'text/plain', buffer: Buffer.from(txtBody) });
+      }
       const r = await row(fp, txtName, 30000);
       const g = await waitFor(async () => { const x = await cloudApi(fp, 'GET', txtName); return x.status === 200 ? x : null; }, 20000, 2000);
       return { ok: !!r && !!g && g.text === txtBody, reason: `row ${r ? 'shown' : 'NOT shown'}; server copy ${g ? (g.text === txtBody ? 'identical' : 'DIFFERENT') : 'missing'}` };
@@ -560,7 +568,7 @@ async function filesHome(page) {
     await check('navigation: way back to portal from Files', fp, async () => { await filesHome(fp); const w = await portalLinkVisible(fp); return { ok: !!w, reason: w ? 'portal link in ' + w : 'no visible link to ' + APP }; });
     section = 'admin';
     await check('OpenCloud admin-settings closed to a normal user', fp, async () => {
-      await fp.goto(CLOUD + '/admin-settings/users');
+      await fp.goto(CLOUD + '/admin-settings/users', { waitUntil: 'domcontentloaded' });
       await sleep(5000);
       const url = fp.url();
       const ui = await fp.locator('#admin-settings-app, .admin-settings-wrapper, [data-testid="users-table"], #users-table, table:has-text("Role")').count();
@@ -572,7 +580,7 @@ async function filesHome(page) {
     // user 2 sees the share
     const u2p = await newPage(ctx2);
     st.signedIn2 = await check(`${U2} signs in`, u2p, async () => {
-      await u2p.goto(APP + '/');
+      await u2p.goto(APP + '/', { waitUntil: 'domcontentloaded' });
       await kcLogin(u2p, U2, PW2);
       await u2p.waitForURL(u => host(u.href) === host(APP), { timeout: 30000 });
       return { ok: (await u2p.locator('a.tile').count()) > 0, reason: shortUrl(u2p.url()) };
@@ -580,7 +588,7 @@ async function filesHome(page) {
     if (shared && st.signedIn2) {
       await check(`${U2} sees the shared folder`, u2p, async () => {
         const ok = await waitFor(async () => {
-          await u2p.goto(CLOUD + '/files/shares/with-me');
+          await u2p.goto(CLOUD + '/files/shares/with-me', { waitUntil: 'domcontentloaded' });
           await sleep(4000);
           return (await u2p.getByText(folder, { exact: false }).count()) > 0;
         }, 60000, 3000);

@@ -10,6 +10,22 @@ isolated lab; nothing is production supported ([ROADMAP.md](ROADMAP.md)).
 
 ## [Unreleased]
 
+## [0.9.1] - 2026-11-21
+
+Both remaining user-facing failures, root-caused with the new Diagnostics logs on a live deployment:
+
+- **Fixed: documents opened blank ("Unauthorized WOPI host").** Our Collabora build had no WOPI proof key (`Could not open proof RSA key ... /etc/coolwsd/proof_key`), so it signed no request, and OpenCloud's collaboration service refused every one ("ProofKeys verification failed: Invalid timestamp", CheckFileInfo 500). Each deployment now gets its own proof key (deployment secret `office-proof-key`, delivered read-only into the office trust volume), and the Office image **26.04.6-ou4** reads it from there. Neither the certificate trust changes of 0.8.1/0.8.2 nor disabling proof checks was the fix; both checks stay on.
+- **Fixed: webmail answered HTTP 500 after sign-in.** The mailbox store (gromox exmdb) listened on `[::1]:5000` only, while webmail's backend dials `localhost`, which our Ubuntu image resolves to `127.0.0.1` only (`exmdb_client: HX_inet_connect to [localhost]:5000: Connection refused`, then `MAPIException` in grommunio-web). `cfg.gromox` now makes the store listen on both loopback addresses and allows both (agent **0.9.1-ou17**, golden image **version 13**).
+- **Signing new images works again.** Since the artifact service became the signed identity, a new image could not be signed (the signer read only published images, and only signed images are published). The signer can read the bytes from the builder registry (`trust/source-registry`), still re-hashing them against the digest; the signed identity is unchanged.
+- The functional audit uses OpenCloud Web 8's "New, Files Upload" path and does not wait for its notification stream.
+
+New deployments get both fixes. Existing deployments need recreating (new agent, new Office image, new proof key).
+
+- **Fixed: webmail answered HTTP 500 right after sign-in, for every user, on deployments from the Ubuntu golden image** (seen on officeunbound5, release 0.9.0). The mail store service (gromox exmdb, inside gromox-http) listened only on its default `[::1]:5000`. Webmail's backend (zcore) reaches it under the name `localhost` (gromox 3.13 `lib/exmdb_client2.cpp`: homeserver 0 becomes "localhost", port 5000 fixed) and resolves that through libHX as IPv6 with IPv4 mapping. The golden image's `/etc/hosts` lists `localhost` only as `127.0.0.1` (`blueprints/build/guest-image/customize.sh`), so the name became `::ffff:127.0.0.1`. Nothing listened there, so every mailbox open failed (`exmdb_client: HX_inet_connect to [localhost]:5000: Connection refused`, then `MAPIException` in `class.mapisession.php`). The lab VMs (Debian) map `localhost` to `::1` too, which is why the lab worked. `cfg.gromox` now sets `exmdb_listen=[::1]:5000 127.0.0.1:5000` in `gromox.cfg` and writes `exmdb_provider.cfg` with `exmdb_hosts_allow=::1 ::ffff:127.0.0.1`, so the store answers however `localhost` resolves and still accepts loopback only. Existing deployments need the new agent and a re-run of `cfg.gromox` ([test_guest_groupware.py](ics/tests/test_guest_groupware.py)).
+
+### Fixed
+- **Documents opened blank ("Unauthorized WOPI host").** Our source-built Collabora image had no WOPI proof key (`/etc/coolwsd/proof_key`; the distro package makes it in postinst), so coolwsd sent no `X-WOPI-Proof`/`X-WOPI-TimeStamp` headers and OpenCloud's collaboration service refused every WOPI call ("ProofKeys verification failed: Invalid timestamp"). The ICS now makes one RSA-2048 proof key per deployment (per tenant; deployment secret `office-proof-key`, vault-encrypted, wiped with the deployment) and writes it as `proof_key` (0600, owner 10001) into the office `tls` volume before the unit's first start; the audit records only its size. Office image **26.04.6-ou4**: `/etc/coolwsd/proof_key` is a symlink to `/opt/ou-tls/proof_key` (the rootfs is read-only; no key is baked into the image); the entrypoint refuses a file that is not a PEM RSA private key and warns when none is present. Proof verification in OpenCloud stays on. Needs the ou4 image built, dev-signed, published and pinned in `blueprints/catalog/components/office.yaml`; existing deployments need recreating.
+
 ## [0.9.0] - 2026-11-21
 
 First release of the 0.9 "Ironwood" line: **one product instead of five.** Every app carries the Office Unbound name and look, each has a way back to the portal, administration happens only in the Office Unbound console and portal, and administrators can read a service's logs from the console (read-only, redacted).
@@ -431,6 +447,7 @@ editing, chat/meetings, telephony prototype, migration tooling and package pipel
 - `SECURITY.md` (private reporting) and `CONTRIBUTING.md` (DCO sign-off) added; AGPL-3.0 license. [SECURITY](SECURITY.md)
 
 [Unreleased]: https://github.com/agit8or1/office-unbound/compare/v0.4.7...HEAD
+[0.9.1]: https://github.com/agit8or1/office-unbound/compare/v0.9.0...v0.9.1
 [0.9.0]: https://github.com/agit8or1/office-unbound/compare/v0.8.2...v0.9.0
 [0.8.2]: https://github.com/agit8or1/office-unbound/compare/v0.8.1...v0.8.2
 [0.8.1]: https://github.com/agit8or1/office-unbound/compare/v0.8.0...v0.8.1

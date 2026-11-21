@@ -128,3 +128,37 @@ def test_cfg_gromox_is_enabled_only_where_the_groupware_may_be_installed():
     assert gw["runbooks"]["cfg.gromox"] == {"enabled": True} and "cfg.ldap_init" in gw["runbooks"]
     # a VM without groupware never enables it, so it still boots from an image whose agent predates cfg.gromox (first boot refuses unknown runbooks)
     assert "cfg.gromox" not in other["runbooks"] and "cfg.ldap_init" in other["runbooks"]
+
+
+def _kv(body):
+    return dict(ln.split("=", 1) for ln in body.splitlines() if ln and not ln.startswith("#"))
+
+
+def _mapped(host):
+    """The address libHX (HX_inet_listen/HX_inet_connect) uses for a literal: getaddrinfo with AF_INET6 + AI_V4MAPPED, as gromox's peer ACL sees it."""
+    import socket
+    return {a[4][0] for a in socket.getaddrinfo(host, 5000, socket.AF_INET6, socket.SOCK_STREAM, 0, socket.AI_V4MAPPED | socket.AI_NUMERICHOST)}
+
+
+def test_the_information_store_is_reachable_however_localhost_resolves():
+    # webmail HTTP 500 after sign-in (officeunbound5, 0.9.0): gromox-http's exmdb listened on its default [::1]:5000 only, while zcore dials the
+    # homeserver name "localhost", which the golden image's /etc/hosts (127.0.0.1 only) turns into ::ffff:127.0.0.1 -> Connection refused
+    f = h._gx_files(OK, "mail.e2e.example", PW, "dc=e2e,dc=example")
+    listen = _kv(f["gromox.cfg"])["exmdb_listen"].split()
+    allow = set(_kv(f["exmdb_provider.cfg"])["exmdb_hosts_allow"].split())
+    hosts = {spec.rsplit(":", 1)[0].strip("[]") for spec in listen}
+    assert hosts == {"::1", "127.0.0.1"} and all(spec.rsplit(":", 1)[1] == "5000" for spec in listen)   # the port zcore hard-codes
+    # both ways "localhost" can resolve (::1, or 127.0.0.1 mapped) are listened on and admitted by the ACL (gromox matches the peer string)
+    for peer in ("::1", "127.0.0.1"):
+        assert _mapped(peer) <= {a for hst in hosts for a in _mapped(hst)} and _mapped(peer) <= allow
+    assert allow == {"::1", "::ffff:127.0.0.1"}                       # loopback only: nothing off the node reaches the store
+    assert "exmdb_listen=" not in f["exmdb_provider.cfg"] and "exmdb_hosts_allow=" not in f["gromox.cfg"]   # each where gromox 3.13 reads it
+
+
+def test_gromox_config_files_keep_their_settings():
+    f = h._gx_files(OK, "mail.e2e.example", PW, "dc=e2e,dc=example")
+    assert set(f) == {"mysql_adaptor.cfg", "gromox.cfg", "exmdb_provider.cfg", "http.cfg", "smtp.cfg", "imap.cfg", "ldap_adaptor.cfg"}
+    g = _kv(f["gromox.cfg"])
+    assert g["outgoing_smtp_url"] == "smtp://127.0.0.1:25" and g["http_listen"] == "127.0.0.1:10080" and g["host_id"] == "mail.e2e.example"
+    assert _kv(f["mysql_adaptor.cfg"])["mysql_password"] == PW and _kv(f["ldap_adaptor.cfg"])["ldap_bind_pass"] == PW2
+    assert _kv(f["ldap_adaptor.cfg"])["ldap_host"] == "ldaps://ldap.e2e.example"

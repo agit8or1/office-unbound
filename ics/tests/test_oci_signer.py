@@ -271,6 +271,31 @@ def test_https_registry_with_a_pinned_ca_names_that_registry_and_never_falls_bac
         tls.srv.shutdown()
 
 
+def test_source_registry_lets_a_new_image_be_signed_for_the_artifact_service_identity(box, tmp_path):
+    """2026-11-21: with the identity = artifact service, a NEW image could never be signed (not published yet -> no manifest there; unsigned ->
+    never published). trust/source-registry: bytes are read from the builder registry and still re-hashed against the digest; the signature names
+    trust/registry. Tampered bytes from the source are still refused."""
+    env = dict(box.env)
+    env.pop("OU_OCISIGN_REGISTRY_URL")
+    t = box.state / "trust"
+    (t / "registry").write_text("artifacts.example.invalid:8446\n")     # identity only: never contacted
+    (t / "source-registry").write_text(box.reg.addr + "\n")
+    for f in ("registry", "source-registry"):
+        os.chmod(t / f, 0o644)
+    files, _ = box.dev_files()
+    r = subprocess.run([sys.executable, "-I", SIGNER, "sign"], input=tar_of(files), env=env, capture_output=True)
+    assert r.returncode == 0, r.stderr
+    ok, payload = box.verifies(r.stdout, "dev")
+    assert ok and payload["critical"]["identity"]["docker-reference"] == "artifacts.example.invalid:8446/" + REPO
+    (t / "source-registry").write_text("bad host name!\n")            # malformed -> refused, nothing signed
+    r = subprocess.run([sys.executable, "-I", SIGNER, "sign"], input=tar_of(files), env=env, capture_output=True)
+    assert r.returncode != 0 and b"source-registry is malformed" in r.stderr and not r.stdout
+    os.chmod(t / "source-registry", 0o666)                               # writable by others -> refused
+    (t / "source-registry").write_text(box.reg.addr + "\n")
+    r = subprocess.run([sys.executable, "-I", SIGNER, "sign"], input=tar_of(files), env=env, capture_output=True)
+    assert r.returncode != 0 and b"writable" in r.stderr and not r.stdout
+
+
 def test_sbom_must_describe_this_image_and_be_bound_by_hash(box):
     files, att = box.dev_files()
     refused(box.sign(dict(files, **{"sbom.cdx.json": box.sbom + b" "})), "hash mismatch")                         # not the SBOM the scan was made on

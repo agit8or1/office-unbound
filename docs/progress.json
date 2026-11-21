@@ -5,8 +5,21 @@
   "repository": "https://github.com/agit8or1/office-unbound",
   "updated": "2026-11-19",
   "stage": "pre-alpha (lab)",
-  "current_version": "0.9.0",
+  "current_version": "0.9.1",
   "releases": [
+    {
+      "version": "0.9.1",
+      "date": "2026-11-21",
+      "status": "prepared",
+      "codename": "Ironwood",
+      "channel": "pre-release",
+      "highlights": [
+        "0.9.1: documents open: per-deployment WOPI proof key, Office image 26.04.6-ou4",
+        "0.9.1: webmail works after sign-in: mailbox store listens on both loopbacks (agent 0.9.1-ou17, image version 13)"
+      ],
+      "notes_url": "https://github.com/agit8or1/office-unbound/blob/main/CHANGELOG.md",
+      "changelog": "CHANGELOG.md"
+    },
     {
       "version": "0.9.0",
       "date": "2026-11-21",

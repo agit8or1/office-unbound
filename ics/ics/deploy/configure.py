@@ -264,6 +264,21 @@ def realm_key(rt, dep: str, tenant: str | None = None) -> str:
     return secret(rt, dep, sname(tenant, "realm-signing-key"), _rsa_key)
 
 
+def _proof_key() -> str:
+    """An RSA key in the format Collabora's own tooling makes (`ssh-keygen -t rsa -m PEM`: PKCS#1 "RSA PRIVATE KEY"); coolwsd loads it with
+    Poco's RSAKey (wsd/ProofKey.cpp) and signs every WOPI request with it (X-WOPI-Proof/X-WOPI-TimeStamp)."""
+    from cryptography.hazmat.primitives.asymmetric import rsa
+    k = rsa.generate_private_key(public_exponent=65537, key_size=2048)
+    return k.private_bytes(serialization.Encoding.PEM, serialization.PrivateFormat.TraditionalOpenSSL, serialization.NoEncryption()).decode()
+
+
+def office_proof_key(rt, dep: str, tenant: str | None = None) -> str:
+    """The WOPI proof key of the scope's office (2026-11-21: without one coolwsd sent no proof headers and OpenCloud's collaboration service
+    refused every WOPI call, "ProofKeys verification failed: Invalid timestamp", documents blank). Made once per deployment (per tenant), never
+    shared between deployments and never baked into the image; OpenCloud learns the public half from the discovery XML."""
+    return secret(rt, dep, sname(tenant, "office-proof-key"), _proof_key)
+
+
 def realm_public_key(key_pem: str) -> str:
     k = serialization.load_pem_private_key(key_pem.encode(), password=None)
     return k.public_key().public_bytes(serialization.Encoding.PEM, serialization.PublicFormat.SubjectPublicKeyInfo).decode()
@@ -538,10 +553,13 @@ def office_runbooks(ctx, vm: str) -> list[dict]:
     t = tenant_of(ctx.plan, vm)
     img = _image(ctx, vm, "office")
     ca_pem = scope_ca(ctx, t)["cert"]
+    # proof_key: the image links /etc/coolwsd/proof_key to /opt/ou-tls/proof_key (the rootfs is read-only); written before the unit's first start
     return [
         {"runbook": "cfg.volume_files", "params": {"component": "office", "volume": "tls", "image": img, "owner": DOCS_UID,
                                                    "files": [{"path": "ca.crt", "mode": 0o644, "content": ca_pem},
-                                                             {"path": "trust.crt", "mode": 0o644, "content": office_trust(ca_pem)}]}},
+                                                             {"path": "trust.crt", "mode": 0o644, "content": office_trust(ca_pem)},
+                                                             {"path": "proof_key", "mode": 0o600,
+                                                              "content": office_proof_key(ctx.rt, ctx.deployment_id, t)}]}},
         {"runbook": "cfg.volume_files", "params": {"component": "office", "volume": "work", "image": img, "owner": DOCS_UID,
                                                    "files": [{"path": "ou-volume", "mode": 0o644, "content": "Office Unbound Docs work volume\n"}]}},
         *_local_sites(ctx, vm, None, ("office",)),
