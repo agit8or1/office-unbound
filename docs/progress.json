@@ -5,8 +5,20 @@
   "repository": "https://github.com/agit8or1/office-unbound",
   "updated": "2026-11-19",
   "stage": "pre-alpha (lab)",
-  "current_version": "0.9.1",
+  "current_version": "0.9.2",
   "releases": [
+    {
+      "version": "0.9.2",
+      "date": "2026-11-22",
+      "status": "prepared",
+      "codename": "Ironwood",
+      "channel": "pre-release",
+      "highlights": [
+        "0.9.2: gateway certificate covers mail/autodiscover before public certificates; Collabora trusts the deployment CA for file access"
+      ],
+      "notes_url": "https://github.com/agit8or1/office-unbound/blob/main/CHANGELOG.md",
+      "changelog": "CHANGELOG.md"
+    },
     {
       "version": "0.9.1",
       "date": "2026-11-21",

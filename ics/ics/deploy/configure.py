@@ -237,11 +237,27 @@ def hosted_names(plan: dict, vm: str, domain: str | None = None) -> list[str]:
     return sorted(fq(plan, t, h) for h, (c, _) in LOCAL_PORT.items() if c in comps)
 
 
+def edge_served_names(plan: dict, vm: str, tenant: str | None) -> list[str]:
+    """Every name of scope `tenant` that the edge on `vm` serves (exactly the sites edge_runbooks makes): the web names of the scope's services
+    (whatever VM their A record points at) plus the EDGE_HTTPS names whose groupware runs on another VM. The gateway's certificate for that
+    scope must cover all of them, also before (or without) a public certificate. Empty when `vm` runs no edge."""
+    comps = next((v.get("components") or [] for v in plan.get("vms", []) if v["name"] == vm), [])
+    if "edge" not in comps:
+        return []
+    out = {fq(plan, tenant, label) for label, (comp, _) in LOCAL_PORT.items() if vm_of(plan, comp, tenant)}
+    for label, comp in EDGE_HTTPS.items():
+        svc = vm_of(plan, comp, tenant)
+        if svc is not None and svc != vm:
+            out.add(fq(plan, tenant, label))
+    return sorted(out)
+
+
 def _tls(ctx, vm: str, domain: str | None = None, names: dict | None = None) -> dict:
-    """The VM's own certificate ("deployment"), from its scope's CA, for exactly the names of its scope that resolve to it."""
+    """The VM's own certificate ("deployment"), from its scope's CA, for exactly the names of its scope that resolve to it or that its edge serves."""
     t = tenant_of(ctx.plan, vm)
     mine = names_by_vm(ctx.plan, tenant=t)
-    want = sorted(set(mine.get(vm, [])) | set(hosted_names(ctx.plan, vm))) or [f"{vm}.{scope(ctx.plan, t)['domain']}"]
+    want = sorted(set(mine.get(vm, [])) | set(hosted_names(ctx.plan, vm)) | set(edge_served_names(ctx.plan, vm, t))) \
+        or [f"{vm}.{scope(ctx.plan, t)['domain']}"]
     return _tls_for(ctx, t, want, "deployment")
 
 
@@ -447,7 +463,7 @@ def edge_runbooks(ctx, vm: str) -> list[dict]:
     for t in serve:
         tn = "deployment"
         if t != t_vm:
-            mine = names_by_vm(plan, tenant=t).get(vm, [])
+            mine = sorted(set(names_by_vm(plan, tenant=t).get(vm, [])) | set(edge_served_names(plan, vm, t)))
             if not mine:
                 continue
             tn = tls_name(t)

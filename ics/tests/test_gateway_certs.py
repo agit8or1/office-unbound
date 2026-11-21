@@ -124,3 +124,44 @@ def test_webmail_and_autodiscover_go_through_the_gateway_with_its_certificate(mo
         assert x["server_names"] == [f"{label}.acme.example"] and x["upstream"] == f"https://{mail_ip}:443"
         assert x["upstream_name"] == f"{label}.acme.example" and x["tls_name"] == "public" and x["upstream_ca"] == "deployment"
         assert c.check_nginx_site(x, {"enabled": True})["upstream_ca"] == "deployment"
+
+
+def _sans(tls: dict) -> list[str]:
+    from cryptography import x509
+    leaf = x509.load_pem_x509_certificate(tls["cert_pem"].encode())
+    return sorted(leaf.extensions.get_extension_for_class(x509.SubjectAlternativeName).value.get_values_for_type(x509.DNSName))
+
+
+def test_the_deployment_certificate_covers_every_name_the_gateway_serves(monkeypatch):
+    """Live 2026-11-21 (0.9.1): before a public certificate (and forever on LAN-only deployments) the gateway served mail/autodiscover with its
+    deployment-CA certificate whose names were only those resolving to it -> ERR_CERT_COMMON_NAME_INVALID. It must cover every site it serves."""
+    p = _plan()
+    ctx, _store = _ctx(p, monkeypatch)
+    ctx.rt = object()
+    monkeypatch.setattr(gateway, "public_for", lambda rt, slug: None)
+    rb = configure.edge_runbooks(ctx, "acme-prod-id")
+    tls = {r["params"]["name"]: r["params"] for r in rb if r["runbook"] == "cfg.tls"}
+    served = {n for r in rb if r["runbook"] == "cfg.nginx_site" for n in r["params"]["server_names"]}
+    assert {"mail.acme.example", "autodiscover.acme.example"} <= served
+    assert served <= set(_sans(tls["deployment"]))
+    assert set(gateway.web_names(p)) <= set(_sans(tls["deployment"]))
+    # the groupware VM's own certificate is unchanged: its names only (no gateway names)
+    gw = configure._tls(ctx, "acme-prod-groupware")["params"]
+    assert "app.acme.example" not in _sans(gw) and "mail.acme.example" in _sans(gw)
+
+
+def test_multi_tenant_gateway_certificates_cover_each_scopes_mail_names(monkeypatch):
+    from ics.deploy.plan import TenantNames
+
+    from .test_deploy_names import _multi, _runbooks
+    p = _multi(tenants={"t01": TenantNames(domain="customer-a.com")})
+    ctx, _store = _ctx(p, monkeypatch)
+    edge = next(v["name"] for v in p["vms"] if "edge" in v["components"] and not v.get("tenant"))
+    rb = _runbooks(ctx, edge)
+    tls = {r["params"]["name"]: r["params"] for r in rb if r["runbook"] == "cfg.tls"}
+    sites = [r["params"] for r in rb if r["runbook"] == "cfg.nginx_site"]
+    assert any(n.startswith("mail.") for s in sites for n in s["server_names"])
+    for s in sites:   # every site's names are in the certificate it is served with
+        assert set(s["server_names"]) <= set(_sans(tls[s["tls_name"]])), s
+    for t in (None, "t01", "t02"):
+        assert set(gateway.web_names(p, t)) <= set(_sans(tls[configure.tls_name(t)])) or not gateway.web_names(p, t)

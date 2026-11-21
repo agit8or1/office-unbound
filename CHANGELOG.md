@@ -10,6 +10,18 @@ isolated lab; nothing is production supported ([ROADMAP.md](ROADMAP.md)).
 
 ## [Unreleased]
 
+## [0.9.2] - 2026-11-22
+
+- **Fixed: before public certificates, `mail.` and `autodiscover.` failed certificate checks through the gateway.** The gateway's deployment certificate listed only the names whose DNS records point at the gateway, but since 0.7.2 it also serves mail and autodiscover (and each tenant's sign-in name on a shared gateway). It now lists every name it serves (`configure.edge_served_names`), the same list the public certificate request uses.
+- **Fixed: before public certificates, documents could not load.** With `ssl.enable=false` Collabora's file client reads its CA only from `storage.ssl.ca_file_path`, else OpenSSL's default trust, so our trust file was ignored and the deployment-CA certificate was refused ("unable to get local issuer certificate"). The office unit now sets `SSL_CERT_FILE=/opt/ou-tls/trust.crt` (deployment CA + Let's Encrypt roots); verification stays on; no image rebuild.
+- Both apply to deployments configured from this release on.
+
+### Fixed
+- **mail/autodiscover showed a certificate error (ERR_CERT_COMMON_NAME_INVALID) until a public certificate existed, and always on LAN-only deployments.** Since 0.7.2 the gateway serves `mail.` and `autodiscover.` (proxied to the groupware VM), but its deployment-CA certificate listed only the names whose A record points at the gateway (`configure._tls` / `names_by_vm`), so the groupware's names were missing. The gateway's certificate of each scope (deployment and every tenant on a shared gateway) now covers every name it serves (`configure.edge_served_names`, also the source of `gateway.web_names`); on a shared multi-tenant gateway this also adds each tenant's `auth.` name, which was missing the same way. The groupware VM's own certificate is unchanged ([test_gateway_certs.py](ics/tests/test_gateway_certs.py)).
+- **Documents stayed blank while the gateway served its deployment-CA certificate ("unable to get local issuer certificate", CheckFileInfo failed).** coolwsd's outbound WOPI client reads `ssl.ca_file_path` only when `ssl.enable=true` (Collabora Online cp-26.04.6-1 `wsd/wopi/StorageConnectionManager.cpp`; with `ssl.enable=false` only `storage.ssl.ca_file_path`), otherwise it trusts OpenSSL's default paths, which `net/Ssl.cpp` takes from `SSL_CERT_FILE` when set. The office unit now sets `SSL_CERT_FILE=/opt/ou-tls/trust.crt` (deployment CA + Let's Encrypt roots); verification stays on, no image rebuild ([test_deploy_configure_office_trust.py](ics/tests/test_deploy_configure_office_trust.py)).
+
+Existing deployments need recreating (or the gateway's and the office VM's configuration re-run); no new agent or image.
+
 ## [0.9.1] - 2026-11-21
 
 Both remaining user-facing failures, root-caused with the new Diagnostics logs on a live deployment:
@@ -447,6 +459,7 @@ editing, chat/meetings, telephony prototype, migration tooling and package pipel
 - `SECURITY.md` (private reporting) and `CONTRIBUTING.md` (DCO sign-off) added; AGPL-3.0 license. [SECURITY](SECURITY.md)
 
 [Unreleased]: https://github.com/agit8or1/office-unbound/compare/v0.4.7...HEAD
+[0.9.2]: https://github.com/agit8or1/office-unbound/compare/v0.9.1...v0.9.2
 [0.9.1]: https://github.com/agit8or1/office-unbound/compare/v0.9.0...v0.9.1
 [0.9.0]: https://github.com/agit8or1/office-unbound/compare/v0.8.2...v0.9.0
 [0.8.2]: https://github.com/agit8or1/office-unbound/compare/v0.8.1...v0.8.2

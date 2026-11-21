@@ -55,10 +55,7 @@ def web_names(plan: dict, tenant: str | None = None) -> list[str]:
     """The names the gateway serves for a scope (portal, sign-in, files, documents, and mail/autodiscover when the groupware has its own VM):
     exactly what the certificate must cover."""
     edge = configure.vm_of(plan, "edge", tenant) or configure.vm_of(plan, "edge", None)
-    names = {configure.fq(plan, tenant, label) for label, (comp, _) in configure.LOCAL_PORT.items() if configure.vm_of(plan, comp, tenant)}
-    names |= {configure.fq(plan, tenant, label) for label, comp in configure.EDGE_HTTPS.items()
-              if configure.vm_of(plan, comp, tenant) and configure.vm_of(plan, comp, tenant) != edge}
-    return sorted(names)
+    return configure.edge_served_names(plan, edge, tenant) if edge else []
 
 
 def _edge(plan: dict) -> str:

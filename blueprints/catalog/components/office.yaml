@@ -26,7 +26,12 @@ artifacts:
       # trust.crt = the deployment CA + Let's Encrypt's roots: the WOPI host (cloud.<domain>) is reached through the gateway, which serves the
       # PUBLIC certificate once gateway.certificates.issue ran; with the deployment CA alone every document stayed blank (2026-11-21: the editor's
       # websocket closed because coolwsd could not fetch the file)
-      env: {OU_WOPI_HOST: "https://{host:cloud}:443", OU_SERVER_NAME: "{host:office}", OU_CA_FILE: /opt/ou-tls/trust.crt}
+      # SSL_CERT_FILE: coolwsd's outbound (WOPI) client context reads ssl.ca_file_path ONLY when ssl.enable=true (online cp-26.04.6-1
+      # wsd/wopi/StorageConnectionManager.cpp: with ssl.enable=false only storage.ssl.ca_file_path, which the entrypoint does not set); otherwise it
+      # trusts just OpenSSL's default paths, which net/Ssl.cpp SslContext takes from SSL_CERT_FILE when set (else the system bundle). Live 0.9.1:
+      # "unable to get local issuer certificate", CheckFileInfo failed while the gateway served its deployment-CA certificate. No image rebuild.
+      env: {OU_WOPI_HOST: "https://{host:cloud}:443", OU_SERVER_NAME: "{host:office}", OU_CA_FILE: /opt/ou-tls/trust.crt,
+            SSL_CERT_FILE: /opt/ou-tls/trust.crt}
       volumes: [{name: work, path: /opt/ou-docs/work}, {name: tls, path: /opt/ou-tls, read_only: true}]
 resources:
   cores:     {base: 2,    per_user: 0.02, source: "identity-files-lab-results.md: document load + conversion bursts; 1 core per 50 users is an assumption (no concurrency test)"}
