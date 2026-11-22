@@ -1,7 +1,9 @@
-/* Keycloak 26 sign-in pages (login theme "ou", parent keycloak.v2 = PatternFly 5): the portal's calm card on its warm background. */
+/* Keycloak 26 sign-in pages (login theme "ou", parent keycloak.v2 = PatternFly 5): the product's navy top bar with the mark and the name
+   (the organisation's when the portal branding has one), a white card on paper, copper primary button, IBM Plex (ou-fonts.css). */
 :root {
   --pf-v5-global--FontFamily--text: var(--ou-font);
   --pf-v5-global--FontFamily--heading: var(--ou-font);
+  --pf-v5-global--FontFamily--monospace: var(--ou-mono);
   --pf-v5-global--primary-color--100: var(--ou-a);
   --pf-v5-global--primary-color--200: var(--ou-a);
   --pf-v5-global--link--Color: var(--ou-a);
@@ -9,38 +11,43 @@
   --pf-v5-global--BackgroundColor--100: var(--ou-surface);
   --pf-v5-global--Color--100: var(--ou-text);
   --pf-v5-global--Color--200: var(--ou-muted);
-  --pf-v5-global--BorderColor--100: var(--ou-line);
+  --pf-v5-global--BorderColor--100: var(--ou-line-2);
   --pf-v5-global--BorderRadius--sm: var(--ou-radius-sm);
   --keycloak-card-top-color: transparent;
 }
-.login-pf body, body#keycloak-bg {
-  background: radial-gradient(1200px 500px at 85% -10%, var(--ou-a-soft), transparent 60%) no-repeat, var(--ou-bg);
-  color: var(--ou-text); font-family: var(--ou-font);
+.login-pf body, body#keycloak-bg { background: var(--ou-bg); color: var(--ou-text); font-family: var(--ou-font); }
+.pf-v5-c-login { padding-top: calc(var(--ou-bar-h) + 1.5rem); }
+#kc-header {
+  position: fixed; inset: 0 0 auto 0; z-index: 10; height: var(--ou-bar-h); margin: 0; padding: 0 14px; display: flex; align-items: center;
+  background: var(--ou-bar-bg); color: var(--ou-bar-text); border-bottom: 1px solid var(--ou-bar-line);
 }
-#kc-header { padding-block: 2rem 1rem; }
 #kc-header-wrapper {
-  display: inline-flex; align-items: center; justify-content: center; gap: .6rem; width: 100%;
-  font: 650 1.35rem/1.2 var(--ou-font); letter-spacing: -.01em; color: var(--ou-text); text-transform: none;
+  display: inline-flex; align-items: center; justify-content: flex-start; gap: 9px; width: auto; padding: 0;
+  font: 600 13.5px/1 var(--ou-font); letter-spacing: -.005em; color: var(--ou-bar-text); text-transform: none;
 }
-#kc-header-wrapper::before { content: ""; width: 2rem; height: 2rem; border-radius: 9px; background: var(--ou-logo) center / contain no-repeat; flex: none; }
+#kc-header-wrapper::before { content: ""; width: 22px; height: 22px; border-radius: 4px; background: var(--ou-logo) center / contain no-repeat; flex: none; }
 /* the header names the organisation when the portal branding has a name (org.css --ou-org-name), otherwise the product (loginTitleHtml,
    brand.keycloak_login_messages): the element's own text is hidden and the name drawn after the mark */
 #kc-header-wrapper { font-size: 0; }
-#kc-header-wrapper::after { content: var(--ou-org-name, "Office Unbound"); font-size: 1.35rem; }
+#kc-header-wrapper::after { content: var(--ou-org-name, "Office Unbound"); font-size: 13.5px; }
 #kc-header-wrapper .kc-logo-text { display: none; }
 .pf-v5-c-login__main {
   background: var(--ou-surface); border: 1px solid var(--ou-line); border-radius: var(--ou-radius); box-shadow: var(--ou-shadow); overflow: hidden;
 }
 .pf-v5-c-login__main-header { border-top: 0; }
-.pf-v5-c-login__main-header h1, #kc-page-title { font-weight: 650; letter-spacing: -.01em; color: var(--ou-text); }
+.pf-v5-c-login__main-header h1, #kc-page-title { font-weight: 600; letter-spacing: -.01em; color: var(--ou-ink); }
 .pf-v5-c-form-control { border-radius: var(--ou-radius-sm); }
 .pf-v5-c-form-control::after { border-radius: var(--ou-radius-sm); }
-.pf-v5-c-button { border-radius: var(--ou-radius-btn); min-height: 2.75rem; font-weight: 550; }
+.pf-v5-c-button { border-radius: var(--ou-radius-btn); min-height: 2.5rem; font-weight: 500; }
 .pf-v5-c-button.pf-m-primary {
   --pf-v5-c-button--m-primary--BackgroundColor: var(--ou-a); --pf-v5-c-button--m-primary--hover--BackgroundColor: var(--ou-a);
   --pf-v5-c-button--m-primary--focus--BackgroundColor: var(--ou-a); --pf-v5-c-button--m-primary--active--BackgroundColor: var(--ou-a);
   --pf-v5-c-button--m-primary--Color: var(--ou-a-ink); --pf-v5-c-button--m-primary--hover--Color: var(--ou-a-ink);
 }
-.pf-v5-c-button.pf-m-primary:hover { filter: brightness(1.08); }
+.pf-v5-c-button.pf-m-primary:hover { filter: brightness(.94); }
+.pf-v5-c-button.pf-m-secondary, .pf-v5-c-button.pf-m-tertiary {
+  --pf-v5-c-button--after--BorderColor: var(--ou-line-2); --pf-v5-c-button--m-secondary--Color: var(--ou-ink); --pf-v5-c-button--m-tertiary--Color: var(--ou-ink);
+  background: var(--ou-surface);
+}
 a { color: var(--ou-a); text-underline-offset: 3px; }
-:focus-visible { outline: 3px solid var(--ou-a); outline-offset: 3px; }
+:focus-visible { outline: 2px solid var(--ou-a); outline-offset: 2px; }

@@ -604,7 +604,8 @@ def groupware_runbooks(ctx, vm: str) -> list[dict]:
                                              "db_password": _sec(ctx, t, "gw-db-password"), "ldap_host": f"ldap.{domain}",
                                              "bind_password": _sec(ctx, t, "ldap-bind-password"), "group": MAIL_GROUP,
                                              "mailboxes": [f"ou-admin@{domain}", *extra], "sso": sso,
-                                             "brand": brand.grommunio_brand(portal_url(ctx.plan, t))}},
+                                             "brand": brand.grommunio_brand(portal_url(ctx.plan, t), fonts=brand.GW_FONTS_FEATURE in
+                                                                            agent_features(ctx, vm, "cfg.gromox"))}},
     ]
 
 
@@ -617,15 +618,22 @@ def portal_key(rt, dep_id: str) -> str:
     return f"tdk_{uuid.UUID(str(dep_id)).hex}.{secret(rt, dep_id, PORTAL_ICS_KEY)}"
 
 
-def portal_agent_features(ctx, vm: str) -> list[str]:
-    """What the portal VM's agent reported for cfg.portal at enrollment (ou_agent cfgspec.FEATURES). An older agent reports none: the closed
-    schema of its cfg.portal would refuse a parameter it does not know, so the ICS never sends one."""
+def agent_features(ctx, vm: str, runbook: str) -> list[str]:
+    """What the VM's agent reported for `runbook` at enrollment (ou_agent cfgspec.FEATURES). An older agent reports none: the closed schema of
+    its runbook would refuse a parameter it does not know, so the ICS never sends one."""
+    if ctx.rt is None:
+        return []
     with ctx.rt.session() as db:
         caps = db.execute(text("SELECT n.capabilities FROM deployment_resources r JOIN nodes n ON n.id::text = r.provider_ref->>'agent_node_id' "
                                "WHERE r.deployment_id = :d AND r.kind = 'vm' AND r.logical_name = :n AND r.state <> 'removed'"),
                           {"d": ctx.deployment_id, "n": vm}).scalar()
-    f = ((caps or {}).get("cfg.portal") or {}).get("features") or []
+    f = ((caps or {}).get(runbook) or {}).get("features") or []
     return [x for x in f if isinstance(x, str)]
+
+
+def portal_agent_features(ctx, vm: str) -> list[str]:
+    """cfg.portal features of the portal VM's agent (agent_features)."""
+    return agent_features(ctx, vm, "cfg.portal")
 
 
 def portal_admin(ctx, vm: str) -> dict | None:
@@ -690,7 +698,7 @@ def redact(runbook: str, params: dict) -> dict:
             out[k] = "[redacted]"
         elif k == "files":
             out[k] = [{"path": f.get("path"), "mode": f.get("mode"), "bytes": len(str(f.get("content", "")).encode())} for f in v]
-        elif k in ("css", "mark_svg"):   # cfg.gromox brand: generated skin, no secret; logged by size only
+        elif k in ("css", "mark_svg", "fonts_css"):   # cfg.gromox brand: generated skin, no secret; logged by size only
             out[k] = f"[{len(str(v).encode())} bytes]"
         elif k == "ca_pem" or k == "cert_pem":
             out[k] = "[certificate]"

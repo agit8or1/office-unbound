@@ -270,7 +270,9 @@ def check_sso(p):
             "redirect_url": _https_host(p["redirect_url"], "sso.redirect_url", "/web"), "bearer_pubkey": _pem(p["bearer_pubkey"], "pubkey")}
 
 
-MAX_BRAND_CSS, MAX_BRAND_SVG = 65536, 16384
+MAX_BRAND_CSS, MAX_BRAND_SVG, MAX_BRAND_FONTS = 65536, 16384, 262144
+FONTS_CSS_RE = re.compile(r"(?:\s*/\*[^*]*\*/\s*)?(?:@font-face \{ font-family: \"[A-Za-z ]{1,40}\"; src: url\(\"data:font/woff2;base64,[A-Za-z0-9+/]+=*\"\) "
+                          r"format\(\"woff2\"\); font-weight: [1-9]00; font-style: (?:normal|italic); font-display: swap; \}\n){1,8}")
 SVG_BAD_RE = re.compile(r"<\s*(script|foreignobject|iframe|object|embed|style)|\bon[a-z]+\s*=|javascript:|data:|<!|href\s*=\s*[\"']?(?!#)", re.I)
 
 
@@ -282,13 +284,20 @@ def _text(v, what, n):
 
 def check_brand(p):
     """The Office Unbound skin of the webmail (ics/ics/deploy/brand.py): /brand/brand.css (grommunio-web's own branding hook), the mark it
-    references (/brand/ou-mark.svg: a plain SVG, served with a sandboxing CSP) and the portal the oudashboard plugin's button returns to."""
-    _exact(p, ("css", "mark_svg", "portal_url"), ("css", "mark_svg"))
+    references (/brand/ou-mark.svg: a plain SVG, served with a sandboxing CSP), the portal the oudashboard plugin's button returns to and
+    (FEATURES brand_fonts) /brand/ou-fonts.css: @font-face rules with embedded woff2 data only, nothing else (FONTS_CSS_RE)."""
+    _exact(p, ("css", "mark_svg", "portal_url", "fonts_css"), ("css", "mark_svg"))
     svg = _text(p["mark_svg"], "brand.mark_svg", MAX_BRAND_SVG)
     if not re.fullmatch(r"\s*<svg\b[^>]*>[\s\S]*</svg>\s*", svg) or SVG_BAD_RE.search(svg):
         raise Reject("bad_params", "brand.mark_svg must be one plain <svg> element (no script, handlers, foreign content or external references)")
-    return {"css": _text(p["css"], "brand.css", MAX_BRAND_CSS), "mark_svg": svg,
-            **({"portal_url": _https_host(p["portal_url"], "brand.portal_url", "/")} if p.get("portal_url") is not None else {})}
+    out = {"css": _text(p["css"], "brand.css", MAX_BRAND_CSS), "mark_svg": svg,
+           **({"portal_url": _https_host(p["portal_url"], "brand.portal_url", "/")} if p.get("portal_url") is not None else {})}
+    if p.get("fonts_css") is not None:
+        fc = _text(p["fonts_css"], "brand.fonts_css", MAX_BRAND_FONTS)
+        if not FONTS_CSS_RE.fullmatch(fc):
+            raise Reject("bad_params", "brand.fonts_css must be @font-face rules with embedded woff2 data only")
+        out["fonts_css"] = fc
+    return out
 
 
 def check_gromox(p, cfg):
@@ -336,7 +345,7 @@ def check_acme(p, cfg):
 # the portal's credential for the ICS tenant-admin API of ITS deployment (configure.portal_key): tdk_<deployment id>.<secret>
 PORTAL_ICS_KEY_RE = re.compile(r"^tdk_[0-9a-f]{32}\.[A-Za-z0-9_-]{43}$")
 PORTAL_KEYS = ("base_url", "issuer", "client_id", "client_secret", "files_url", "mail_web_url", "mail_host", "mail_domain", "org_name")
-FEATURES = {"cfg.portal": ["admin"]}   # optional parameters this agent understands, reported in its capabilities (the ICS sends them only then)
+FEATURES = {"cfg.portal": ["admin"], "cfg.gromox": ["brand_fonts"]}   # optional parameters this agent understands, reported in its capabilities (the ICS sends them only then)
 
 
 def check_portal_admin(a):

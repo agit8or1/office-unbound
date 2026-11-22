@@ -31,17 +31,98 @@ OC_ROLES = {"background", "error", "errorContainer", "inverseOnSurface", "invers
 VF = {"component": "identity", "volume": "themes", "image": "registry.ou.invalid/ou/keycloak@sha256:" + "a" * 64, "owner": "10130:10130"}
 
 
-def test_the_design_system_is_the_portals_look():
-    """ou-brand.css is derived from portal.css; a change to one without the other fails here."""
+def _contrast(a: str, b: str) -> float:
+    def lum(h):
+        c = [int(h.lstrip("#")[i:i + 2], 16) / 255 for i in (0, 2, 4)]
+        c = [x / 12.92 if x <= 0.04045 else ((x + 0.055) / 1.055) ** 2.4 for x in c]
+        return 0.2126 * c[0] + 0.7152 * c[1] + 0.0722 * c[2]
+    x, y = sorted((lum(a), lum(b)), reverse=True)
+    return (x + 0.05) / (y + 0.05)
+
+
+def _css_blocks(css: str) -> tuple[dict[str, str], dict[str, str]]:
+    """(light, dark) custom properties of a stylesheet: its first :root block and the first block inside prefers-color-scheme: dark."""
+    light_part, _, dark_part = css.partition("@media (prefers-color-scheme: dark)")
+    pick = lambda part: dict(re.findall(r"--([a-z0-9-]+):\s*([^;]+);", part[part.index(":root"):].split("}", 1)[0]))  # noqa: E731
+    return pick(light_part), pick(dark_part)
+
+
+def test_the_design_system_is_the_website_concepts_and_the_portal_carries_it_verbatim():
+    """ou-brand.css holds the officeunbound.com interface concept tokens; portal.css carries the two token blocks verbatim (the portal is
+    packaged on its own and cannot read the catalog), and the same mark and fonts."""
     light, dark = brand.tokens()
-    css = (ROOT / "portal/app/static/portal.css").read_text()
-    pl, _, pd = css.partition("@media (prefers-color-scheme: dark)")
-    pl, pd = dict(re.findall(r"--([a-z0-9-]+):\s*([^;]+);", pl.split("}", 1)[0])), dict(re.findall(r"--([a-z0-9-]+):\s*([^;]+);", pd.split("}", 1)[0]))
-    for k in ("bg", "bg2", "surface", "text", "muted", "line", "accent", "accent-ink", "accent-soft", "radius"):
-        assert light[k] == pl[k], k
-    for k in ("bg", "bg2", "surface", "text", "muted", "line", "accent", "accent-ink", "accent-soft"):
-        assert dark[k] == pd[k], k
-    assert brand.mark_svg() == (ROOT / "portal/app/static/favicon.svg").read_text()      # the portal's mark is the logo everywhere
+    # the website's product system (concepts.css .ux tokens): paper, navy bar, copper accent, Plex
+    assert (light["bg"], light["surface"], light["ink"], light["text"], light["muted"]) == ("#f7f5f0", "#ffffff", "#18212d", "#2e3540", "#5c6470")
+    assert (light["bar-bg"], light["navy"], light["accent"], light["accent-soft"]) == ("#14243a", "#14243a", "#a9481f", "#f6e3d8")
+    assert light["font"].startswith('"Plex Sans"') and light["mono"].startswith('"Plex Mono"')
+    src = (ROOT / "blueprints/catalog/templates/brand/ou-brand.css").read_text()
+    tok = src[src.index(":root {"):src.index("/* components */")]
+    portal = (ROOT / "portal/app/static/portal.css").read_text()
+    assert tok in portal                                                                    # one source, copied verbatim
+    assert brand.mark_svg() == (ROOT / "portal/app/static/favicon.svg").read_text()      # the mark is the logo everywhere
+    for name, *_ in brand.FONTS:
+        assert brand.font_bytes(name) == (ROOT / "portal/app/static/fonts" / name).read_bytes()
+        assert f'url("fonts/{name}")' in portal
+    assert (ROOT / "portal/app/static/fonts/OFL.txt").read_text() == (ROOT / "blueprints/catalog/templates/brand/fonts/OFL.txt").read_text()
+
+
+# console name -> shared token (ics/frontend/src/style.css follows the ICS concept: its own graphite bar and light navigation, the rest shared)
+CONSOLE_SHARED = {"bg": "bg", "surface": "surface", "surface2": "side", "ink": "ink", "text": "text", "muted": "muted", "line": "line",
+                  "line-strong": "line-2", "sel": "sel", "accent": "accent", "accent-text": "accent-ink", "accent-soft": "accent-soft",
+                  "teal": "teal", "teal-soft": "teal-soft", "ok": "ok", "ok-bg": "ok-bg", "warn": "warn", "warn-bg": "warn-bg", "bad": "bad", "bad-bg": "bad-bg"}
+
+
+def test_the_console_shares_the_tokens_and_ships_the_fonts():
+    css = (ROOT / "ics/frontend/src/style.css").read_text()
+    cl, cd = _css_blocks(css)
+    forced = dict(re.findall(r"--([a-z0-9-]+):\s*([^;]+);", css.split(':root[data-theme="dark"] {', 1)[1].split("}", 1)[0]))
+    assert forced == cd                                                                     # the theme switch and the system setting agree
+    light, dark = brand.tokens()
+    for k, t in CONSOLE_SHARED.items():
+        assert cl[k] == light[t], k
+        assert cd[k] == dark[t], k
+    assert cl["sans"] == light["font"] and cl["mono"] == light["mono"]
+    for name, *_ in brand.FONTS:
+        assert brand.font_bytes(name) == (ROOT / "ics/frontend/src/assets/fonts" / name).read_bytes()
+        assert f'url("./assets/fonts/{name}")' in css
+    assert (ROOT / "ics/frontend/public/fonts/OFL.txt").read_text() == (ROOT / "blueprints/catalog/templates/brand/fonts/OFL.txt").read_text()
+
+
+def test_text_colours_meet_wcag_aa_in_light_and_dark():
+    """Text on its surfaces >= 4.5:1 (WCAG 2.x AA, normal text), for the shared tokens and the console's own (axe runs on the pages too)."""
+    for t in brand.tokens():
+        for fg in ("ink", "text", "muted", "accent"):
+            for bg in ("bg", "bg2", "side", "surface"):
+                assert _contrast(t[fg], t[bg]) >= 4.5, (fg, bg, t[fg], t[bg])
+        pairs = [("accent-ink", "accent"), ("ink", "accent-soft"), ("teal", "surface"), ("teal", "bg"), ("teal", "teal-soft"), ("ink", "sel"),
+                 ("ok", "ok-bg"), ("warn", "warn-bg"), ("bad", "bad-bg"), ("bar-text", "bar-bg"), ("bar-muted", "bar-bg"), ("bar-text", "bar-2"),
+                 ("bar-muted", "bar-2"), ("ok", "surface"), ("warn", "surface"), ("bad", "surface")]
+        for fg, bg in pairs:
+            assert _contrast(t[fg], t[bg]) >= 4.5, (fg, bg, t[fg], t[bg])
+    css = (ROOT / "ics/frontend/src/style.css").read_text()
+    for c in _css_blocks(css):
+        for fg in ("ink", "text", "muted", "faint", "link", "accent"):
+            for bg in ("bg", "surface", "surface2", "sunken"):
+                assert _contrast(c[fg], c[bg]) >= 4.5, (fg, bg, c[fg], c[bg])
+        for fg, bg in (("accent-text", "accent"), ("nav-text", "nav"), ("nav-muted", "nav"), ("nav-text", "nav-sel"), ("nav-muted", "nav-2"),
+                       ("info", "info-bg"), ("idle", "idle-bg"), ("ok", "ok-bg"), ("warn", "warn-bg"), ("bad", "bad-bg")):
+            assert _contrast(c[fg], c[bg]) >= 4.5, (fg, bg, c[fg], c[bg])
+        bar = {**_css_blocks(css)[0], **c}
+        for fg in ("bar-text", "bar-muted"):
+            assert _contrast(bar[fg], bar["bar"]) >= 4.5 and _contrast(bar[fg], bar["bar-2"]) >= 4.5
+
+
+def test_fonts_are_self_hosted_with_their_licence_and_never_from_a_cdn():
+    data = brand.fonts_css()
+    assert data.startswith("/*\n") and "SIL OPEN FONT LICENSE Version 1.1" in data and "Reserved Font Name \"Plex\"" in data
+    assert data.count("@font-face") == len(brand.APP_FONTS) and data.count("data:font/woff2;base64,") == len(brand.APP_FONTS)
+    every = [data, brand.skin("grommunio.css", portal=PORTAL, dark="body.dark-mode", mark_url="m.svg", fonts_url="/brand/ou-fonts.css"),
+             (ROOT / "portal/app/static/portal.css").read_text(), (ROOT / "ics/frontend/src/style.css").read_text()]
+    for css in every:
+        for src in re.findall(r"@font-face \{[^}]*\}", css):
+            src = re.sub(r"data:font/woff2;base64,[A-Za-z0-9+/=]+", "", src)
+            assert "http" not in src and "//" not in src
+        assert "googleapis" not in css and "fonts.gstatic" not in css and "@import url(\"http" not in css.replace(f'@import url("{PORTAL}brand/org.css")', "")
 
 
 @pytest.mark.parametrize("dark", ["media", "body.dark-mode"])
@@ -59,9 +140,11 @@ def test_keycloak_theme_fits_the_volume_files_schema_and_links_the_portal():
     files = brand.keycloak_theme(PORTAL)
     assert c.check_volume_files({**VF, "files": files}, {"enabled": True})["files"] == files
     f = {x["path"]: x["content"] for x in files}
-    assert "parent=keycloak.v2" in f["ou/login/theme.properties"] and "styles=css/styles.css ou.css" in f["ou/login/theme.properties"]
+    assert "parent=keycloak.v2" in f["ou/login/theme.properties"] and "styles=css/styles.css ou-fonts.css ou.css" in f["ou/login/theme.properties"]
     acc = f["ou/account/theme.properties"]
-    assert "parent=keycloak.v3" in acc and f"logoUrl={PORTAL}" in acc and "logo=/ou-mark.svg" in acc
+    assert "parent=keycloak.v3" in acc and f"logoUrl={PORTAL}" in acc and "logo=/ou-mark.svg" in acc and "styles=ou-fonts.css ou.css" in acc
+    for t in ("login", "account"):                                                         # the fonts travel with each theme type
+        assert f[f"ou/{t}/resources/ou-fonts.css"] == brand.fonts_css()
     assert ".pf-v5-theme-dark {" in f["ou/login/resources/ou.css"] and f["ou/login/resources/ou-mark.svg"].startswith("<svg")
     assert "logoUrl" not in {x["path"]: x["content"] for x in brand.keycloak_theme(None)}["ou/account/theme.properties"]
 
@@ -80,7 +163,10 @@ def test_opencloud_theme_is_complete_and_its_config_is_what_opencloud_reads():
         assert roles["primary"] == tok["accent"] and roles["chrome"] == tok["bg"] and all(v.startswith("#") for v in roles.values())
     assert t["clients"]["web"]["defaults"]["logo"] == "themes/ou/ou-mark.svg"
     web = yaml.safe_load(f["web.yaml"])
-    assert web == {"web": {"config": {"styles": [{"href": "/themes/ou/ou.css"}], "scripts": [{"src": "/themes/ou/home.js"}]}}}
+    assert web == {"web": {"config": {"styles": [{"href": "/themes/ou/ou-fonts.css"}, {"href": "/themes/ou/ou.css"}],
+                                      "scripts": [{"src": "/themes/ou/home.js"}]}}}
+    assert f["themes/ou/ou-fonts.css"] == brand.fonts_css() and "#oc-topbar {" in f["themes/ou/ou.css"]          # navy top bar
+    assert t["clients"]["web"]["themes"][0]["designTokens"]["fontFamily"].startswith('"Plex Sans"')
     assert f'var HOME = "{PORTAL}";' in f["themes/ou/home.js"] and "@PORTAL_URL@" not in f["themes/ou/home.js"]
     assert "html[data-color-scheme=dark] {" in f["themes/ou/ou.css"] and "--oc-role-primary: var(--ou-a) !important;" in f["themes/ou/ou.css"]
 
@@ -89,6 +175,15 @@ def test_grommunio_brand_passes_the_agent_schema_and_bad_input_is_refused():
     b = brand.grommunio_brand(PORTAL)
     assert c.check_brand(b) == b and b["portal_url"] == PORTAL and "--brand-primary: var(--ou-a);" in b["css"]
     assert "portal_url" not in brand.grommunio_brand(None)
+    assert "fonts_css" not in b and '@import url("/brand/ou-fonts.css")' not in b["css"]                        # an agent without the feature gets no new field
+    bf = brand.grommunio_brand(PORTAL, fonts=True)
+    assert c.check_brand(bf) == bf and bf["css"].startswith(f'@import url("{PORTAL}brand/org.css");\n@import url("/brand/ou-fonts.css");\n')
+    assert "brand_fonts" in c.FEATURES["cfg.gromox"] and brand.GW_FONTS_FEATURE == "brand_fonts"
+    for bad_fonts in ("body{display:none}", bf["fonts_css"] + "a{}", bf["fonts_css"].replace("data:font/woff2", "https://cdn.example/x"),
+                      '@font-face { font-family: "Plex Sans"; src: url("data:font/woff2;base64,AA==") format("woff2"); font-weight: 400; '
+                      'font-style: normal; font-display: swap; }\n@import url("https://evil.example/x.css");\n'):
+        with pytest.raises(Reject):
+            c.check_brand({**bf, "fonts_css": bad_fonts})
     for bad in ({**b, "portal_url": "http://app.e2e.example/"}, {**b, "portal_url": "https://app.e2e.example/x"},
                 {**b, "mark_svg": '<svg onload="alert(1)"></svg>'}, {**b, "mark_svg": "<svg><script>x</script></svg>"},
                 {**b, "mark_svg": '<svg><image href="https://evil.example/x.png"/></svg>'}, {**b, "mark_svg": "<html></html>"},
@@ -106,8 +201,15 @@ def test_the_groupware_node_serves_the_brand_hook_and_the_dashboard_target(tmp_p
     assert (tmp_path / "ou-brand/brand/brand.css").read_text() == b["css"]
     assert (tmp_path / "ou-brand/brand/ou-mark.svg").stat().st_mode & 0o777 == 0o644
     assert json.loads((tmp_path / "gw/ou-dashboard.json").read_text()) == {"url": PORTAL, "label": "Dashboard"}
+    assert not (tmp_path / "ou-brand/brand/ou-fonts.css").exists()
+    h._brand(brand.grommunio_brand(PORTAL, fonts=True))
+    assert (tmp_path / "ou-brand/brand/ou-fonts.css").read_text() == brand.fonts_css()
+    h._brand(b)                                                                            # fonts withdrawn with the field
+    assert not (tmp_path / "ou-brand/brand/ou-fonts.css").exists()
+    h._brand(brand.grommunio_brand(PORTAL, fonts=True))
     h._brand(None)                                                                         # brand withdrawn: nothing left behind
     assert not (tmp_path / "ou-brand/brand/brand.css").exists() and not (tmp_path / "gw/ou-dashboard.json").exists()
+    assert not (tmp_path / "ou-brand/brand/ou-fonts.css").exists()
     site = h.GW_NGINX.format(names="mail.e2e.example", tls="/t", brand_root="/etc/ou-brand")
     assert "location = /brand/brand.css {" in site and "try_files $uri @ou_brand_none;" in site and "sandbox" in site
 
@@ -141,11 +243,17 @@ def test_configure_ships_the_skin_to_every_app(monkeypatch):
     assert "WEB_UI_THEME_PATH=/themes/ou/theme.json" in cfgvol["ou.env"] and "WEB_ASSET_THEMES_PATH=/var/lib/opencloud-config/themes" in cfgvol["ou.env"]
     csp = yaml.safe_load(cfgvol["csp.yaml"])["directives"]
     assert P2 in csp["style-src"] and P2 in csp["img-src"] and P2 not in csp["script-src"]   # styles/logo only, never script
+    assert csp["font-src"] == ["'self'", "data:"]                                          # the embedded Plex of ou-fonts.css, no font host
     assert {"web.yaml", "themes/ou/theme.json", "themes/ou/home.js"} <= set(cfgvol)
     g = next(r["params"] for r in configure.groupware_runbooks(ctx, "gw") if r["runbook"] == "cfg.gromox")
     assert c.check_gromox(g, {"enabled": True}) == g and g["brand"] == brand.grommunio_brand(P2)
     red = configure.redact("cfg.gromox", g)
     assert red["brand"]["css"].endswith(" bytes]") and red["brand"]["portal_url"] == P2
+    # an agent that reports cfg.gromox brand_fonts gets the webmail fonts too (an older one would refuse the field)
+    monkeypatch.setattr(configure, "agent_features", lambda ctx_, vm_, rb: ["brand_fonts"] if (vm_, rb) == ("gw", "cfg.gromox") else [])
+    g = next(r["params"] for r in configure.groupware_runbooks(ctx, "gw") if r["runbook"] == "cfg.gromox")
+    assert c.check_gromox(g, {"enabled": True}) == g and g["brand"] == brand.grommunio_brand(P2, fonts=True)
+    assert configure.redact("cfg.gromox", g)["brand"]["fonts_css"].endswith(" bytes]")
 
 
 def test_the_keycloak_unit_mounts_the_theme_volume_read_only():

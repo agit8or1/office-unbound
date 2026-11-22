@@ -1,8 +1,10 @@
-/* Keycloak 26 account console (account theme "ou", parent keycloak.v3 = React + PatternFly 5): the portal's header bar and side navigation.
+/* Keycloak 26 account console (account theme "ou", parent keycloak.v3 = React + PatternFly 5): the product's navy top bar, the paper side
+   navigation of the interface concepts (selected item: soft blue with a copper edge), white cards, copper primary buttons, IBM Plex.
    The masthead logo links to the portal (theme.properties logoUrl); arriving from the portal adds Keycloak's own "Back to ..." referrer link. */
 :root {
   --pf-v5-global--FontFamily--text: var(--ou-font);
   --pf-v5-global--FontFamily--heading: var(--ou-font);
+  --pf-v5-global--FontFamily--monospace: var(--ou-mono);
   --pf-v5-global--primary-color--100: var(--ou-a);
   --pf-v5-global--primary-color--200: var(--ou-a);
   --pf-v5-global--link--Color: var(--ou-a);
@@ -16,22 +18,30 @@
 }
 body { font-family: var(--ou-font); background: var(--ou-bg); color: var(--ou-text); }
 .pf-v5-c-masthead {
-  --pf-v5-c-masthead--BackgroundColor: var(--ou-bg);
-  background: var(--ou-bg); color: var(--ou-text); border-bottom: 1px solid var(--ou-line); min-height: var(--ou-bar);
+  --pf-v5-c-masthead--BackgroundColor: var(--ou-bar-bg); --pf-v5-c-masthead--item-border-color--base: var(--ou-bar-line);
+  background: var(--ou-bar-bg); color: var(--ou-bar-text); border-bottom: 1px solid var(--ou-bar-line); min-height: var(--ou-bar-h);
 }
-.pf-v5-c-masthead .pf-v5-c-button, .pf-v5-c-masthead .pf-v5-c-menu-toggle { color: var(--ou-text); }
-.pf-v5-c-masthead__brand img, .pf-v5-c-brand { height: 2rem; width: auto; max-width: 12rem; border-radius: 9px; content: var(--ou-org-logo, normal); }
+.pf-v5-c-masthead .pf-v5-c-button, .pf-v5-c-masthead .pf-v5-c-menu-toggle, .pf-v5-c-masthead .pf-v5-c-dropdown__toggle {
+  color: var(--ou-bar-text); --pf-v5-c-menu-toggle--Color: var(--ou-bar-text); --pf-v5-c-menu-toggle--BackgroundColor: transparent;
+}
+.pf-v5-c-masthead__brand img, .pf-v5-c-brand { height: 24px; width: auto; max-width: 12rem; border-radius: 4px; content: var(--ou-org-logo, normal); }
 .pf-v5-c-page__main, .pf-v5-c-page__main-section { background: var(--ou-bg); }
 .pf-v5-c-page__sidebar {
-  --pf-v5-c-page__sidebar--BackgroundColor: var(--ou-bg2); background: var(--ou-bg2); color: var(--ou-text);
+  --pf-v5-c-page__sidebar--BackgroundColor: var(--ou-side); background: var(--ou-side); color: var(--ou-text); border-right: 1px solid var(--ou-line);
 }
-.pf-v5-c-nav { --pf-v5-c-nav__link--Color: var(--ou-muted); --pf-v5-c-nav__link--hover--Color: var(--ou-text);
-  --pf-v5-c-nav__link--m-current--Color: var(--ou-text); --pf-v5-c-nav__link--m-current--BackgroundColor: var(--ou-surface); }
+.pf-v5-c-nav { --pf-v5-c-nav__link--Color: var(--ou-text); --pf-v5-c-nav__link--hover--Color: var(--ou-ink);
+  --pf-v5-c-nav__link--m-current--Color: var(--ou-ink); --pf-v5-c-nav__link--m-current--BackgroundColor: var(--ou-sel);
+  --pf-v5-c-nav__link--hover--BackgroundColor: var(--ou-bg2); --pf-v5-c-nav__link--before--BorderColor: transparent; }
 .pf-v5-c-nav__link { border-radius: var(--ou-radius-sm); }
-.pf-v5-c-nav__link.pf-m-current, .pf-v5-c-nav__link[aria-current="page"] { font-weight: 600; background: var(--ou-surface); box-shadow: var(--ou-shadow); }
-.pf-v5-c-card, .pf-v5-c-data-list { border: 1px solid var(--ou-line); border-radius: var(--ou-radius); box-shadow: var(--ou-shadow); background: var(--ou-surface); }
+.pf-v5-c-nav__link.pf-m-current, .pf-v5-c-nav__link[aria-current="page"] {
+  font-weight: 500; color: var(--ou-ink); background: var(--ou-sel); box-shadow: inset 3px 0 0 var(--ou-a);
+}
+.pf-v5-c-card, .pf-v5-c-data-list { border: 1px solid var(--ou-line); border-radius: var(--ou-radius); box-shadow: none; background: var(--ou-surface); }
+.pf-v5-c-title { color: var(--ou-ink); font-weight: 600; }
 .pf-v5-c-form-control { border-radius: var(--ou-radius-sm); }
-.pf-v5-c-button { border-radius: var(--ou-radius-btn); font-weight: 550; }
+.pf-v5-c-button { border-radius: var(--ou-radius-btn); font-weight: 500; }
 .pf-v5-c-button.pf-m-primary { --pf-v5-c-button--m-primary--BackgroundColor: var(--ou-a); --pf-v5-c-button--m-primary--hover--BackgroundColor: var(--ou-a);
   --pf-v5-c-button--m-primary--Color: var(--ou-a-ink); --pf-v5-c-button--m-primary--hover--Color: var(--ou-a-ink); }
-:focus-visible { outline: 3px solid var(--ou-a); outline-offset: 3px; }
+.pf-v5-c-button.pf-m-secondary { --pf-v5-c-button--m-secondary--Color: var(--ou-ink); --pf-v5-c-button--m-secondary--BorderColor: var(--ou-line-2);
+  --pf-v5-c-button--after--BorderColor: var(--ou-line-2); }
+:focus-visible { outline: 2px solid var(--ou-a); outline-offset: 2px; }

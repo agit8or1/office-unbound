@@ -327,7 +327,7 @@ def create_app(cfg: Settings | None = None, transport: httpx.AsyncBaseTransport 
         props = []
         if HEXRE.match(a):
             props += [f"--ou-org-accent:{a}", f"--ou-org-accent-dark:color-mix(in srgb,{a} 55%,#fff)",
-                      f"--ou-org-soft:color-mix(in srgb,{a} 14%,#f6f5f1)", f"--ou-org-soft-dark:color-mix(in srgb,{a} 28%,#14181f)"]
+                      f"--ou-org-soft:color-mix(in srgb,{a} 14%,#f7f5f0)", f"--ou-org-soft-dark:color-mix(in srgb,{a} 28%,#0f1926)"]
         if b.get("has_logo") and re.fullmatch(r"https://[a-z0-9.-]+(:[0-9]{1,5})?", cfg.base_url):
             props.append(f'--ou-org-logo:url("{cfg.base_url}/brand/logo")')
         name = (b.get("display_name") or "").strip()
@@ -360,7 +360,7 @@ def create_app(cfg: Settings | None = None, transport: httpx.AsyncBaseTransport 
             css = ""
             if HEXRE.match(a):
                 css = (f":root{{--accent:{a};--accent-ink:#fff;--accent-soft:color-mix(in srgb,{a} 14%,var(--bg))}}"
-                       f"@media (prefers-color-scheme:dark){{:root{{--accent:color-mix(in srgb,{a} 55%,#fff);--accent-ink:#10141a;"
+                       f"@media (prefers-color-scheme:dark){{:root{{--accent:color-mix(in srgb,{a} 55%,#fff);--accent-ink:#0f1926;"
                        f"--accent-soft:color-mix(in srgb,{a} 28%,var(--bg))}}}}")
             return Response(css, media_type="text/css", headers={"Cache-Control": "no-cache"})
 

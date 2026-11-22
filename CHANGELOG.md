@@ -10,6 +10,23 @@ isolated lab; nothing is production supported ([ROADMAP.md](ROADMAP.md)).
 
 ## [Unreleased]
 
+### Changed
+- **Every app now has the look of the officeunbound.com interface concepts.** One design system
+  (`blueprints/catalog/templates/brand/ou-brand.css`): paper surfaces, white cards, navy top bar, copper primary buttons, outlined secondary
+  buttons, 7/5 px radii, IBM Plex Sans/Mono, light and dark. The logo is now the website's three-square mark (`ou-mark.svg`, portal favicon).
+  `ics/ics/deploy/brand.py` still renders each app's skin from it: Keycloak sign-in (navy bar with the mark and the organisation name) and
+  account console (navy masthead, paper navigation), OpenCloud Web (navy top bar, copper primary, Plex; Collabora takes its colours from the
+  theme as before), webmail `brand.css` (navy main menu), the OpenCloud notification mails. The portal (all pages) and the ICS console
+  ("Infrastructure Control" concept: graphite bar with a teal edge, light navigation with teal selection) carry the same values;
+  `ics/tests/test_brand.py` keeps the copies equal and checks text contrast (≥ 4.5:1) in light and dark. An organisation accent set in the
+  portal still replaces the copper accent everywhere.
+- **IBM Plex is self-hosted** (SIL OFL 1.1, licence text shipped next to every copy): woff2 files in the portal (`static/fonts`) and the
+  console bundle; embedded in `ou-fonts.css` for the Keycloak theme, the OpenCloud theme and the webmail. No font CDN. The console's CSP
+  allows `font-src 'self'`; OpenCloud's CSP adds `data:` to `font-src`.
+- The webmail fonts need an agent that reports the `cfg.gromox` feature `brand_fonts` (new: `brand.fonts_css`, written to
+  `/brand/ou-fonts.css`); the ICS sends it only to such agents, older agents keep the system fonts. Evidence:
+  [`docs/screenshots/look-0.9.3/`](docs/screenshots/look-0.9.3/README.md).
+
 ## [0.9.2] - 2026-11-22
 
 - **Fixed: before public certificates, `mail.` and `autodiscover.` failed certificate checks through the gateway.** The gateway's deployment certificate listed only the names whose DNS records point at the gateway, but since 0.7.2 it also serves mail and autodiscover (and each tenant's sign-in name on a shared gateway). It now lists every name it serves (`configure.edge_served_names`), the same list the public certificate request uses.

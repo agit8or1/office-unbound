@@ -1,8 +1,8 @@
-{{/* OpenCloud 9.1.0 services/notifications/pkg/email/templates/html/digest.html.tmpl, unchanged (Apache-2.0, Copyright OpenCloud GmbH). Shipped next to the Office Unbound layout because a custom template folder must hold the layout and every child. */}}
-{{ define "lines" }}{{ range $i, $line := . }}{{ if $i }}<br>{{ end }}{{ range $line }}{{ if .Href }}<a class="oc-link" href="{{ .Href }}" style="color: #00677f; text-decoration: none;">{{ .Text }}</a>{{ else }}{{ .Text }}{{ end }}{{ end }}{{ end }}{{ end }}
+{{/* OpenCloud 9.1.0 services/notifications/pkg/email/templates/html/digest.html.tmpl with the Office Unbound colours and type (Apache-2.0, Copyright OpenCloud GmbH). Shipped next to the Office Unbound layout because a custom template folder must hold the layout and every child. */}}
+{{ define "lines" }}{{ range $i, $line := . }}{{ if $i }}<br>{{ end }}{{ range $line }}{{ if .Href }}<a class="oc-link" href="{{ .Href }}" style="color: #a9481f; text-decoration: none;">{{ .Text }}</a>{{ else }}{{ .Text }}{{ end }}{{ end }}{{ end }}{{ end }}
 {{ define "content" }}
                 <tr>
-                    <td class="oc-pad oc-text" style="padding: 16px 40px 24px; font-size: 14px; line-height: 21px; color: #191c1d;">
+                    <td class="oc-pad oc-text" style="padding: 16px 40px 24px; font-size: 14px; line-height: 21px; color: #18212d;">
                         <p style="margin: 0;">{{ .Greeting }}</p>
                     </td>
                 </tr>
@@ -11,23 +11,23 @@
                         <table role="presentation" cellspacing="0" cellpadding="0" border="0" width="100%">
 {{- range $i, $entry := .Entries }}
                             <tr>
-                                <td colspan="3" width="12" valign="middle" style="width: 12px;"><div class="oc-dot" style="width: 12px; height: 12px; border-radius: 6px; background-color: #00677f;"></div></td>
+                                <td colspan="3" width="12" valign="middle" style="width: 12px;"><div class="oc-dot" style="width: 12px; height: 12px; border-radius: 6px; background-color: #a9481f;"></div></td>
                                 <td width="16" style="width: 16px;"></td>
-                                <td class="oc-muted" style="font-size: 12.25px; line-height: 17.5px; color: #40484c;">{{ $entry.Time }}</td>
+                                <td class="oc-muted" style="font-size: 12.25px; line-height: 17.5px; color: #5c6470;">{{ $entry.Time }}</td>
                             </tr>
                             <tr>
                                 <td width="5" style="width: 5px;"></td>
 {{- if $entry.Last }}
                                 <td width="2" style="width: 2px;"></td>
 {{- else }}
-                                <td class="oc-line" width="2" style="width: 2px; background-color: #dbe4e8;"></td>
+                                <td class="oc-line" width="2" style="width: 2px; background-color: #e3dfd6;"></td>
 {{- end }}
                                 <td width="5" style="width: 5px;"></td>
                                 <td width="16" style="width: 16px;"></td>
-                                <td class="oc-text" style="padding: 4px 0 {{ if $entry.Last }}0{{ else }}24px{{ end }}; font-size: 14px; line-height: 21px; color: #191c1d;">
+                                <td class="oc-text" style="padding: 4px 0 {{ if $entry.Last }}0{{ else }}24px{{ end }}; font-size: 14px; line-height: 21px; color: #18212d;">
 {{- range $entry.Paragraphs }}
 {{- if eq .Kind "hint" }}
-                                    <p class="oc-muted" style="margin: 8px 0 0; color: #40484c;">{{ template "lines" .Lines }}</p>
+                                    <p class="oc-muted" style="margin: 8px 0 0; color: #5c6470;">{{ template "lines" .Lines }}</p>
 {{- else }}
                                     <p style="margin: 0;">{{ template "lines" .Lines }}</p>
 {{- end }}

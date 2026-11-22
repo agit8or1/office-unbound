@@ -7,6 +7,7 @@ import { buildLabel, crumbLabel } from './format'
 import { hasPath } from './router'
 import { NAV, isActive, type NavItem } from './nav'
 import Icon from './ui/Icon.vue'
+import BrandMark from './ui/BrandMark.vue'
 import ToastHost from './ui/ToastHost.vue'
 import ControllerBanner from './components/ControllerBanner.vue'
 
@@ -87,7 +88,7 @@ watch(() => route.meta.title, (t) => { document.title = (t ? t + ' - ' : '') + '
   <router-view v-else-if="bare || !session.user" />
   <div v-else class="shell">
     <aside class="side" :class="{ open: navOpen }">
-      <div class="brand"><span class="mark"><Icon name="cluster" /></span><div>Office Unbound<small>Control console</small></div></div>
+      <div class="brand"><BrandMark /><span>Office Unbound</span><small>Infrastructure</small></div>
       <nav aria-label="Main">
         <div v-for="(g, gi) in groups" :key="gi" class="navgroup">
           <div v-if="g.title" class="navtitle">{{ g.title }}</div>

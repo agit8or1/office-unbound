@@ -1,20 +1,29 @@
 /* OpenCloud Web 8.2 (OpenCloud 9.1): loaded through web.config.styles after the theme (themes/ou/theme.json) set the --oc-* design tokens
-   inline on <html>. The theme already carries the deployment colours; this sheet adds what tokens cannot express (the portal's header bar,
-   radii, the Dashboard link) and lets the organisation accent from the portal win over the theme's (inline tokens need !important). */
+   inline on <html>. The theme already carries the deployment colours (paper surfaces, copper primary) and IBM Plex (ou-fonts.css); this sheet
+   adds what tokens cannot express: the product's navy top bar (the chrome roles are redefined for the bar only, so Collabora's chrome, which
+   web-app-external derives from the theme, stays on paper), radii, the Dashboard link, and lets the organisation accent from the portal win
+   over the theme's (inline tokens need !important). */
 :root {
   --oc-role-primary: var(--ou-a) !important;
   --oc-role-on-primary: var(--ou-a-ink) !important;
   --oc-role-primary-container: var(--ou-a-soft) !important;
-  --oc-role-secondary-container: var(--ou-a-soft) !important;
+  --oc-role-secondary-container: var(--ou-sel) !important;
 }
+body { font-family: var(--ou-font); }
 #oc-topbar {
-  background: color-mix(in srgb, var(--ou-bg) 85%, transparent); border-bottom: 1px solid var(--ou-line); margin-block: 0;
-  font-family: var(--ou-font);
+  --oc-role-chrome: var(--ou-bar-bg); --oc-role-on-chrome: var(--ou-bar-text);
+  background: var(--ou-bar-bg); color: var(--ou-bar-text); border-bottom: 1px solid var(--ou-bar-line); margin-block: 0; font-family: var(--ou-font);
 }
-#oc-topbar .oc-logo-image { border-radius: 9px; content: var(--ou-org-logo, normal); }
-#oc-topbar .oc-logo-wrapper .ou-home { margin-inline-start: .25rem; }
-@media (max-width: 640px) { #oc-topbar .ou-home { padding-inline-end: .4rem; font-size: 0; gap: 0; } }
-.oc-button { border-radius: var(--ou-radius-sm); }
+#oc-topbar > * > .oc-button, #oc-topbar .oc-topbar-right .oc-button, #oc-topbar .oc-logo-wrapper a { color: var(--ou-bar-text); }
+#oc-topbar .oc-search-input, #oc-topbar input[type="search"] {
+  background: var(--ou-bar-2); color: var(--ou-bar-text); border: 1px solid var(--ou-bar-line); border-radius: var(--ou-radius-sm);
+}
+#oc-topbar .oc-search-input::placeholder, #oc-topbar input[type="search"]::placeholder { color: var(--ou-bar-muted); }
+#oc-topbar .oc-logo-image { border-radius: 4px; content: var(--ou-org-logo, normal); }
+#oc-topbar .oc-logo-wrapper .ou-home { margin-inline-start: .5rem; }
+@media (max-width: 640px) { #oc-topbar .ou-home { padding-inline-end: 6px; font-size: 0; gap: 0; } }
+#web-nav-sidebar { background: var(--ou-side); border-right: 1px solid var(--ou-line); }
+.oc-button { border-radius: var(--ou-radius-btn); }
 .oc-card, .oc-modal { border-radius: var(--ou-radius); }
 /* Office Unbound, not the upstream product (owner 2026-11-21: "rebrand ALL applications"). Web 8.2.2 has no option for these:
    - the sidebar footer prints the backend product and version from the capabilities ("OpenCloud 9.1.0", fixed in services/frontend

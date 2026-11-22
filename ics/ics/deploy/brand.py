@@ -1,7 +1,8 @@
 """One look for every app of a deployment (owner 2026-11-21: "skinned the same and uniform across all apps", "no easy way to get back to dashboard").
 
-The design system is written ONCE: blueprints/catalog/templates/brand/ou-brand.css (tokens from the user portal + the shared "Dashboard" pill) and
-ou-mark.svg. This module renders each app's skin from it, for that app's own supported theming hook; configure.py ships the results through the
+The design system is written ONCE: blueprints/catalog/templates/brand/ou-brand.css (the tokens of the officeunbound.com interface concepts + the
+shared "Dashboard" control), ou-mark.svg (the three-square mark on a navy tile) and fonts/ (IBM Plex Sans/Mono, SIL OFL 1.1, self-hosted: never a
+font CDN). This module renders each app's skin from it, for that app's own supported theming hook; configure.py ships the results through the
 existing closed runbooks (cfg.volume_files, cfg.gromox):
 
   * Keycloak 26.8 (sign-in + account console): theme folder "ou" (login parent keycloak.v2, account parent keycloak.v3) in the identity volume
@@ -14,6 +15,7 @@ existing closed runbooks (cfg.volume_files, cfg.gromox):
 Organisation branding (portal admin: accent, logo) is live, not baked: every skin @imports https://<portal>/brand/org.css, which defines
 --ou-org-accent(-dark), --ou-org-soft(-dark) and --ou-org-logo when the organisation set them; the derived --ou-a / --ou-a-soft / --ou-logo
 fall back to the deployment tokens otherwise."""
+import base64
 import json
 import re
 
@@ -61,6 +63,38 @@ def mark_svg() -> str:
     return _src("ou-mark.svg")
 
 
+# ---- fonts: IBM Plex, self-hosted. The skins of the other apps carry them as data: URIs in a stylesheet of their own (ou-fonts.css), because
+# their configuration channels (cfg.volume_files, cfg.gromox brand) carry text only; the portal and the console ship the woff2 files.
+FONTS = (  # (file in fonts/, family, weight, style); the portal and the console ship all of them, the app skins APP_FONTS
+    ("ibm-plex-sans-latin-400-normal.woff2", "Plex Sans", 400, "normal"),
+    ("ibm-plex-sans-latin-400-italic.woff2", "Plex Sans", 400, "italic"),
+    ("ibm-plex-sans-latin-500-normal.woff2", "Plex Sans", 500, "normal"),
+    ("ibm-plex-sans-latin-600-normal.woff2", "Plex Sans", 600, "normal"),
+    ("ibm-plex-mono-latin-400-normal.woff2", "Plex Mono", 400, "normal"),
+    ("ibm-plex-mono-latin-500-normal.woff2", "Plex Mono", 500, "normal"),
+)
+APP_FONTS = tuple(f for f in FONTS if f[0] in ("ibm-plex-sans-latin-400-normal.woff2", "ibm-plex-sans-latin-500-normal.woff2",
+                                               "ibm-plex-sans-latin-600-normal.woff2", "ibm-plex-mono-latin-400-normal.woff2"))
+FONTS_CSS = "ou-fonts.css"
+
+
+def font_bytes(name: str) -> bytes:
+    return (catalog_dir() / "templates" / "brand" / "fonts" / name).read_bytes()
+
+
+def fonts_css(faces=APP_FONTS, url_prefix: str | None = None) -> str:
+    """@font-face rules: data: URIs (default; for the app skins) or `url_prefix` + file name (portal, console)."""
+    if url_prefix is None:   # the fonts travel inside this file: so does their licence (OFL 1.1 condition 2, as a human-readable header)
+        out = ["/*\n" + (catalog_dir() / "templates" / "brand" / "fonts" / "OFL.txt").read_text() + "*/\n"]
+    else:                    # the woff2 files are shipped with fonts/OFL.txt next to them
+        out = ["/* IBM Plex Sans / Plex Mono, Copyright 2017 IBM Corp. with Reserved Font Name \"Plex\"; SIL Open Font License 1.1 (OFL.txt) */\n"]
+    for name, family, weight, style in faces:
+        src = (url_prefix + name) if url_prefix is not None else "data:font/woff2;base64," + base64.b64encode(font_bytes(name)).decode()
+        out.append(f'@font-face {{ font-family: "{family}"; src: url("{src}") format("woff2"); font-weight: {weight}; font-style: {style}; '
+                   "font-display: swap; }\n")
+    return "".join(out)
+
+
 def _block(selector: str, values: dict[str, str]) -> str:
     return selector + " {\n" + "".join(f"  --ou-{k}: {v};\n" for k, v in values.items()) + "}\n"
 
@@ -82,9 +116,10 @@ def token_css(dark: str, mark_url: str) -> str:
     return out
 
 
-def skin(adapter: str, *, portal: str | None, dark: str, mark_url: str) -> str:
-    """A complete stylesheet: the organisation's live branding (@import must come first), the tokens, the shared components, the app adapter."""
-    head = f'@import url("{portal}brand/org.css");\n' if portal else ""
+def skin(adapter: str, *, portal: str | None, dark: str, mark_url: str, fonts_url: str | None = None) -> str:
+    """A complete stylesheet: the organisation's live branding and the fonts (@import must come first), the tokens, the shared components, the
+    app adapter. `fonts_url`: where the app's ou-fonts.css is, when the skin imports it itself (grommunio: one stylesheet hook only)."""
+    head = (f'@import url("{portal}brand/org.css");\n' if portal else "") + (f'@import url("{fonts_url}");\n' if fonts_url else "")
     return (head + "/* Office Unbound skin, generated by ics/ics/deploy/brand.py from blueprints/catalog/templates/brand; do not edit */\n"
             + token_css(dark, mark_url) + components() + _src(adapter))
 
@@ -93,23 +128,25 @@ def skin(adapter: str, *, portal: str | None, dark: str, mark_url: str) -> str:
 def keycloak_theme(portal: str | None) -> list[dict]:
     """Files of the theme folder "ou" (paths relative to /opt/keycloak/themes; at most 4 levels: cfg.volume_files RELPATH_RE)."""
     login = ("parent=keycloak.v2\nimport=common/keycloak\n"
-             "# the parent's stylesheet first, the skin last so it wins\nstyles=css/styles.css ou.css\ndarkMode=true\n"
+             f"# the parent's stylesheet first, the fonts, the skin last so it wins\nstyles=css/styles.css {FONTS_CSS} ou.css\ndarkMode=true\n"
              # the tab icon (ThemeResourcesParser `favicons`, href = resourcesPath + "/" + path); without it keycloak.v2's img/favicon.ico
              "favicons=ou-mark.svg\n")
-    account = ("parent=keycloak.v3\nstyles=ou.css\nlogo=/ou-mark.svg\ndarkMode=true\n"
+    account = (f"parent=keycloak.v3\nstyles={FONTS_CSS} ou.css\nlogo=/ou-mark.svg\ndarkMode=true\n"
                # index.ftl: <title>${properties.title!'Account Management'}</title>, favicon from `favicons` (resourceUrl + "/" + path)
                f"title=Your account - {PRODUCT}\nfavicons=ou-mark.svg\n" + (f"logoUrl={portal}\n" if portal else ""))
-    mark = mark_svg()
+    mark, fonts = mark_svg(), fonts_css()
     return [
         {"path": "ou/login/theme.properties", "mode": 0o644, "content": login},
         {"path": "ou/login/messages/messages_en.properties", "mode": 0o644, "content": keycloak_login_messages()},
         {"path": "ou/login/resources/ou.css", "mode": 0o644,
          "content": skin("keycloak-login.css", portal=portal, dark=".pf-v5-theme-dark", mark_url="ou-mark.svg")},
         {"path": "ou/login/resources/ou-mark.svg", "mode": 0o644, "content": mark},
+        {"path": f"ou/login/resources/{FONTS_CSS}", "mode": 0o644, "content": fonts},
         {"path": "ou/account/theme.properties", "mode": 0o644, "content": account},
         {"path": "ou/account/resources/ou.css", "mode": 0o644,
          "content": skin("keycloak-account.css", portal=portal, dark=".pf-v5-theme-dark", mark_url="ou-mark.svg")},
         {"path": "ou/account/resources/ou-mark.svg", "mode": 0o644, "content": mark},
+        {"path": f"ou/account/resources/{FONTS_CSS}", "mode": 0o644, "content": fonts},
         {"path": "ou/email/theme.properties", "mode": 0o644, "content": "parent=base\n"},
         {"path": "ou/email/messages/messages_en.properties", "mode": 0o644, "content": keycloak_email_messages()},
     ]
@@ -178,7 +215,7 @@ def _roles(t: dict[str, str], dark: bool) -> dict[str, str]:
     shade = "#000000"
     return {
         "primary": a, "onPrimary": ink, "primaryContainer": soft, "onPrimaryContainer": text, "primaryContainerLow": soft,
-        "secondary": muted, "onSecondary": surf, "secondaryContainer": soft, "onSecondaryContainer": text,
+        "secondary": muted, "onSecondary": surf, "secondaryContainer": t["sel"], "onSecondaryContainer": t["ink"],
         "tertiary": muted, "onTertiary": surf, "tertiaryContainer": bg2, "onTertiaryContainer": text,
         "error": t["bad"], "onError": surf, "errorContainer": t["bad-bg"], "onErrorContainer": t["bad"],
         "background": bg, "onBackground": text, "surface": surf, "onSurface": text, "surfaceVariant": bg2, "onSurfaceVariant": muted,
@@ -207,7 +244,7 @@ def opencloud_theme_json() -> str:
 def opencloud_web_yaml() -> str:
     """$OC_CONFIG_DIR/web.yaml (services/web/pkg/config: web.config.styles / web.config.scripts, loaded by BindSourcesToStructs("web"))."""
     return ("# generated by the ICS (ics/ics/deploy/brand.py): the Office Unbound skin and the Dashboard link\n"
-            "web:\n  config:\n    styles:\n      - href: /themes/ou/ou.css\n    scripts:\n      - src: /themes/ou/home.js\n")
+            "web:\n  config:\n    styles:\n      - href: /themes/ou/ou-fonts.css\n      - href: /themes/ou/ou.css\n    scripts:\n      - src: /themes/ou/home.js\n")
 
 
 # NOTIFICATIONS_EMAIL_TEMPLATE_PATH (opencloud.env) = the config volume root: OpenCloud 9.1.0 reads <path>/templates/text/email.text.tmpl,
@@ -237,14 +274,23 @@ def opencloud_files(portal: str | None) -> list[dict]:
         {"path": "themes/ou/ou.css", "mode": 0o644,
          "content": skin("opencloud.css", portal=portal, dark="html[data-color-scheme=dark]", mark_url="/themes/ou/ou-mark.svg")},
         {"path": "themes/ou/ou-mark.svg", "mode": 0o644, "content": mark_svg()},
+        {"path": f"themes/ou/{FONTS_CSS}", "mode": 0o644, "content": fonts_css()},
         {"path": "themes/ou/home.js", "mode": 0o644, "content": home},
     ]
 
 
 # ---------------------------------------------------------------- grommunio-web
-def grommunio_brand(portal: str | None) -> dict:
-    """cfg.gromox `brand`: /brand/brand.css + /brand/ou-mark.svg on the mail host, and the Dashboard target of the oudashboard plugin."""
-    out = {"css": skin("grommunio.css", portal=portal, dark="body.dark-mode", mark_url="/brand/ou-mark.svg"), "mark_svg": mark_svg()}
+GW_FONTS_FEATURE = "brand_fonts"   # cfg.gromox feature of agents that write brand.fonts_css (/brand/ou-fonts.css; ou_agent cfgspec.FEATURES)
+
+
+def grommunio_brand(portal: str | None, fonts: bool = False) -> dict:
+    """cfg.gromox `brand`: /brand/brand.css + /brand/ou-mark.svg on the mail host, and the Dashboard target of the oudashboard plugin. `fonts`
+    (the groupware node's agent reports GW_FONTS_FEATURE): also /brand/ou-fonts.css, imported by brand.css; an older agent's closed schema
+    would refuse the field, so without it the webmail falls back to the system fonts of the --ou-font stack."""
+    out = {"css": skin("grommunio.css", portal=portal, dark="body.dark-mode", mark_url="/brand/ou-mark.svg",
+                       fonts_url=f"/brand/{FONTS_CSS}" if fonts else None), "mark_svg": mark_svg()}
+    if fonts:
+        out["fonts_css"] = fonts_css()
     if portal:
         out["portal_url"] = portal
     return out

@@ -157,7 +157,7 @@ class _TooBig(Exception):
 
 STATIC_DIR = Path(__file__).parent / "static"  # built operator console (frontend/ -> npm run build)
 # The API's default-src 'none' would block the UI; static files get a narrow same-origin policy instead (no inline script/style, no eval).
-UI_CSP = ("default-src 'none'; script-src 'self'; style-src 'self'; img-src 'self' data:; connect-src 'self'; "
+UI_CSP = ("default-src 'none'; script-src 'self'; style-src 'self'; img-src 'self' data:; font-src 'self'; connect-src 'self'; "
           "frame-ancestors 'none'; base-uri 'none'; form-action 'none'")
 
 

@@ -3,7 +3,7 @@ import { ref } from 'vue'
 import { ApiError, post, type Role } from '../api'
 import { go, session, setLoggedIn } from '../store'
 import ErrorBox from '../components/ErrorBox.vue'
-import Icon from '../ui/Icon.vue'
+import BrandMark from '../ui/BrandMark.vue'
 import Button from '../ui/Button.vue'
 
 const username = ref(''), password = ref(''), totp = ref('')
@@ -22,7 +22,7 @@ async function submit() {
 <template>
   <div class="authpage">
     <aside class="authside" aria-label="About Office Unbound">
-      <div class="row"><span class="mark"><Icon name="cluster" /></span><strong>Office Unbound</strong></div>
+      <div class="row"><BrandMark /><strong>Office Unbound</strong></div>
       <div><h2>Run your infrastructure with confidence.</h2><p>Plan, approve and observe every change across your Proxmox clusters and customer deployments, with a complete audit trail.</p></div>
       <p class="small">Self-hosted. Your data stays yours.</p>
     </aside>

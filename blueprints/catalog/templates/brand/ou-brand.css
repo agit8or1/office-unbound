@@ -1,52 +1,88 @@
 /* Office Unbound shared design system: THE one definition of the look every app of a deployment wears (portal, sign-in and account pages,
-   Files, Docs, webmail). Derived from the user portal (portal/app/static/portal.css: same values, test-guarded in ics/tests/test_brand.py).
-   ics/ics/deploy/brand.py reads the two token blocks below and renders each app's skin from them through that app's own theming hook;
-   the "components" part is copied verbatim into every skin. Organisation branding (portal admin: accent colour, logo) arrives at run time
-   from https://<portal>/brand/org.css as --ou-org-* properties; --ou-a / --ou-a-soft / --ou-logo pick it up when it is set. */
+   Files, Docs, webmail, the ICS console). Values: the product interface concepts on officeunbound.com (concepts.css "ux-*" tokens: paper
+   surfaces, navy top bar, copper accent, IBM Plex). The portal (portal/app/static/portal.css) and the console (ics/frontend/src/style.css)
+   carry a copy of these blocks, test-guarded in ics/tests/test_brand.py. ics/ics/deploy/brand.py reads the two token blocks below and renders
+   each app's skin from them through that app's own theming hook; the "components" part is copied verbatim into every skin; fonts/ holds the
+   self-hosted IBM Plex Sans/Mono (SIL OFL 1.1, fonts/OFL.txt). Organisation branding (portal admin: accent colour, logo) arrives at run time
+   from https://<portal>/brand/org.css as --ou-org-* properties; --ou-a / --ou-a-soft / --ou-logo pick it up when it is set (the organisation
+   accent replaces the copper). */
 :root {
-  --ou-bg: #f6f5f1;
-  --ou-bg2: #eceae3;
+  --ou-bg: #f7f5f0;
+  --ou-bg2: #efebe3;
+  --ou-side: #f4f2ed;
   --ou-surface: #ffffff;
-  --ou-text: #1f2430;
-  --ou-muted: #596073;
-  --ou-line: #dedbd2;
-  --ou-accent: #2f6f6a;
+  --ou-ink: #18212d;
+  --ou-text: #2e3540;
+  --ou-muted: #5c6470;
+  --ou-line: #e3dfd6;
+  --ou-line-2: #cdc7ba;
+  --ou-sel: #e4ebf2;
+  --ou-navy: #14243a;
+  --ou-accent: #a9481f;
   --ou-accent-ink: #ffffff;
-  --ou-accent-soft: #e2efec;
-  --ou-bad: #a32020;
-  --ou-bad-bg: #f9e1e1;
-  --ou-shadow: 0 1px 2px rgba(31,36,48,.06), 0 6px 18px rgba(31,36,48,.06);
-  --ou-radius: 16px;
-  --ou-radius-sm: 10px;
-  --ou-radius-btn: 12px;
-  --ou-bar: 3.5rem;
-  --ou-font: system-ui, -apple-system, "Segoe UI", Roboto, "Helvetica Neue", Arial, sans-serif;
+  --ou-accent-soft: #f6e3d8;
+  --ou-teal: #2d6a68;
+  --ou-teal-soft: #dcebe8;
+  --ou-ok: #2f6e47;
+  --ou-ok-bg: #e0eee4;
+  --ou-warn: #8a5a0e;
+  --ou-warn-bg: #f5e9d2;
+  --ou-bad: #a3362a;
+  --ou-bad-bg: #f6deda;
+  --ou-bar-bg: #14243a;
+  --ou-bar-2: #24364f;
+  --ou-bar-line: #33475f;
+  --ou-bar-text: #e7ecf2;
+  --ou-bar-muted: #9daabb;
+  --ou-shadow: 0 1px 2px rgba(20,36,58,.06);
+  --ou-shadow-lg: 0 8px 24px rgba(20,36,58,.16);
+  --ou-radius: 7px;
+  --ou-radius-sm: 5px;
+  --ou-radius-btn: 5px;
+  --ou-bar-h: 46px;
+  --ou-font: "Plex Sans", "Segoe UI", system-ui, -apple-system, sans-serif;
+  --ou-mono: "Plex Mono", ui-monospace, "SFMono-Regular", Menlo, Consolas, monospace;
 }
 @media (prefers-color-scheme: dark) {
   :root {
-    --ou-bg: #14181f;
-    --ou-bg2: #1a2029;
-    --ou-surface: #1d232d;
-    --ou-text: #e9ecf2;
-    --ou-muted: #a2abbb;
-    --ou-line: #2c3442;
-    --ou-accent: #6cc4b9;
-    --ou-accent-ink: #0f1a19;
-    --ou-accent-soft: #1d3430;
-    --ou-bad: #ff9c9c;
-    --ou-bad-bg: #3d1b1b;
-    --ou-shadow: 0 1px 2px rgba(0,0,0,.4), 0 8px 22px rgba(0,0,0,.35);
+    --ou-bg: #0f1926;
+    --ou-bg2: #132034;
+    --ou-side: #132034;
+    --ou-surface: #18263a;
+    --ou-ink: #f1f4f8;
+    --ou-text: #d6dde6;
+    --ou-muted: #9daabb;
+    --ou-line: #26364c;
+    --ou-line-2: #34475f;
+    --ou-sel: #263c58;
+    --ou-navy: #9fb8d6;
+    --ou-accent: #e8956c;
+    --ou-accent-ink: #0f1926;
+    --ou-accent-soft: #3a2a25;
+    --ou-teal: #66b0ab;
+    --ou-teal-soft: #1c3a3d;
+    --ou-ok: #7cc191;
+    --ou-ok-bg: #1d3528;
+    --ou-warn: #e2b567;
+    --ou-warn-bg: #3a2f1a;
+    --ou-bad: #ee8f80;
+    --ou-bad-bg: #432421;
+    --ou-bar-bg: #0b1420;
+    --ou-bar-2: #1b2a3e;
+    --ou-bar-line: #2b3d55;
+    --ou-shadow: 0 1px 2px rgba(0,0,0,.4);
+    --ou-shadow-lg: 0 8px 24px rgba(0,0,0,.5);
   }
 }
 /* components */
-/* "Dashboard": the way back to the portal, the same pill in every app (OpenCloud top bar, webmail tab bar; Keycloak links its logo). */
+/* "Dashboard": the way back to the portal, the same control in every app's navy top bar (OpenCloud, webmail; Keycloak links its logo). */
 .ou-home {
-  display: inline-flex; align-items: center; gap: .5rem; box-sizing: border-box; height: 2.25rem; padding: 0 .85rem 0 .4rem;
-  border: 1px solid var(--ou-line); border-radius: 999px; background: var(--ou-surface); color: var(--ou-text); box-shadow: var(--ou-shadow);
-  font: 600 .92rem/1 var(--ou-font); text-decoration: none; white-space: nowrap; cursor: pointer;
+  display: inline-flex; align-items: center; gap: 8px; box-sizing: border-box; height: 30px; padding: 0 10px 0 6px;
+  border: 1px solid var(--ou-bar-line); border-radius: var(--ou-radius-sm); background: var(--ou-bar-2); color: var(--ou-bar-text);
+  font: 500 13px/1 var(--ou-font); text-decoration: none; white-space: nowrap; cursor: pointer;
 }
 .ou-home::before {
-  content: ""; flex: none; width: 1.45rem; height: 1.45rem; border-radius: 7px; background: var(--ou-logo) center / contain no-repeat;
+  content: ""; flex: none; width: 20px; height: 20px; border-radius: 4px; background: var(--ou-logo) center / contain no-repeat;
 }
-.ou-home:hover { border-color: var(--ou-a); color: var(--ou-text); text-decoration: none; }
-.ou-home:focus-visible { outline: 3px solid var(--ou-a); outline-offset: 2px; }
+.ou-home:hover { border-color: var(--ou-bar-muted); color: #ffffff; text-decoration: none; }
+.ou-home:focus-visible { outline: 2px solid var(--ou-bar-text); outline-offset: 2px; }

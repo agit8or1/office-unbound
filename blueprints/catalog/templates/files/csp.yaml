@@ -1,6 +1,7 @@
 # Derived from opencloud-compose@d4695d2 config/opencloud/csp.yaml with the lab
 # hostnames substituted by install-files.sh (@IDP_HOST@, @OFFICE_HOST@). @PORTAL_ORIGIN@: the portal, origin of the
 # organisation branding stylesheet and logo the Office Unbound skin loads (ics/ics/deploy/brand.py).
+# font-src data:: IBM Plex embedded in the skin's themes/ou/ou-fonts.css (self-hosted, no font CDN).
 # Trimmed: no companion / euro-office / OSM tiles / update server (lab has no
 # internet egress requirement).
 directives:
@@ -14,6 +15,7 @@ directives:
     - "'none'"
   font-src:
     - "'self'"
+    - 'data:'
   frame-ancestors:
     - "'self'"
   frame-src:
