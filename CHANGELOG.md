@@ -10,6 +10,17 @@ isolated lab; nothing is production supported ([ROADMAP.md](ROADMAP.md)).
 
 ## [Unreleased]
 
+### Added
+- **A rebuilt deployment keeps its public certificate** (GitHub #24, ADR-0018 section 12). After a production issuance the gateway exports the
+  certificate lineage it serves (ACME account, certificate, key) and the ICS stores it vault-encrypted by name set (`public_certificates`,
+  migration `0021c`); a rebuilt gateway for the same names gets it restored before certbot runs (when valid for more than 30 days), so no new
+  certificate is ordered and rebuilds no longer count against Let's Encrypt's 5-per-week limit. `force_new` skips the restore. Needs the agent
+  feature `cfg.acme` `reuse` (next agent build); older agents get the old request. The key travels only through the hardened secret directory on
+  the gateway and never appears in job results, audit records or logs; the agent accepts data only and writes certbot's renewal configuration
+  itself (no hook can come from the ICS).
+- **Webmail in IBM Plex** (held back from 0.9.3): the agent accepts the `cfg.gromox` feature `brand_fonts` (`brand.fonts_css`, @font-face rules
+  with embedded woff2 only, written to `/brand/ou-fonts.css`).
+
 ## [0.9.3] - 2026-11-22
 
 ### Changed

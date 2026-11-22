@@ -11,7 +11,7 @@ from sqlalchemy import text
 from ics.credentials import service as cred_service
 
 HERE = os.path.dirname(__file__)
-EXPECTED = ["0001", "0002", "0003", "0004", "0005", "0006d", "0006b", "0006a", "0007", "0007s3", "0007l", "0007m", "0008i", "0008", "0009", "0009b", "0009a", "0010", "0011", "0012a", "0012b", "0012c", "0012d", "0013h", "0012r7", "0013r7", "0014s", "0015g", "0016p", "0017i", "0018h", "0019c", "0020n"]
+EXPECTED = ["0001", "0002", "0003", "0004", "0005", "0006d", "0006b", "0006a", "0007", "0007s3", "0007l", "0007m", "0008i", "0008", "0009", "0009b", "0009a", "0010", "0011", "0012a", "0012b", "0012c", "0012d", "0013h", "0012r7", "0013r7", "0014s", "0015g", "0016p", "0017i", "0018h", "0019c", "0020n", "0021c"]
 
 
 def _cfg(url):
@@ -24,7 +24,7 @@ def _cfg(url):
 
 def test_single_linear_chain():
     sd = ScriptDirectory(os.path.join(HERE, "..", "migrations"))
-    assert sd.get_heads() == ["0020n"]
+    assert sd.get_heads() == ["0021c"]
     assert [s.revision for s in reversed(list(sd.walk_revisions()))] == EXPECTED
 
 
@@ -68,7 +68,7 @@ def test_upgrade_from_production_head_0008i(rt, base_settings, owner_engine):
     try:
         command.upgrade(cfg, "head")
         with owner_engine.connect() as c:
-            assert c.execute(text("SELECT version_num FROM alembic_version")).scalar() == "0020n"
+            assert c.execute(text("SELECT version_num FROM alembic_version")).scalar() == "0021c"
             have = {r[0] for r in c.execute(text("SELECT table_name FROM information_schema.tables WHERE table_schema = 'public'"))}
             assert {"backup_policies", "idm_sip_credentials", "guest_bootstrap", "controller_state"} <= have
             assert c.execute(text("SELECT count(*) FROM information_schema.columns WHERE table_name = 'idm_users' AND column_name = 'extension'")).scalar() == 1
@@ -92,7 +92,7 @@ def test_upgrade_from_production_head_0008(rt, base_settings, owner_engine):
     try:
         command.upgrade(cfg, "head")
         with owner_engine.connect() as c:
-            assert c.execute(text("SELECT version_num FROM alembic_version")).scalar() == "0020n"
+            assert c.execute(text("SELECT version_num FROM alembic_version")).scalar() == "0021c"
             have = {r[0] for r in c.execute(text("SELECT table_name FROM information_schema.tables WHERE table_schema = 'public'"))}
             assert {"backup_policies", "idm_sip_credentials", "guest_bootstrap", "controller_state"} <= have
             assert c.execute(text("SELECT count(*) FROM information_schema.columns WHERE table_name = 'idm_users' AND column_name = 'extension'")).scalar() == 1

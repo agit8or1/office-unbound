@@ -8,6 +8,7 @@ Secret values (passwords, private keys) travel in these params, so the cfg famil
 other families) and its results never echo a parameter. Every string has a tight character class: no value can add a line to a generated file,
 an LDIF record or an SQL statement. Used twice: by the agent before spooling and again by the helper, which never trusts the spool."""
 import base64
+import json
 import re
 
 from .guestspec import DIGEST_RE, IPV4_RE, NAME_RE, REGISTRY_RE, REPO_RE, SECRET_RE, USER_RE, VOLNAME_RE, _exact, _int, _s
@@ -270,7 +271,9 @@ def check_sso(p):
             "redirect_url": _https_host(p["redirect_url"], "sso.redirect_url", "/web"), "bearer_pubkey": _pem(p["bearer_pubkey"], "pubkey")}
 
 
-MAX_BRAND_CSS, MAX_BRAND_SVG = 65536, 16384
+MAX_BRAND_CSS, MAX_BRAND_SVG, MAX_BRAND_FONTS = 65536, 16384, 262144
+FONTS_CSS_RE = re.compile(r"(?:\s*/\*[^*]*\*/\s*)?(?:@font-face \{ font-family: \"[A-Za-z ]{1,40}\"; src: url\(\"data:font/woff2;base64,[A-Za-z0-9+/]+=*\"\) "
+                          r"format\(\"woff2\"\); font-weight: [1-9]00; font-style: (?:normal|italic); font-display: swap; \}\n){1,8}")
 SVG_BAD_RE = re.compile(r"<\s*(script|foreignobject|iframe|object|embed|style)|\bon[a-z]+\s*=|javascript:|data:|<!|href\s*=\s*[\"']?(?!#)", re.I)
 
 
@@ -282,13 +285,20 @@ def _text(v, what, n):
 
 def check_brand(p):
     """The Office Unbound skin of the webmail (ics/ics/deploy/brand.py): /brand/brand.css (grommunio-web's own branding hook), the mark it
-    references (/brand/ou-mark.svg: a plain SVG, served with a sandboxing CSP) and the portal the oudashboard plugin's button returns to."""
-    _exact(p, ("css", "mark_svg", "portal_url"), ("css", "mark_svg"))
+    references (/brand/ou-mark.svg: a plain SVG, served with a sandboxing CSP), the portal the oudashboard plugin's button returns to and
+    (FEATURES brand_fonts) /brand/ou-fonts.css: @font-face rules with embedded woff2 data only, nothing else (FONTS_CSS_RE)."""
+    _exact(p, ("css", "mark_svg", "portal_url", "fonts_css"), ("css", "mark_svg"))
     svg = _text(p["mark_svg"], "brand.mark_svg", MAX_BRAND_SVG)
     if not re.fullmatch(r"\s*<svg\b[^>]*>[\s\S]*</svg>\s*", svg) or SVG_BAD_RE.search(svg):
         raise Reject("bad_params", "brand.mark_svg must be one plain <svg> element (no script, handlers, foreign content or external references)")
-    return {"css": _text(p["css"], "brand.css", MAX_BRAND_CSS), "mark_svg": svg,
-            **({"portal_url": _https_host(p["portal_url"], "brand.portal_url", "/")} if p.get("portal_url") is not None else {})}
+    out = {"css": _text(p["css"], "brand.css", MAX_BRAND_CSS), "mark_svg": svg,
+           **({"portal_url": _https_host(p["portal_url"], "brand.portal_url", "/")} if p.get("portal_url") is not None else {})}
+    if p.get("fonts_css") is not None:
+        fc = _text(p["fonts_css"], "brand.fonts_css", MAX_BRAND_FONTS)
+        if not FONTS_CSS_RE.fullmatch(fc):
+            raise Reject("bad_params", "brand.fonts_css must be @font-face rules with embedded woff2 data only")
+        out["fonts_css"] = fc
+    return out
 
 
 def check_gromox(p, cfg):
@@ -322,21 +332,66 @@ def check_nginx_default(p, cfg):
 MAX_ACME_NAMES = 20
 
 
+CERT_PEM_RE = re.compile(r"(?:-----BEGIN CERTIFICATE-----\n[A-Za-z0-9+/=\n]{100,8000}-----END CERTIFICATE-----\n){1,4}")
+KEY_PEM_RE = re.compile(r"-----BEGIN PRIVATE KEY-----\n[A-Za-z0-9+/=\n]{100,4000}-----END PRIVATE KEY-----\n")
+ACCOUNT_ID_RE = re.compile(r"^[0-9a-f]{32}$")
+ACCOUNT_FILES = ("meta", "regr", "private_key")
+MAX_ACCOUNT_JSON = 16384
+
+
+def _json_obj(v, what):
+    t = _text(v, what, MAX_ACCOUNT_JSON)
+    try:
+        o = json.loads(t)
+    except ValueError:
+        raise Reject("bad_params", f"{what}: JSON object") from None
+    if not isinstance(o, dict):
+        raise Reject("bad_params", f"{what}: JSON object")
+    return t
+
+
+def check_acme_bundle(b):
+    """A certificate lineage captured from a gateway (feature `reuse`): the production ACME account (three certbot JSON files, data only) and
+    the current certificate files. Only DATA crosses: the agent writes the renewal configuration and the live links itself, so no certbot
+    option or hook (which certbot runs as root) can come from outside."""
+    _exact(b, ("account_id", "account", "cert", "chain", "fullchain", "privkey"))
+    acct = b["account"]
+    _exact(acct, ACCOUNT_FILES)
+    out = {"account_id": _s(b["account_id"], ACCOUNT_ID_RE, "account_id"), "account": {k: _json_obj(acct[k], f"account.{k}") for k in ACCOUNT_FILES}}
+    for k in ("cert", "chain", "fullchain"):
+        out[k] = _s(b[k], CERT_PEM_RE, k)
+    out["privkey"] = _s(b["privkey"], KEY_PEM_RE, "privkey")
+    if not out["fullchain"].startswith(out["cert"]):
+        raise Reject("bad_params", "fullchain must start with cert")
+    return out
+
+
 def check_acme(p, cfg):
-    """Publicly trusted certificate for exactly these names (HTTP-01 through the VM's own port 80), staging or production Let's Encrypt."""
-    _exact(p, ("names", "directory", "cert_name"))
+    """Publicly trusted certificate for exactly these names (HTTP-01 through the VM's own port 80), staging or production Let's Encrypt.
+    Feature `reuse` (production only): `restore` installs a lineage captured from an earlier gateway before certbot runs (certbot then keeps it
+    while it is not due for renewal: no new order); `export` returns the lineage the gateway serves afterwards."""
+    _exact(p, ("names", "directory", "cert_name", "export", "restore"), ("names", "directory", "cert_name"))
     names = [_s(n, FQDN_RE, "name") for n in _list(p["names"], "names", MAX_ACME_NAMES)]
     if not names or len(set(names)) != len(names):
         raise Reject("bad_params", "names: one or more distinct names")
     if p["directory"] not in ("staging", "production"):
         raise Reject("bad_params", "directory must be staging or production")
-    return {"names": names, "directory": p["directory"], "cert_name": _s(p["cert_name"], NAME_RE, "cert_name")}
+    out = {"names": names, "directory": p["directory"], "cert_name": _s(p["cert_name"], NAME_RE, "cert_name")}
+    if p.get("export") is not None:
+        if not isinstance(p["export"], bool):
+            raise Reject("bad_params", "export must be true or false")
+        out["export"] = p["export"]
+    if p.get("restore") is not None:
+        out["restore"] = check_acme_bundle(p["restore"])
+    if (out.get("export") or "restore" in out) and out["directory"] != "production":
+        raise Reject("bad_params", "certificate reuse is for production certificates only")
+    return out
 
 
 # the portal's credential for the ICS tenant-admin API of ITS deployment (configure.portal_key): tdk_<deployment id>.<secret>
 PORTAL_ICS_KEY_RE = re.compile(r"^tdk_[0-9a-f]{32}\.[A-Za-z0-9_-]{43}$")
 PORTAL_KEYS = ("base_url", "issuer", "client_id", "client_secret", "files_url", "mail_web_url", "mail_host", "mail_domain", "org_name")
-FEATURES = {"cfg.portal": ["admin"]}   # optional parameters this agent understands, reported in its capabilities (the ICS sends them only then)
+FEATURES = {"cfg.portal": ["admin"], "cfg.gromox": ["brand_fonts"], "cfg.acme": ["reuse"]}   # optional parameters this agent understands, reported in its capabilities (the ICS sends them only then)
 
 
 def check_portal_admin(a):

@@ -3,15 +3,23 @@ GATEWAY VM itself (agent runbook cfg.acme: certbot HTTP-01 + its own renewal tim
 
 Typed action gateway.certificates.issue {deployment, directory}: staging proves the names validate from the internet (no trusted certificate is
 served); production obtains the real certificate and switches the gateway's sites to it (the internal deployment CA keeps verifying the hops to
-the other VMs). The ICS keeps only the state (which deployment serves public certificates, for which names), never a private key."""
+the other VMs).
+
+Reuse (amendment 2026-11-22, agent feature cfg.acme `reuse`): after a production issuance the gateway exports the lineage it serves (ACME account,
+certificate, private key) and the ICS keeps it vault-encrypted in public_certificates, keyed by the exact name set. A rebuilt gateway for the same
+names gets that lineage restored before certbot runs, so no new certificate is ordered while it is valid for more than REUSE_MIN_DAYS; certbot
+on the gateway keeps renewing it as before. `force_new` skips the restore. The bundle never enters a job result, an audit record or a log."""
 from __future__ import annotations
 
+import datetime
 import json
 import time
 from typing import Literal
 
 from pydantic import BaseModel, ConfigDict, Field
 from sqlalchemy import text
+
+from cryptography import x509
 
 from . import audit
 from .guest import agentcall
@@ -24,6 +32,7 @@ class CertIssue(BaseModel):
     model_config = ConfigDict(extra="forbid")
     deployment: str = Field(pattern=r"^[a-z0-9][a-z0-9-]{1,30}$")
     directory: Literal["staging", "production"] = "staging"
+    force_new: bool = False
 
 
 def risk(p: CertIssue) -> str:
@@ -65,6 +74,47 @@ def _edge(plan: dict) -> str:
     return vm
 
 
+REUSE_FEATURE = "reuse"
+REUSE_MIN_DAYS = 30
+
+
+def names_key(names: list[str]) -> str:
+    return ",".join(sorted(names))
+
+
+def _vctx(key: str) -> str:
+    return f"public_certificates:{key}"
+
+
+def _not_after(fullchain: str) -> datetime.datetime:
+    return x509.load_pem_x509_certificate(fullchain.encode()).not_valid_after_utc
+
+
+def stored_bundle(rt, db, names: list[str], min_days: int = REUSE_MIN_DAYS) -> dict | None:
+    """The captured lineage for exactly these names, if it stays valid for more than min_days."""
+    key = names_key(names)
+    row = db.execute(text("SELECT bundle_enc, not_after FROM public_certificates WHERE names_key = :k"), {"k": key}).first()
+    if row is None or row.not_after <= datetime.datetime.now(datetime.timezone.utc) + datetime.timedelta(days=min_days):
+        return None
+    return json.loads(rt.vault.decrypt(row.bundle_enc, _vctx(key)))
+
+
+def store_bundle(rt, db, names: list[str], bundle: dict, deployment: str) -> datetime.datetime:
+    key = names_key(names)
+    na = _not_after(bundle["fullchain"])
+    db.execute(text("INSERT INTO public_certificates (names_key, names, not_after, bundle_enc, source_deployment) VALUES (:k, :n, :a, :b, :d) "
+                    "ON CONFLICT (names_key) DO UPDATE SET names = EXCLUDED.names, not_after = EXCLUDED.not_after, bundle_enc = EXCLUDED.bundle_enc, "
+                    "source_deployment = EXCLUDED.source_deployment, captured_at = now()"),
+               {"k": key, "n": sorted(names), "a": na, "b": rt.vault.encrypt(json.dumps(bundle).encode(), _vctx(key)), "d": deployment})
+    return na
+
+
+def _node_features(db, node_id: str, runbook: str) -> list[str]:
+    caps = db.execute(text("SELECT capabilities FROM nodes WHERE id::text = :i"), {"i": str(node_id)}).scalar()
+    f = ((caps or {}).get(runbook) or {}).get("features") or [] if isinstance(caps, dict) else []
+    return [x for x in f if isinstance(x, str)]
+
+
 def _run(rt, node_id: str, runbook: str, params: dict) -> dict:
     resp = agentcall.execute(rt, node_id, runbook, params, deadline=900.0)
     res = resp.get("result") if isinstance(resp.get("result"), dict) else {}
@@ -104,7 +154,21 @@ def exec_issue(rt, db, m: CertIssue, plan_row, known) -> dict:
     names = web_names(plan)
     cert_name = "public" if m.directory == "production" else "public-staging"
     t0 = time.monotonic()
-    res = _run(rt, node, "cfg.acme", {"names": names, "directory": m.directory, "cert_name": cert_name})
+    params = {"names": names, "directory": m.directory, "cert_name": cert_name}
+    reuse = m.directory == "production" and REUSE_FEATURE in _node_features(db, node, "cfg.acme")
+    offered = None
+    if reuse:
+        params["export"] = True
+        if not m.force_new:
+            offered = stored_bundle(rt, db, names)
+            if offered:
+                params["restore"] = offered
+    res = _run(rt, node, "cfg.acme", params)
+    bundle = res.pop("bundle", None)
+    reused = {"supported": reuse, "offered": offered is not None, "restored": bool(res.get("restored")), "captured": False}
+    if bundle:
+        reused["captured"] = True
+        reused["not_after"] = store_bundle(rt, db, names, bundle, d.slug).isoformat()
     switched = []
     if m.directory == "production":
         st = state(db)
@@ -122,9 +186,10 @@ def exec_issue(rt, db, m: CertIssue, plan_row, known) -> dict:
         converted = []
     audit.append(db, "gateway.certificate_issued", actor_name="worker", resource="deployment", resource_id=str(d.id),
                  details={"deployment": d.slug, "directory": m.directory, "names": names, "sites_switched": switched, "checks_converted": converted,
-                          "certificate": res.get("certificate", "")[:300], "plan_id": str(plan_row.id), "seconds": int(time.monotonic() - t0)})
+                          "certificate": res.get("certificate", "")[:300], "reuse": reused, "plan_id": str(plan_row.id),
+                          "seconds": int(time.monotonic() - t0)})
     return {"deployment": d.slug, "directory": m.directory, "names": names, "certificate": res.get("certificate"), "sites_switched": switched,
-            "checks_converted": converted}
+            "checks_converted": converted, "reuse": reused}
 
 
 LE_ROOTS = ("/etc/ssl/certs/ISRG_Root_X1.pem", "/etc/ssl/certs/ISRG_Root_X2.pem")

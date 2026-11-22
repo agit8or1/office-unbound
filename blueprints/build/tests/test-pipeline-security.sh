@@ -4,7 +4,7 @@
 #   tests/test-pipeline-security.sh        -> prints PASS/FAIL per check, exit 1 on any FAIL
 set -uo pipefail
 HERE=$(cd "$(dirname "$0")" && pwd); BUILD=$(cd "$HERE/.." && pwd)
-T=$(mktemp -d); trap 'rm -rf "$T"' EXIT
+T=$(mktemp -d); trap 'for g in "$T"/gh "$T"/signer/gnupg; do gpgconf --homedir "$g" --kill all 2>/dev/null; done; rm -rf "$T"' EXIT
 export OU_PKG_STATE=$T/state OU_REPO_DIR=$T/state/repo OU_RELEASE_STATE=$T/signer GNUPGHOME=$T/gh
 export OU_RELEASE_CMD="python3 -I $BUILD/repo/ou-release-sign"
 export OU_TESTRUNNER_STATE=$T/runner OU_RELEASE_SANDBOX=1 OU_ATTEST_CMD="python3 -I $BUILD/repo/ou-test-attest"

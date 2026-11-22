@@ -283,10 +283,32 @@ def _cfg_runbook(action: str, params: dict) -> dict:
             raise RuntimeError("helper produced no result") from None
         out = {"returncode": r.returncode}
         out.update({k: data[k] for k in ("result", "rejected", "error") if k in data})
+        res = out.get("result")
+        if isinstance(res, dict) and res.pop("bundle_secret", False):
+            res["bundle"] = _cfg_secret(rid)
         return out
     finally:
         try:
             os.unlink(spool)
+        except OSError:
+            pass
+
+
+def _cfg_secret(rid: str, secret_dir: str | None = None) -> dict:
+    """The secret part of a cfg result (cfg.acme export): read from SECRET_DIR (0600, the agent's own) and unlinked at once. Never logged."""
+    path = os.path.join(secret_dir or SECRET_DIR, f"cfg-{rid}.json")
+    try:
+        fd = os.open(path, os.O_RDONLY | os.O_NOFOLLOW)
+        with os.fdopen(fd) as f:
+            data = json.loads(f.read(MAX_CFG_RESULT))
+        if not isinstance(data, dict) or data.get("rid") != rid or not isinstance(data.get("bundle"), dict):
+            raise ValueError("foreign secret result")
+        return data["bundle"]
+    except (OSError, ValueError):
+        raise RuntimeError("helper produced no secret result") from None
+    finally:
+        try:
+            os.unlink(path)
         except OSError:
             pass
 

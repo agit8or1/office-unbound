@@ -5,6 +5,7 @@ import sys
 import threading
 
 import pyotp
+
 import pytest
 from alembic import command
 from alembic.config import Config
@@ -193,3 +194,22 @@ def no_vm_floor(monkeypatch):
     """Per-component sizing arithmetic without the owner's per-VM floor (catalog meta.vm_minimum; tested in test_deploy_vm_minimum.py)."""
     from ics.deploy import catalog, plan
     monkeypatch.setattr(plan, "vm_minimum", lambda cat: catalog.VmMinimum())
+
+
+@pytest.fixture(scope="session", autouse=True)
+def _no_gpg_agents_left_behind(tmp_path_factory):
+    """Tests that sign (artifacts, release signer, golden image) start a gpg-agent per throw-away GNUPGHOME; gpg never stops it. Stop every
+    agent whose home is under this session's temp directory (2026-11-22: 453 leaked agents had accumulated on the ICS host)."""
+    yield
+    import subprocess
+    base = str(tmp_path_factory.getbasetemp())
+    out = subprocess.run(["ps", "-u", str(os.getuid()), "-o", "pid=,args="], capture_output=True, text=True).stdout
+    for line in out.splitlines():
+        pid, _, args = line.strip().partition(" ")
+        a = args.split()
+        if a[:1] == ["gpg-agent"] and "--homedir" in a and a.index("--homedir") + 1 < len(a) and a[a.index("--homedir") + 1].startswith(base):
+            try:
+                os.kill(int(pid), 15)
+            except (OSError, ValueError):
+                pass
+
