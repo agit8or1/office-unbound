@@ -177,12 +177,13 @@ def test_grommunio_brand_passes_the_agent_schema_and_bad_input_is_refused():
     assert "portal_url" not in brand.grommunio_brand(None)
     assert "fonts_css" not in b and '@import url("/brand/ou-fonts.css")' not in b["css"]                        # an agent without the feature gets no new field
     bf = brand.grommunio_brand(PORTAL, fonts=True)
-    assert bf["css"].startswith(f'@import url("{PORTAL}brand/org.css");\n@import url("/brand/ou-fonts.css");\n')
-    # 0.9.3 ships no agent build: the deployed agent (0.9.1) does not report brand_fonts and its closed schema refuses the field,
-    # which is why configure sends it only to agents that report the feature (agent support: branch agent-fonts-094)
-    assert brand.GW_FONTS_FEATURE == "brand_fonts" and "brand_fonts" not in c.FEATURES.get("cfg.gromox", [])
-    with pytest.raises(Reject):
-        c.check_brand(bf)
+    assert c.check_brand(bf) == bf and bf["css"].startswith(f'@import url("{PORTAL}brand/org.css");\n@import url("/brand/ou-fonts.css");\n')
+    assert "brand_fonts" in c.FEATURES["cfg.gromox"] and brand.GW_FONTS_FEATURE == "brand_fonts"
+    for bad_fonts in ("body{display:none}", bf["fonts_css"] + "a{}", bf["fonts_css"].replace("data:font/woff2", "https://cdn.example/x"),
+                      '@font-face { font-family: "Plex Sans"; src: url("data:font/woff2;base64,AA==") format("woff2"); font-weight: 400; '
+                      'font-style: normal; font-display: swap; }\n@import url("https://evil.example/x.css");\n'):
+        with pytest.raises(Reject):
+            c.check_brand({**bf, "fonts_css": bad_fonts})
     for bad in ({**b, "portal_url": "http://app.e2e.example/"}, {**b, "portal_url": "https://app.e2e.example/x"},
                 {**b, "mark_svg": '<svg onload="alert(1)"></svg>'}, {**b, "mark_svg": "<svg><script>x</script></svg>"},
                 {**b, "mark_svg": '<svg><image href="https://evil.example/x.png"/></svg>'}, {**b, "mark_svg": "<html></html>"},
@@ -200,8 +201,15 @@ def test_the_groupware_node_serves_the_brand_hook_and_the_dashboard_target(tmp_p
     assert (tmp_path / "ou-brand/brand/brand.css").read_text() == b["css"]
     assert (tmp_path / "ou-brand/brand/ou-mark.svg").stat().st_mode & 0o777 == 0o644
     assert json.loads((tmp_path / "gw/ou-dashboard.json").read_text()) == {"url": PORTAL, "label": "Dashboard"}
+    assert not (tmp_path / "ou-brand/brand/ou-fonts.css").exists()
+    h._brand(brand.grommunio_brand(PORTAL, fonts=True))
+    assert (tmp_path / "ou-brand/brand/ou-fonts.css").read_text() == brand.fonts_css()
+    h._brand(b)                                                                            # fonts withdrawn with the field
+    assert not (tmp_path / "ou-brand/brand/ou-fonts.css").exists()
+    h._brand(brand.grommunio_brand(PORTAL, fonts=True))
     h._brand(None)                                                                         # brand withdrawn: nothing left behind
     assert not (tmp_path / "ou-brand/brand/brand.css").exists() and not (tmp_path / "gw/ou-dashboard.json").exists()
+    assert not (tmp_path / "ou-brand/brand/ou-fonts.css").exists()
     site = h.GW_NGINX.format(names="mail.e2e.example", tls="/t", brand_root="/etc/ou-brand")
     assert "location = /brand/brand.css {" in site and "try_files $uri @ou_brand_none;" in site and "sandbox" in site
 
@@ -244,7 +252,7 @@ def test_configure_ships_the_skin_to_every_app(monkeypatch):
     # an agent that reports cfg.gromox brand_fonts gets the webmail fonts too (an older one would refuse the field)
     monkeypatch.setattr(configure, "agent_features", lambda ctx_, vm_, rb: ["brand_fonts"] if (vm_, rb) == ("gw", "cfg.gromox") else [])
     g = next(r["params"] for r in configure.groupware_runbooks(ctx, "gw") if r["runbook"] == "cfg.gromox")
-    assert g["brand"] == brand.grommunio_brand(P2, fonts=True)   # ICS side only in 0.9.3; agent schema support: branch agent-fonts-094
+    assert c.check_gromox(g, {"enabled": True}) == g and g["brand"] == brand.grommunio_brand(P2, fonts=True)
     assert configure.redact("cfg.gromox", g)["brand"]["fonts_css"].endswith(" bytes]")
 
 

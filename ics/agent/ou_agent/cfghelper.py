@@ -927,7 +927,7 @@ def _brand(b):
     """Static files for nginx (world-readable: nothing secret) and the plugin's settings file (read by the web pool)."""
     d = os.path.join(BRAND_ROOT, "brand")
     if not b:
-        for f in (os.path.join(d, "brand.css"), os.path.join(d, "ou-mark.svg"), GW_DASHBOARD):
+        for f in (os.path.join(d, "brand.css"), os.path.join(d, "ou-mark.svg"), os.path.join(d, "ou-fonts.css"), GW_DASHBOARD):
             if os.path.exists(f):
                 os.unlink(f)
         return
@@ -936,6 +936,11 @@ def _brand(b):
         os.chmod(q, 0o755)
     atomic_write(os.path.join(d, "brand.css"), b["css"], 0o644)
     atomic_write(os.path.join(d, "ou-mark.svg"), b["mark_svg"], 0o644)
+    fonts = os.path.join(d, "ou-fonts.css")   # IBM Plex as data: URIs (brand.css @imports it); absent = the system fonts
+    if b.get("fonts_css"):
+        atomic_write(fonts, b["fonts_css"], 0o644)
+    elif os.path.exists(fonts):
+        os.unlink(fonts)
     if b.get("portal_url"):
         os.makedirs(os.path.dirname(GW_DASHBOARD), mode=0o755, exist_ok=True)
         atomic_write(GW_DASHBOARD, json.dumps({"url": b["portal_url"], "label": "Dashboard"}) + "\n", 0o644)
