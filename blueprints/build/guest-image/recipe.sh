@@ -92,7 +92,7 @@ do_verify() {
       need sha256sum coreutils; cd "$WORK/up"
       local kf=${UPSTREAM_KEY_FILE:-$KEYS/${UPSTREAM_KEY_DEFAULT:-}}
       [ -s "$kf" ] || { echo "no upstream key file" >&2; exit 3; }
-      local gh; gh=$(mktemp -d); chmod 700 "$gh"; trap 'rm -rf "$gh"' RETURN
+      local gh; gh=$(mktemp -d); chmod 700 "$gh"; trap 'gpgconf --homedir "$gh" --kill all 2>/dev/null; rm -rf "$gh"' RETURN
       gpg --homedir "$gh" --batch --import "$kf" 2>/dev/null
       local have; have=$(gpg --homedir "$gh" --batch --with-colons --fingerprint | awk -F: '/^fpr:/{print $10; exit}')
       [ "$have" = "$UPSTREAM_KEY_FPR" ] || { echo "REFUSED: upstream key fingerprint $have != pinned $UPSTREAM_KEY_FPR" >&2; exit 4; }

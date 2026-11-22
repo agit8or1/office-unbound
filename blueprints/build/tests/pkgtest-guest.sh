@@ -183,7 +183,7 @@ PY
   F=$(gpg --list-secret-keys --with-colons | awk -F: '/^fpr/{print $10; exit}')
   gpg --batch --yes --pinentry-mode loopback --passphrase '' --local-user "$F" --clearsign < "$d/repo/dists/$SUITE/Release" > "$d/repo/dists/$SUITE/InRelease"
   gpg --batch --yes --pinentry-mode loopback --passphrase '' --local-user "$F" --armor --detach-sign < "$d/repo/dists/$SUITE/Release" > "$d/repo/dists/$SUITE/Release.gpg"
-  unset GNUPGHOME
+  gpgconf --kill all 2>/dev/null; rm -rf "$GNUPGHOME"; unset GNUPGHOME   # no gpg-agent left behind per run
   expect_fail "repository signed by a different (attacker) key" "$d" update
   d=$(mkcase tampered-packages)
   python3 - "$d/repo/dists/$SUITE/main/binary-amd64/Packages" <<'PY'
