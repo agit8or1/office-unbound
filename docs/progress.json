@@ -3,10 +3,22 @@
   "schema_doc": "docs/progress-schema.md",
   "project": "Office Unbound",
   "repository": "https://github.com/agit8or1/office-unbound",
-  "updated": "2026-11-19",
+  "updated": "2026-11-22",
   "stage": "pre-alpha (lab)",
-  "current_version": "0.9.2",
+  "current_version": "0.9.3",
   "releases": [
+    {
+      "version": "0.9.3",
+      "date": "2026-11-22",
+      "status": "prepared",
+      "codename": "Ironwood",
+      "channel": "pre-release",
+      "highlights": [
+        "0.9.3: every app takes the look of the officeunbound.com interface concepts (navy, copper, paper, IBM Plex self-hosted, three-square mark); console follows its own Infrastructure Control concept"
+      ],
+      "notes_url": "https://github.com/agit8or1/office-unbound/blob/main/CHANGELOG.md",
+      "changelog": "CHANGELOG.md"
+    },
     {
       "version": "0.9.2",
       "date": "2026-11-22",
@@ -873,6 +885,15 @@
           "title": "Guided desktop and mobile onboarding",
           "status": "planned",
           "evidence": []
+        },
+        {
+          "id": "P3.4",
+          "title": "One look across every app, matching the officeunbound.com interface concepts",
+          "status": "implementing",
+          "evidence": [
+            "docs/screenshots/look-0.9.3/README.md"
+          ],
+          "note": "0.9.3: portal, sign-in/account, Files, webmail and notification mails restyled (navy, copper, paper, IBM Plex self-hosted, three-square mark), console follows its Infrastructure Control concept; rendered and tested locally, live check after deploy; webmail fonts with the 0.9.4 agent"
         }
       ]
     },

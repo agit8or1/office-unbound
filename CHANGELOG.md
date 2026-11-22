@@ -10,6 +10,8 @@ isolated lab; nothing is production supported ([ROADMAP.md](ROADMAP.md)).
 
 ## [Unreleased]
 
+## [0.9.3] - 2026-11-22
+
 ### Changed
 - **Every app now has the look of the officeunbound.com interface concepts.** One design system
   (`blueprints/catalog/templates/brand/ou-brand.css`): paper surfaces, white cards, navy top bar, copper primary buttons, outlined secondary
@@ -23,9 +25,9 @@ isolated lab; nothing is production supported ([ROADMAP.md](ROADMAP.md)).
 - **IBM Plex is self-hosted** (SIL OFL 1.1, licence text shipped next to every copy): woff2 files in the portal (`static/fonts`) and the
   console bundle; embedded in `ou-fonts.css` for the Keycloak theme, the OpenCloud theme and the webmail. No font CDN. The console's CSP
   allows `font-src 'self'`; OpenCloud's CSP adds `data:` to `font-src`.
-- The webmail fonts need an agent that reports the `cfg.gromox` feature `brand_fonts` (new: `brand.fonts_css`, written to
-  `/brand/ou-fonts.css`); the ICS sends it only to such agents, older agents keep the system fonts. Evidence:
-  [`docs/screenshots/look-0.9.3/`](docs/screenshots/look-0.9.3/README.md).
+- The webmail keeps the system fonts in 0.9.3: embedding IBM Plex there needs an agent that accepts `brand.fonts_css` (feature `brand_fonts`
+  of `cfg.gromox`), which ships with the next agent build (0.9.4). The ICS already sends the field only to agents that report the feature.
+  Portal 0.3.1 (`ou-portal 0.3.1-ou1`). Evidence: [`docs/screenshots/look-0.9.3/`](docs/screenshots/look-0.9.3/README.md).
 
 ## [0.9.2] - 2026-11-22
 
@@ -476,6 +478,7 @@ editing, chat/meetings, telephony prototype, migration tooling and package pipel
 - `SECURITY.md` (private reporting) and `CONTRIBUTING.md` (DCO sign-off) added; AGPL-3.0 license. [SECURITY](SECURITY.md)
 
 [Unreleased]: https://github.com/agit8or1/office-unbound/compare/v0.4.7...HEAD
+[0.9.3]: https://github.com/agit8or1/office-unbound/compare/v0.9.2...v0.9.3
 [0.9.2]: https://github.com/agit8or1/office-unbound/compare/v0.9.1...v0.9.2
 [0.9.1]: https://github.com/agit8or1/office-unbound/compare/v0.9.0...v0.9.1
 [0.9.0]: https://github.com/agit8or1/office-unbound/compare/v0.8.2...v0.9.0
