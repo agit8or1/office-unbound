@@ -20,6 +20,7 @@ describe('build label', () => {
     expect(buildLabel({ version: '0.1.0', commit: 'abc1234def', dirty: true })).toBe('Office Unbound ICS v0.1.0 (abc1234, modified)')
     expect(buildLabel({ version: '0.1.0' })).toBe('Office Unbound ICS v0.1.0')
     expect(buildLabel(null)).toBe('Office Unbound ICS')
+    expect(buildLabel({ version: '' })).toBe('Office Unbound ICS')
   })
 })
 

@@ -27,7 +27,7 @@ export const crumbLabel = ref('')
 
 /** Console footer text, e.g. "Office Unbound ICS v0.1.0 (abc1234)"; the version always comes from the API, never a constant. */
 export function buildLabel(b: { version: string; codename?: string | null; commit?: string | null; dirty?: boolean | null } | null | undefined): string {
-  if (!b) return 'Office Unbound ICS'
+  if (!b || !b.version) return 'Office Unbound ICS'
   return `Office Unbound ICS v${b.version}` + (b.codename ? ` “${b.codename}”` : '') + (b.commit ? ` (${b.commit.slice(0, 7)}${b.dirty ? ', modified' : ''})` : '')
 }
 
