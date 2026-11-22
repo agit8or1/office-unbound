@@ -157,3 +157,21 @@ waiting for the ICS (section 5) is not enough.
   tenant isolation through the gateway, customer traffic with the ICS database unavailable.
 
 Delivery order stays G1-G7; G2 now builds the gateway-side renewal (certbot, revision bundle) first and the ICS-side DNS-01 second.
+
+## 12. Certificate reuse across gateway rebuilds (owner, 2026-11-21: "b", GitHub #24) -- implements the "encrypted backup to the ICS" of 11
+Rebuilding a deployment (new gateway VM) ordered a new certificate each time; Let's Encrypt allows 5 duplicate certificates per week, so six
+rebuilds in a week blocked the sixth until the window reopened (2026-11-21). Now:
+- **Capture.** A production `gateway.certificates.issue` asks an agent with the `cfg.acme` feature `reuse` to `export` the lineage it serves:
+  the production ACME account (certbot's three JSON files), certificate, chain, full chain and private key. The root helper hands the export to
+  the agent only through the hardened secret directory (`/run/ou-rb-secret`, root-owned 1770, file 0600 owned by `ou-agent`, unlinked at once),
+  never through the world-readable result directory. The ICS stores it vault-encrypted (AES-GCM) in `public_certificates`, keyed by the exact
+  name set, so it outlives the deployment that obtained it. The bundle never enters a job result, an audit record (`redact`: `[certificate
+  bundle]`) or a log.
+- **Restore.** For the same name set, when the stored certificate is valid for more than 30 days, the ICS sends it as `restore` before certbot
+  runs. The agent accepts DATA only (checked PEM blocks, JSON objects, a 32-hex account id) and writes certbot's renewal configuration and the
+  `live/` links itself, so no certbot option or hook (hooks run as root) can come from the ICS. It never overwrites a lineage the gateway already
+  has. certbot then finds a valid certificate for the names and orders nothing; its timer renews it on the gateway as before (section 11), and
+  the next issuance captures the renewed lineage. `force_new` skips the restore.
+- **Not changed.** Staging certificates are never captured; an agent without the feature gets the old request (closed schema); renewal stays on
+  the gateway; DNS-01 (section 11) is unaffected. The stored account key can order certificates for any name the account controls through
+  HTTP-01 on a gateway; it is protected like every other vault secret (the vault key never leaves the ICS host).

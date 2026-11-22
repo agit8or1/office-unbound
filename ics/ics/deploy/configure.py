@@ -702,6 +702,8 @@ def redact(runbook: str, params: dict) -> dict:
             out[k] = f"[{len(str(v).encode())} bytes]"
         elif k == "ca_pem" or k == "cert_pem":
             out[k] = "[certificate]"
+        elif k == "restore" and runbook == "cfg.acme":   # a captured certificate lineage: carries the private key and the ACME account key
+            out[k] = "[certificate bundle]"
         elif isinstance(v, dict):   # nested settings (cfg.gromox sso): same rules
             out[k] = redact(runbook, v)
         else:

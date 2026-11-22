@@ -8,6 +8,7 @@ Secret values (passwords, private keys) travel in these params, so the cfg famil
 other families) and its results never echo a parameter. Every string has a tight character class: no value can add a line to a generated file,
 an LDIF record or an SQL statement. Used twice: by the agent before spooling and again by the helper, which never trusts the spool."""
 import base64
+import json
 import re
 
 from .guestspec import DIGEST_RE, IPV4_RE, NAME_RE, REGISTRY_RE, REPO_RE, SECRET_RE, USER_RE, VOLNAME_RE, _exact, _int, _s
@@ -322,21 +323,66 @@ def check_nginx_default(p, cfg):
 MAX_ACME_NAMES = 20
 
 
+CERT_PEM_RE = re.compile(r"(?:-----BEGIN CERTIFICATE-----\n[A-Za-z0-9+/=\n]{100,8000}-----END CERTIFICATE-----\n){1,4}")
+KEY_PEM_RE = re.compile(r"-----BEGIN PRIVATE KEY-----\n[A-Za-z0-9+/=\n]{100,4000}-----END PRIVATE KEY-----\n")
+ACCOUNT_ID_RE = re.compile(r"^[0-9a-f]{32}$")
+ACCOUNT_FILES = ("meta", "regr", "private_key")
+MAX_ACCOUNT_JSON = 16384
+
+
+def _json_obj(v, what):
+    t = _text(v, what, MAX_ACCOUNT_JSON)
+    try:
+        o = json.loads(t)
+    except ValueError:
+        raise Reject("bad_params", f"{what}: JSON object") from None
+    if not isinstance(o, dict):
+        raise Reject("bad_params", f"{what}: JSON object")
+    return t
+
+
+def check_acme_bundle(b):
+    """A certificate lineage captured from a gateway (feature `reuse`): the production ACME account (three certbot JSON files, data only) and
+    the current certificate files. Only DATA crosses: the agent writes the renewal configuration and the live links itself, so no certbot
+    option or hook (which certbot runs as root) can come from outside."""
+    _exact(b, ("account_id", "account", "cert", "chain", "fullchain", "privkey"))
+    acct = b["account"]
+    _exact(acct, ACCOUNT_FILES)
+    out = {"account_id": _s(b["account_id"], ACCOUNT_ID_RE, "account_id"), "account": {k: _json_obj(acct[k], f"account.{k}") for k in ACCOUNT_FILES}}
+    for k in ("cert", "chain", "fullchain"):
+        out[k] = _s(b[k], CERT_PEM_RE, k)
+    out["privkey"] = _s(b["privkey"], KEY_PEM_RE, "privkey")
+    if not out["fullchain"].startswith(out["cert"]):
+        raise Reject("bad_params", "fullchain must start with cert")
+    return out
+
+
 def check_acme(p, cfg):
-    """Publicly trusted certificate for exactly these names (HTTP-01 through the VM's own port 80), staging or production Let's Encrypt."""
-    _exact(p, ("names", "directory", "cert_name"))
+    """Publicly trusted certificate for exactly these names (HTTP-01 through the VM's own port 80), staging or production Let's Encrypt.
+    Feature `reuse` (production only): `restore` installs a lineage captured from an earlier gateway before certbot runs (certbot then keeps it
+    while it is not due for renewal: no new order); `export` returns the lineage the gateway serves afterwards."""
+    _exact(p, ("names", "directory", "cert_name", "export", "restore"), ("names", "directory", "cert_name"))
     names = [_s(n, FQDN_RE, "name") for n in _list(p["names"], "names", MAX_ACME_NAMES)]
     if not names or len(set(names)) != len(names):
         raise Reject("bad_params", "names: one or more distinct names")
     if p["directory"] not in ("staging", "production"):
         raise Reject("bad_params", "directory must be staging or production")
-    return {"names": names, "directory": p["directory"], "cert_name": _s(p["cert_name"], NAME_RE, "cert_name")}
+    out = {"names": names, "directory": p["directory"], "cert_name": _s(p["cert_name"], NAME_RE, "cert_name")}
+    if p.get("export") is not None:
+        if not isinstance(p["export"], bool):
+            raise Reject("bad_params", "export must be true or false")
+        out["export"] = p["export"]
+    if p.get("restore") is not None:
+        out["restore"] = check_acme_bundle(p["restore"])
+    if (out.get("export") or "restore" in out) and out["directory"] != "production":
+        raise Reject("bad_params", "certificate reuse is for production certificates only")
+    return out
 
 
 # the portal's credential for the ICS tenant-admin API of ITS deployment (configure.portal_key): tdk_<deployment id>.<secret>
 PORTAL_ICS_KEY_RE = re.compile(r"^tdk_[0-9a-f]{32}\.[A-Za-z0-9_-]{43}$")
 PORTAL_KEYS = ("base_url", "issuer", "client_id", "client_secret", "files_url", "mail_web_url", "mail_host", "mail_domain", "org_name")
-FEATURES = {"cfg.portal": ["admin"]}   # optional parameters this agent understands, reported in its capabilities (the ICS sends them only then)
+FEATURES = {"cfg.portal": ["admin"], "cfg.acme": ["reuse"]}   # optional parameters this agent understands, reported in its capabilities (the ICS sends them only then)
 
 
 def check_portal_admin(a):
