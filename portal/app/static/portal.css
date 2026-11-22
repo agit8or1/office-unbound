@@ -8,6 +8,7 @@
 @font-face { font-family: "Plex Sans"; src: url("fonts/ibm-plex-sans-latin-600-normal.woff2") format("woff2"); font-weight: 600; font-style: normal; font-display: swap; }
 @font-face { font-family: "Plex Mono"; src: url("fonts/ibm-plex-mono-latin-400-normal.woff2") format("woff2"); font-weight: 400; font-style: normal; font-display: swap; }
 @font-face { font-family: "Plex Mono"; src: url("fonts/ibm-plex-mono-latin-500-normal.woff2") format("woff2"); font-weight: 500; font-style: normal; font-display: swap; }
+@font-face { font-family: "Source Serif"; src: url("fonts/source-serif-4-latin-400-normal.woff2") format("woff2"); font-weight: 400; font-style: normal; font-display: swap; }
 :root {
   --ou-bg: #f7f5f0;
   --ou-bg2: #efebe3;
@@ -16,15 +17,15 @@
   --ou-ink: #18212d;
   --ou-text: #2e3540;
   --ou-muted: #5c6470;
-  --ou-line: #e3dfd6;
-  --ou-line-2: #cdc7ba;
+  --ou-line: #ddd8cd;
+  --ou-line-2: #b9b2a4;
   --ou-sel: #e4ebf2;
   --ou-navy: #14243a;
   --ou-accent: #a9481f;
   --ou-accent-ink: #ffffff;
   --ou-accent-soft: #f6e3d8;
   --ou-teal: #2d6a68;
-  --ou-teal-soft: #dcebe8;
+  --ou-teal-soft: #dce8e6;
   --ou-ok: #2f6e47;
   --ou-ok-bg: #e0eee4;
   --ou-warn: #8a5a0e;
@@ -38,9 +39,9 @@
   --ou-bar-muted: #9daabb;
   --ou-shadow: 0 1px 2px rgba(20,36,58,.06);
   --ou-shadow-lg: 0 8px 24px rgba(20,36,58,.16);
-  --ou-radius: 7px;
-  --ou-radius-sm: 5px;
-  --ou-radius-btn: 5px;
+  --ou-radius: 4px;
+  --ou-radius-sm: 3px;
+  --ou-radius-btn: 3px;
   --ou-bar-h: 46px;
   --ou-font: "Plex Sans", "Segoe UI", system-ui, -apple-system, sans-serif;
   --ou-mono: "Plex Mono", ui-monospace, "SFMono-Regular", Menlo, Consolas, monospace;
@@ -99,7 +100,7 @@ a:hover { text-decoration-thickness: 2px; }
 .skip:focus { left: 0; }
 .sr { position: absolute; width: 1px; height: 1px; overflow: hidden; clip: rect(0 0 0 0); white-space: nowrap; }
 h1, h2, h3 { line-height: 1.25; margin: 0 0 .6rem; letter-spacing: -.01em; color: var(--ink); font-weight: 600; }
-h1 { font-size: clamp(1.5rem, 3.2vw, 1.85rem); }
+h1 { font: 400 clamp(1.75rem, 3.6vw, 2.25rem)/1.15 "Source Serif", "Iowan Old Style", Georgia, serif; letter-spacing: -.01em; }
 h2 { font-size: 1rem; margin-top: 2rem; }
 h3 { font-size: .95rem; margin-top: 1.25rem; }
 code { font: .88em var(--ou-mono); background: var(--bg2); padding: .1em .35em; border-radius: 3px; overflow-wrap: anywhere; }

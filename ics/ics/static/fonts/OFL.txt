@@ -1,5 +1,6 @@
-IBM Plex Sans and IBM Plex Mono: the woff2 files shipped with this licence (Latin subsets, as served by officeunbound.com/assets/fonts/)
+IBM Plex Sans, IBM Plex Mono and Source Serif 4: the woff2 files shipped with this licence (Latin subsets, as served by officeunbound.com/assets/fonts/)
 Copyright © 2017 IBM Corp. with Reserved Font Name "Plex"
+Source Serif 4: Copyright 2014-2021 Adobe (http://www.adobe.com/), with Reserved Font Name 'Source'
 
 This Font Software is licensed under the SIL Open Font License, Version 1.1.
 This license is copied below, and is also available with a FAQ at:

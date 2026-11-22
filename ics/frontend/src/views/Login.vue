@@ -23,7 +23,7 @@ async function submit() {
   <div class="authpage">
     <aside class="authside" aria-label="About Office Unbound">
       <div class="row"><BrandMark /><strong>Office Unbound</strong></div>
-      <div><h2>Run your infrastructure with confidence.</h2><p>Plan, approve and observe every change across your Proxmox clusters and customer deployments, with a complete audit trail.</p></div>
+      <div><p class="eyebrow">Infrastructure Control</p><h2>Run your infrastructure with confidence.</h2><p>Plan, approve and observe every change across your Proxmox clusters and customer deployments, with a complete audit trail.</p></div>
       <p class="small">Self-hosted. Your data stays yours.</p>
     </aside>
     <main id="main" tabindex="-1" class="authform">

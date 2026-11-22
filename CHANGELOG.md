@@ -10,6 +10,8 @@ isolated lab; nothing is production supported ([ROADMAP.md](ROADMAP.md)).
 
 ## [Unreleased]
 
+## [0.9.4] - 2026-11-22
+
 ### Added
 - **A rebuilt deployment keeps its public certificate** (GitHub #24, ADR-0018 section 12). After a production issuance the gateway exports the
   certificate lineage it serves (ACME account, certificate, key) and the ICS stores it vault-encrypted by name set (`public_certificates`,
@@ -20,6 +22,14 @@ isolated lab; nothing is production supported ([ROADMAP.md](ROADMAP.md)).
   itself (no hook can come from the ICS).
 - **Webmail in IBM Plex** (held back from 0.9.3): the agent accepts the `cfg.gromox` feature `brand_fonts` (`brand.fonts_css`, @font-face rules
   with embedded woff2 only, written to `/brand/ou-fonts.css`).
+
+### Changed
+- **The console, portal and app skins follow the officeunbound.com concepts more closely.** Corners are 4/3 px (the site's 3 px) instead of 7/5 px,
+  the site's hairlines (`#ddd8cd`, `#b9b2a4`) and teal selection (`#dce8e6`); the console navigation is paper instead of tinted, its figures are one
+  joined strip with hairline dividers (coloured top edge only for warnings and critical), quieter labels and a compact page title, and the brand
+  block no longer cuts off "Infrastructure". Headlines on the console sign-in and the portal use the site's display face, Source Serif 4
+  (self-hosted, SIL OFL, same files as officeunbound.com), with the site's mono eyebrow on the sign-in. Portal 0.3.2.
+- **Agent 0.9.4-ou18 and golden image version 14** carry certificate reuse and the webmail fonts.
 
 ## [0.9.3] - 2026-11-22
 
@@ -489,6 +499,7 @@ editing, chat/meetings, telephony prototype, migration tooling and package pipel
 - `SECURITY.md` (private reporting) and `CONTRIBUTING.md` (DCO sign-off) added; AGPL-3.0 license. [SECURITY](SECURITY.md)
 
 [Unreleased]: https://github.com/agit8or1/office-unbound/compare/v0.4.7...HEAD
+[0.9.4]: https://github.com/agit8or1/office-unbound/compare/v0.9.3...v0.9.4
 [0.9.3]: https://github.com/agit8or1/office-unbound/compare/v0.9.2...v0.9.3
 [0.9.2]: https://github.com/agit8or1/office-unbound/compare/v0.9.1...v0.9.2
 [0.9.1]: https://github.com/agit8or1/office-unbound/compare/v0.9.0...v0.9.1

@@ -5,8 +5,22 @@
   "repository": "https://github.com/agit8or1/office-unbound",
   "updated": "2026-11-22",
   "stage": "pre-alpha (lab)",
-  "current_version": "0.9.3",
+  "current_version": "0.9.4",
   "releases": [
+    {
+      "version": "0.9.4",
+      "date": "2026-11-22",
+      "status": "prepared",
+      "codename": "Ironwood",
+      "channel": "pre-release",
+      "highlights": [
+        "0.9.4: a rebuilt deployment keeps its public certificate (no new Let's Encrypt order while it is valid for more than 30 days)",
+        "0.9.4: console, portal and app skins closer to the officeunbound.com concepts (site radii and hairlines, joined figure strip, Source Serif headlines); webmail in IBM Plex",
+        "0.9.4: agent 0.9.4-ou18, portal 0.3.2, golden image version 14"
+      ],
+      "notes_url": "https://github.com/agit8or1/office-unbound/blob/main/CHANGELOG.md",
+      "changelog": "CHANGELOG.md"
+    },
     {
       "version": "0.9.3",
       "date": "2026-11-22",
