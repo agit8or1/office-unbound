@@ -18,11 +18,28 @@ Pages read: `/`, `/platform`, `/platform/files-sync`, `/platform/identity-admini
   (`status--concept`, `status--evaluation`, `status--planned`, `status--development`, `status--implemented`, `status--tested`,
   `status--production`) on `/why/microsoft-365-alternative`.
 - **Tone.** Already honest: "In development. Nothing is production ready yet." and "not a claim to match Microsoft 365 feature for feature".
-- **Out of date.** The header status line reads "Phase 1 · Core Platform Proof · v0.9.4" and `/progress` says "Pre-alpha (lab)",
-  "0.9.4 Ironwood" and "22 of 24 passing", while the repository is at **0.10.0 "Juniper", alpha**. If the page reads from GitHub
-  `main`, it updates when the release lands there; otherwise this needs a site change (owner check).
-- **Wording to revisit.** The M365 comparison says shared mailboxes, delegation and resource booking for Office Unbound as one
-  "Integrated in lab" entry; delegation and resource booking are not tested ([matrix](../requirements/m365-feature-parity.md), EXO rows).
+- **Out of date (re-checked 2026-11-23 after the 0.10.0 release).** The parts read from GitHub already show the new state (header
+  `v0.10.0`; `/progress` "Stage: Alpha", "0.10.0 Juniper"; "22 of 24 passing" is the current acceptance count, correct). The **static copy**
+  is out of date: see "Static text corrections" below.
+- **M365 comparison: no overclaim (corrected 2026-11-23).** An earlier reading of this page was wrong: "shared mailboxes, delegation,
+  resource booking" is in the *Microsoft 365 today* column; the *Office Unbound target* entry ("Integrated in lab") names only mailboxes,
+  shared mailboxes, calendars and contacts, which matches the evidence. No change needed.
+
+### Static text corrections (ready to apply; the website is not managed from this repository)
+
+| Page | Current text | Replace with |
+|---|---|---|
+| `/` (open-source foundations) | "Office Unbound's own code is public under AGPL-3.0, as pre-alpha lab work." | "Office Unbound's own code is public under AGPL-3.0. It is an alpha: installable, not for production data." |
+| `/` FAQ "Is Office Unbound available today?" | "No. The project is in Phase 1: Control server foundation and core platform proof, with pre-alpha work in its lab. The only tagged build, 0.1.0, is a lab pre-alpha, not production supported, and the screens on this site are design concepts." | "As an alpha, for evaluation. Version 0.10.0 "Juniper" installs from its release tag with the alpha install guide and deploys the full stack onto your own Proxmox VE node; it has been proven on one reference installation. It is not production supported: do not put production data in it, and read the known limitations first. Some screens on this site are still design concepts." |
+| `/` (source repository paragraph) | "It holds pre-alpha lab work, not a release. Signed releases and software bills of materials are planned from the first release; neither exists yet." | "It holds the alpha releases (latest 0.10.0) and their evidence. Packages and VM images are signed by the project's release pipeline but not yet publicly downloadable; software bills of materials are planned." |
+| `/` (build and release pipeline) | "No build or release has been published yet; the source repository holds pre-alpha lab work." | "Alpha releases are tagged on GitHub (latest 0.10.0); signed artifacts are not yet publicly downloadable." |
+| `/` (contact, source repository) | "It is pre-alpha lab work, not a release;" | "It is an alpha, not for production data;" |
+| `/progress` intro | "Pre-alpha lab work, in the open: … The only tagged build, 0.1.0, is a lab pre-alpha, not production supported, and the roadmap has no dates." | "Alpha, in the open: every status is backed by recorded evidence in the source repository. The latest release is 0.10.0 "Juniper" (alpha, not production supported); the roadmap has no dates." |
+| `/progress` status note | "Pre-alpha: the only tagged build, 0.1.0, is a lab pre-alpha; nothing here is production ready." | "Alpha: installable for evaluation from the latest release; nothing here is production ready." |
+| Header status line (all pages) | "Phase 1 · Core Platform Proof" | Keep (P1 is still the current phase in `progress.json`); the version beside it is already read from GitHub. |
+
+Links to use: alpha install guide `docs/admin/alpha-install.md`, known limitations `docs/admin/known-limitations.md`, release
+`https://github.com/agit8or1/office-unbound/releases/tag/v0.10.0`.
 
 ## 2. Label rules
 
@@ -133,5 +150,5 @@ MSP API: [msp-api-results.md](../status/msp-api-results.md); mail migration:
 
 1. Approve the four public labels and the mapping (in particular: `integrated_lab` shown as "Tested in lab" only with a linked passing test).
 2. Approve the new page `/platform/features` and the single Platform-menu entry.
-3. Fix the out-of-date status line (0.9.4 / pre-alpha) if it is not generated from `main`.
-4. Split the "shared mailboxes, delegation, resource booking" entry on the M365 comparison page so untested parts read "Planned".
+3. Apply the static text corrections above (pre-alpha / "only tagged build, 0.1.0").
+4. (Withdrawn 2026-11-23: the M365 comparison does not claim delegation or resource booking for Office Unbound.)
