@@ -200,6 +200,28 @@ def test_ldap_init_configures_the_directory_with_secrets_on_stdin_only(fake, mon
     assert 'SLAPD_SERVICES="ldap://127.0.0.1:389/ ldaps:/// ldapi:///"' in (fake.path / "slapd.default").read_text()
 
 
+def test_ldap_init_writer_account_may_set_passwords_and_self_profile_only(fake, monkeypatch):
+    for f in ("deployment.crt", "deployment.key", "ca.crt"):
+        (fake.path / "tls").mkdir(exist_ok=True)
+        (fake.path / "tls" / f).write_text("x")
+    fake.out("dpkg-query", "install ok installed")
+    monkeypatch.setattr(h, "ldap_search", lambda x, base, flt, attrs, scope="sub": "dn: olcDatabase={1}mdb,cn=config\n" if flt.startswith("(olcSuffix=") else "")
+    pw3 = PW2[::-1] + "W"
+    r = _run("cfg.ldap_init", {"domain": "e2e.example", "organization": "Office Unbound", "admin_password": PW, "bind_password": PW2,
+                               "tls_name": "deployment", "groups": [], "writer_password": pw3})
+    ldif = "\n".join(x[2] for x in fake.calls("ldapmodify"))
+    acl = [ln for ln in ldif.splitlines() if ln.startswith("olcAccess:")]
+    w, b, people = 'dn.exact="cn=svc-idp,ou=system,dc=e2e,dc=example"', 'dn.exact="cn=svc-bind,ou=system,dc=e2e,dc=example"', 'dn.subtree="ou=people,dc=e2e,dc=example"'
+    assert acl[1].startswith(f"olcAccess: {{1}}to {people} attrs=userPassword") and f"by {w} =w" in acl[1]         # set, never read, a hash
+    assert acl[4] == (f"olcAccess: {{4}}to {people} attrs=givenName,sn,cn,displayName,telephoneNumber,mobile "
+                      f"by {w} write by {b} read by self read by * none")
+    assert all(f"{b} write" not in a and f"{b} =w" not in a for a in acl)          # the shared read account stays read-only
+    assert "mail" not in acl[4].split("attrs=")[1].split(" ")[0].split(",") and "uid" not in acl[4].split("attrs=")[1].split(" ")[0].split(",")
+    assert "cn=svc-idp" in r["created"] and pw3 not in ldif and pw3 not in fake.every_argv()
+    from ou_agent import cfgspec
+    assert "writer" in cfgspec.FEATURES["cfg.ldap_init"]
+
+
 def test_pg_db_password_reaches_psql_on_stdin_and_errors_are_scrubbed(fake):
     assert _run("cfg.pg_db", {"role": "keycloak", "database": "keycloak", "password": PW}) == {"role": "keycloak", "database": "keycloak"}
     psql = fake.calls("runuser")[-1]

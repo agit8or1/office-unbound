@@ -46,13 +46,15 @@ class OIDC:
             self._disc = d
         return self._disc
 
-    async def auth_url(self, state: str, nonce: str, challenge: str) -> str:
+    async def auth_url(self, state: str, nonce: str, challenge: str, kc_action: str | None = None) -> str:
         d = await self.discovery()
         q = {
             "response_type": "code", "client_id": self.cfg.client_id, "redirect_uri": self.cfg.base_url + "/auth/callback",
             "scope": "openid profile email", "state": state, "nonce": nonce,
             "code_challenge": challenge, "code_challenge_method": "S256",
         }
+        if kc_action:   # Keycloak application-initiated action (change password, set up two-step); the caller passes a fixed value only
+            q["kc_action"] = kc_action
         return d["authorization_endpoint"] + "?" + urlencode(q)
 
     async def _token(self, form: dict) -> dict:

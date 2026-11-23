@@ -247,7 +247,7 @@ def test_account_page(env):
     finish(c, q)
     t = c.get("/account").text
     assert "This device" in t and "Firefox" in t and "Off" in t and "opencloudUser" in t and "default-roles" not in t
-    assert f"{ISS}/account/account-security/signing-in" in t
+    assert 'href="/account/two-step"' in t and 'href="/account/password"' in t        # MFA off: set it up in the sign-in flow
     csrf = re.search(r'name="csrf" value="([^"]+)"', t).group(1)
     r = c.post("/account/sessions/end-others", data={"csrf": csrf})
     assert r.status_code == 303 and "flash=ended" in r.headers["location"]
@@ -443,3 +443,86 @@ def test_chat_url_convention_override_and_off():
     assert _chat_url("off", "acme.example") == ""
     for bad in ("http://chat.acme.example", "https://chat.acme.example/x", "javascript:alert(1)"):
         assert _chat_url(bad, "acme.example") == ""
+
+
+def _profile_mock(read_only=False, reject=None):
+    m = Mock()
+    base = m.handler
+    m.posted = []
+    meta = [{"name": n, "readOnly": read_only or n in ("username", "email"), "required": n in ("username", "firstName", "lastName")}
+            for n in ("username", "email", "firstName", "lastName", "displayName", "phone", "mobile")]
+    rep = {"id": "u1", "username": "bob", "email": "bob@example.test", "firstName": "Bob", "lastName": "Lab", "attributes": {"phone": ["+1 555 0100"]},
+           "userProfileMetadata": {"attributes": meta}}
+
+    def handler(req):
+        u = str(req.url)
+        if u.startswith(ISS + "/account/?") and req.method == "GET":
+            return httpx.Response(200, json=rep)
+        if u == ISS + "/account/" and req.method == "POST":
+            m.posted.append(json.loads(req.content))
+            return httpx.Response(400, json={"errors": [{"field": reject, "errorMessage": "error-invalid"}]}) if reject else httpx.Response(204)
+        return base(req)
+    return m, handler
+
+
+def _signed_in(handler, m):
+    app = create_app(CFG, transport=httpx.MockTransport(handler))
+    c = TestClient(app, base_url=BASE)
+    c.follow_redirects = False
+    c.__enter__()
+    _, q = login(c, m)
+    finish(c, q)
+    return c
+
+
+def _csrf(html):
+    return re.search(r'name="csrf" value="([^"]+)"', html).group(1)
+
+
+def test_account_shows_an_editable_profile_and_saves_only_allowed_fields():
+    m, h = _profile_mock()
+    c = _signed_in(h, m)
+    page = c.get("/account").text
+    assert 'name="firstName" value="Bob"' in page and 'name="phone" value="+1 555 0100"' in page and "Save profile" in page
+    assert 'name="email"' not in page and 'name="username"' not in page and "bob@example.test" in page     # shown, not editable
+    r = c.post("/account/profile", data={"csrf": _csrf(page), "firstName": "Robert", "lastName": "Lab", "mobile": "+1 555 0199",
+                                         "email": "evil@example.test", "username": "root"})
+    assert r.status_code == 303 and r.headers["location"].startswith("/account?flash=saved")
+    sent = m.posted[-1]
+    assert sent["firstName"] == "Robert" and sent["email"] == "bob@example.test" and sent["username"] == "bob"
+    assert sent["attributes"]["mobile"] == ["+1 555 0199"] and sent["attributes"]["phone"] == ["+1 555 0100"]
+    assert "userProfileMetadata" not in sent
+
+
+def test_profile_save_needs_csrf_and_reports_rejected_fields():
+    m, h = _profile_mock(reject="phone")
+    c = _signed_in(h, m)
+    assert c.post("/account/profile", data={"csrf": "wrong", "phone": "x"}).status_code == 403 and not m.posted
+    r = c.post("/account/profile", data={"csrf": _csrf(c.get("/account").text), "phone": "abc"})
+    assert r.headers["location"].startswith("/account?flash=invalid&err=phone")
+    assert 'aria-invalid="true"' in c.get(r.headers["location"].split("#")[0]).text
+
+
+def test_read_only_directory_shows_profile_without_a_form():
+    m, h = _profile_mock(read_only=True)
+    c = _signed_in(h, m)
+    page = c.get("/account").text
+    assert "Save profile" not in page and "managed by your organisation" in page and "Bob" in page
+
+
+def test_change_password_and_two_step_go_through_the_sign_in_service():
+    m, h = _profile_mock()
+    c = _signed_in(h, m)
+    for what, action, flash in (("password", "UPDATE_PASSWORD", "password"), ("two-step", "CONFIGURE_TOTP", "two-step")):
+        r = c.get(f"/account/{what}")
+        assert r.status_code == 303
+        q = parse_qs(urlparse(r.headers["location"]).query)
+        assert q["kc_action"] == [action] and q["code_challenge_method"] == ["S256"]
+        m.nonce = q["nonce"][0]
+        done = finish(c, q, kc_action_status="success")
+        assert done.headers["location"] == f"/account?flash={flash}"
+    r = c.get("/account/password")
+    q = parse_qs(urlparse(r.headers["location"]).query)
+    m.nonce = q["nonce"][0]
+    assert finish(c, q, kc_action_status="cancelled").headers["location"] == "/account?flash=cancelled"
+    assert c.get("/account/anything").status_code == 404

@@ -4,27 +4,62 @@
 {% block main %}
 <h1 class="greet">Your account</h1>
 {% for n in notices %}<p class="notice" role="status">{{ n }}</p>{% endfor %}
-{% if flash == 'ended' %}<p class="notice ok" role="status">Signed out everywhere else.</p>{% elif flash == 'failed' %}<p class="notice" role="status">That did not work. Please try again.</p>{% endif %}
+{% set msgs = {'ended': ('ok', 'Signed out everywhere else.'), 'saved': ('ok', 'Your profile is saved.'),
+                'password': ('ok', 'Your password is changed. Use the new one everywhere: mail apps and file sync too.'),
+                'two-step': ('ok', 'Two-step verification is updated.'), 'cancelled': ('', 'Nothing was changed.'),
+                'invalid': ('', 'Some details were not accepted. Check the marked fields.'), 'failed': ('', 'That did not work. Please try again.')} %}
+{% if flash in msgs %}<p class="notice {{ msgs[flash][0] }}" role="status">{{ msgs[flash][1] }}</p>{% endif %}
 
 <section class="card" aria-labelledby="h-profile">
   <h2 id="h-profile">Profile</h2>
+  {% if profile %}
+  <form method="post" action="/account/profile" class="profile">
+    <input type="hidden" name="csrf" value="{{ sess.csrf }}">
+    <div class="fields">
+    {% for f in profile %}
+      <div class="field{% if f.name in errors %} bad{% endif %}">
+        <label for="pf-{{ f.name }}">{{ f.label }}{% if f.required and f.editable %} <span class="req" aria-hidden="true">*</span>{% endif %}</label>
+        {% if f.editable %}
+        <input id="pf-{{ f.name }}" name="{{ f.name }}" value="{{ f.value }}" maxlength="{{ 32 if f.name in ('phone', 'mobile') else 100 }}"
+               {% if f.required %}required{% endif %}
+               autocomplete="{{ {'firstName': 'given-name', 'lastName': 'family-name', 'displayName': 'nickname', 'phone': 'tel', 'mobile': 'tel'}[f.name] }}"
+               {% if f.name in ('phone', 'mobile') %}type="tel" inputmode="tel"{% endif %}
+               {% if f.name in errors %}aria-invalid="true" aria-describedby="pf-{{ f.name }}-err"{% endif %}>
+        {% if f.name in errors %}<small class="err" id="pf-{{ f.name }}-err">Not accepted. Check the value.</small>{% endif %}
+        {% else %}
+        <output id="pf-{{ f.name }}">{{ f.value or '—' }}</output>
+        {% endif %}
+      </div>
+    {% endfor %}
+      {% if roles %}<div class="field"><span class="lbl">Access</span><output>{% for r in roles %}<span class="pill">{{ r }}</span> {% endfor %}</output></div>{% endif %}
+    </div>
+    {% if editable %}
+    <p class="formbar"><button class="btn primary" type="submit">Save profile</button>
+      <small class="hint">Your user name and e-mail address are set by your administrator.</small></p>
+    {% else %}
+    <p class="hint">Your details are managed by your organisation. To change them, ask your administrator.</p>
+    {% endif %}
+  </form>
+  {% else %}
   <dl class="kv">
     <dt>Name</dt><dd>{{ claims.get('name') or '—' }}</dd>
     <dt>User name</dt><dd>{{ claims.get('preferred_username') or '—' }}</dd>
     <dt>E-mail</dt><dd>{{ claims.get('email') or '—' }}</dd>
     {% if roles %}<dt>Access</dt><dd>{% for r in roles %}<span class="pill">{{ r }}</span> {% endfor %}</dd>{% endif %}
   </dl>
-  <p class="hint">Your details are managed by your organisation. To change them, ask your administrator.</p>
+  <p class="hint">Your profile could not be loaded right now.</p>
+  {% endif %}
 </section>
 
 <section class="card" aria-labelledby="h-sec">
   <h2 id="h-sec">Sign-in and security</h2>
   <ul class="actions">
-    <li><a class="act" href="{{ links.password }}">{{ icon('key') }}<span><b>Change your password</b><small>Opens your organisation's account page</small></span></a></li>
-    <li><a class="act" href="{{ links.mfa }}">{{ icon('shield') }}<span><b>Two-step verification</b>
-      <small>{% if mfa is none %}Set up or manage a second sign-in step{% elif mfa %}Enabled. Manage your authenticator{% else %}Not set up yet. Add an authenticator app{% endif %}</small></span>
+    <li><a class="act" href="{{ links.password }}">{{ icon('key') }}<span><b>Change your password</b><small>You confirm your current password first. One password for portal, mail, files and chat</small></span></a></li>
+    <li><a class="act" href="{{ links.two_step if not mfa else links.mfa }}">{{ icon('shield') }}<span><b>Two-step verification</b>
+      <small>{% if mfa is none %}Set up or manage a second sign-in step{% elif mfa %}Enabled. Manage or remove your authenticator{% else %}Not set up yet. Add an authenticator app{% endif %}</small></span>
       {% if mfa %}<span class="pill ok">On</span>{% elif mfa is not none %}<span class="pill warn">Off</span>{% endif %}</a></li>
   </ul>
+  <p class="hint">Forgot your password? Ask your administrator for a one-time link to choose a new one.</p>
 </section>
 
 <section class="card" aria-labelledby="h-sess">

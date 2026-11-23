@@ -123,3 +123,29 @@ def test_only_the_portal_and_chat_may_frame_chat_and_sign_in(ctx):
 
 def test_without_chat_keycloak_keeps_its_default_framing():
     assert "browserSecurityHeaders" not in json.loads(configure.realm_json(DOMAIN, "pw"))
+
+
+def test_self_service_profile_only_with_a_writer_capable_agent(ctx, monkeypatch):
+    vm = _vm(ctx.plan, "identity")
+
+    def realm_of(rbs):
+        return json.loads(next(f["content"] for r in rbs if r["runbook"] == "cfg.volume_files" for f in r["params"]["files"] if f["path"].startswith("import/realm")))
+    old = configure.identity_runbooks(ctx, vm)                               # agent without the feature: unchanged, read-only directory
+    ldap = realm_of(old)["components"]["org.keycloak.storage.UserStorageProvider"][0]["config"]
+    assert ldap["editMode"] == ["READ_ONLY"] and "svc-bind" in ldap["bindDn"][0]
+    assert "writer_password" not in next(r for r in old if r["runbook"] == "cfg.ldap_init")["params"]
+    monkeypatch.setattr(configure, "agent_features", lambda c, v, rb: ["writer"] if rb == "cfg.ldap_init" else [])
+    rbs = configure.identity_runbooks(ctx, vm)
+    init = next(r for r in rbs if r["runbook"] == "cfg.ldap_init")["params"]
+    realm = realm_of(rbs)
+    prov = realm["components"]["org.keycloak.storage.UserStorageProvider"][0]
+    assert prov["config"]["editMode"] == ["WRITABLE"] and prov["config"]["bindDn"][0].startswith("cn=svc-idp,")
+    assert prov["config"]["bindCredential"] == [init["writer_password"]] and prov["config"]["usePasswordModifyExtendedOp"] == ["true"]
+    maps = {m["name"]: m["config"] for m in prov["subComponents"]["org.keycloak.storage.ldap.mappers.LDAPStorageMapper"]}
+    assert maps["email"]["read.only"] == ["true"] and maps["username"]["read.only"] == ["true"] and maps["first name"]["read.only"] == ["false"]
+    assert {maps[k]["ldap.attribute"][0] for k in ("displayName", "phone", "mobile")} == {"displayName", "telephoneNumber", "mobile"}
+    prof = json.loads(realm["components"]["org.keycloak.userprofile.UserProfileProvider"][0]["config"]["kc.user.profile.config"][0])
+    edit = {a["name"]: a["permissions"]["edit"] for a in prof["attributes"]}
+    assert edit["email"] == ["admin"] and edit["username"] == ["admin"] and edit["phone"] == ["admin", "user"] and "unmanagedAttributePolicy" not in prof
+    assert set(configure.SELF_PROFILE.values()) <= set(__import__("ou_agent.cfghelper", fromlist=["x"]).LDAP_SELF_ATTRS)
+    assert configure.redact("cfg.ldap_init", init)["writer_password"] == "[redacted]"

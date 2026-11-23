@@ -91,13 +91,17 @@ def check_tls(p, cfg):
 
 
 def check_ldap_init(p, cfg):
-    _exact(p, ("domain", "organization", "admin_password", "bind_password", "tls_name", "groups"))
+    """Optional `writer_password` (feature "writer"): the sign-in service's own account cn=svc-idp, the only one that may change people's
+    passwords and their self-editable profile attributes (LDAP_SELF_ATTRS); the shared read account svc-bind stays read-only."""
+    _exact(p, ("domain", "organization", "admin_password", "bind_password", "tls_name", "groups", "writer_password"),
+           ("domain", "organization", "admin_password", "bind_password", "tls_name", "groups"))
     groups = [_s(g, GROUP_RE, "group") for g in _list(p["groups"], "groups", MAX_GROUPS)]
     if len(set(groups)) != len(groups):
         raise Reject("bad_params", "duplicate group")
     return {"domain": _s(p["domain"], FQDN_RE, "domain"), "organization": _s(p["organization"], ORG_RE, "organization"),
             "admin_password": _password(p["admin_password"], "admin_password"), "bind_password": _password(p["bind_password"], "bind_password"),
-            "tls_name": _s(p["tls_name"], NAME_RE, "tls_name"), "groups": groups}
+            "tls_name": _s(p["tls_name"], NAME_RE, "tls_name"), "groups": groups,
+            "writer_password": _password(p["writer_password"], "writer_password") if p.get("writer_password") is not None else None}
 
 
 def check_ldap_user(p, cfg):
@@ -391,7 +395,7 @@ def check_acme(p, cfg):
 # the portal's credential for the ICS tenant-admin API of ITS deployment (configure.portal_key): tdk_<deployment id>.<secret>
 PORTAL_ICS_KEY_RE = re.compile(r"^tdk_[0-9a-f]{32}\.[A-Za-z0-9_-]{43}$")
 PORTAL_KEYS = ("base_url", "issuer", "client_id", "client_secret", "files_url", "mail_web_url", "mail_host", "mail_domain", "org_name")
-FEATURES = {"cfg.portal": ["admin"], "cfg.gromox": ["brand_fonts"], "cfg.acme": ["reuse"]}   # optional parameters this agent understands, reported in its capabilities (the ICS sends them only then)
+FEATURES = {"cfg.portal": ["admin"], "cfg.gromox": ["brand_fonts"], "cfg.acme": ["reuse"], "cfg.ldap_init": ["writer"]}   # optional parameters this agent understands, reported in its capabilities (the ICS sends them only then)
 
 
 def check_portal_admin(a):

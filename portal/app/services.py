@@ -208,3 +208,72 @@ async def chat_available(cfg, http) -> bool:
     except httpx.HTTPError:
         _CHAT["ok"] = False
     return _CHAT["ok"]
+
+
+# ---- profile (Keycloak account API; what may be edited comes from the realm's declared user profile, never from the portal) -------------
+PROFILE_FIELDS = ("firstName", "lastName", "displayName", "phone", "mobile")      # the order of the form; others are shown, never sent
+TOP_LEVEL = ("username", "email", "firstName", "lastName")
+
+
+async def get_profile(cfg: Settings, http: httpx.AsyncClient, token: str) -> dict:
+    """{rep, fields}: the account representation and the attributes of the declared profile with label, value and whether the user may edit it.
+    A deployment whose directory is read-only to the sign-in service reports every attribute read-only."""
+    r = await http.get(cfg.account_url + "/", params={"userProfileMetadata": "true"}, headers={**_h(token), "Accept": "application/json"})
+    if r.status_code != 200:
+        raise ServiceError(f"account: profile answered {r.status_code}")
+    rep = r.json()
+    meta = {a.get("name"): a for a in (rep.get("userProfileMetadata") or {}).get("attributes", []) if isinstance(a, dict)}
+    attrs = rep.get("attributes") or {}
+
+    def value(n):
+        v = rep.get(n) if n in TOP_LEVEL else (attrs.get(n) or [""])
+        return (v[0] if isinstance(v, list) and v else v) or ""
+    labels = {"username": "User name", "email": "E-mail", "firstName": "First name", "lastName": "Last name", "displayName": "Display name",
+              "phone": "Phone", "mobile": "Mobile"}
+    fields = []
+    for n in ("username", "email", *PROFILE_FIELDS):
+        if n not in meta and n not in TOP_LEVEL:
+            continue
+        m = meta.get(n, {})
+        fields.append({"name": n, "label": labels.get(n, n), "value": str(value(n)), "editable": n in PROFILE_FIELDS and n in meta and not m.get("readOnly", True),
+                       "required": bool(m.get("required"))})
+    return {"rep": rep, "fields": fields}
+
+
+class ProfileRejected(ServiceError):
+    def __init__(self, errors: list[dict]):
+        super().__init__("profile rejected")
+        self.errors = errors
+
+
+async def update_profile(cfg: Settings, http: httpx.AsyncClient, token: str, form: dict) -> None:
+    """Send the editable fields (only those the realm marks editable for this user) on top of the current representation."""
+    cur = await get_profile(cfg, http, token)
+    rep = {k: cur["rep"].get(k) for k in ("id", *TOP_LEVEL) if k in cur["rep"]}
+    attrs = {k: v for k, v in (cur["rep"].get("attributes") or {}).items()}
+    changed = False
+    for f in cur["fields"]:
+        if not f["editable"] or f["name"] not in form:
+            continue
+        v = str(form[f["name"]]).strip()[:128]
+        if v == f["value"]:
+            continue
+        changed = True
+        if f["name"] in TOP_LEVEL:
+            rep[f["name"]] = v
+        else:
+            attrs[f["name"]] = [v] if v else []
+    if not changed:
+        return
+    rep["attributes"] = attrs
+    r = await http.post(cfg.account_url + "/", json=rep, headers={**_h(token), "Accept": "application/json"})
+    if r.status_code in (200, 204):
+        return
+    if r.status_code == 400:
+        try:
+            body = r.json()
+        except ValueError:
+            body = {}
+        errs = body.get("errors") if isinstance(body, dict) and isinstance(body.get("errors"), list) else [body] if isinstance(body, dict) else []
+        raise ProfileRejected([{"field": str(e.get("field") or ""), "message": str(e.get("errorMessage") or "invalid")} for e in errs if isinstance(e, dict)])
+    raise ServiceError(f"account: profile update answered {r.status_code}")

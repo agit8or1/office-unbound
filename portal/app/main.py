@@ -168,18 +168,35 @@ def create_app(cfg: Settings | None = None, transport: httpx.AsyncBaseTransport 
         return Response(devices.autoconfig_xml(cfg), media_type="application/xml",
                         headers={"Cache-Control": "public, max-age=3600"})
 
-    @app.get("/login")
-    async def login(request: Request, next: str = "/") -> Response:
+    async def start_flow(request: Request, next: str, kc_action: str | None = None) -> Response:
         verifier, challenge = new_pkce()
         nonce = secrets.token_urlsafe(24)
         st = store.new_flow(verifier, nonce, safe_next(next), request.client.host if request.client else "")
         try:
-            url = await state["oidc"].auth_url(st, nonce, challenge)
+            url = await state["oidc"].auth_url(st, nonce, challenge, kc_action)
         except (httpx.HTTPError, OIDCError):
             return render(request, "error.html", {"title": "Sign-in is unavailable", "text": "The sign-in service did not answer. Please try again in a minute."}, 503)
         resp = RedirectResponse(url, status_code=303)
         set_cookie(resp, FLOW_COOKIE, st, 600)               # binds the flow to THIS browser (login-CSRF protection)
         return resp
+
+    @app.get("/login")
+    async def login(request: Request, next: str = "/") -> Response:
+        return await start_flow(request, next)
+
+    # Change password / set up two-step verification: the sign-in service's own pages (it checks the current password and writes the directory),
+    # then straight back to the account page. Only these fixed actions; the user is asked to sign in again first if the session is old.
+    ACCOUNT_ACTIONS = {"password": ("UPDATE_PASSWORD", "password"), "two-step": ("CONFIGURE_TOTP", "two-step")}
+
+    @app.get("/account/{what}")
+    async def account_action(request: Request, what: str) -> Response:
+        if what not in ACCOUNT_ACTIONS:
+            return render(request, "error.html", {"title": "Not found", "text": "There is no such page."}, 404)
+        s = await current(request)
+        if not s:
+            return login_redirect(request)
+        action, flash = ACCOUNT_ACTIONS[what]
+        return await start_flow(request, f"/account?flash={flash}", action)
 
     @app.get("/auth/callback")
     async def callback(request: Request) -> Response:
@@ -200,7 +217,11 @@ def create_app(cfg: Settings | None = None, transport: httpx.AsyncBaseTransport 
             return fail("The sign-in service could not confirm your identity. Please try again.")
         s = store.create(claims=claims, id_token=tok["id_token"], access_token=tok["access_token"],
                          refresh_token=tok.get("refresh_token"), access_exp=time.time() + int(tok.get("expires_in", 300)))
-        resp = RedirectResponse(flow.next, status_code=303)
+        store.drop(request.cookies.get(COOKIE))              # an account action re-signs in: the new session replaces the old one
+        nxt = flow.next
+        if q.get("kc_action_status") and q["kc_action_status"] != "success" and nxt.startswith("/account?flash="):
+            nxt = "/account?flash=" + ("cancelled" if q["kc_action_status"] == "cancelled" else "failed")
+        resp = RedirectResponse(nxt, status_code=303)
         set_cookie(resp, COOKIE, s.sid, cfg.session_ttl)
         clear_cookie(resp, FLOW_COOKIE)
         return resp
@@ -259,7 +280,11 @@ def create_app(cfg: Settings | None = None, transport: httpx.AsyncBaseTransport 
         s = await current(request)
         if not s:
             return login_redirect(request)
-        notices, sessions, mfa = [], [], None
+        notices, sessions, mfa, profile = [], [], None, None
+        try:
+            profile = (await services.get_profile(cfg, state["http"], s.access_token))["fields"]
+        except (services.ServiceError, httpx.HTTPError, ValueError) as e:
+            log.warning("profile unavailable: %s", e)
         try:
             sessions = await services.account_sessions(cfg, state["http"], s.access_token)
             mfa = (await services.credential_summary(cfg, state["http"], s.access_token))["second_factor"]
@@ -267,15 +292,36 @@ def create_app(cfg: Settings | None = None, transport: httpx.AsyncBaseTransport 
             log.warning("account api unavailable: %s", e)
             notices.append("Your sign-in activity could not be loaded right now.")
         back = f"?referrer={cfg.client_id}&referrer_uri={cfg.base_url}/account"
-        links = {"password": cfg.account_url + "/account-security/signing-in" + back,
+        links = {"password": "/account/password", "two_step": "/account/two-step",
                  "mfa": cfg.account_url + "/account-security/signing-in" + back,
                  "activity": cfg.account_url + "/account-security/device-activity" + back,
                  "profile": cfg.account_url + "/" + back}
         c = s.claims
         roles = sorted(r for r in c.get("roles", []) if not r.startswith(("default-roles", "uma_", "offline_")))
-        return render(request, "account.html", {"claims": c, "roles": roles, "sessions": sessions[:8], "mfa": mfa, "links": links,
+        errors = request.query_params.get("err", "")
+        return render(request, "account.html", {"claims": c, "roles": roles, "sessions": sessions[:8], "mfa": mfa, "links": links, "profile": profile,
+                                                "editable": any(f["editable"] for f in profile or []),
+                                                "errors": [e for e in errors.split(",") if e in services.PROFILE_FIELDS],
                                                 "notices": notices, "current_sid": c.get("sid"), "total_sessions": len(sessions),
                                                 "flash": request.query_params.get("flash")}, sess=s)
+
+    @app.post("/account/profile")
+    async def save_profile(request: Request) -> Response:
+        s = await current(request)
+        if not s:
+            return login_redirect(request)
+        form = await request.form()
+        if not check_csrf(request, s, str(form.get("csrf", ""))):
+            return render(request, "error.html", {"title": "Request refused", "text": "Please reload the page and try again."}, 403, s)
+        try:
+            await services.update_profile(cfg, state["http"], s.access_token, {k: str(form.get(k, "")) for k in services.PROFILE_FIELDS if k in form})
+        except services.ProfileRejected as e:
+            bad = sorted({x["field"] for x in e.errors if x["field"] in services.PROFILE_FIELDS})
+            return RedirectResponse("/account?flash=invalid" + ("&err=" + ",".join(bad) if bad else "") + "#h-profile", status_code=303)
+        except (services.ServiceError, httpx.HTTPError):
+            return RedirectResponse("/account?flash=failed#h-profile", status_code=303)
+        # the names in this session's ID token are now stale: the header shows the new ones after the next sign-in; the page reads them fresh
+        return RedirectResponse("/account?flash=saved#h-profile", status_code=303)
 
     @app.post("/account/sessions/end-others")
     async def end_others(request: Request, csrf: str = Form("")) -> Response:

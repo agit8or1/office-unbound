@@ -28,7 +28,7 @@ REALM = "ou"
 LDAP_GROUPS = ("opencloudAdmin", "opencloudSpaceAdmin", "opencloudUser", "opencloudGuest", "mail-users", "org-admin")
 ORG_ADMIN_GROUP = "org-admin"  # LDAP group -> realm role (role-ldap-mapper): the portal's admin area
 KEYCLOAK_UID = "10130:10130"   # the non-root user of the Keycloak image (blueprints/build/oci/idfiles)
-SECRET_PARAM_KEYS = ("admin_password", "bind_password", "password", "value", "key_pem", "db_password", "client_secret", "ics_key")
+SECRET_PARAM_KEYS = ("admin_password", "bind_password", "writer_password", "password", "value", "key_pem", "db_password", "client_secret", "ics_key")
 CONFIGURED = ("identity", "edge", "files", "office", "groupware", "portal", "chat")   # components whose node-local state the engine creates today
 MAIL_GROUP = "mail-users"      # directory group whose members get a mailbox (cfg.ldap_init creates it; ou-admin is a member)
 OPENCLOUD_UID = "10140:10140"  # the non-root user of the OpenCloud image (blueprints/build/oci/idfiles)
@@ -366,8 +366,54 @@ def matrix_client(mas: str, secret_: str, provider_id: str) -> dict:
         "defaultClientScopes": ["web-origins", "profile", "basic", "email"], "optionalClientScopes": []}
 
 
+# What people may change about themselves (portal account page, Keycloak account API): user-profile attribute -> LDAP attribute. The directory
+# lets only the sign-in service's own account svc-idp write exactly these (agent cfghelper.LDAP_SELF_ATTRS, plus cn kept equal to the full
+# name); username and e-mail (= the mailbox) stay administrator-only.
+SELF_PROFILE = {"firstName": "givenName", "lastName": "sn", "displayName": "displayName", "phone": "telephoneNumber", "mobile": "mobile"}
+_NAME_VALIDATORS = {"length": {"max": 100}, "person-name-prohibited-characters": {}}
+
+
+def _profile_attr(name, display, ldap_required=False, validators=None, user_edit=True):
+    a = {"name": name, "displayName": display, "permissions": {"view": ["admin", "user"], "edit": ["admin", "user"] if user_edit else ["admin"]},
+         "validations": validators or {}, "multivalued": False}
+    if ldap_required:
+        a["required"] = {"roles": ["admin", "user"]}
+    return a
+
+
+def self_service_profile(r: dict, base: str, writer_password: str) -> None:
+    """Keycloak writes to the directory as svc-idp (password changes through the LDAP password-modify operation, so the directory hashes and
+    applies its password policy) and offers the declared profile: unmanaged attributes are off, nothing else can be set by a user."""
+    comps = r["components"]
+    ldap = comps["org.keycloak.storage.UserStorageProvider"][0]
+    cfg = ldap["config"]
+    cfg.update(editMode=["WRITABLE"], bindDn=[f"cn=svc-idp,ou=system,{base}"], bindCredential=[writer_password], usePasswordModifyExtendedOp=["true"],
+               validatePasswordPolicy=["false"], trustEmail=cfg.get("trustEmail", ["true"]))
+    mappers = ldap["subComponents"]["org.keycloak.storage.ldap.mappers.LDAPStorageMapper"]
+    for m in mappers:
+        if m["name"] in ("first name", "last name"):
+            m["config"]["read.only"] = ["false"]
+    for model, attr in (("displayName", "displayName"), ("phone", "telephoneNumber"), ("mobile", "mobile")):
+        mappers.append({"name": model, "providerId": "user-attribute-ldap-mapper", "subComponents": {},
+                        "config": {"ldap.attribute": [attr], "user.model.attribute": [model], "read.only": ["false"], "always.read.value.from.ldap": ["true"],
+                                   "is.mandatory.in.ldap": ["false"], "is.binary.attribute": ["false"]}})
+    mappers.append({"name": "full name to cn", "providerId": "full-name-ldap-mapper", "subComponents": {},
+                    "config": {"ldap.full.name.attribute": ["cn"], "read.only": ["false"], "write.only": ["true"]}})
+    phone = {"length": {"max": 32}, "pattern": {"pattern": "^[+0-9 ()./-]*$", "error-message": "Use digits, spaces and + ( ) - . / only."}}
+    prof = {"attributes": [
+        _profile_attr("username", "${username}", True, {"length": {"min": 1, "max": 255}}, user_edit=False),
+        _profile_attr("email", "${email}", False, {"email": {}, "length": {"max": 255}}, user_edit=False),
+        _profile_attr("firstName", "${firstName}", True, _NAME_VALIDATORS),
+        _profile_attr("lastName", "${lastName}", True, _NAME_VALIDATORS),
+        _profile_attr("displayName", "Display name", False, {"length": {"max": 128}}),
+        _profile_attr("phone", "Phone", False, phone),
+        _profile_attr("mobile", "Mobile", False, phone)], "groups": []}   # no unmanagedAttributePolicy: unmanaged attributes stay disabled
+    comps["org.keycloak.userprofile.UserProfileProvider"] = [{"providerId": "declarative-user-profile", "subComponents": {},
+                                                              "config": {"kc.user.profile.config": [json.dumps(prof)]}}]
+
+
 def realm_json(domain: str, bind_password: str, auth: str | None = None, files: str | None = None, clients: list[dict] | None = None,
-               signing_key: str | None = None, frame_ancestors: list[str] | None = None) -> str:
+               signing_key: str | None = None, frame_ancestors: list[str] | None = None, writer_password: str | None = None) -> str:
     base = ",".join(f"dc={x}" for x in domain.split("."))
     raw = (catalog_dir() / "templates" / "identity" / "realm.json").read_text()
     auth, files = auth or f"auth.{domain}", files or f"cloud.{domain}"
@@ -383,6 +429,8 @@ def realm_json(domain: str, bind_password: str, auth: str | None = None, files: 
         return v
     r = walk(json.loads(raw))
     r["clients"] = [*r["clients"], *(clients or [])]
+    if writer_password:
+        self_service_profile(r, base, writer_password)
     if frame_ancestors:
         # Keycloak's default allows framing by itself only; a CSP frame-ancestors list replaces X-Frame-Options (empty = header not sent)
         r["browserSecurityHeaders"] = {**r.get("browserSecurityHeaders", {}), "xFrameOptions": "",
@@ -431,14 +479,17 @@ def identity_runbooks(ctx, vm: str) -> list[dict]:
         clients.append(matrix_client(fq(ctx.plan, t, "mas"), _sec(ctx, t, "matrix-client-secret"), mas_provider_id(ctx.rt, ctx.deployment_id, t)))
         # chat signs in inside the portal's chat bubble: the sign-in pages may be framed by the chat and portal names only
         frame = [f"https://{fq(ctx.plan, t, 'chat')}", f"https://{fq(ctx.plan, t, 'mas')}"] + ([portal_url(ctx.plan, t).rstrip("/")] if portal_url(ctx.plan, t) else [])
+    # the identity VM's agent creates the sign-in service's writer account (feature "writer"); an older agent keeps the directory read-only
+    writer_pw = _sec(ctx, t, "ldap-writer-password") if "writer" in agent_features(ctx, vm, "cfg.ldap_init") else None
     realm = realm_json(domain, bind_pw, fq(ctx.plan, t, "auth"), fq(ctx.plan, t, "cloud"), clients, realm_key(ctx.rt, ctx.deployment_id, t),
-                       frame_ancestors=frame)
+                       frame_ancestors=frame, writer_password=writer_pw)
     return [
         {"runbook": "cfg.hosts", "params": {"entries": hosts_entries(ctx, names)}},
         firewall_runbook(ctx, vm),
         _tls(ctx, vm),
         {"runbook": "cfg.ldap_init", "params": {"domain": domain, "organization": "Office Unbound", "admin_password": _sec(ctx, t, "ldap-admin-password"),
-                                                "bind_password": bind_pw, "tls_name": "deployment", "groups": list(LDAP_GROUPS)}},
+                                                "bind_password": bind_pw, "tls_name": "deployment", "groups": list(LDAP_GROUPS),
+                                                **({"writer_password": writer_pw} if writer_pw else {})}},
         # ou-admin is the only OpenCloud Admin (hidden built-in account, recovery through the Graph API); the web UI has no admin-settings app
         {"runbook": "cfg.ldap_user", "params": {"domain": domain, "uid": "ou-admin", "given_name": "Office Unbound", "surname": "Administrator",
                                                 "mail": f"ou-admin@{domain}", "password": _sec(ctx, t, "admin-password"),

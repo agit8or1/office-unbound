@@ -47,7 +47,7 @@ BIN = {"openssl": "/usr/bin/openssl", "certbot": "/usr/bin/certbot", "update-ca"
        "mkpublic": "/usr/sbin/gromox-mkpublic", "usermod": "/usr/sbin/usermod", "groupadd": "/usr/sbin/groupadd", "getent": "/usr/bin/getent",
        "chown": "/usr/bin/chown", "phpenmod": "/usr/sbin/phpenmod"}
 ROOT_ENV = {"PATH": "/usr/bin:/bin:/usr/sbin:/sbin", "LANG": "C", "DEBIAN_FRONTEND": "noninteractive"}
-SECRET_KEYS = ("admin_password", "bind_password", "password", "value", "key_pem", "db_password", "client_secret")
+SECRET_KEYS = ("admin_password", "bind_password", "writer_password", "password", "value", "key_pem", "db_password", "client_secret")
 
 
 class Failed(Exception):
@@ -191,6 +191,10 @@ def _debconf_clear(x):
                                                                               "slapd/password1", "slapd/password2")), what="debconf-set-selections")
 
 
+# what a person may change about themselves through the sign-in service (portal account page); mail and uid are never in it
+LDAP_SELF_ATTRS = ("givenName", "sn", "cn", "displayName", "telephoneNumber", "mobile")
+
+
 def ldap_init(p, x):
     if x.run([BIN["dpkg-query"], "-W", "-f=${Status}", "slapd"], check=False).stdout.strip() != "install ok installed":
         raise Failed("slapd is not installed (pkg.install_pinned must run first)")
@@ -242,11 +246,16 @@ def ldap_init(p, x):
                  f"dn: olcOverlay=ppolicy,{db}\nobjectClass: olcOverlayConfig\nobjectClass: olcPPolicyConfig\nolcOverlay: ppolicy\n"
                  f"olcPPolicyDefault: cn=default,ou=policies,{base}\nolcPPolicyHashCleartext: TRUE\nolcPPolicyUseLockout: TRUE\n", "overlays", add=True)
     root = "gidNumber=0+uidNumber=0,cn=peercred,cn=external,cn=auth"
+    writer_dn = f"cn=svc-idp,ou=system,{base}"
+    # svc-idp (the sign-in service, Keycloak in WRITABLE mode) sets passwords (=w: never reads a hash) and the self-editable profile attributes of
+    # people only; svc-bind (shared by files, mail and sign-in) keeps read-only access. Without a writer password the entry does not exist.
     ldapi(x, f"dn: {db}\nchangetype: modify\nreplace: olcAccess\n"
              f"olcAccess: {{0}}to * by dn.exact=\"{root}\" manage by * break\n"
-             f"olcAccess: {{1}}to attrs=userPassword by self write by anonymous auth by * none\n"
-             f"olcAccess: {{2}}to attrs=pwdAccountLockedTime,pwdFailureTime,pwdChangedTime,pwdHistory by dn.exact=\"{bind_dn}\" read by * none\n"
-             f"olcAccess: {{3}}to * by dn.exact=\"{bind_dn}\" read by self read by * none\n-\n"
+             f"olcAccess: {{1}}to dn.subtree=\"ou=people,{base}\" attrs=userPassword by self write by dn.exact=\"{writer_dn}\" =w by anonymous auth by * none\n"
+             f"olcAccess: {{2}}to attrs=userPassword by self write by anonymous auth by * none\n"
+             f"olcAccess: {{3}}to attrs=pwdAccountLockedTime,pwdFailureTime,pwdChangedTime,pwdHistory by dn.exact=\"{bind_dn}\" read by dn.exact=\"{writer_dn}\" read by * none\n"
+             f"olcAccess: {{4}}to dn.subtree=\"ou=people,{base}\" attrs={','.join(LDAP_SELF_ATTRS)} by dn.exact=\"{writer_dn}\" write by dn.exact=\"{bind_dn}\" read by self read by * none\n"
+             f"olcAccess: {{5}}to * by dn.exact=\"{bind_dn}\" read by dn.exact=\"{writer_dn}\" read by self read by * none\n-\n"
              "replace: olcDbIndex\nolcDbIndex: objectClass eq\nolcDbIndex: cn,uid,mail eq,sub\nolcDbIndex: member,memberOf eq\n"
              "olcDbIndex: entryUUID,entryCSN eq\n", "access rules")
     entries = [(f"ou={o},{base}", f"objectClass: organizationalUnit\nou: {o}\n") for o in ("people", "groups", "system", "policies")]
@@ -259,6 +268,12 @@ def ldap_init(p, x):
             ldapi(x, f"dn: {dn}\n{body}", f"add {dn.split(',')[0]}", add=True)
             created.append(dn.split(",")[0])
     ldapi(x, f"dn: {bind_dn}\nchangetype: modify\nreplace: userPassword\nuserPassword: {ssha(p['bind_password'])}\n", "bind password")
+    if p.get("writer_password"):
+        if not exists(x, writer_dn):
+            ldapi(x, f"dn: {writer_dn}\nobjectClass: organizationalRole\nobjectClass: simpleSecurityObject\ncn: svc-idp\n"
+                     f"userPassword: {ssha(p['writer_password'])}\n", "add cn=svc-idp", add=True)
+            created.append("cn=svc-idp")
+        ldapi(x, f"dn: {writer_dn}\nchangetype: modify\nreplace: userPassword\nuserPassword: {ssha(p['writer_password'])}\n", "writer password")
     return {"suffix": base, "reconfigured": reconfigured, "created": created}
 
 
