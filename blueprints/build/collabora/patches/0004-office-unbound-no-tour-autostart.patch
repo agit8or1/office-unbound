@@ -1,0 +1,14 @@
+Office Unbound: the onboarding tour never starts by itself; Help > tour (actionsMap.onboardingtour -> start()) still opens it.
+Owner report 2026-11-23: inside OpenCloud's frame the tour opened on every document (the "seen" preference was not kept).
+--- a/browser/src/control/onboarding/Control.OnboardingTour.ts
++++ b/browser/src/control/onboarding/Control.OnboardingTour.ts
+@@ -165,7 +165,8 @@
+ 		// through.
+ 		if (app.isReadOnly()) return;
+ 
+-		if (app.map.uiManager.getBooleanDocTypePref('onboardingTourSeen', false))
++		// Office Unbound: no automatic tour; an unset preference counts as seen
++		if (app.map.uiManager.getBooleanDocTypePref('onboardingTourSeen', true))
+ 			return;
+ 
+ 		// The sidebar attaches its content in a layouting task of its own. This task runs

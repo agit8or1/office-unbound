@@ -26,6 +26,7 @@ stage:
     - patches/0001-office-unbound-branding-and-engine-distro.patch
     - patches/0002-office-unbound-config-defaults.patch
     - patches/0003-office-unbound-help-url-and-strings.patch
+    - patches/0004-office-unbound-no-tour-autostart.patch
 target: {distro: ubuntu-24.04, arch: amd64}   # NOT installable on Debian 12 (libs are noble); the repo channel is shared, install only on noble nodes
 packages: [ou-docs]
 licenses: []                                # mixed (MPL-2.0 core, hundreds of engine/external tarballs): see sbom/engine-external-tarballs.txt and the SBOM
