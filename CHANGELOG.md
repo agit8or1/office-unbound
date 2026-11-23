@@ -593,6 +593,7 @@ editing, chat/meetings, telephony prototype, migration tooling and package pipel
 - `SECURITY.md` (private reporting) and `CONTRIBUTING.md` (DCO sign-off) added; AGPL-3.0 license. [SECURITY](SECURITY.md)
 
 [Unreleased]: https://github.com/agit8or1/office-unbound/compare/v0.4.7...HEAD
+[0.12.0]: https://github.com/agit8or1/office-unbound/compare/v0.11.0...v0.12.0
 [0.11.0]: https://github.com/agit8or1/office-unbound/compare/v0.10.0...v0.11.0
 [0.10.0]: https://github.com/agit8or1/office-unbound/compare/v0.9.4...v0.10.0
 [0.9.4]: https://github.com/agit8or1/office-unbound/compare/v0.9.3...v0.9.4
