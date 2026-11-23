@@ -27,6 +27,10 @@ reset password, etc").
   mail and sign-in stays read-only. Deployments built before this agent keep a read-only directory; their account page shows the profile
   without a form and points to the administrator for password changes.
 
+- **Chat opens signed in** when you are signed in to the portal: Element goes straight to sign-in (`sso_redirect_options.immediate`), the
+  chat sign-in service forwards to the portal's Keycloak session, and the first visit no longer asks to confirm a new chat account
+  (`claims_imports.skip_confirmation`).
+
 ### Fixed
 - The account page's "Change your password" link opened a page that could not save a password (the directory was read-only to the sign-in
   service).

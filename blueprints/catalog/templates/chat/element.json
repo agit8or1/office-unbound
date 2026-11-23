@@ -2,6 +2,7 @@
   "default_server_config": {"m.homeserver": {"base_url": "https://@MATRIX_HOST@", "server_name": "@SERVER_NAME@"}},
   "disable_custom_urls": true,
   "disable_guests": true,
+  "sso_redirect_options": {"immediate": true},
   "disable_3pid_login": true,
   "brand": "Office Unbound Chat",
   "show_labs_settings": false,

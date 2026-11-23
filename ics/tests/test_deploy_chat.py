@@ -67,12 +67,14 @@ def test_chat_is_configured_like_the_lab_proved_it(ctx):
     assert re.fullmatch(r"[0-7][0-9A-HJKMNP-TV-Z]{25}", prov["id"])
     assert prov["issuer"] == f"https://auth.{DOMAIN}/realms/{configure.REALM}" and prov["client_id"] == configure.MATRIX_CLIENT
     assert prov["on_backchannel_logout"] == "logout_all" and prov["pkce_method"] == "always"
+    assert prov["claims_imports"]["skip_confirmation"] is True and prov["claims_imports"]["localpart"]["action"] == "require"
     assert "telemetry" not in mas and "sentry" not in _files(rbs, "masconfig")["config.yaml"]["content"]
     assert "BEGIN CERTIFICATE" in _files(rbs, "masconfig")["trust.crt"]["content"]
     front = _files(rbs, "front")["nginx.conf"]["content"]
     assert f"server_name matrix.{DOMAIN};" in front and f"server_name mas.{DOMAIN};" in front and "location /api/admin/ { return 403; }" in front
     el = json.loads(_files(rbs, "front")["config.json"]["content"])
     assert el["default_server_config"]["m.homeserver"]["base_url"] == f"https://matrix.{DOMAIN}" and el["disable_guests"] is True
+    assert el["sso_redirect_options"] == {"immediate": True}          # no "Sign in" click: straight through MAS to the portal's Keycloak session
     sites = {r["params"]["server_names"][0]: r["params"]["upstream"] for r in rbs if r["runbook"] == "cfg.nginx_site"}
     assert sites == {f"{h}.{DOMAIN}": "http://127.0.0.1:8070" for h in ("chat", "matrix", "mas")}
     assert not re.search(r"@[A-Z_]+@", front + json.dumps(hs) + json.dumps(mas))       # every template placeholder filled
