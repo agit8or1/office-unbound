@@ -78,6 +78,13 @@ Upstream specifics that needed matching selectors (found with a rule probe on of
 Not changed: the reading pane's content, message compose, the settings pages and dialogs (upstream defaults with the shared tokens);
 Files keeps its stage-1 skin (its colours come from the token-derived `theme.json` roles).
 
+## Sign-in page (Keycloak theme)
+
+The fields sit on the suite's raised surface with the shared line colour; focus underline in the action teal (PatternFly's dark grey
+`#353535` field and blue underline before). Through PatternFly's own `--pf-v5-c-form-control--*` properties in the theme's stylesheet
+(`keycloak-login.css`, `keycloak-account.css`), nothing else changed. Evidence: `docs/screenshots/signin-v5/` (live sign-in page,
+1440 and 390 wide, light and dark; `after-*` with the new stylesheet added in the browser only, so its logo URL does not resolve there).
+
 ## Evidence
 
 Screenshots (local preview of the real portal app against the test suite's mocks): `docs/screenshots/portal-v5/` (`before-*` =
