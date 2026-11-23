@@ -5,7 +5,8 @@
    each app's skin from them through that app's own theming hook; the "components" part is copied verbatim into every skin; fonts/ holds the
    self-hosted IBM Plex Sans/Mono (SIL OFL 1.1, fonts/OFL.txt). Organisation branding (portal admin: accent colour, logo) arrives at run time
    from https://<portal>/brand/org.css as --ou-org-* properties; --ou-a / --ou-a-soft / --ou-logo pick it up when it is set (the organisation
-   accent replaces the copper). */
+   accent replaces the copper). Surfaces stack bar -> bg (canvas) -> side -> surface (cards) -> raised (hover/menus), each a visible step in
+   dark mode too; --ou-action (muted teal) is for primary actions and selected states, --ou-app-* give every app its own restrained colour. */
 :root {
   --ou-bg: #f7f5f0;
   --ou-bg2: #efebe3;
@@ -34,6 +35,17 @@
   --ou-bar-line: #33475f;
   --ou-bar-text: #e7ecf2;
   --ou-bar-muted: #9daabb;
+  --ou-raised: #fbfaf7;
+  --ou-action: #2d6a68;
+  --ou-action-ink: #ffffff;
+  --ou-app-mail: #2f5f98;
+  --ou-app-calendar: #2d6a68;
+  --ou-app-contacts: #6a4c93;
+  --ou-app-files: #a9481f;
+  --ou-app-doc: #2f5f98;
+  --ou-app-sheet: #2f6e47;
+  --ou-app-slide: #a35a12;
+  --ou-app-chat: #3d6b8a;
   --ou-shadow: 0 1px 2px rgba(20,36,58,.06);
   --ou-shadow-lg: 0 8px 24px rgba(20,36,58,.16);
   --ou-radius: 4px;
@@ -44,35 +56,89 @@
   --ou-mono: "Plex Mono", ui-monospace, "SFMono-Regular", Menlo, Consolas, monospace;
 }
 @media (prefers-color-scheme: dark) {
-  :root {
-    --ou-bg: #0f1926;
-    --ou-bg2: #132034;
-    --ou-side: #132034;
-    --ou-surface: #18263a;
-    --ou-ink: #f1f4f8;
-    --ou-text: #d6dde6;
-    --ou-muted: #9daabb;
-    --ou-line: #26364c;
-    --ou-line-2: #34475f;
-    --ou-sel: #263c58;
+  :root:not([data-theme="light"]) {
+    --ou-bg: #0e151f;
+    --ou-bg2: #151f2c;
+    --ou-side: #121a26;
+    --ou-surface: #1a2534;
+    --ou-raised: #212e40;
+    --ou-ink: #f2f5f9;
+    --ou-text: #d3dbe5;
+    --ou-muted: #9aa8b9;
+    --ou-line: #2a384b;
+    --ou-line-2: #3b4b61;
+    --ou-sel: #1f3d4a;
     --ou-navy: #9fb8d6;
-    --ou-accent: #e8956c;
-    --ou-accent-ink: #0f1926;
-    --ou-accent-soft: #3a2a25;
-    --ou-teal: #66b0ab;
-    --ou-teal-soft: #1c3a3d;
+    --ou-accent: #ec9a70;
+    --ou-accent-ink: #0e151f;
+    --ou-accent-soft: #3b2a22;
+    --ou-teal: #6cb8b2;
+    --ou-teal-soft: #173537;
+    --ou-action: #6cb8b2;
+    --ou-action-ink: #0e151f;
     --ou-ok: #7cc191;
     --ou-ok-bg: #1d3528;
     --ou-warn: #e2b567;
     --ou-warn-bg: #3a2f1a;
     --ou-bad: #ee8f80;
     --ou-bad-bg: #432421;
-    --ou-bar-bg: #0b1420;
-    --ou-bar-2: #1b2a3e;
-    --ou-bar-line: #2b3d55;
-    --ou-shadow: 0 1px 2px rgba(0,0,0,.4);
-    --ou-shadow-lg: 0 8px 24px rgba(0,0,0,.5);
+    --ou-bar-bg: #080d14;
+    --ou-bar-2: #18222f;
+    --ou-bar-line: #283445;
+    --ou-bar-muted: #a3afbf;
+    --ou-app-mail: #7fa8dc;
+    --ou-app-calendar: #6cb8b2;
+    --ou-app-contacts: #b49ad8;
+    --ou-app-files: #ec9a70;
+    --ou-app-doc: #7fa8dc;
+    --ou-app-sheet: #7cc191;
+    --ou-app-slide: #e2a867;
+    --ou-app-chat: #86b4d4;
+    --ou-shadow: 0 1px 2px rgba(0,0,0,.45);
+    --ou-shadow-lg: 0 10px 28px rgba(0,0,0,.55);
   }
+}
+/* an explicit choice (portal Appearance: data-theme on <html>) wins over the system setting, both ways */
+:root[data-theme="dark"] {
+  --ou-bg: #0e151f;
+  --ou-bg2: #151f2c;
+  --ou-side: #121a26;
+  --ou-surface: #1a2534;
+  --ou-raised: #212e40;
+  --ou-ink: #f2f5f9;
+  --ou-text: #d3dbe5;
+  --ou-muted: #9aa8b9;
+  --ou-line: #2a384b;
+  --ou-line-2: #3b4b61;
+  --ou-sel: #1f3d4a;
+  --ou-navy: #9fb8d6;
+  --ou-accent: #ec9a70;
+  --ou-accent-ink: #0e151f;
+  --ou-accent-soft: #3b2a22;
+  --ou-teal: #6cb8b2;
+  --ou-teal-soft: #173537;
+  --ou-action: #6cb8b2;
+  --ou-action-ink: #0e151f;
+  --ou-ok: #7cc191;
+  --ou-ok-bg: #1d3528;
+  --ou-warn: #e2b567;
+  --ou-warn-bg: #3a2f1a;
+  --ou-bad: #ee8f80;
+  --ou-bad-bg: #432421;
+  --ou-bar-bg: #080d14;
+  --ou-bar-2: #18222f;
+  --ou-bar-line: #283445;
+  --ou-bar-muted: #a3afbf;
+  --ou-app-mail: #7fa8dc;
+  --ou-app-calendar: #6cb8b2;
+  --ou-app-contacts: #b49ad8;
+  --ou-app-files: #ec9a70;
+  --ou-app-doc: #7fa8dc;
+  --ou-app-sheet: #7cc191;
+  --ou-app-slide: #e2a867;
+  --ou-app-chat: #86b4d4;
+  --ou-shadow: 0 1px 2px rgba(0,0,0,.45);
+  --ou-shadow-lg: 0 10px 28px rgba(0,0,0,.55);
 }
 /* components */
 /* "Dashboard": the way back to the portal, the same control in every app's navy top bar (OpenCloud, webmail; Keycloak links its logo). */

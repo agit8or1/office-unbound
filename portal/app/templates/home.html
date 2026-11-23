@@ -1,58 +1,123 @@
 {% extends "base.html" %}
 {% from "_icons.html" import icon %}
-{% block title %}Home · {{ brand.name }}{% endblock %}
+{% block title %}Dashboard · {{ brand.name }}{% endblock %}
+{% block mainclass %}wrap wide{% endblock %}
+{% macro fileicon(kind) -%}
+<span class="ficon k-{{ kind }}">{{ icon({'document': 'document', 'spreadsheet': 'spreadsheet', 'presentation': 'presentation', 'folder': 'folder', 'pdf': 'pdf', 'image': 'image'}.get(kind, 'file')) }}</span>
+{%- endmacro %}
+{% macro filerows(items, empty_title, empty_text, who=false) -%}
+  {% if items is none %}
+  <div class="wempty"><p class="et">Not available right now</p><p>Files did not answer. Files itself may still work.</p><a class="btn" href="{{ cfg.files_url }}/">Open Files</a></div>
+  {% elif items %}
+  <ul class="flist">
+    {% for f in items %}
+    <li><a class="frow" href="{{ f.url }}" data-file="{{ f.name }}">{{ fileicon(f.kind) }}<span class="fname">{{ f.name }}</span>
+      <span class="fmeta">{% if who and f.by %}{{ f.by }} · {% endif %}<time datetime="{{ f.mtime.isoformat() }}">{{ f.mtime | ago }}</time>{% if f.size %} · {{ f.size | size }}{% endif %}</span></a></li>
+    {% endfor %}
+  </ul>
+  {% else %}
+  <div class="wempty"><p class="et">{{ empty_title }}</p><p>{{ empty_text }}</p></div>
+  {% endif %}
+{%- endmacro %}
 {% block main %}
-<h1 class="greet">Hello, {{ user.first }}</h1>
-<p class="sub">What would you like to do today?</p>
+{% set apps = brand.apps %}
+{% set has_mail = apps is none or apps.get("mail", true) %}
+{% set has_files = apps is none or apps.get("files", true) %}
+{% set hidden = prefs.hidden %}
+
+<section class="welcome" aria-labelledby="h-hello">
+  <div>
+    <p class="date"><time>{{ today }}</time></p>
+    <h1 id="h-hello" class="greet">Hello, {{ user.first }}</h1>
+  </div>
+  <div class="welcome-actions">
+    {% if has_mail %}<a class="btn primary" href="{{ cfg.mail_compose_url() }}">{{ icon('compose') }}<span>New email</span></a>{% endif %}
+    {% if has_files %}
+    <form method="post" action="/new/document"><input type="hidden" name="csrf" value="{{ sess.csrf }}"><button class="btn" type="submit" data-new="document">{{ icon('document') }}<span>New document</span></button></form>
+    {% endif %}
+    <details class="menu custom">
+      <summary class="btn ghost">{{ icon('sliders') }}<span>Customise</span></summary>
+      <form class="menu-panel" method="post" action="/prefs">
+        <input type="hidden" name="csrf" value="{{ sess.csrf }}"><input type="hidden" name="next" value="/"><input type="hidden" name="widgets_form" value="1">
+        <fieldset><legend>Show on the dashboard</legend>
+        {% for k, label in widgets.items() %}
+        <label class="check"><input type="checkbox" name="show" value="{{ k }}" {% if k not in hidden %}checked{% endif %}><span>{{ label }}</span></label>
+        {% endfor %}
+        </fieldset>
+        <button class="btn primary" type="submit">Save</button>
+      </form>
+    </details>
+  </div>
+</section>
 
 {% for n in notices %}<p class="notice" role="status">{{ n }}</p>{% endfor %}
 
 <section aria-labelledby="h-apps">
   <h2 id="h-apps" class="sr">Your apps</h2>
-  <ul class="tiles">
-    {% set apps = brand.apps %}
-    {% if apps is none or apps.get("mail", true) %}
-    <li><a class="tile" href="{{ cfg.mail_web_url }}" data-app="mail">{{ icon('mail') }}<span class="t">Mail</span><span class="d">Read and send messages</span></a></li>
-    <li><a class="tile" href="{{ cfg.mail_view_url('calendar') }}" data-app="calendar">{{ icon('calendar') }}<span class="t">Calendar</span><span class="d">Meetings and events</span></a></li>
-    <li><a class="tile" href="{{ cfg.mail_view_url('contacts') }}" data-app="contacts">{{ icon('contacts') }}<span class="t">Contacts</span><span class="d">People and address books</span></a></li>
+  <ul class="apptiles">
+    {% if has_mail %}
+    <li><a class="apptile" href="{{ cfg.mail_web_url }}" data-app="mail">{{ icon('mail') }}<span class="t">Mail</span><span class="d">Inbox and messages</span></a></li>
+    <li><a class="apptile" href="{{ cfg.mail_view_url('calendar') }}" data-app="calendar">{{ icon('calendar') }}<span class="t">Calendar</span><span class="d">Meetings and events</span></a></li>
+    <li><a class="apptile" href="{{ cfg.mail_view_url('contacts') }}" data-app="contacts">{{ icon('contacts') }}<span class="t">Contacts</span><span class="d">People and address books</span></a></li>
     {% endif %}
-    {% if apps is none or apps.get("files", true) %}
-    <li><a class="tile" href="{{ cfg.files_url }}/" data-app="files">{{ icon('files') }}<span class="t">Files</span><span class="d">Your documents, anywhere</span></a></li>
-    {% endif %}
+    {% if has_files %}<li><a class="apptile" href="{{ cfg.files_url }}/" data-app="files">{{ icon('files') }}<span class="t">Files</span><span class="d">Documents, anywhere</span></a></li>{% endif %}
+    {% if chat %}<li><a class="apptile" href="{{ cfg.chat_url }}/" data-app="chat">{{ icon('chat') }}<span class="t">Chat</span><span class="d">Conversations and rooms</span></a></li>{% endif %}
   </ul>
 </section>
 
-<section aria-labelledby="h-new">
-  <h2 id="h-new">Start something new</h2>
-  <ul class="newrow">
-    {% for k in kinds %}
-    <li>
-      <form method="post" action="/new/{{ k }}">
-        <input type="hidden" name="csrf" value="{{ sess.csrf }}">
-        <button class="btn newbtn" type="submit" data-new="{{ k }}">{{ icon(k) }}<span>New {{ k }}</span></button>
-      </form>
-    </li>
-    {% endfor %}
-  </ul>
-  <p class="hint">Opens in the online editor. It is saved to your files automatically. Prefer desktop software? <a href="/devices#office-apps">Choose how you work</a>.</p>
-</section>
-
-<section aria-labelledby="h-recent">
-  <h2 id="h-recent">Recent files</h2>
-  {% if recent %}
-  <ul class="recent">
-    {% for f in recent %}
-    <li>
-      <a class="row" href="{{ f.url }}" data-file="{{ f.name }}">
-        <span class="ficon">{{ icon('file') }}</span>
-        <span class="fname">{{ f.name }}</span>
-        <span class="fmeta"><time datetime="{{ f.mtime.isoformat() }}">{{ f.mtime | ago }}</time>{% if f.size %} · {{ f.size | size }}{% endif %}</span>
-      </a>
-    </li>
-    {% endfor %}
-  </ul>
-  {% elif not notices %}
-  <p class="empty">Nothing here yet. Files you open or change will show up here.</p>
+<div class="board">
+  {% if has_mail and "inbox" not in hidden %}
+  <section class="widget w-inbox" aria-labelledby="h-inbox">
+    <header class="wh"><h2 id="h-inbox">{{ icon('mail') }}Inbox</h2><a class="wlink" href="{{ cfg.mail_web_url }}">Open Mail</a></header>
+    <div class="wempty">
+      <p class="et">Your messages are in Mail</p>
+      <p>Read, reply and organise your email in the Mail app. Message previews on the dashboard are not available yet.</p>
+      <div class="row2"><a class="btn primary" href="{{ cfg.mail_compose_url() }}">{{ icon('compose') }}<span>Compose</span></a><a class="btn" href="{{ cfg.mail_web_url }}">Go to inbox</a></div>
+    </div>
+  </section>
   {% endif %}
-</section>
+
+  {% if has_mail and "calendar" not in hidden %}
+  <section class="widget w-cal" aria-labelledby="h-cal">
+    <header class="wh"><h2 id="h-cal">{{ icon('calendar') }}This week</h2><a class="wlink" href="{{ cfg.mail_view_url('calendar') }}">Open Calendar</a></header>
+    <ol class="week" aria-label="The next seven days">
+      {% for d in week %}<li{% if d.today %} class="today" aria-current="date"{% endif %}><span class="wd">{{ d.wd }}</span><span class="dn">{{ d.day }}</span></li>{% endfor %}
+    </ol>
+    <div class="wempty compact">
+      <p>Your meetings and events are in Calendar. An agenda on the dashboard is not available yet.</p>
+      <div class="row2"><a class="btn primary" href="{{ cfg.mail_view_url('calendar') }}">{{ icon('event') }}<span>New event</span></a></div>
+    </div>
+  </section>
+  {% endif %}
+
+  {% if has_files and "create" not in hidden %}
+  <section class="widget w-create" aria-labelledby="h-create">
+    <header class="wh"><h2 id="h-create">{{ icon('plus') }}Quick create</h2></header>
+    <ul class="qc">
+      {% for k in kinds %}
+      <li><form method="post" action="/new/{{ k }}"><input type="hidden" name="csrf" value="{{ sess.csrf }}">
+        <button class="qcb k-{{ k }}" type="submit" data-new="{{ k }}">{{ icon(k) }}<span>{{ {'document': 'Document', 'spreadsheet': 'Spreadsheet', 'presentation': 'Presentation'}[k] }}</span></button></form></li>
+      {% endfor %}
+      {% if has_mail %}<li><a class="qcb k-mail" href="{{ cfg.mail_compose_url() }}">{{ icon('compose') }}<span>Email</span></a></li>
+      <li><a class="qcb k-event" href="{{ cfg.mail_view_url('calendar') }}">{{ icon('event') }}<span>Meeting</span></a></li>{% endif %}
+      <li><a class="qcb k-folder" href="{{ cfg.files_url }}/">{{ icon('folder') }}<span>Folder</span></a></li>
+    </ul>
+    <p class="hint">Documents open in the online editor and are saved to your files. Prefer desktop software? <a href="/devices#office-apps">Choose how you work</a>.</p>
+  </section>
+  {% endif %}
+
+  {% if has_files and "recent" not in hidden %}
+  <section class="widget w-recent" aria-labelledby="h-recent">
+    <header class="wh"><h2 id="h-recent">{{ icon('clock') }}Recent files</h2><a class="wlink" href="{{ cfg.files_url }}/">All files</a></header>
+    {{ filerows(recent, "Nothing here yet", "Files you create or change show up here.") }}
+  </section>
+  {% endif %}
+
+  {% if has_files and "shared" not in hidden %}
+  <section class="widget w-shared" aria-labelledby="h-shared">
+    <header class="wh"><h2 id="h-shared">{{ icon('share') }}Shared with me</h2><a class="wlink" href="{{ cfg.files_url }}/files/shares/with-me">All shares</a></header>
+    {{ filerows(shared, "Nothing shared with you yet", "When someone shares a file or folder with you, it appears here.", who=true) }}
+  </section>
+  {% endif %}
+</div>
 {% endblock %}

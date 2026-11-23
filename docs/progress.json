@@ -984,6 +984,15 @@
             "docs/user/office-applications.md"
           ],
           "note": "Portal 0.4.0; not yet on a deployment. Website copy prepared for the owner (docs/roadmap/website-office-apps-proposal.md)."
+        },
+        {
+          "id": "P3.7",
+          "title": "Suite redesign: shared app shell, useful dashboard, layered light/dark themes with a user switch, then mail, calendar, contacts and files restyled through their supported theming hooks (owner brief 2026-11-23)",
+          "status": "implementing",
+          "evidence": [
+            "docs/design/design-system.md",
+            "docs/screenshots/portal-v5"
+          ]
         }
       ]
     },

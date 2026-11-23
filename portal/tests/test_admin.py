@@ -159,7 +159,7 @@ def test_not_offered_without_ics_config_and_to_non_admins():
 def test_admin_pages_render_and_forward_both_proofs(env):
     c, m, _ = env
     signin(c, m)
-    assert ">Admin<" in c.get("/").text
+    assert ">Organisation admin<" in c.get("/").text
     for path, needle in (("/admin", "Acme Brothers Ltd"), ("/admin/users", "Anna Meyer"), ("/admin/users/anna", "Anna Meyer"), ("/admin/users/new", "Invite someone"),
                          ("/admin/groups", "Groups"), ("/admin/domains", "Check my DNS now"), ("/admin/domains?check=1", "Missing"), ("/admin/branding", "Look and feel"),
                          ("/admin/requests", "Delete Olga"), ("/admin/requests/11111111-1111-1111-1111-111111111111", "Done")):

@@ -76,6 +76,10 @@ class Settings:
             raise ValueError("unknown view")
         return self.mail_web_url if view == "mail" else f"{self.mail_web_url}?action=context&view={view}"
 
+    def mail_compose_url(self) -> str:
+        """grommunio-web opens a new message for ?action=mailto (server/includes/util.php); an empty `to` gives an empty draft."""
+        return f"{self.mail_web_url}?action=mailto&to="
+
 
 def _chat_url(v: str | None, domain: str) -> str:
     if v is not None and v.strip().lower() == "off":

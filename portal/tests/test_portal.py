@@ -79,7 +79,14 @@ class Mock:
         if u == FILES + "/graph/v1.0/me/drive":
             return httpx.Response(200, json={"id": "s$a", "driveAlias": "personal/bob", "root": {"id": "s$a!root"}})
         if req.method == "REPORT":
+            self.report_bodies = getattr(self, "report_bodies", []) + [req.content.decode()]
             return httpx.Response(207, content=REPORT)
+        if u == FILES + "/graph/v1beta1/me/drive/sharedWithMe":
+            return httpx.Response(200, json={"value": [
+                {"name": "Budget 2027.xlsx", "lastModifiedDateTime": "2026-11-20T09:00:00Z",
+                 "remoteItem": {"id": "s$b!7", "shared": {"sharedBy": {"user": {"displayName": "Anna Meyer"}}}}},
+                {"name": "Team folder", "lastModifiedDateTime": "2026-11-21T09:00:00Z", "remoteItem": {"id": "s$b!8", "folder": {}}},
+                {"name": "hidden.txt", "@UI.Hidden": True, "lastModifiedDateTime": "2026-11-22T09:00:00Z", "remoteItem": {"id": "s$b!9"}}]})
         if u.startswith(FILES + "/app/new"):
             return httpx.Response(200, json={"file_id": "s$a!newfile"})
         if u == FILES + "/app/list" and self.app_list is not None:
@@ -204,7 +211,7 @@ def test_home_recent_and_new_doc_flow(env):
     _, q = login(c, m)
     finish(c, q)
     page = c.get("/")
-    names = re.findall(r'data-file="([^"]+)"', page.text)
+    names = re.findall(r'data-file="([^"]+)"', page.text.split('id="h-recent"', 1)[1].split("</section>", 1)[0])
     assert names == ["new.xlsx", "old.docx"]                                   # newest first, folders excluded
     assert "evil.test" not in page.text                                        # link rebuilt on OUR files host
     assert FILES + "/f/s%24a%212" in page.text
@@ -354,7 +361,7 @@ def test_mail_calendar_contacts_tiles_use_sso_deep_links_and_no_separate_passwor
     _, q = login(c, m)
     finish(c, q)
     html = c.get("/").text
-    found = re.findall(r'<a class="tile" href="([^"]+)" data-app="(mail|calendar|contacts)"', html)
+    found = re.findall(r'<a class="apptile" href="([^"]+)" data-app="(mail|calendar|contacts)"', html)
     assert {app: href for href, app in found} == {"mail": "https://mail.test/web/",
                                                   "calendar": "https://mail.test/web/?action=context&amp;view=calendar",
                                                   "contacts": "https://mail.test/web/?action=context&amp;view=contacts"}
@@ -551,3 +558,67 @@ def test_office_applications_section_filters_and_stays_honest(env):
     assert "Choose how you work" in c.get("/").text                                      # reachable from Start something new
     art = next(a for a in office_apps.APPS if a["id"] == "artcraft")
     assert art["group"] == "experimental" and "getartcraft.com" in art["download"]
+
+
+
+# ---- the redesigned dashboard (owner brief 2026-11-23) -------------------------------------------------------------------------------
+
+def _dash(env):
+    c, m, _ = env
+    _, q = login(c, m)
+    finish(c, q)
+    return c, m
+
+
+def _csrf(html):
+    return re.search(r'name="csrf" value="([^"]+)"', html).group(1)
+
+
+def test_dashboard_shows_live_files_and_shares_and_no_invented_mail_or_events(env):
+    c, m = _dash(env)
+    html = c.get("/").text
+    assert 'data-file="new.xlsx"' in html and 'data-file="Budget 2027.xlsx"' in html and "Anna Meyer" in html
+    assert "hidden.txt" not in html                                                            # a share the user hid stays hidden
+    assert f'href="{FILES}/f/s%24b%217"' in html                                               # opened through OUR files host
+    # mail and calendar: honest cards with working actions, never a made-up count or event
+    assert "Message previews on the dashboard are not available yet" in html and "An agenda on the dashboard is not available yet" in html
+    assert 'href="https://mail.test/web/?action=mailto&amp;to="' in html
+    assert len(re.findall(r'<li(?: class="today" aria-current="date")?><span class="wd">', html)) == 7 and html.count('aria-current="date"') == 1
+    assert 'data-theme=' not in html.split(">", 2)[1]                                          # system theme by default
+
+
+def test_theme_and_widgets_are_saved_per_browser_and_need_csrf(env):
+    c, m = _dash(env)
+    tok = _csrf(c.get("/").text)
+    assert c.post("/prefs", data={"csrf": "wrong", "theme": "dark"}).status_code == 403
+    r = c.post("/prefs", data={"csrf": tok, "theme": "dark", "next": "/account"})
+    assert r.status_code == 303 and r.headers["location"] == "/account" and "ou_prefs=" in r.headers["set-cookie"]
+    assert "HttpOnly" in r.headers["set-cookie"] and "Secure" in r.headers["set-cookie"]
+    assert '<html lang="en" data-theme="dark">' in c.get("/").text
+    assert c.post("/prefs", data={"csrf": tok, "theme": "neon", "next": "//evil.test"}).headers["location"] == "/"   # bad values ignored
+    assert '<html lang="en" data-theme="dark">' in c.get("/").text
+    m.report_bodies = []
+    c.post("/prefs", data={"csrf": tok, "widgets_form": "1", "show": ["inbox", "calendar", "create", "shared"]})
+    html = c.get("/").text
+    assert 'id="h-recent"' not in html and m.report_bodies == []                               # hidden: not even asked for
+    assert 'id="h-shared"' in html
+
+
+def test_prefs_cookie_parser_accepts_only_known_values():
+    from app.main import WIDGETS, dump_prefs, parse_prefs
+    assert parse_prefs(None) == {"theme": "system", "hidden": []}
+    assert parse_prefs("light:recent.bogus.inbox") == {"theme": "light", "hidden": ["recent", "inbox"]}
+    assert parse_prefs("<script>:") == {"theme": "system", "hidden": []}
+    assert dump_prefs({"theme": "dark", "hidden": ["shared", "inbox"]}) == "dark:shared.inbox"
+    assert re.fullmatch(r"[a-z:.]+", dump_prefs({"theme": "light", "hidden": list(WIDGETS)}))      # RFC 6265 cookie-octets only
+
+
+def test_search_sends_one_quoted_phrase_and_lists_files_and_folders(env):
+    c, m = _dash(env)
+    m.report_bodies = []
+    assert "Find a file or folder" in c.get("/search").text and m.report_bodies == []           # no words: no query
+    html = c.get("/search", params={"q": 'budget" OR name:*) <x>'}).text
+    body = m.report_bodies[-1]
+    assert '<oc:pattern>"budget OR name x"</oc:pattern>' in body                     # operators/markup stripped, one phrase
+    assert 'data-file="dir"' in html and 'data-file="new.xlsx"' in html                        # folders are results too
+    assert "<x>" not in html

@@ -29,10 +29,10 @@
 @media (prefers-color-scheme: dark) {
   :root:not([data-theme="light"]) {
     color-scheme: dark;
-    --bg: #0f1926; --surface: #18263a; --surface2: #132034; --sunken: #132034; --ink: #f1f4f8; --text: #d6dde6; --muted: #9daabb; --faint: #8e9bad;
-    --line: #26364c; --line-strong: #34475f; --sel: #263c58;
-    --accent: #e8956c; --accent-hover: #f0a982; --accent-text: #0f1926; --accent-soft: #3a2a25; --link: #7fc3be; --focus: #7fc3be;
-    --teal: #66b0ab; --teal-soft: #1c3a3d;
+    --bg: #0e151f; --surface: #1a2534; --surface2: #121a26; --sunken: #132034; --ink: #f2f5f9; --text: #d3dbe5; --muted: #9aa8b9; --faint: #8e9bad;
+    --line: #2a384b; --line-strong: #3b4b61; --sel: #1f3d4a;
+    --accent: #ec9a70; --accent-hover: #f0a982; --accent-text: #0e151f; --accent-soft: #3b2a22; --link: #7fc3be; --focus: #7fc3be;
+    --teal: #6cb8b2; --teal-soft: #173537;
     --ok: #7cc191; --ok-bg: #1d3528; --warn: #e2b567; --warn-bg: #3a2f1a; --bad: #ee8f80; --bad-bg: #432421; --info: #9fb8d6; --info-bg: #22344c; --idle: #9daabb; --idle-bg: #22344c;
     --nav: #132034; --nav-2: #1e2e44; --nav-text: #d6dde6; --nav-muted: #9daabb; --nav-line: #26364c; --nav-accent: #7fc3be; --nav-sel: #1c3a3d;
     --bar: #0b1420; --bar-2: #1b2a3e; --bar-line: #2b3d55;
@@ -42,10 +42,10 @@
 }
 :root[data-theme="dark"] {
   color-scheme: dark;
-  --bg: #0f1926; --surface: #18263a; --surface2: #132034; --sunken: #132034; --ink: #f1f4f8; --text: #d6dde6; --muted: #9daabb; --faint: #8e9bad;
-  --line: #26364c; --line-strong: #34475f; --sel: #263c58;
-  --accent: #e8956c; --accent-hover: #f0a982; --accent-text: #0f1926; --accent-soft: #3a2a25; --link: #7fc3be; --focus: #7fc3be;
-  --teal: #66b0ab; --teal-soft: #1c3a3d;
+  --bg: #0e151f; --surface: #1a2534; --surface2: #121a26; --sunken: #132034; --ink: #f2f5f9; --text: #d3dbe5; --muted: #9aa8b9; --faint: #8e9bad;
+  --line: #2a384b; --line-strong: #3b4b61; --sel: #1f3d4a;
+  --accent: #ec9a70; --accent-hover: #f0a982; --accent-text: #0e151f; --accent-soft: #3b2a22; --link: #7fc3be; --focus: #7fc3be;
+  --teal: #6cb8b2; --teal-soft: #173537;
   --ok: #7cc191; --ok-bg: #1d3528; --warn: #e2b567; --warn-bg: #3a2f1a; --bad: #ee8f80; --bad-bg: #432421; --info: #9fb8d6; --info-bg: #22344c; --idle: #9daabb; --idle-bg: #22344c;
   --nav: #132034; --nav-2: #1e2e44; --nav-text: #d6dde6; --nav-muted: #9daabb; --nav-line: #26364c; --nav-accent: #7fc3be; --nav-sel: #1c3a3d;
   --bar: #0b1420; --bar-2: #1b2a3e; --bar-line: #2b3d55;

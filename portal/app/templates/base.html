@@ -1,37 +1,89 @@
 {%- from "_icons.html" import icon -%}
+{%- set apps = brand.apps -%}
+{%- set has_mail = apps is none or apps.get("mail", true) -%}
+{%- set has_files = apps is none or apps.get("files", true) -%}
+{%- set path = request.url.path -%}
+{#- the app shell: one navigation for every Office Unbound app. The links that leave the portal (mail., cloud., chat.) open in the same tab:
+    every app carries the "Dashboard" control back here (blueprints/catalog/templates/brand). -#}
+{%- macro applinks(cls) -%}
+<a class="{{ cls }}" href="/" {% if path == '/' %}aria-current="page"{% endif %} data-app="home">{{ icon('home') }}<span>Dashboard</span></a>
+{%- if has_mail %}
+<a class="{{ cls }}" href="{{ cfg.mail_web_url }}" data-app="mail">{{ icon('mail') }}<span>Mail</span></a>
+<a class="{{ cls }}" href="{{ cfg.mail_view_url('calendar') }}" data-app="calendar">{{ icon('calendar') }}<span>Calendar</span></a>
+<a class="{{ cls }}" href="{{ cfg.mail_view_url('contacts') }}" data-app="contacts">{{ icon('contacts') }}<span>Contacts</span></a>
+{%- endif %}
+{%- if has_files %}<a class="{{ cls }}" href="{{ cfg.files_url }}/" data-app="files">{{ icon('files') }}<span>Files</span></a>{% endif %}
+{%- if chat %}<a class="{{ cls }}" href="{{ cfg.chat_url }}/" data-app="chat">{{ icon('chat') }}<span>Chat</span></a>{% endif %}
+{%- endmacro -%}
 <!doctype html>
-<html lang="en">
+<html lang="en"{% if prefs and prefs.theme != 'system' %} data-theme="{{ prefs.theme }}"{% endif %}>
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
-<meta name="color-scheme" content="light dark">
+<meta name="color-scheme" content="{% if prefs and prefs.theme != 'system' %}{{ prefs.theme }}{% else %}light dark{% endif %}">
 <title>{% block title %}{{ brand.name }}{% endblock %}</title>
 <link rel="icon" href="/static/favicon.svg" type="image/svg+xml">
 <link rel="stylesheet" href="/static/portal.css?v={{ version }}">
 {% if brand.accent %}<link rel="stylesheet" href="/branding.css">{% endif %}
 {% block head %}{% endblock %}
 </head>
-<body>
+<body{% if user %} class="signed-in"{% endif %}>
 <a class="skip" href="#main">Skip to content</a>
 <header class="top">
-  <div class="wrap bar">
-    <a class="brand" href="/" aria-label="{{ brand.name }} home">{% if brand.logo %}<img class="logo" src="/branding/logo" alt="" width="28" height="28">{% else %}<svg class="mark" viewBox="0 0 32 32" aria-hidden="true" focusable="false"><rect x="2" y="9" width="10" height="10" rx="1"/><rect x="2" y="21" width="10" height="10" rx="1"/><rect x="14" y="21" width="10" height="10" rx="1"/><rect class="lift" x="19" y="2" width="11" height="11" rx="1"/></svg>{% endif %}<span>{{ brand.name }}</span></a>
+  <div class="bar">
     {% if user %}
-    <nav aria-label="Main">
-      <a href="/" {% if request.url.path == '/' %}aria-current="page"{% endif %}>Home</a>
-      <a href="/devices" {% if request.url.path.startswith('/devices') %}aria-current="page"{% endif %}>Set up devices</a>
-      <a href="/account" {% if request.url.path.startswith('/account') %}aria-current="page"{% endif %}>Account</a>
-      {% if is_admin %}<a href="/admin" {% if request.url.path.startswith("/admin") %}aria-current="page"{% endif %}>Admin</a>{% endif %}
-    </nav>
-    <form method="post" action="/logout" class="signout">
-      <input type="hidden" name="csrf" value="{{ sess.csrf }}">
-      <span class="who" title="{{ user.email }}"><span class="avatar" aria-hidden="true">{{ user.initial }}</span><span class="who-name">{{ user.name }}</span></span>
-      <button class="link" type="submit">Sign out</button>
+    <details class="menu switcher">
+      <summary aria-label="Apps">{{ icon('grid') }}</summary>
+      <nav class="menu-panel applist" aria-label="Apps">{{ applinks('mi') }}</nav>
+    </details>
+    {% endif %}
+    <a class="brand" href="/" aria-label="{{ brand.name }} dashboard">{% if brand.logo %}<img class="logo" src="/branding/logo" alt="" width="28" height="28">{% else %}<svg class="mark" viewBox="0 0 32 32" aria-hidden="true" focusable="false"><rect x="2" y="9" width="10" height="10" rx="1"/><rect x="2" y="21" width="10" height="10" rx="1"/><rect x="14" y="21" width="10" height="10" rx="1"/><rect class="lift" x="19" y="2" width="11" height="11" rx="1"/></svg>{% endif %}<span>{{ brand.name }}</span></a>
+    {% if user %}
+    <nav class="apps" aria-label="Apps">{{ applinks('al') }}</nav>
+    <form class="gsearch" role="search" method="get" action="/search">
+      <label class="sr" for="q">Search your files</label>
+      {{ icon('search') }}<input id="q" name="q" type="search" placeholder="Search files and folders" maxlength="80" value="{{ q or '' }}" autocomplete="off">
     </form>
+    <details class="menu create">
+      <summary class="newbtn-top">{{ icon('plus') }}<span>New</span></summary>
+      <div class="menu-panel" role="group" aria-label="Create">
+        {% if has_files %}
+        {% for k in ("document", "spreadsheet", "presentation") %}
+        <form method="post" action="/new/{{ k }}"><input type="hidden" name="csrf" value="{{ sess.csrf }}"><button class="mi" type="submit" data-new="{{ k }}">{{ icon(k) }}<span>New {{ k }}</span></button></form>
+        {% endfor %}
+        {% endif %}
+        {% if has_mail %}
+        <a class="mi" href="{{ cfg.mail_compose_url() }}">{{ icon('compose') }}<span>New email</span></a>
+        <a class="mi" href="{{ cfg.mail_view_url('calendar') }}">{{ icon('event') }}<span>New event</span><small>in Calendar</small></a>
+        {% endif %}
+        {% if has_files %}<a class="mi" href="{{ cfg.files_url }}/">{{ icon('upload') }}<span>Upload or new folder</span><small>in Files</small></a>{% endif %}
+      </div>
+    </details>
+    <details class="menu profile">
+      <summary aria-label="Account menu for {{ user.name }}"><span class="avatar" aria-hidden="true">{{ user.initial }}</span></summary>
+      <div class="menu-panel">
+        <div class="who"><span class="avatar big" aria-hidden="true">{{ user.initial }}</span><span><b>{{ user.name }}</b><small>{{ user.email }}</small></span></div>
+        <a class="mi" href="/account" {% if path.startswith('/account') %}aria-current="page"{% endif %}>{{ icon('account') }}<span>Account and security</span></a>
+        <a class="mi" href="/devices" {% if path.startswith('/devices') %}aria-current="page"{% endif %}>{{ icon('devices') }}<span>Set up devices</span></a>
+        {% if is_admin %}<a class="mi" href="/admin" {% if path.startswith('/admin') %}aria-current="page"{% endif %}>{{ icon('admin') }}<span>Organisation admin</span></a>{% endif %}
+        <form class="theme" method="post" action="/prefs">
+          <input type="hidden" name="csrf" value="{{ sess.csrf }}"><input type="hidden" name="next" value="{{ path }}">
+          <fieldset><legend>Appearance</legend>
+          {% for t, label in (("system", "System"), ("light", "Light"), ("dark", "Dark")) %}
+          <button type="submit" name="theme" value="{{ t }}" {% if prefs.theme == t %}aria-pressed="true"{% else %}aria-pressed="false"{% endif %}>{{ label }}</button>
+          {% endfor %}
+          </fieldset>
+        </form>
+        <form method="post" action="/logout" class="signout">
+          <input type="hidden" name="csrf" value="{{ sess.csrf }}">
+          <button class="mi" type="submit">{{ icon('signout') }}<span>Sign out</span></button>
+        </form>
+      </div>
+    </details>
     {% endif %}
   </div>
 </header>
-<main id="main" class="wrap">
+<main id="main" class="{% block mainclass %}wrap{% endblock %}">
 {% block main %}{% endblock %}
 </main>
 {% if chat %}
@@ -45,8 +97,8 @@
   </div>
 </details>
 {% endif %}
-<footer class="wrap foot">
-  <span>{{ brand.name }} portal</span><span aria-hidden="true">·</span><span>Your files and messages stay on your organisation's own servers.</span><span aria-hidden="true">·</span><a href="/about">Office Unbound portal v{{ version }}</a>
+<footer class="foot">
+  <span>{{ brand.name }}</span><span aria-hidden="true">·</span><span>Your files and messages stay on your organisation's own servers.</span><span aria-hidden="true">·</span><a href="/about">Office Unbound portal v{{ version }}</a>
 </footer>
 </body>
 </html>

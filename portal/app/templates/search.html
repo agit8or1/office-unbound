@@ -1,0 +1,28 @@
+{% extends "base.html" %}
+{% from "_icons.html" import icon %}
+{% block title %}{% if q %}{{ q }} · {% endif %}Search · {{ brand.name }}{% endblock %}
+{% block mainclass %}wrap wide{% endblock %}
+{% block main %}
+<div class="pagehead"><h1 class="h1like">{% if q %}Results for “{{ q }}”{% else %}Search your files{% endif %}</h1></div>
+<form class="bigsearch" role="search" method="get" action="/search">
+  <label class="sr" for="q2">Search files and folders</label>
+  <input id="q2" name="q" type="search" value="{{ q }}" maxlength="80" placeholder="File or folder name" autofocus>
+  <button class="btn primary" type="submit">{{ icon('search') }}<span>Search</span></button>
+</form>
+<section class="widget" aria-label="Results">
+{% if failed %}
+  <div class="wempty"><p class="et">Search is not available right now</p><p>Files did not answer. You can still search inside Files.</p><a class="btn" href="{{ cfg.files_url }}/">Open Files</a></div>
+{% elif not q %}
+  <div class="wempty"><p class="et">Find a file or folder</p><p>Type part of its name. Search covers your files and the ones shared with you.</p></div>
+{% elif results %}
+  <ul class="flist">
+  {% for f in results %}
+    <li><a class="frow" href="{{ f.url }}" data-file="{{ f.name }}"><span class="ficon k-{{ f.kind }}">{{ icon({'document': 'document', 'spreadsheet': 'spreadsheet', 'presentation': 'presentation', 'folder': 'folder', 'pdf': 'pdf', 'image': 'image'}.get(f.kind, 'file')) }}</span><span class="fname">{{ f.name }}</span>
+      <span class="fmeta"><time datetime="{{ f.mtime.isoformat() }}">{{ f.mtime | ago }}</time>{% if f.size %} · {{ f.size | size }}{% endif %}</span></a></li>
+  {% endfor %}
+  </ul>
+{% else %}
+  <div class="wempty"><p class="et">No matches</p><p>Nothing in your files is named like “{{ q }}”. Check the spelling, or try fewer words.</p></div>
+{% endif %}
+</section>
+{% endblock %}

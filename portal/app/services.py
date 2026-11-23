@@ -8,6 +8,7 @@ import xml.etree.ElementTree as ET
 from datetime import datetime, timedelta, timezone
 from email.utils import parsedate_to_datetime
 from urllib.parse import quote
+from xml.sax.saxutils import escape as xml_escape
 
 import httpx
 
@@ -37,15 +38,16 @@ async def my_drive(cfg: Settings, http: httpx.AsyncClient, token: str) -> dict:
     return {"id": d["id"], "alias": d["driveAlias"], "root": d["root"]["id"], "used": d.get("quota", {}).get("used")}
 
 
-def parse_recent(xml_bytes: bytes, cfg: Settings, limit: int = 8) -> list[dict]:
+def parse_recent(xml_bytes: bytes, cfg: Settings, limit: int = 8, dirs: bool = False, newest_first: bool = True) -> list[dict]:
     if len(xml_bytes) > MAX_XML:
         raise ServiceError("files: search response too large")
     root = ET.fromstring(xml_bytes)
     items = []
     for resp in root.iter(DAV + "response"):
         prop = resp.find(f"{DAV}propstat/{DAV}prop")
-        if prop is None or prop.find(f"{DAV}resourcetype/{DAV}collection") is not None:
-            continue                                    # files only
+        is_dir = prop is not None and prop.find(f"{DAV}resourcetype/{DAV}collection") is not None
+        if prop is None or (is_dir and not dirs):
+            continue                                    # files only, unless folders were asked for (search)
         name = (prop.findtext(OC + "name") or "").strip()
         fid = (prop.findtext(OC + "fileid") or "").strip()
         lm = prop.findtext(DAV + "getlastmodified")
@@ -58,12 +60,74 @@ def parse_recent(xml_bytes: bytes, cfg: Settings, limit: int = 8) -> list[dict]:
         size = prop.findtext(DAV + "getcontentlength")
         items.append({
             "name": name, "id": fid, "mtime": mtime, "size": int(size) if size and size.isdigit() else None,
-            "mime": prop.findtext(DAV + "getcontenttype") or "",
+            "mime": prop.findtext(DAV + "getcontenttype") or "", "dir": is_dir, "kind": file_kind(name, is_dir),
             # OpenCloud's own resolver URL (opens the file in the right app); rebuilt on OUR configured files host
             "url": f"{cfg.files_url}/f/{quote(fid, safe='')}",
         })
-    items.sort(key=lambda i: i["mtime"], reverse=True)
+    if newest_first:
+        items.sort(key=lambda i: i["mtime"], reverse=True)
     return items[:limit]
+
+
+KIND_EXT = {"document": {"odt", "docx", "doc", "rtf", "txt", "md"}, "spreadsheet": {"ods", "xlsx", "xls", "csv"},
+            "presentation": {"odp", "pptx", "ppt"}, "pdf": {"pdf"}, "image": {"png", "jpg", "jpeg", "gif", "webp", "svg", "heic"}}
+
+
+def file_kind(name: str, is_dir: bool = False) -> str:
+    """The icon family of a file (by extension; never by content)."""
+    if is_dir:
+        return "folder"
+    ext = name.rsplit(".", 1)[-1].lower() if "." in name else ""
+    return next((k for k, v in KIND_EXT.items() if ext in v), "file")
+
+
+SEARCH_MAX = 80
+_KQL_UNSAFE = re.compile(r'["\\<>&()*:]')
+
+
+def search_term(q: str | None) -> str:
+    """The user's search words as ONE quoted KQL phrase: quotes, operators and markup removed, length capped (no query injection)."""
+    return " ".join(_KQL_UNSAFE.sub(" ", (q or "")[:SEARCH_MAX]).split())
+
+
+async def search_files(cfg: Settings, http: httpx.AsyncClient, token: str, username: str, q: str, limit: int = 50) -> list[dict]:
+    """Files and folders whose name matches `q`, across the user's spaces (OpenCloud search, the same REPORT as recent files)."""
+    term = search_term(q)
+    if not term:
+        return []
+    body = _SEARCH.format(pattern=xml_escape(f'"{term}"'), limit=limit)
+    r = await http.request("REPORT", f"{cfg.files_url}/remote.php/dav/files/{quote(username, safe='')}",
+                           headers={**_h(token), "Content-Type": "application/xml"}, content=body)
+    if r.status_code != 207:
+        raise ServiceError(f"files: search answered {r.status_code}")
+    try:
+        return parse_recent(r.content, cfg, limit, dirs=True, newest_first=False)
+    except ET.ParseError as e:
+        raise ServiceError("files: unreadable search response") from e
+
+
+async def shared_with_me(cfg: Settings, http: httpx.AsyncClient, token: str, limit: int = 6) -> list[dict]:
+    """Files and folders other people shared with the user (OpenCloud Graph sharedWithMe), newest first. Hidden shares are left out."""
+    r = await http.get(cfg.files_url + "/graph/v1beta1/me/drive/sharedWithMe", headers=_h(token))
+    if r.status_code != 200:
+        raise ServiceError(f"files: shared-with-me answered {r.status_code}")
+    out = []
+    for it in (r.json().get("value") or [])[:200]:
+        if not isinstance(it, dict) or it.get("@UI.Hidden"):
+            continue
+        name, rid = str(it.get("name") or ""), str((it.get("remoteItem") or {}).get("id") or it.get("id") or "")
+        if not name or not rid:
+            continue
+        try:
+            mtime = datetime.fromisoformat(str(it.get("lastModifiedDateTime")).replace("Z", "+00:00"))
+        except ValueError:
+            continue
+        by = ((it.get("remoteItem") or {}).get("shared") or {}).get("sharedBy") or {}
+        is_dir = "folder" in (it.get("remoteItem") or it)
+        out.append({"name": name, "id": rid, "mtime": mtime, "dir": is_dir, "kind": file_kind(name, is_dir),
+                    "by": str((by.get("user") or {}).get("displayName") or ""), "url": f"{cfg.files_url}/f/{quote(rid, safe='')}"})
+    out.sort(key=lambda i: i["mtime"], reverse=True)
+    return out[:limit]
 
 
 async def recent_files(cfg: Settings, http: httpx.AsyncClient, token: str, username: str, days: int = 90, limit: int = 8) -> list[dict]:

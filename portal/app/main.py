@@ -36,6 +36,30 @@ def css_string(text: str) -> str:
     return '"' + "".join(ch if (ch.isalnum() and ch.isascii()) or ch == " " else f"\\{ord(ch):x} " for ch in text) + '"'
 
 
+PREFS_COOKIE = "ou_prefs"
+THEMES = ("system", "light", "dark")
+WIDGETS = {"inbox": "Inbox", "calendar": "Calendar", "recent": "Recent files", "shared": "Shared with me", "create": "Quick create"}
+
+
+def parse_prefs(raw: str | None) -> dict:
+    """The appearance cookie, `<theme>:<hidden widget>.<...>` (cookie-safe characters only): anything else is ignored, it is only a
+    preference and never trusted."""
+    theme, _, hidden = (raw or "")[:200].partition(":")
+    return {"theme": theme if theme in THEMES else "system", "hidden": [w for w in hidden.split(".") if w in WIDGETS]}
+
+
+def dump_prefs(p: dict) -> str:
+    return f"{p['theme']}:{'.'.join(p['hidden'])}"
+
+
+def week_days(now: float | None = None) -> list[dict]:
+    """Today and the six days after it, for the dashboard's week strip (dates only: no events are shown that were not read)."""
+    t = time.localtime(now if now is not None else time.time())
+    base = time.mktime((t.tm_year, t.tm_mon, t.tm_mday, 12, 0, 0, 0, 0, -1))
+    days = [time.localtime(base + i * 86400) for i in range(7)]
+    return [{"wd": time.strftime("%a", d), "day": d.tm_mday, "today": i == 0} for i, d in enumerate(days)]
+
+
 def safe_next(p: str | None) -> str:
     """Only same-site absolute paths: blocks open redirects (//evil, /\\evil, schemes)."""
     if (p and p.startswith("/") and not p.startswith("//") and "\\" not in p
@@ -102,6 +126,7 @@ def create_app(cfg: Settings | None = None, transport: httpx.AsyncBaseTransport 
         brand = {"name": b.get("display_name") or cfg.org_name, "accent": b.get("accent") if HEXRE.match(b.get("accent") or "") else None,
                  "logo": bool(b.get("has_logo")), "apps": b.get("apps")}
         c = {"request": request, "sess": sess, "user": user_ctx(sess) if sess else None, "brand": brand,
+             "prefs": parse_prefs(request.cookies.get(PREFS_COOKIE)), "widgets": WIDGETS,
              "chat": bool(sess and getattr(request.state, "chat", False)),
              "is_admin": bool(sess and cfg.ics_url and admin.is_admin(cfg, sess.claims)), **(ctx or {})}
         return templates.TemplateResponse(name, c, status_code=status)
@@ -247,14 +272,56 @@ def create_app(cfg: Settings | None = None, transport: httpx.AsyncBaseTransport 
         if not s:
             # owner 2026-11-20: "https://app.<domain>/ should go right to auth": no intermediate page, straight to the sign-in service
             return RedirectResponse("/login", status_code=303)
-        notices, recent = [], []
-        try:
-            recent = await services.recent_files(cfg, state["http"], s.access_token, s.claims.get("preferred_username", ""))
-        except (services.ServiceError, httpx.HTTPError) as e:
-            log.warning("recent files unavailable: %s", e)
-            notices.append("Your recent files could not be loaded right now. Files itself may still work.")
-        return render(request, "home.html", {"recent": recent, "notices": notices, "kinds": KINDS,
+        prefs = parse_prefs(request.cookies.get(PREFS_COOKIE))
+        notices, recent, shared = [], [], []
+        user = s.claims.get("preferred_username", "")
+        if "recent" not in prefs["hidden"]:
+            try:
+                recent = await services.recent_files(cfg, state["http"], s.access_token, user, limit=8)
+            except (services.ServiceError, httpx.HTTPError) as e:
+                log.warning("recent files unavailable: %s", e)
+                recent = None
+        if "shared" not in prefs["hidden"]:
+            try:
+                shared = await services.shared_with_me(cfg, state["http"], s.access_token)
+            except (services.ServiceError, httpx.HTTPError) as e:
+                log.warning("shared-with-me unavailable: %s", e)
+                shared = None
+        return render(request, "home.html", {"recent": recent, "shared": shared, "notices": notices, "kinds": KINDS,
+                                             "today": time.strftime("%A, %d %B %Y"), "week": week_days(),
                                              "flash": request.query_params.get("flash")}, sess=s)
+
+    @app.get("/search", response_class=HTMLResponse)
+    async def search(request: Request, q: str = "") -> Response:
+        s = await current(request)
+        if not s:
+            return login_redirect(request)
+        term, results, failed = services.search_term(q), [], False
+        if term:
+            try:
+                results = await services.search_files(cfg, state["http"], s.access_token, s.claims.get("preferred_username", ""), term)
+            except (services.ServiceError, httpx.HTTPError) as e:
+                log.warning("search failed: %s", e)
+                failed = True
+        return render(request, "search.html", {"q": term, "results": results, "failed": failed}, sess=s)
+
+    @app.post("/prefs")
+    async def save_prefs(request: Request) -> Response:
+        s = await current(request)
+        if not s:
+            return login_redirect(request)
+        form = await request.form()
+        if not check_csrf(request, s, str(form.get("csrf", ""))):
+            return render(request, "error.html", {"title": "Request refused", "text": "Please reload the page and try again."}, 403, s)
+        p = parse_prefs(request.cookies.get(PREFS_COOKIE))
+        if str(form.get("theme", "")) in THEMES:
+            p["theme"] = str(form["theme"])
+        if form.get("widgets_form"):                     # the Customise panel lists every widget: an unticked one is hidden
+            shown = {str(v) for v in form.getlist("show")}
+            p["hidden"] = [w for w in WIDGETS if w not in shown]
+        resp = RedirectResponse(safe_next(str(form.get("next", "/"))), status_code=303)
+        resp.set_cookie(PREFS_COOKIE, dump_prefs(p), max_age=400 * 86400, secure=True, httponly=True, samesite="lax", path="/")
+        return resp
 
     @app.post("/new/{kind}")
     async def new_doc(request: Request, kind: str, csrf: str = Form("")) -> Response:
