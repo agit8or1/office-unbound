@@ -22,8 +22,8 @@ What not to promise yet. Updated 2026-11-23 for the alpha; each line says where 
   were drilled in the lab ([backup-product-results.md](../status/backup-product-results.md)) but are not wired into the rebuild.
 - `deployment.change` applies resource changes (size, disks); it does not re-apply configuration or branding.
 - **Certificates:** Let's Encrypt allows 5 certificates for the same set of names per week. Since 0.9.4 the ICS keeps an encrypted copy of the
-  gateway's certificate and gives it back to a rebuilt gateway; capture is verified live (2026-11-23), the restore on a rebuild is tested
-  automatically and its first live run is pending (GitHub #24). DNS-01, wildcard certificates and DNS automation are **Planned** (GitHub #25, #26).
+  gateway's certificate and gives it back to a rebuilt gateway; verified live on 2026-11-23 (officeunbound7 rebuilt as officeunbound8: same
+  certificate restored in 17 s, no new order; GitHub #24). Certificates are reused only while valid for more than 30 days. DNS-01, wildcard certificates and DNS automation are **Planned** (GitHub #25, #26).
 - **Not deployed by the ICS:** chat, meetings and telephony (lab prototypes only), anti-spam and antivirus (rspamd, ClamAV: **Planned**),
   mail archiving (**Planned**).
 - **Internet mail** (MX delivery in and out, SPF/DKIM/DMARC) is not verified end to end. On a deployment, webmail, ActiveSync and

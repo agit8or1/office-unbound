@@ -84,7 +84,7 @@ with its health checks green. Run repeatedly on the reference node (officeunboun
 **Administration > Network & domains**, section *Public certificates*: run **Test (staging)** first (proves every name validates from the
 internet without counting against Let's Encrypt limits), then **Get certificates**. The gateway then serves a Let's Encrypt certificate for all names and renews it itself.
 Since 0.9.4 the ICS keeps an encrypted copy, and a rebuilt deployment with the same names gets it back instead of ordering a new one (Let's
-Encrypt allows 5 certificates for the same names per week). Run on officeunbound7, 2026-11-23: all six names verify.
+Encrypt allows 5 certificates for the same names per week). Run on officeunbound7, 2026-11-23: all six names verify; on its rebuild as officeunbound8 the same certificate came back without a new order.
 
 ## 10. Add people and sign in
 On the deployment's page, **People**: add administrators and users (each gets a password you hand over). They sign in at `https://app.<domain>/`:
