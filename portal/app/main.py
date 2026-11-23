@@ -16,7 +16,7 @@ from fastapi.responses import HTMLResponse, RedirectResponse, Response
 from fastapi.staticfiles import StaticFiles
 from fastapi.templating import Jinja2Templates
 
-from . import admin, devices, services
+from . import admin, devices, office_apps, services
 from .config import Settings, load
 from .version import PORTAL_VERSION, build_info
 from .icsclient import parse_time as admin_time
@@ -342,7 +342,11 @@ def create_app(cfg: Settings | None = None, transport: httpx.AsyncBaseTransport 
         if not s:
             return login_redirect(request)
         hint = devices.platform_hint(request.headers.get("user-agent", ""))
-        return render(request, "devices.html", {"hint": hint, "desktop": devices.DESKTOP_DOWNLOADS, "release": devices.DESKTOP_RELEASE,
+        q = request.query_params
+        office = {"apps": office_apps.filtered(q.get("os"), q.get("kind")), "os": q.get("os") if q.get("os") in office_apps.OS_KEYS else "",
+                  "kind": q.get("kind") if q.get("kind") in office_apps.KINDS else "", "os_keys": office_apps.OS_KEYS, "kinds": office_apps.KINDS,
+                  "cols": office_apps.MATRIX_COLS, "verified": office_apps.VERIFIED}
+        return render(request, "devices.html", {"hint": hint, "desktop": devices.DESKTOP_DOWNLOADS, "release": devices.DESKTOP_RELEASE, "office": office,
                                                 "releases_page": devices.DESKTOP_RELEASES_PAGE, "apps": devices.MOBILE_APPS,
                                                 "email": s.claims.get("email", "")}, sess=s)
 

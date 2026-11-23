@@ -31,6 +31,14 @@ reset password, etc").
   chat sign-in service forwards to the portal's Keycloak session, and the first visit no longer asks to confirm a new chat account
   (`claims_imports.skip_confirmation`).
 
+- **Choose how you work** (portal *Set up devices* page, linked from *Start something new*): the built-in editor first, then LibreOffice,
+  ONLYOFFICE Desktop Editors, Collabora Office and the experimental ArtCraft apps, with a comparison table (words, no ticks), filters by
+  system and type (plain form, no script), official links marked as external, licences, maturity and limitations
+  ([docs/user/office-applications.md](docs/user/office-applications.md), `portal/app/office_apps.py`). Website copy for the owner:
+  [website-office-apps-proposal.md](docs/roadmap/website-office-apps-proposal.md).
+- **Planned:** Office Unbound Desktop Connector, HTTPS mapped drives and sync ([desktop-connector.md](docs/requirements/desktop-connector.md),
+  roadmap P11.8), and office-application tenant policies (P11.9). Planning only.
+
 ### Fixed
 - The account page's "Change your password" link opened a page that could not save a password (the directory was read-only to the sign-in
   service).

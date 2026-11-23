@@ -37,4 +37,57 @@
   </table>
   </div>
 </section>
+
+<section class="card" id="office-apps" aria-labelledby="h-office">
+  <h2 id="h-office">Choose how you work</h2>
+  <p>Office Unbound includes office applications in your browser, and you are free to use other office software on Windows, macOS or Linux
+    with the same files. Your files stay in Office Unbound either way.</p>
+  <form method="get" action="/devices#office-apps" class="appfilter" aria-label="Filter office applications">
+    <label>System <select name="os"><option value="">Any</option>{% for k, v in office.os_keys.items() %}<option value="{{ k }}" {% if office.os == k %}selected{% endif %}>{{ v }}</option>{% endfor %}</select></label>
+    <label>Type <select name="kind"><option value="">Any</option>{% for k, v in office.kinds.items() %}<option value="{{ k }}" {% if office.kind == k %}selected{% endif %}>{{ v }}</option>{% endfor %}</select></label>
+    <button class="btn" type="submit">Filter</button>{% if office.os or office.kind %} <a href="/devices#office-apps">Show all</a>{% endif %}
+  </form>
+
+  <div class="tablewrap">
+  <table class="appmatrix">
+    <caption class="sr">Office applications compared</caption>
+    <thead><tr><th scope="col">Application</th>{% for k, label in office.cols %}<th scope="col">{{ label }}</th>{% endfor %}</tr></thead>
+    <tbody>
+    {% for a in office.apps %}
+    <tr><th scope="row"><a href="#app-{{ a.id }}">{{ a.name }}</a></th>{% for k, label in office.cols %}<td data-v="{{ a.matrix[k] | lower }}">{{ a.matrix[k] }}</td>{% endfor %}</tr>
+    {% endfor %}
+    </tbody>
+  </table>
+  </div>
+
+  <ul class="appcards">
+  {% for a in office.apps %}
+    <li class="appcard{% if a.id == 'builtin' %} primary{% endif %}" id="app-{{ a.id }}">
+      <div class="apphead"><h3>{{ a.name }}</h3>
+        <span class="pill{% if a.group == 'experimental' %} warn{% elif a.id == 'builtin' %} ok{% endif %}">{{ a.maturity }}</span></div>
+      <p>{{ a.summary }}</p>
+      <dl class="kv">
+        <dt>Best for</dt><dd>{{ a.best_for }}</dd>
+        <dt>Licence</dt><dd>{{ a.licence }}</dd>
+        <dt>Publisher</dt><dd>{{ a.publisher }}</dd>
+        <dt>With Office Unbound</dt><dd>{{ a.integration }}</dd>
+      </dl>
+      <details><summary>Strengths and limitations</summary>
+        <h4>Strengths</h4><ul>{% for g in a.good %}<li>{{ g }}</li>{% endfor %}</ul>
+        <h4>Limitations</h4><ul>{% for l in a.limits %}<li>{{ l }}</li>{% endfor %}</ul>
+      </details>
+      {% if a.id == 'builtin' %}
+      <p><a class="btn primary" href="/#h-new">Start a document</a></p>
+      {% else %}
+      <p class="ext"><a href="{{ a.download }}" target="_blank" rel="noopener noreferrer">Download from {{ a.publisher.split(' (')[0] }}</a>
+        <span aria-hidden="true">·</span> <a href="{{ a.website }}" target="_blank" rel="noopener noreferrer">Website</a>
+        <small>External site, not provided by Office Unbound</small></p>
+      {% endif %}
+    </li>
+  {% endfor %}
+  </ul>
+  <p class="hint">To edit Office Unbound files in a desktop application, install the desktop sync app above and open the files from its folder;
+    changes sync back and Files keeps the earlier versions. Facts about other publishers' software were checked on {{ office.verified }};
+    Office Unbound has not tested them with your files unless stated.</p>
+</section>
 {% endblock %}

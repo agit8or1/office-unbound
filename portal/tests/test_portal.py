@@ -527,3 +527,27 @@ def test_change_password_and_two_step_go_through_the_sign_in_service():
     m.nonce = q["nonce"][0]
     assert finish(c, q, kc_action_status="cancelled").headers["location"] == "/account?flash=cancelled"
     assert c.get("/account/anything").status_code == 404
+
+
+def test_office_applications_section_filters_and_stays_honest(env):
+    from app import office_apps
+    c, m, _ = env
+    _, q = login(c, m)
+    finish(c, q)
+    page = c.get("/devices").text
+    assert 'id="office-apps"' in page and "Choose how you work" in page
+    for a in office_apps.APPS:
+        assert a["name"].replace("&", "&amp;") in page
+        for k in ("website", "download"):
+            assert a[k] is None or a[k].startswith("https://")
+        assert set(a["matrix"].values()) <= {"Yes", "No", "Partial", "Requires server", "Depends on edition", "Not verified", "Included", "Browser",
+                                              "Alpha", "Stable", "Experimental"}
+    assert "✓" not in page and "✔" not in page                                    # no ticks for unconfirmed capabilities
+    assert page.count('rel="noopener noreferrer"') >= 2 * (len(office_apps.APPS) - 1) and "not provided by Office Unbound" in page
+    assert page.index("Office Unbound Documents") < page.index("LibreOffice")           # the built-in editor first
+    mac = c.get("/devices?os=macos&kind=experimental").text
+    assert "WordCraft" in mac and "LibreOffice</a>" not in mac and "Office Unbound Documents" in mac
+    assert "LibreOffice" in c.get("/devices?os=bogus&kind=<x>").text                    # unknown filter values are ignored
+    assert "Choose how you work" in c.get("/").text                                      # reachable from Start something new
+    art = next(a for a in office_apps.APPS if a["id"] == "artcraft")
+    assert art["group"] == "experimental" and "getartcraft.com" in art["download"]

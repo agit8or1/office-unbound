@@ -291,3 +291,19 @@ progress.usage.full { accent-color: var(--bad); }
 .profile .err { color: var(--ou-bad); }
 .profile .req { color: var(--ou-bad); }
 .profile .formbar { display: flex; flex-wrap: wrap; align-items: center; gap: 12px; margin: 0; }
+
+/* devices page: office applications (matrix + cards) */
+.appfilter { display: flex; flex-wrap: wrap; gap: 12px; align-items: end; margin: 12px 0; }
+.appfilter label { display: flex; flex-direction: column; gap: 4px; font-size: .875rem; color: var(--ou-muted); }
+.appfilter select { font: inherit; padding: 6px 8px; border: 1px solid var(--ou-line); border-radius: 4px; background: var(--ou-surface); color: var(--ou-text); }
+.appmatrix td, .appmatrix th { white-space: nowrap; }
+.appmatrix td[data-v="yes"], .appmatrix td[data-v="included"] { color: var(--ou-ok); }
+.appmatrix td[data-v="no"] { color: var(--ou-muted); }
+.appmatrix td[data-v="experimental"], .appmatrix td[data-v="not verified"] { color: var(--ou-warn); }
+.appcards { list-style: none; padding: 0; margin: 16px 0 0; display: grid; grid-template-columns: repeat(auto-fit, minmax(280px, 1fr)); gap: 16px; }
+.appcard { border: 1px solid var(--ou-line); border-radius: 4px; padding: 16px; background: var(--ou-surface); min-width: 0; }
+.appcard.primary { border-color: var(--ou-accent); grid-column: 1 / -1; }
+.apphead { display: flex; justify-content: space-between; align-items: baseline; gap: 8px; flex-wrap: wrap; }
+.apphead h3 { margin: 0; font-size: 1.05rem; }
+.appcard h4 { margin: 10px 0 4px; font-size: .9rem; }
+.appcard .ext small { display: block; color: var(--ou-muted); margin-top: 4px; }
