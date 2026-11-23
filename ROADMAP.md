@@ -1,6 +1,6 @@
 # Office Unbound roadmap & progress
 
-> Generated from [`docs/progress.json`](docs/progress.json) by `scripts/render_roadmap.py` — edit the JSON, not this file. Last updated **2026-11-22** · stage: **pre-alpha (lab)** · current version: **0.9.4**.
+> Generated from [`docs/progress.json`](docs/progress.json) by `scripts/render_roadmap.py` — edit the JSON, not this file. Last updated **2026-11-22** · stage: **pre-alpha (lab)** · current version: **0.9.5**.
 
 Core platform components are integrated and tested in an isolated lab: own source build of Exchange-compatible groupware with single sign-on webmail, Keycloak SSO, file sync and browser document editing, backup/restore drills, chat and video meetings, and an infrastructure control server with monitoring, self-healing and a real Proxmox integration (VM lifecycle verified on a live cluster). Guided deployment wizards, provisioning automation and the credential vault are being integrated.
 
@@ -174,6 +174,7 @@ Core platform components are integrated and tested in an isolated lab: own sourc
 
 | Version | Date | Status | Highlights |
 |---|---|---|---|
+| [0.9.5](https://github.com/agit8or1/office-unbound/blob/main/CHANGELOG.md) | 2026-11-23 | prepared | 0.9.5: sign-in page header no longer cut off; console sign-in headline on two lines |
 | [0.9.4](https://github.com/agit8or1/office-unbound/blob/main/CHANGELOG.md) | 2026-11-22 | released | 0.9.4: a rebuilt deployment keeps its public certificate (no new Let's Encrypt order while it is valid for more than 30 days)<br>0.9.4: console, portal and app skins closer to the officeunbound.com concepts (site radii and hairlines, joined figure strip, Source Serif headlines); webmail in IBM Plex<br>0.9.4: agent 0.9.4-ou18, portal 0.3.2, golden image version 14 |
 | [0.9.3](https://github.com/agit8or1/office-unbound/blob/main/CHANGELOG.md) | 2026-11-22 | released | 0.9.3: every app takes the look of the officeunbound.com interface concepts (navy, copper, paper, IBM Plex self-hosted, three-square mark); console follows its own Infrastructure Control concept |
 | [0.9.2](https://github.com/agit8or1/office-unbound/blob/main/CHANGELOG.md) | 2026-11-22 | released | 0.9.2: gateway certificate covers mail/autodiscover before public certificates; Collabora trusts the deployment CA for file access |

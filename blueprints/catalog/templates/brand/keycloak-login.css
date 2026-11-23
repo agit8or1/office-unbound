@@ -23,6 +23,7 @@
 }
 #kc-header-wrapper {
   display: inline-flex; align-items: center; justify-content: flex-start; gap: 9px; width: auto; padding: 0;
+  margin: 0;   /* PatternFly .pf-v5-c-brand has margin-bottom 48px: centred in the 46px bar it pushed the mark and name 24px up, out of view */
   font: 600 13.5px/1 var(--ou-font); letter-spacing: -.005em; color: var(--ou-bar-text); text-transform: none;
 }
 #kc-header-wrapper::before { content: ""; width: 22px; height: 22px; border-radius: 4px; background: var(--ou-logo) center / contain no-repeat; flex: none; }

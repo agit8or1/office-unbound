@@ -5,8 +5,20 @@
   "repository": "https://github.com/agit8or1/office-unbound",
   "updated": "2026-11-22",
   "stage": "pre-alpha (lab)",
-  "current_version": "0.9.4",
+  "current_version": "0.9.5",
   "releases": [
+    {
+      "version": "0.9.5",
+      "date": "2026-11-23",
+      "status": "prepared",
+      "codename": "Ironwood",
+      "channel": "pre-release",
+      "highlights": [
+        "0.9.5: sign-in page header no longer cut off; console sign-in headline on two lines"
+      ],
+      "notes_url": "https://github.com/agit8or1/office-unbound/blob/main/CHANGELOG.md",
+      "changelog": "CHANGELOG.md"
+    },
     {
       "version": "0.9.4",
       "date": "2026-11-22",

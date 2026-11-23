@@ -10,6 +10,13 @@ isolated lab; nothing is production supported ([ROADMAP.md](ROADMAP.md)).
 
 ## [Unreleased]
 
+## [0.9.5] - 2026-11-23
+
+### Fixed
+- **Sign-in page header** (Keycloak): the mark and the organisation name sat 24 px too high and were cut off at the top of the navy bar
+  (PatternFly gives `.pf-v5-c-brand` a 48 px bottom margin); now centred. Seen live on officeunbound7 after 0.9.4.
+- **Console sign-in headline** wraps as "Run your infrastructure / with confidence." instead of four lines with "with" alone.
+
 ## [0.9.4] - 2026-11-22
 
 ### Added
@@ -499,6 +506,7 @@ editing, chat/meetings, telephony prototype, migration tooling and package pipel
 - `SECURITY.md` (private reporting) and `CONTRIBUTING.md` (DCO sign-off) added; AGPL-3.0 license. [SECURITY](SECURITY.md)
 
 [Unreleased]: https://github.com/agit8or1/office-unbound/compare/v0.4.7...HEAD
+[0.9.5]: https://github.com/agit8or1/office-unbound/compare/v0.9.4...v0.9.5
 [0.9.4]: https://github.com/agit8or1/office-unbound/compare/v0.9.3...v0.9.4
 [0.9.3]: https://github.com/agit8or1/office-unbound/compare/v0.9.2...v0.9.3
 [0.9.2]: https://github.com/agit8or1/office-unbound/compare/v0.9.1...v0.9.2
