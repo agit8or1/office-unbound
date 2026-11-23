@@ -54,7 +54,9 @@
 <section class="card" aria-labelledby="h-sec">
   <h2 id="h-sec">Sign-in and security</h2>
   <ul class="actions">
-    <li><a class="act" href="{{ links.password }}">{{ icon('key') }}<span><b>Change your password</b><small>You confirm your current password first. One password for portal, mail, files and chat</small></span></a></li>
+    {#- a directory that is read-only to the sign-in service cannot take a new password: no button that fails -#}
+    {% if editable or profile is none %}<li><a class="act" href="{{ links.password }}">{{ icon('key') }}<span><b>Change your password</b><small>You confirm your current password first. One password for portal, mail, files and chat</small></span></a></li>{% else %}
+    <li><span class="act">{{ icon('key') }}<span><b>Change your password</b><small>Ask your administrator for a one-time link to choose a new password</small></span></span></li>{% endif %}
     <li><a class="act" href="{{ links.two_step if not mfa else links.mfa }}">{{ icon('shield') }}<span><b>Two-step verification</b>
       <small>{% if mfa is none %}Set up or manage a second sign-in step{% elif mfa %}Enabled. Manage or remove your authenticator{% else %}Not set up yet. Add an authenticator app{% endif %}</small></span>
       {% if mfa %}<span class="pill ok">On</span>{% elif mfa is not none %}<span class="pill warn">Off</span>{% endif %}</a></li>

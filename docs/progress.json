@@ -5,8 +5,21 @@
   "repository": "https://github.com/agit8or1/office-unbound",
   "updated": "2026-11-23",
   "stage": "alpha",
-  "current_version": "0.11.0",
+  "current_version": "0.12.0",
   "releases": [
+    {
+      "version": "0.12.0",
+      "date": "2026-11-23",
+      "status": "prepared",
+      "codename": "Lantern",
+      "channel": "alpha",
+      "highlights": [
+        "0.12.0: editable profile on the portal account page (name, display name, phone, mobile)",
+        "0.12.0: change password and two-step setup from the portal; the sign-in service gets its own directory writer account"
+      ],
+      "notes_url": "https://github.com/agit8or1/office-unbound/blob/main/CHANGELOG.md",
+      "changelog": "CHANGELOG.md"
+    },
     {
       "version": "0.11.0",
       "date": "2026-11-23",
@@ -935,6 +948,16 @@
             "docs/screenshots/look-0.9.3/README.md"
           ],
           "note": "0.9.3: portal, sign-in/account, Files, webmail and notification mails restyled (navy, copper, paper, IBM Plex self-hosted, three-square mark), console follows its Infrastructure Control concept; rendered and tested locally, live check after deploy; webmail fonts with the 0.9.4 agent"
+        },
+        {
+          "id": "P3.5",
+          "title": "Self-service account: editable profile, password change and two-step setup from the portal",
+          "status": "implementing",
+          "evidence": [
+            "portal/tests/test_portal.py",
+            "ics/tests/test_deploy_chat.py"
+          ],
+          "note": "0.12.0: needs node agent 0.10.0 (directory writer account) and golden image built with it; first real deployment pending. Forgotten-password e-mail on the sign-in page is Planned (needs the sign-in service to send mail)."
         }
       ]
     },

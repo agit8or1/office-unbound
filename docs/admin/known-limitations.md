@@ -24,6 +24,9 @@ What not to promise yet. Updated 2026-11-23 for the alpha; each line says where 
 - **Certificates:** Let's Encrypt allows 5 certificates for the same set of names per week. Since 0.9.4 the ICS keeps an encrypted copy of the
   gateway's certificate and gives it back to a rebuilt gateway; verified live on 2026-11-23 (officeunbound7 rebuilt as officeunbound8: same
   certificate restored in 17 s, no new order; GitHub #24). Certificates are reused only while valid for more than 30 days. DNS-01, wildcard certificates and DNS automation are **Planned** (GitHub #25, #26).
+- **Account self-service** (0.12.0): people edit their name, display name, phone and mobile and change their password from the portal
+  only on deployments built with node agent 0.10.0 or later; older ones keep a read-only directory. There is no "forgot password" e-mail
+  yet: an administrator creates a one-time link.
 - **Chat** (0.11.0) is deployed by the ICS when the layout includes it; its media and configuration are not backed up yet, Matrix ids are
   `@user:matrix.<domain>`, federation is off, no mobile app is tested.
 - **Not deployed by the ICS:** meetings and telephony (lab prototypes only), anti-spam and antivirus (rspamd, ClamAV: **Planned**),

@@ -508,6 +508,7 @@ def test_read_only_directory_shows_profile_without_a_form():
     c = _signed_in(h, m)
     page = c.get("/account").text
     assert "Save profile" not in page and "managed by your organisation" in page and "Bob" in page
+    assert 'href="/account/password"' not in page and "one-time link" in page
 
 
 def test_change_password_and_two_step_go_through_the_sign_in_service():
