@@ -150,7 +150,7 @@ class _Ctx(executor.StepCtx):
 
 
 class _Agent:
-    """A node agent that upgrades itself ~2 polls after pkg.install_pinned and restarts after cfg.agent_allow."""
+    """A node agent that restarts as the new version ~2 polls after pkg.install_pinned and restarts after cfg.agent_allow."""
     def __init__(self, version="0.9.4", caps=None):
         self.version, self.caps, self.started, self.calls, self.pending = version, caps, 100, [], None
 
@@ -166,6 +166,10 @@ class _Agent:
             f = {"agent_version": self.version, "started": self.started}
             return {**f, "capabilities": self.caps} if self.caps is not None else f
         if rb == "pkg.install_pinned":
+            # like the real agent: guest.facts' helper process imports the agent from disk, so it reports the new version at once while the
+            # OLD server (same `started`, no capabilities if it predates 0.10.1) still answers until the deferred restart
+            self.version = "0.10.1"
+
             def done():
                 self.version, self.started = "0.10.1", self.started + 50
                 self.caps = {"guest.facts": {"enabled": True}, "cfg.agent_allow": {"enabled": True}, "cfg.keycloak_realm": {"enabled": True}}
@@ -199,6 +203,15 @@ def test_agent_update_upgrades_waits_for_the_new_agent_and_records_its_capabilit
     upd = [p for s, p in ctx.rt.sql if s.startswith("UPDATE nodes SET capabilities")]
     assert upd and json.loads(upd[0]["c"])["cfg.keycloak_realm"] == {"enabled": True} and upd[0]["v"] == "0.10.1" and upd[0]["i"] == "n1"
     assert ctx.resources[0][2]["actual"]["version"] == "0.10.1-ou20"
+
+
+def test_agent_update_waits_for_the_restarted_server_not_the_new_files_on_disk():
+    # officeunbound8, 2026-11-23: the 0.9.4 agent's guest.facts said 0.10.1 right after apt, before the restart; the step went on with the
+    # old server's (absent) capabilities and refused cfg.agent_allow
+    a = _Agent()
+    plan = {"services": [{"vm": "vm1", "package": "postgresql-16"}], "containers": []}
+    out = executor.h_agent_update(_ctx(a, {"package": "ou-node-agent", "version": "0.10.1-ou20", "allow": True, "timeout_seconds": 300}, plan))
+    assert a.started == 160 and "cfg.agent_allow" in out["runbooks"] and out["allowed"]["packages"] == ["postgresql-16"]
 
 
 def test_agent_update_is_idempotent_when_the_agent_already_runs_the_pin():

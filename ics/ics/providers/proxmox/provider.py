@@ -931,9 +931,14 @@ class ProxmoxMutations(ProxmoxProvider):
             if not self.scope.network_ok(n.bridge, n.vlan):
                 raise ScopeViolation(f"bridge/VLAN {n.bridge}{'/' + str(n.vlan) if n.vlan else ''} is not in the endpoint's allowed networks")
             d[f"net{n.index}"] = f"{n.model},bridge={n.bridge}" + (f",tag={n.vlan}" if n.vlan else "") + f",firewall={int(n.firewall)}"
+        present = self._cfg(ref) if spec.new_disks else {}
         for key, st, size in spec.new_disks:
             if not _NEWDISK.match(key) or not 1 <= size <= 65536:
                 raise ProviderError("invalid_request", "invalid disk specification")
+            if present.get(key):
+                # already attached (a re-run of the same change): `<key>=<storage>:<size>` again would allocate a NEW volume and leave the
+                # attached one (with its data) as an unused disk. Never re-allocate an existing slot.
+                continue
             self._need_storage(st)
             d[key] = f"{st}:{size}"
         if spec.cloudinit_storage:

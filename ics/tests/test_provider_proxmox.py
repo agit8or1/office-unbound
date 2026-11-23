@@ -288,6 +288,15 @@ def test_configure_cloud_init_fields_and_validation(sim, job):
         m.configure_vm(ref(), VmConfigSpec(cloudinit_storage="local"))
 
 
+def test_configure_never_reallocates_an_attached_disk(sim, job):
+    # a re-run of a change that already added scsi1: writing scsi1=<storage>:<size> again would allocate a new volume and orphan the data
+    m = mutations(sim)
+    m.wait(m.configure_vm(ref(), VmConfigSpec(cores=2, new_disks=(("scsi1", "local-lvm", 6),))))
+    first = sim.sim.vms[150]["cfg"]["scsi1"]
+    m.wait(m.configure_vm(ref(), VmConfigSpec(cores=2, new_disks=(("scsi1", "local-lvm", 6),))))
+    assert sim.sim.vms[150]["cfg"]["scsi1"] == first and not any(k.startswith("unused") for k in sim.sim.vms[150]["cfg"])
+
+
 def test_cicustom_needs_endpoint_opt_in_and_allowed_storage(sim, job):
     spec = VmConfigSpec(cicustom="user=local:snippets/ou-user.yaml")
     with pytest.raises(ScopeViolation, match="not enabled"):

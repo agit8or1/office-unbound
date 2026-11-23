@@ -13,6 +13,7 @@ import json
 import logging
 import time
 from dataclasses import dataclass, field
+from datetime import UTC, datetime
 
 from sqlalchemy import text
 
@@ -303,8 +304,12 @@ def h_provider_task(ctx: StepCtx) -> dict:
             ctx.resource("vm", vm, state="present")
         return {"power": want}
     if op == "snapshot":
-        _poll(ctx, prov.snapshot(ref, p["name"]), f"snapshot {vm}")
-        return {"snapshot": p["name"]}
+        # one snapshot per run, never a name taken before: a fixed `ou-pre-change` failed on the second change of a VM (PVE: name exists),
+        # and a retried change must not overwrite the snapshot of the state before its first attempt
+        name = f"{p['name']}-{datetime.now(UTC):%Y%m%dT%H%M%S}"
+        _poll(ctx, prov.snapshot(ref, name), f"snapshot {vm}")
+        ctx.log(f"snapshot {name} of {vm}")
+        return {"snapshot": name}
     if op == "resize_disk":
         cur = prov.disk_size_gb(ref, _disk_key(p["disk_index"])) if hasattr(prov, "disk_size_gb") else None
         if cur is not None and cur >= p["new_size_gb"]:   # idempotent: a re-run after a crash, or a template that is already big enough
@@ -433,7 +438,11 @@ def h_agent_update(ctx: StepCtx) -> dict:
         if facts.get("agent_version") != want:
             ctx.log(f"installing node agent {p['version']} (running {facts.get('agent_version', 'unknown')})")
             ctx.env.agent.run_runbook(node, "pkg.install_pinned", {"packages": [{"name": p["package"], "version": p["version"]}]})
-            facts = _await_agent(ctx, node, vm, lambda f: f.get("agent_version") == want, f"version {want}", p)
+            # guest.facts runs in a helper process that imports the agent from disk: right after apt unpacked the package it reports the NEW
+            # version while the OLD server still answers. Only the server (>= 0.10.1) adds `started`, so wait for the restarted server itself.
+            t0 = facts.get("started", 0)
+            facts = _await_agent(ctx, node, vm, lambda f: f.get("agent_version") == want and (not _server_reports(want) or f.get("started", 0) > t0),
+                                 f"version {want}", p)
         out["agent_version"] = want
         for x in ctx.plan.get("services", []):
             if x["vm"] == vm and x["package"] == p["package"]:
@@ -458,6 +467,14 @@ def h_agent_update(ctx: StepCtx) -> dict:
                    {"c": json.dumps(facts["capabilities"]), "v": facts.get("agent_version"), "i": node})
     ctx.log(f"node agent {facts.get('agent_version')} running; {len(facts['capabilities'])} runbook(s) recorded")
     return {**out, "runbooks": sorted(facts["capabilities"])}
+
+
+def _server_reports(version: str) -> bool:
+    """True when agent `version` adds its server fields (capabilities, started) to guest.facts (0.10.1 and later)."""
+    try:
+        return tuple(int(x) for x in version.split(".")[:3]) >= (0, 10, 1)
+    except ValueError:
+        return True
 
 
 def allowlist(plan: dict, vm: str, registry_prefix: str | None) -> dict:

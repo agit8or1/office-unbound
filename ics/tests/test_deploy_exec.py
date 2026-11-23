@@ -121,6 +121,7 @@ class FakeAgent:
         self.runbooks: list[tuple] = []
         self.enrolled: list[str] = []
         self.agent_version: dict[str, str] = {}
+        self.started: dict[str, int] = {}
 
     def wait_enrollment(self, vm, timeout_s):
         self.enrolled.append(vm)
@@ -132,8 +133,9 @@ class FakeAgent:
             for p in params["packages"]:
                 if p["name"] == "ou-node-agent":
                     self.agent_version[node] = p["version"].split("-", 1)[0]
+                    self.started[node] = self.started.get(node, 100) + 50   # the package restarts the agent server
         if rb == "guest.facts":
-            return {"ok": True, "agent_version": self.agent_version.get(node, "0.9.4")}
+            return {"ok": True, "agent_version": self.agent_version.get(node, "0.9.4"), "started": self.started.get(node, 100)}
         return {"ok": True}
 
     def address(self, vm):
@@ -591,7 +593,7 @@ def test_change_override_and_removal_are_high_risk(client, actors, rt, env):
     assert r2["risk"] == "high" and job(actors[0], jid2)["status"] == "succeeded", job(actors[0], jid2)
     names = [v["name"] for v in env.provider.vms.values()]
     assert "acme-prod-office" not in names and len(names) == 4
-    assert ("snapshot", "acme-prod-office", "ou-pre-destroy") in env.provider.calls
+    assert any(c[:2] == ("snapshot", "acme-prod-office") and c[2].startswith("ou-pre-destroy-") for c in env.provider.calls)
     res = {(x["kind"], x["logical_name"]): x["state"] for x in actors[0][0].get(f"{H}/deployments/prod/resources").json()}
     assert res[("vm", "acme-prod-office")] == "removed"
 
