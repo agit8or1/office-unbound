@@ -77,6 +77,11 @@ def validate_config(cfg: dict) -> dict:
     for p in rb.get("disk.usage", {}).get("paths", []):
         if not (isinstance(p, str) and p.startswith("/") and "\0" not in p):
             raise ValueError(f"bad path {p!r}")
+    # runbooks implied by a role the VM already has: an identity VM (directory account runbooks allowlisted at creation) also reconciles its
+    # sign-in service, so a VM created before this agent can take that runbook after an in-place agent upgrade (the allowlist is fixed at creation)
+    for implied, marker in cfgspec.IMPLIED.items():
+        if marker in rb and implied not in rb:
+            rb[implied] = {"enabled": True}
     return cfg
 
 

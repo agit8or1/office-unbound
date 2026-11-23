@@ -39,7 +39,7 @@ LDAP_CONF = "/etc/ldap/ldap.conf"
 NGINX_AVAIL, NGINX_ENABLED, NGINX_MAP = "/etc/nginx/sites-available", "/etc/nginx/sites-enabled", "/etc/nginx/conf.d/ou-upgrade-map.conf"
 NFT_ALLOW = "/etc/ou-agent/nft-allow.d/ou-peers.nft"   # included by the first-boot /etc/nftables.conf (set inet ou_guest cfg_allow4)
 VERIFIED_DIR = os.path.join(SERVICE_HOME, ".local/share/ou-agent/verified")
-BIN = {"openssl": "/usr/bin/openssl", "certbot": "/usr/bin/certbot", "update-ca": "/usr/sbin/update-ca-certificates", "debconf-set": "/usr/bin/debconf-set-selections",
+BIN = {"python3": "/usr/bin/python3", "systemd-run": "/usr/bin/systemd-run", "openssl": "/usr/bin/openssl", "certbot": "/usr/bin/certbot", "update-ca": "/usr/sbin/update-ca-certificates", "debconf-set": "/usr/bin/debconf-set-selections",
        "dpkg-reconfigure": "/usr/sbin/dpkg-reconfigure", "dpkg-query": "/usr/bin/dpkg-query", "ldapsearch": "/usr/bin/ldapsearch",
        "ldapmodify": "/usr/bin/ldapmodify", "systemctl": "/usr/bin/systemctl", "runuser": "/usr/sbin/runuser", "podman": "/usr/bin/podman",
        "psql": "/usr/bin/psql", "nginx": "/usr/sbin/nginx", "nft": "/usr/sbin/nft", "mariadb": "/usr/bin/mariadb", "postconf": "/usr/sbin/postconf",
@@ -1338,10 +1338,158 @@ def portal(p, x):
     return {"base_url": p["base_url"], "config_changed": changed, "admin_area": bool(admin)}
 
 
+# ---------------------------------------------------------------- cfg.keycloak_realm (identity VM, agent >= 0.10.1)
+# Keycloak imports import/realm-ou.json only when the realm does not exist yet (first start). A deployment upgraded in place gets the realm
+# brought up to the ICS's current definition through Keycloak's admin API on 127.0.0.1 (never through the public name, whose site refuses
+# the admin API): realm settings of a fixed list, clients (created or updated by clientId, incl. their secrets), the directory connection and
+# its attribute mappers (by name), the declared user profile and the required actions. Additive: nothing is ever deleted.
+KC_BASE, KC_MGMT, KC_ADMIN_USER = "http://127.0.0.1:8080", "http://127.0.0.1:9000", "kcadmin"
+KC_REALM_KEYS = ("displayName", "loginTheme", "accountTheme", "emailTheme", "browserSecurityHeaders", "resetPasswordAllowed", "editUsernameAllowed",
+                 "loginWithEmailAllowed", "registrationAllowed", "rememberMe", "verifyEmail", "sslRequired", "bruteForceProtected",
+                 "permanentLockout", "failureFactor", "passwordPolicy", "otpPolicyType", "otpPolicyAlgorithm", "otpPolicyDigits", "otpPolicyPeriod")
+KC_REQUIRED_ACTIONS = ("UPDATE_PASSWORD", "CONFIGURE_TOTP")
+LDAP_PROVIDER = "org.keycloak.storage.UserStorageProvider"
+LDAP_MAPPER = "org.keycloak.storage.ldap.mappers.LDAPStorageMapper"
+
+
+def _kc(method, path, token=None, body=None, form=None, ok=(200, 201, 204)):
+    import urllib.error
+    import urllib.request
+    data, headers = None, {"Accept": "application/json"}
+    if form is not None:
+        import urllib.parse
+        data, headers["Content-Type"] = urllib.parse.urlencode(form).encode(), "application/x-www-form-urlencoded"
+    elif body is not None:
+        data, headers["Content-Type"] = json.dumps(body).encode(), "application/json"
+    if token:
+        headers["Authorization"] = "Bearer " + token
+    req = urllib.request.Request(KC_BASE + path, data=data, method=method, headers=headers)
+    try:
+        with urllib.request.urlopen(req, timeout=30) as r:   # noqa: S310 - fixed loopback URL
+            raw = r.read()
+            code = r.status
+    except urllib.error.HTTPError as e:
+        code, raw = e.code, b""
+    except OSError as e:
+        raise Failed(f"keycloak {method} {path.split('?')[0]}: {type(e).__name__}") from None
+    if code not in ok:
+        raise Failed(f"keycloak {method} {path.split('?')[0]} answered {code}")
+    return json.loads(raw) if raw else None
+
+
+def _kc_ready(deadline=240):
+    import urllib.request
+    t0 = time.monotonic()
+    while time.monotonic() - t0 < deadline:
+        try:
+            with urllib.request.urlopen(KC_MGMT + "/health/ready", timeout=5) as r:   # noqa: S310 - fixed loopback URL
+                if r.status == 200:
+                    return
+        except OSError:
+            pass
+        time.sleep(3)
+    raise Failed("keycloak did not become ready on 127.0.0.1 within 240 s")
+
+
+def keycloak_realm(p, x):
+    want = json.loads(p["realm_json"])
+    realm = want["realm"]
+    _kc_ready()
+    tok = _kc("POST", "/realms/master/protocol/openid-connect/token",
+              form={"grant_type": "password", "client_id": "admin-cli", "username": KC_ADMIN_USER, "password": p["admin_password"]})["access_token"]
+    base, done = f"/admin/realms/{realm}", {"realm": [], "clients_created": [], "clients_updated": [], "mappers_created": [], "mappers_updated": [],
+                                             "ldap": False, "user_profile": False, "required_actions": []}
+    cur = _kc("GET", base, tok)
+    upd = {k: want[k] for k in KC_REALM_KEYS if k in want and cur.get(k) != want[k]}
+    if upd:
+        _kc("PUT", base, tok, {**upd, "realm": realm})
+        done["realm"] = sorted(upd)
+    for cl in want.get("clients", []):
+        found = _kc("GET", f"{base}/clients?clientId={cl['clientId']}", tok) or []
+        if not found:
+            _kc("POST", f"{base}/clients", tok, cl)
+            done["clients_created"].append(cl["clientId"])
+        else:
+            _kc("PUT", f"{base}/clients/{found[0]['id']}", tok, {**{k: v for k, v in cl.items() if k != "protocolMappers"}, "id": found[0]["id"]})
+            done["clients_updated"].append(cl["clientId"])
+    for wl in (want.get("components") or {}).get(LDAP_PROVIDER, []):
+        have = [cmp for cmp in (_kc("GET", f"{base}/components?type={LDAP_PROVIDER}", tok) or []) if cmp.get("name") == wl["name"]]
+        if not have:
+            raise Failed(f"the realm has no directory connection named {wl['name']!r}; refusing to create one in place")
+        h = have[0]
+        _kc("PUT", f"{base}/components/{h['id']}", tok, {**h, "config": {**h.get("config", {}), **wl["config"]}})
+        done["ldap"] = True
+        existing = {m.get("name"): m for m in (_kc("GET", f"{base}/components?parent={h['id']}&type={LDAP_MAPPER}", tok) or [])}
+        for m in (wl.get("subComponents") or {}).get(LDAP_MAPPER, []):
+            if m["name"] in existing:
+                e = existing[m["name"]]
+                if any(e.get("config", {}).get(k) != v for k, v in m["config"].items()):
+                    _kc("PUT", f"{base}/components/{e['id']}", tok, {**e, "config": {**e.get("config", {}), **m["config"]}})
+                    done["mappers_updated"].append(m["name"])
+            else:
+                _kc("POST", f"{base}/components", tok, {"name": m["name"], "providerId": m["providerId"], "providerType": LDAP_MAPPER,
+                                                        "parentId": h["id"], "config": m["config"]})
+                done["mappers_created"].append(m["name"])
+    up = (want.get("components") or {}).get("org.keycloak.userprofile.UserProfileProvider")
+    if up:
+        _kc("PUT", f"{base}/users/profile", tok, json.loads(up[0]["config"]["kc.user.profile.config"][0]))
+        done["user_profile"] = True
+    for ra in _kc("GET", f"{base}/authentication/required-actions", tok) or []:
+        if ra.get("alias") in KC_REQUIRED_ACTIONS and not ra.get("enabled"):
+            _kc("PUT", f"{base}/authentication/required-actions/{ra['alias']}", tok, {**ra, "enabled": True})
+            done["required_actions"].append(ra["alias"])
+    return done
+
+
+
+# ---------------------------------------------------------------- cfg.agent_allow (every VM with cfg.*, agent >= 0.10.1)
+# A component added to an existing VM (in-place change) needs its packages and image repositories on this VM's allowlists, which the guest
+# bootstrap wrote at creation. Additive only: names are added, never removed; the apt sources, the registry, the signing key and the
+# signature identity stay exactly as created, so a new repository is still pulled only when signed by the pinned key. The agent reads its
+# configuration at start: it is restarted a few seconds after this runbook answered (transient timer, outside this unit).
+AGENT_JSON, IMAGE_IDENTITY, IMAGE_POLICY = "/etc/ou-agent/agent.json", "/etc/ou-agent/image-identity.json", "/etc/ou-agent/image-policy.json"
+
+
+def agent_allow(p, x):
+    conf = json.loads(read(AGENT_JSON) or "{}")
+    rb = conf.get("runbooks") or {}
+    added = {"packages": [], "image_repos": []}
+    if p["packages"]:
+        if "pkg.install_pinned" not in rb:
+            raise Failed("this VM was created without package installs; packages cannot be allowed in place")
+        have = set(rb["pkg.install_pinned"].get("packages", []))
+        added["packages"] = sorted(set(p["packages"]) - have)
+        rb["pkg.install_pinned"]["packages"] = sorted(have | set(p["packages"]))
+    ident = json.loads(read(IMAGE_IDENTITY) or "{}")
+    if p["image_repos"]:
+        if not ident:
+            raise Failed("this VM pulls no signed images; image repositories cannot be allowed in place")
+        for host, v in ident.items():
+            new = sorted(set(p["image_repos"]) - set(v["repos"]))
+            added["image_repos"] = sorted(set(added["image_repos"]) | set(new))
+            v["repos"] = sorted(set(v["repos"]) | set(p["image_repos"]))
+    if not added["packages"] and not added["image_repos"]:
+        return {**added, "restart_scheduled": False}
+    from . import runbooks as agent_runbooks
+    agent_runbooks.validate_config(json.loads(json.dumps(conf)))   # the agent must still accept its configuration after the change
+    if added["image_repos"]:
+        atomic_write(IMAGE_IDENTITY, json.dumps(ident, sort_keys=True) + "\n", 0o644)
+        pol = x.run([BIN["python3"], "/opt/ou-agent/deploy/render_image_policy.py", AGENT_JSON, "/etc/ou-agent/image-signing.pub", "policy"],
+                    what="render image policy").stdout
+        json.loads(pol)
+        atomic_write(IMAGE_POLICY, pol, 0o644)
+    if added["packages"]:
+        atomic_write(AGENT_JSON, json.dumps(conf, indent=2, sort_keys=True) + "\n", 0o644)
+    x.run([BIN["systemd-run"], "--quiet", "--collect", "--on-active=5", f"--unit=ou-agent-allow-restart-{secrets.token_hex(4)}",
+           BIN["systemctl"], "try-restart", "ou-agent.service"], what="schedule agent restart")
+    return {**added, "restart_scheduled": True}
+
+
 DISPATCH = {"cfg.firewall": firewall, "cfg.hosts": hosts, "cfg.tls": tls, "cfg.ldap_init": ldap_init, "cfg.ldap_user": ldap_user, "cfg.ldap_list": ldap_list,
             "cfg.ldap_groups": ldap_groups, "cfg.ldap_lock": ldap_lock, "cfg.ldap_delete": ldap_delete, "cfg.pg_db": pg_db,
             "cfg.podman_secret": podman_secret, "cfg.volume_files": volume_files, "cfg.nginx_site": nginx_site, "cfg.gromox": gromox,
-            "cfg.nginx_default": nginx_default, "cfg.portal": portal, "cfg.acme": acme}
+            "cfg.nginx_default": nginx_default, "cfg.portal": portal, "cfg.acme": acme,
+            "cfg.keycloak_realm": keycloak_realm, "cfg.agent_allow": agent_allow}
 
 
 def handle(req, cfg):

@@ -17,10 +17,13 @@ What not to promise yet. Updated 2026-11-23 for the alpha; each line says where 
 - `--tls-cert/--tls-key`, IPv6 and installation without internet access are not tested ([installing-the-ics.md](installing-the-ics.md)).
 
 ## Deployments
-- **No in-place upgrade of a running deployment.** A new golden image, agent or app skin reaches a deployment only by destroying and creating
-  it again, and a rebuilt deployment **starts empty** (accounts, mail and files are not carried over). Per-tier backup and restore exist and
-  were drilled in the lab ([backup-product-results.md](../status/backup-product-results.md)) but are not wired into the rebuild.
-- `deployment.change` applies resource changes (size, disks); it does not re-apply configuration or branding.
+- **In-place upgrades** (0.12.0, implementing): `deployment.change` updates the node agent, adds components to existing VMs and reconfigures
+  the components that depend on them, on the VMs a deployment already has (no new image, accounts, mail and files stay). Tested with fakes
+  only so far; the first real in-place change is pending. A deployment whose agent is older than 0.10.1 first gets the agent upgrade (one
+  change), then the rest. Not yet in place: removing a component from a VM, moving one to another VM, a new golden image for existing VMs
+  (the OS is patched by package updates, not replaced), and runbook unit files changed by a newer agent (`/etc/systemd/system` copies
+  written at first boot take precedence). Data disks of components added later are attached but, as at creation, not mounted.
+- Branding/skin changes reach a deployment when the catalog's `config_revision` of the component is raised (then reconfigured in place).
 - **Certificates:** Let's Encrypt allows 5 certificates for the same set of names per week. Since 0.9.4 the ICS keeps an encrypted copy of the
   gateway's certificate and gives it back to a rebuilt gateway; verified live on 2026-11-23 (officeunbound7 rebuilt as officeunbound8: same
   certificate restored in 17 s, no new order; GitHub #24). Certificates are reused only while valid for more than 30 days. DNS-01, wildcard certificates and DNS automation are **Planned** (GitHub #25, #26).

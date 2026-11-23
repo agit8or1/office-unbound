@@ -532,6 +532,11 @@ class GuestAgentPort:
             raise StepFailed(f"{runbook} failed: {str(inner.get('error') or inner.get('active_state'))[:900]}{log}", "The unit did not start.", retryable=False)
         return inner
 
+    def registry_prefix(self) -> str | None:
+        """The registry host guests pull from (image references in the plan start with it), or None without an artifact service."""
+        amap = artifacts.load_map()
+        return amap.registry_host if amap is not None and amap.signed_registry else None
+
     def address(self, vm: str) -> str:
         n = self._node(self.node_name(vm))
         if n is None:

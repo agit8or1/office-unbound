@@ -360,6 +360,11 @@ def _node_for(ctx: StepCtx, vm: str) -> str:
                                 "AND plan_hash = :h ORDER BY id DESC LIMIT 1"),
                            {"d": ctx.deployment_id, "k": f"agent.enroll:{vm}", "h": ctx.plan_hash}).scalar()
     if not r:
+        # a change revision (in-place upgrade) has its own plan hash: the node is the one the VM's resource recorded at enrollment
+        with ctx.rt.session() as db:
+            nid = (state.provider_ref(db, ctx.deployment_id, vm) or {}).get("agent_node_id")
+        if nid:
+            return nid
         raise StepFailed(f"no enrolled agent for {vm}", "The node agent has not enrolled; re-run the deployment.", retryable=False)
     return r["node_id"]
 
@@ -412,6 +417,76 @@ def h_agent_runbook(ctx: StepCtx) -> dict:
     return {"component": comp, "runbooks": [r["runbook"] for r in results]}
 
 
+def h_agent_update(ctx: StepCtx) -> dict:
+    """In-place node agent update; the VM, its disks and every configuration stay as they are.
+    1. upgrade (params package/version): the agent installs its own pinned package (pkg.install_pinned); the package restarts the agent ~20 s
+       after apt finished, outside the runbook's process; the ICS waits until the agent answers with the new version.
+    2. allow (params allow): the packages and signed image repositories the new plan puts on this VM are added to the agent's allowlists
+       (cfg.agent_allow, agent >= 0.10.1; additive), then the agent restarts and the ICS waits for the new process.
+    3. the agent's capabilities (guest.facts, agent >= 0.10.1) replace the ones recorded at enrollment."""
+    vm, p = ctx.step["target"], ctx.step["params"]
+    node = _node_for(ctx, vm)
+    facts = _facts(ctx, node) or {}
+    out: dict = {}
+    if p.get("version"):
+        want = str(p["version"]).split("-", 1)[0]   # package 0.10.1-ou20 = agent 0.10.1
+        if facts.get("agent_version") != want:
+            ctx.log(f"installing node agent {p['version']} (running {facts.get('agent_version', 'unknown')})")
+            ctx.env.agent.run_runbook(node, "pkg.install_pinned", {"packages": [{"name": p["package"], "version": p["version"]}]})
+            facts = _await_agent(ctx, node, vm, lambda f: f.get("agent_version") == want, f"version {want}", p)
+        out["agent_version"] = want
+        for x in ctx.plan.get("services", []):
+            if x["vm"] == vm and x["package"] == p["package"]:
+                ctx.resource("service", x["name"], state="present", actual={"version": x["version"], "package": x["package"], "installed_by": "agent.update"})
+    if p.get("allow"):
+        want_allow = allowlist(ctx.plan, vm, getattr(ctx.env.agent, "registry_prefix", lambda: None)())
+        if "cfg.agent_allow" not in (facts.get("capabilities") or {}):
+            raise StepFailed(f"the node agent on {vm} cannot extend its allowlists (needs agent 0.10.1 or later)",
+                             "Upgrade the deployment's node agent pin first.", retryable=False)
+        r = ctx.env.agent.run_runbook(node, "cfg.agent_allow", want_allow)
+        res = r.get("result", r)
+        ctx.log(f"allowlisted packages {res.get('packages') or 'none new'}, image repositories {res.get('image_repos') or 'none new'}")
+        if res.get("restart_scheduled"):
+            t0 = facts.get("started", 0)
+            facts = _await_agent(ctx, node, vm, lambda f: f.get("started", 0) > t0, "the restart", p)
+        out["allowed"] = {k: res.get(k, []) for k in ("packages", "image_repos")}
+    if not isinstance(facts.get("capabilities"), dict):
+        raise StepFailed(f"the node agent on {vm} reports no capabilities (agent older than 0.10.1)", "Upgrade the node agent pin.", retryable=False)
+    with ctx.rt.session() as db, db.begin():
+        db.execute(text("UPDATE nodes SET capabilities = CAST(:c AS jsonb), agent_version = :v WHERE id::text = :i"),
+                   {"c": json.dumps(facts["capabilities"]), "v": facts.get("agent_version"), "i": node})
+    ctx.log(f"node agent {facts.get('agent_version')} running; {len(facts['capabilities'])} runbook(s) recorded")
+    return {**out, "runbooks": sorted(facts["capabilities"])}
+
+
+def allowlist(plan: dict, vm: str, registry_prefix: str | None) -> dict:
+    """What cfg.agent_allow takes for `vm`: the same lists the guest bootstrap derives at creation (agentport._artifact_fields)."""
+    pre = (registry_prefix or "").rstrip("/") + "/"
+    return {"packages": sorted({x["package"] for x in plan.get("services", []) if x.get("vm") == vm and x.get("package")}),
+            "image_repos": sorted({c["image"][len(pre):] for c in plan.get("containers", []) if c.get("vm") == vm and registry_prefix
+                                   and c["image"].startswith(pre)})}
+
+
+def _await_agent(ctx: StepCtx, node: str, vm: str, ok, what: str, p: dict) -> dict:
+    deadline = ctx.env.clock() + float(p.get("timeout_seconds", 300))
+    while True:
+        ctx.checkpoint()
+        f = _facts(ctx, node)
+        if f and ok(f) and isinstance(f.get("capabilities"), dict):
+            return f
+        if ctx.env.clock() > deadline:
+            raise StepFailed(f"node agent on {vm} did not come back with {what} (reports {(f or {}).get('agent_version', 'nothing')})",
+                             "Check ou-agent.service on the VM; the previous agent stays installed if apt failed.", retryable=True)
+        ctx.env.sleep(ctx.env.poll_interval)
+
+
+def _facts(ctx: StepCtx, node: str) -> dict | None:
+    try:
+        return ctx.env.agent.run_runbook(node, "guest.facts", {})
+    except StepFailed:   # restarting, or not answering yet
+        return None
+
+
 def h_register_checks(ctx: StepCtx) -> dict:
     vm, comp = ctx.step["target"], ctx.step["params"]["component"]
     node = _node_for(ctx, vm)
@@ -458,7 +533,7 @@ def h_verify_health(ctx: StepCtx) -> dict:
 
 
 HANDLERS = {"provider_task": h_provider_task, "wait_guest_callback": h_await_callback, "wait_agent_enrollment": h_wait_enroll, "agent_runbook": h_agent_runbook,
-            "register_checks": h_register_checks, "verify_health": h_verify_health}
+            "agent_update": h_agent_update, "register_checks": h_register_checks, "verify_health": h_verify_health}
 
 
 # ---- the loop --------------------------------------------------------------------------------------------------

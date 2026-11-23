@@ -23,9 +23,10 @@ def plan_resources(plan: dict) -> dict[tuple[str, str], dict]:
             if d["name"] != "root":
                 out[("volume", f"{v['name']}:{d['name']}")] = {"vm": v["name"], **d}
     for c in plan["containers"]:
-        out[("container", c["name"])] = {k: c[k] for k in ("vm", "component", "image", "digest", "version", "ports", "volumes")}
+        out[("container", c["name"])] = {**{k: c[k] for k in ("vm", "component", "image", "digest", "version", "ports", "volumes")},
+                                         "config_revision": c.get("config_revision", 1)}   # plans before 0.11.0 carry none: revision 1
     for s in plan["services"]:
-        out[("service", s["name"])] = {k: s[k] for k in ("vm", "component", "package", "version", "repo")}
+        out[("service", s["name"])] = {**{k: s[k] for k in ("vm", "component", "package", "version", "repo")}, "config_revision": s.get("config_revision", 1)}
     for d in plan["dns"]:
         out[("dns", f"{d['type']}:{d['name']}:{d['value']}")] = dict(d)
     for c in plan["checks"]:
@@ -164,22 +165,7 @@ def change_steps(old: dict, new: dict, added, changed, removed, cat) -> list[dic
         if reboot:
             steps.append(_step(f"vm.start:{n}", "provider_task", n, "power", {"op": "start"}, [s["key"] for s in steps if s["target"] == n],
                                disruptive=True, est_seconds=60, downtime_seconds=120))
-    # component artifact changes: redeploy in place (disruptive by the component's declared upgrade downtime)
-    upgraded: set[tuple[str, str]] = set()
-    for c in changed:
-        if c["kind"] not in ("container", "service"):
-            continue
-        comp, vm = new_resource_component(new, c), new_resource_vm(new, c)
-        if not comp or (vm, comp) in upgraded:
-            continue
-        upgraded.add((vm, comp))
-        dt = cat.components[comp].upgrade.downtime_seconds if cat and comp in cat.components else 60
-        runbooks = next((s["params"]["runbooks"] for s in create_steps([v for v in new["vms"] if v["name"] == vm], inp, cat)
-                         if s["key"] == f"comp.install:{vm}:{comp}"), [])
-        key = f"comp.upgrade:{vm}:{comp}"
-        steps.append(_step(key, "agent_runbook", vm, "install", {"component": comp, "runbooks": runbooks},
-                           [s["key"] for s in steps if s["target"] == vm], disruptive=True, downtime_seconds=dt, est_seconds=dt + 60))
-        steps.append(_step(f"health.verify:{vm}:{comp}:upgrade", "verify_health", vm, "verify", {"component": comp, "timeout_seconds": 300}, [key]))
+    steps += component_steps(old, new, inp, cat, steps)
     for r in removed:
         if r["kind"] == "vm":
             n = r["name"]
@@ -190,6 +176,91 @@ def change_steps(old: dict, new: dict, added, changed, removed, cat) -> list[dic
     for s in steps:
         s["depends_on"] = sorted(d for d in s["depends_on"] if d in keys)
     return order_steps(steps)
+
+
+def _artifacts(plan: dict, vm: str, comp: str) -> list:
+    """What a component on a VM is made of in a plan: every artifact pin plus the catalog's configuration revision. Per component, not per
+    resource name: two components may share an artifact name on one VM (nginx), and only one of them owns the resource row."""
+    return sorted((x["name"], x["version"], x.get("digest", ""), x.get("config_revision", 1))
+                  for x in plan["containers"] + plan["services"] if x["vm"] == vm and x["component"] == comp)
+
+
+def _needs(plan: dict, vm: str) -> set:
+    return {("pkg", x["package"]) for x in plan["services"] if x["vm"] == vm} | {("img", x["image"]) for x in plan["containers"] if x["vm"] == vm}
+
+
+def _deployment_components(plan: dict) -> set:
+    return {c for v in plan["vms"] for c in v["components"]}
+
+
+def component_steps(old: dict, new: dict, inp, cat, vm_steps: list[dict]) -> list[dict]:
+    """In-place software steps on VMs that exist in both plans (ADR-0017 follow-up, owner 2026-11-23: "only the apps are updated"):
+    - agent.update:<vm>        the node agent's pin changed (the agent upgrades itself) and/or the VM gets a package or image it never had
+                               (its allowlists grow); the ICS waits for the agent and records its new capabilities
+    - comp.install:<vm>:<c>    a component added to an existing VM: installed exactly as at creation (+ checks.register, health.verify)
+    - comp.upgrade:<vm>:<c>    a component's artifacts or config_revision changed, or (config_scope deployment) the deployment's component
+                               set changed: its install runbooks re-run with the configuration built from the new plan
+    - comp.upgrade:<vm>:@node  the component set changed: name resolution and VM-to-VM firewall of every other existing VM
+    Every step on a VM waits for that VM's agent upgrade; a stateful VM is snapshotted first. Nothing is removed from a VM here."""
+    from .plan import _step, create_steps
+    old_vms = {v["name"]: v for v in old["vms"]}
+    every = {c.name for c in cat.components.values() if c.placement == "every_vm"} if cat else {"monitoring-agent"}
+    comps_changed = _deployment_components(old) != _deployment_components(new)
+    out: list[dict] = []
+    installs: list[str] = []
+    for v in new["vms"]:
+        n = v["name"]
+        if n not in old_vms:
+            continue
+        ov = old_vms[n]
+        pre = [s["key"] for s in vm_steps if s["target"] == n]   # snapshot/resize/configure of this VM come first
+        mine: list[dict] = []
+        upd: dict = {}
+        for comp in v["components"]:
+            if comp in every and comp in ov["components"] and _artifacts(old, n, comp) != _artifacts(new, n, comp):
+                pkg = next(x for x in new["services"] if x["vm"] == n and x["component"] == comp)
+                upd.update(package=pkg["package"], version=pkg["version"])
+        if _needs(new, n) - _needs(old, n):   # a new package or image on this VM: the agent's allowlists (fixed at creation) grow first
+            upd["allow"] = True
+        if upd:
+            mine.append(_step(f"agent.update:{n}", "agent_update", n, "update", {**upd, "timeout_seconds": 300}, list(pre), est_seconds=90))
+        gate = [s["key"] for s in mine] or list(pre)
+        fresh = create_steps([v], inp, cat)
+        by = {s["key"]: s for s in fresh}
+        for comp in v["components"]:
+            if comp in every:
+                continue
+            c = cat.components[comp] if cat else None
+            if comp not in ov["components"]:
+                for k in (f"comp.install:{n}:{comp}", f"checks.register:{n}:{comp}", f"health.verify:{n}:{comp}"):
+                    s = dict(by[k])
+                    s["depends_on"] = [d for d in s["depends_on"] if not d.startswith("agent.enroll:")] + gate
+                    mine.append(s)
+                installs.append(f"health.verify:{n}:{comp}")
+            elif _artifacts(old, n, comp) != _artifacts(new, n, comp) or (comps_changed and c is not None and c.config_scope == "deployment"):
+                # an artifact change restarts the component (its declared upgrade downtime); a configuration-only pass does not: an unchanged
+                # unit is started, not restarted (guesthelper deploy_unit), and the cfg runbooks reload their service themselves
+                art = [x[:3] for x in _artifacts(old, n, comp)] != [x[:3] for x in _artifacts(new, n, comp)]
+                dt = (c.upgrade.downtime_seconds if c else 60) if art else 0
+                key = f"comp.upgrade:{n}:{comp}"
+                mine.append(_step(key, "agent_runbook", n, "install", {"component": comp, "runbooks": by[f"comp.install:{n}:{comp}"]["params"]["runbooks"]},
+                                  list(gate), disruptive=art, downtime_seconds=dt, est_seconds=dt + 60))
+                mine.append(_step(f"health.verify:{n}:{comp}:upgrade", "verify_health", n, "verify", {"component": comp, "timeout_seconds": 300}, [key]))
+        if comps_changed and not any(s["key"].startswith(f"comp.install:{n}:") for s in mine):
+            mine.append(_step(f"comp.upgrade:{n}:@node", "agent_runbook", n, "install", {"component": "@node", "runbooks": []}, list(gate), est_seconds=30))
+        if ov["stateful"] and any(s["kind"] == "agent_runbook" for s in mine) and f"vm.snapshot:{n}" not in pre:
+            snap = _step(f"vm.snapshot:{n}", "provider_task", n, "snapshot", {"name": "ou-pre-change"}, [], est_seconds=60)
+            for s in mine:
+                if not s["depends_on"] or s["key"].startswith("agent.update:"):
+                    s["depends_on"] = [*s["depends_on"], snap["key"]]
+            mine.insert(0, snap)
+        out += mine
+    # deployment-scoped reconfiguration (edge certificate names and sites, sign-in clients, portal apps) after the new components are healthy
+    for s in out:
+        if s["key"].startswith("comp.upgrade:") and not s["key"].endswith(":@node") and \
+                cat is not None and cat.components[s["params"]["component"]].config_scope == "deployment":
+            s["depends_on"] = sorted({*s["depends_on"], *installs})
+    return out
 
 
 def new_resource_vm(plan: dict, c: dict) -> str:

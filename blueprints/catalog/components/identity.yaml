@@ -52,6 +52,7 @@ backup:
   quiesce: online
   rpo_hours: 24
   evidence: "docs/status/restore-drill-results.md (ou-id1 drill, online, no downtime)"
+config_scope: deployment   # reconfigured in place when a component is added to or removed from the deployment
 upgrade: {downtime_seconds: 120}
 sizing:   # sizing engine (docs/status/sizing-api.md); evidence: measured = lab figure cited in source, estimate = planning value (+ safety margin)
   services: []

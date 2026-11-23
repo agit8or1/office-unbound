@@ -2,7 +2,7 @@
   "schema": "office-unbound-versions/1",
   "_note": "Per-component versions for independently shipped parts. The product version is the VERSION file (ADR-0011). ICS core always equals the product version.",
   "components": {
-    "node_agent": "0.10.0",
+    "node_agent": "0.10.1",
     "portal": "0.4.0",
     "migration_toolkit": "0.1.0",
     "docs_engine": "cp-26.04.6-1+ou2"
@@ -27,6 +27,7 @@
     "0.8": "Harbor",
     "0.9": "Ironwood",
     "0.10": "Juniper",
-    "0.11": "Kestrel"
+    "0.11": "Kestrel",
+    "0.12": "Lantern"
   }
 }

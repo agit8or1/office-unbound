@@ -10,6 +10,31 @@ isolated lab; nothing is production supported ([ROADMAP.md](ROADMAP.md)).
 
 ## [Unreleased]
 
+## [0.12.0] - 2026-11-23
+
+**Lantern** makes upgrades in place: a running deployment gets new app, node agent and configuration versions through an approved
+`deployment.change`, on the VMs it already has. No new VM, no new golden image, no lost users, mail or settings (owner 2026-11-23). Alpha.
+
+### Added
+- `agent.update:<vm>` change step: the node agent upgrades its own pinned package (the package restarts the agent after apt finished),
+  grows its package and signed-image allowlists when the VM gets a component it never had (`cfg.agent_allow`, additive; registry,
+  signing key and apt sources unchanged), and the ICS records the new agent's capabilities from `guest.facts`.
+- Components added to an existing VM are installed in place (install, checks, health), after that VM's agent update and a snapshot of a
+  stateful VM; the other VMs refresh name resolution and VM-to-VM firewall (`@node`).
+- Catalog `config_revision` (per component) and `config_scope: deployment` (identity, edge, portal): a configuration change without a new
+  artifact, or a component added anywhere, reconfigures exactly those components; a configuration-only pass is not disruptive.
+- `cfg.keycloak_realm` (identity VM): an existing sign-in realm is brought to the ICS's current definition through Keycloak's admin API
+  on 127.0.0.1 (settings, clients, directory connection and mappers, declared user profile, required actions); additive only.
+- Node agent **0.10.1**: the runbooks above, enabled by the role a VM already has (no rewrite of the allowlist written at creation).
+
+### Fixed
+- Change steps for a VM created by an earlier revision found no enrolled agent (the enrollment result is keyed by the create plan):
+  the node recorded on the VM resource is used.
+- A component upgrade of the node agent produced an empty runbook list; two components sharing an artifact name on one VM (nginx) were
+  seen as a changed resource.
+
+Evidence: `ics/tests/test_deploy_inplace.py` (fakes). First real in-place change (officeunbound8 to 0.11.0 + chat) pending.
+
 ## [0.11.0] - 2026-11-23
 
 **Kestrel** opens the Teams-style line: team chat is part of a deployment, the account page becomes a full editable profile, and the portal

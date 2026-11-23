@@ -38,6 +38,12 @@ if [ "$1" = configure ]; then
   systemd-sysusers /usr/lib/sysusers.d/ou-agent.conf
   systemd-tmpfiles --create /usr/lib/tmpfiles.d/ou-agent.conf
   chown -R root:root /opt/ou-agent; chmod -R go-w /opt/ou-agent
+  # in-place upgrade ($2 = the version replaced): restart the running agent once apt has finished, from a transient timer OUTSIDE the
+  # agent's cgroup (a direct restart would kill the apt process the agent's package runbook is still waiting on). First install: no restart,
+  # ou-bootstrap starts the agent at first boot.
+  if [ -n "$2" ] && systemctl is-active --quiet ou-agent.service; then
+    systemd-run --quiet --collect --on-active=20 --unit="ou-agent-upgrade-restart-$(date +%s)" systemctl try-restart ou-agent.service || true
+  fi
 fi
 exit 0
 PI

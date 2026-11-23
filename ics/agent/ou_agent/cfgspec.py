@@ -16,7 +16,8 @@ from .proto import Reject
 
 CFG_RUNBOOKS = ("cfg.hosts", "cfg.tls", "cfg.ldap_init", "cfg.ldap_user", "cfg.ldap_list", "cfg.ldap_groups", "cfg.ldap_lock", "cfg.ldap_delete",
                 "cfg.pg_db", "cfg.podman_secret", "cfg.volume_files", "cfg.nginx_site",
-                "cfg.firewall", "cfg.gromox", "cfg.nginx_default", "cfg.portal", "cfg.acme")
+                "cfg.firewall", "cfg.gromox", "cfg.nginx_default", "cfg.portal", "cfg.acme", "cfg.keycloak_realm", "cfg.agent_allow")
+IMPLIED = {"cfg.keycloak_realm": "cfg.ldap_list", "cfg.agent_allow": "cfg.hosts"}   # enabled wherever the marker is (runbooks.validate_config): the identity VM
 FAMILY = "cfg"
 
 FQDN_RE = re.compile(r"^(?=.{4,200}$)([a-z0-9]([a-z0-9-]{0,61}[a-z0-9])?\.)+[a-z]{2,24}$")
@@ -434,6 +435,50 @@ CHECKS = {"cfg.firewall": check_firewall, "cfg.gromox": check_gromox, "cfg.hosts
           "cfg.pg_db": check_pg_db, "cfg.podman_secret": check_podman_secret, "cfg.volume_files": check_volume_files,
           "cfg.nginx_site": check_nginx_site, "cfg.nginx_default": check_nginx_default, "cfg.portal": check_portal,
           "cfg.acme": check_acme}
+
+
+MAX_REALM_JSON = 1 << 20
+REALM_NAME_RE = re.compile(r"^[a-z][a-z0-9-]{0,30}$")
+
+
+def check_keycloak_realm(p, cfg):
+    """The realm as the ICS defines it now (the same JSON as import/realm-<realm>.json) and the Keycloak bootstrap admin password; applied
+    through Keycloak's admin API on 127.0.0.1 (cfghelper.keycloak_realm). Closed shape; the JSON is parsed here, never evaluated."""
+    _exact(p, ("realm_json", "admin_password"))
+    rj = p["realm_json"]
+    if not isinstance(rj, str) or not 2 <= len(rj) <= MAX_REALM_JSON:
+        raise Reject("bad_params", "realm_json: a JSON document of at most 1 MiB")
+    try:
+        r = json.loads(rj)
+    except ValueError:
+        raise Reject("bad_params", "realm_json is not JSON") from None
+    if not isinstance(r, dict) or not isinstance(r.get("realm"), str) or not REALM_NAME_RE.fullmatch(r["realm"]) or r["realm"] == "master":
+        raise Reject("bad_params", "realm_json: realm name missing or not allowed")
+    if not isinstance(r.get("clients", []), list) or not all(isinstance(x, dict) and isinstance(x.get("clientId"), str) for x in r.get("clients", [])):
+        raise Reject("bad_params", "realm_json: clients must carry a clientId")
+    return {"realm_json": rj, "admin_password": _password(p["admin_password"], "admin_password")}
+
+
+CHECKS["cfg.keycloak_realm"] = check_keycloak_realm
+
+MAX_ALLOW = 64
+ALLOW_PKG_RE = re.compile(r"^[a-z0-9][a-z0-9+.-]{1,62}$")
+ALLOW_REPO_RE = re.compile(r"^ou/[a-z0-9]+(?:[._-][a-z0-9]+)*(?:/[a-z0-9]+(?:[._-][a-z0-9]+)*){0,2}$")   # = render_image_policy's identity rule
+
+
+def check_agent_allow(p, cfg):
+    """The package names and signed image repositories (ou/...) this VM's plan needs: added to the agent's allowlists, never removed."""
+    _exact(p, ("packages", "image_repos"))
+    out = {}
+    for k, rx in (("packages", ALLOW_PKG_RE), ("image_repos", ALLOW_REPO_RE)):
+        v = p[k]
+        if not isinstance(v, list) or len(v) > MAX_ALLOW or not all(isinstance(x, str) and rx.fullmatch(x) for x in v):
+            raise Reject("bad_params", f"{k}: up to {MAX_ALLOW} names")
+        out[k] = sorted(set(v))
+    return out
+
+
+CHECKS["cfg.agent_allow"] = check_agent_allow
 
 
 def validate_runbook_config(name, c):

@@ -26,6 +26,7 @@ backup:
   quiesce: online
   rpo_hours: 24
   evidence: "stateless"
+config_scope: deployment   # reconfigured in place when a component is added to or removed from the deployment
 upgrade: {downtime_seconds: 5}
 sizing:
   services: [portal]

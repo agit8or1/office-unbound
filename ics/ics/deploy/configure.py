@@ -505,7 +505,9 @@ def identity_runbooks(ctx, vm: str) -> list[dict]:
         # the Office Unbound sign-in and account theme (realm loginTheme/accountTheme "ou"), mounted read-only at /opt/keycloak/themes
         {"runbook": "cfg.volume_files", "params": {"component": "identity", "volume": "themes", "image": img, "owner": KEYCLOAK_UID,
                                                    "files": brand.keycloak_theme(portal_url(ctx.plan, t))}},
-    ]
+    ] + ([{"runbook": "cfg.keycloak_realm", "after_unit": True, "params": {"realm_json": realm, "admin_password": _sec(ctx, t, "kc-admin-password")}}]
+         # Keycloak imports the realm file only when the realm is new; this brings an existing realm (in-place upgrade) to the same definition
+         if agent_has(ctx, vm, "cfg.keycloak_realm") else [])
 
 
 # the app behind each web name whose OWN administration surfaces its site refuses (agent cfghelper.LOCKDOWN): administration happens in the
@@ -697,16 +699,24 @@ def portal_key(rt, dep_id: str) -> str:
     return f"tdk_{uuid.UUID(str(dep_id)).hex}.{secret(rt, dep_id, PORTAL_ICS_KEY)}"
 
 
+def _caps(ctx, vm: str) -> dict:
+    if ctx.rt is None:
+        return {}
+    with ctx.rt.session() as db:
+        return db.execute(text("SELECT n.capabilities FROM deployment_resources r JOIN nodes n ON n.id::text = r.provider_ref->>'agent_node_id' "
+                               "WHERE r.deployment_id = :d AND r.kind = 'vm' AND r.logical_name = :n AND r.state <> 'removed'"),
+                          {"d": ctx.deployment_id, "n": vm}).scalar() or {}
+
+
+def agent_has(ctx, vm: str, runbook: str) -> bool:
+    """Whether the VM's agent offers `runbook` (its capabilities as last reported: at enrollment, refreshed after an in-place agent upgrade)."""
+    return runbook in _caps(ctx, vm)
+
+
 def agent_features(ctx, vm: str, runbook: str) -> list[str]:
     """What the VM's agent reported for `runbook` at enrollment (ou_agent cfgspec.FEATURES). An older agent reports none: the closed schema of
     its runbook would refuse a parameter it does not know, so the ICS never sends one."""
-    if ctx.rt is None:
-        return []
-    with ctx.rt.session() as db:
-        caps = db.execute(text("SELECT n.capabilities FROM deployment_resources r JOIN nodes n ON n.id::text = r.provider_ref->>'agent_node_id' "
-                               "WHERE r.deployment_id = :d AND r.kind = 'vm' AND r.logical_name = :n AND r.state <> 'removed'"),
-                          {"d": ctx.deployment_id, "n": vm}).scalar()
-    f = ((caps or {}).get(runbook) or {}).get("features") or []
+    f = (_caps(ctx, vm).get(runbook) or {}).get("features") or []
     return [x for x in f if isinstance(x, str)]
 
 
@@ -823,7 +833,13 @@ def chat_runbooks(ctx, vm: str) -> list[dict]:
     ]
 
 
-BUILDERS = {"identity": identity_runbooks, "edge": edge_runbooks, "files": files_runbooks, "office": office_runbooks, "groupware": groupware_runbooks,
+def node_runbooks(ctx, vm: str) -> list[dict]:
+    """NODE_REFRESH: an existing VM's name resolution and VM-to-VM firewall brought to the current plan (a component was added elsewhere)."""
+    return [{"runbook": "cfg.hosts", "params": {"entries": hosts_entries(ctx, names_by_vm(ctx.plan))}}, firewall_runbook(ctx, vm)]
+
+
+NODE_REFRESH = "@node"
+BUILDERS = {NODE_REFRESH: node_runbooks, "identity": identity_runbooks, "edge": edge_runbooks, "files": files_runbooks, "office": office_runbooks, "groupware": groupware_runbooks,
             "portal": portal_runbooks, "chat": chat_runbooks}
 
 
@@ -834,8 +850,10 @@ def expand(ctx, vm: str, component: str, runbooks: list[dict]) -> list[dict]:
     if b is None:
         return list(runbooks)
     cfg = b(ctx, vm)
+    late = [{k: v for k, v in r.items() if k != "after_unit"} for r in cfg if r.get("after_unit")]   # needs the running service (realm reconcile)
+    cfg = [r for r in cfg if not r.get("after_unit")]
     i = next((n for n, r in enumerate(runbooks) if r["runbook"] == "podman.deploy_unit"), len(runbooks))
-    return list(runbooks[:i]) + cfg + list(runbooks[i:])
+    return list(runbooks[:i]) + cfg + list(runbooks[i:]) + late
 
 
 def redact(runbook: str, params: dict) -> dict:
@@ -850,6 +868,8 @@ def redact(runbook: str, params: dict) -> dict:
             out[k] = [{"path": f.get("path"), "mode": f.get("mode"), "bytes": len(str(f.get("content", "")).encode())} for f in v]
         elif k in ("css", "mark_svg", "fonts_css"):   # cfg.gromox brand: generated skin, no secret; logged by size only
             out[k] = f"[{len(str(v).encode())} bytes]"
+        elif k == "realm_json":
+            out[k] = f"[realm, {len(str(v).encode())} bytes]"
         elif k == "ca_pem" or k == "cert_pem":
             out[k] = "[certificate]"
         elif k == "restore" and runbook == "cfg.acme":   # a captured certificate lineage: carries the private key and the ACME account key

@@ -5,12 +5,25 @@
   "repository": "https://github.com/agit8or1/office-unbound",
   "updated": "2026-11-23",
   "stage": "alpha",
-  "current_version": "0.11.0",
+  "current_version": "0.12.0",
   "releases": [
+    {
+      "version": "0.12.0",
+      "date": "2026-11-23",
+      "status": "prepared",
+      "codename": "Lantern",
+      "channel": "alpha",
+      "highlights": [
+        "0.12.0: in-place upgrades: deployment.change updates node agents, adds components to existing VMs and reconfigures what depends on them, without new VMs or images",
+        "0.12.0: node agent 0.10.1: self-upgrade restart, capabilities in guest.facts, allowlist growth (cfg.agent_allow), sign-in realm reconcile (cfg.keycloak_realm)"
+      ],
+      "notes_url": "https://github.com/agit8or1/office-unbound/blob/main/CHANGELOG.md",
+      "changelog": "CHANGELOG.md#0120---2026-11-23"
+    },
     {
       "version": "0.11.0",
       "date": "2026-11-23",
-      "status": "prepared",
+      "status": "released",
       "codename": "Kestrel",
       "channel": "alpha",
       "highlights": [
@@ -20,7 +33,7 @@
         "0.11.0: change password and two-step setup from the portal; the sign-in service gets its own directory writer account",
         "0.11.0: Choose how you work: office applications in the portal; Desktop Connector planned"
       ],
-      "notes_url": "https://github.com/agit8or1/office-unbound/blob/main/CHANGELOG.md",
+      "notes_url": "https://github.com/agit8or1/office-unbound/releases/tag/v0.11.0",
       "changelog": "CHANGELOG.md"
     },
     {
@@ -1013,6 +1026,15 @@
             "docs/status/upgrade-drill-results.md"
           ],
           "note": "Signed pinned-package upgrade + rollback drills: groupware (A21) and document engine (ou1<->ou2, ~30 s downtime, data intact)"
+        },
+        {
+          "id": "P5.4",
+          "title": "In-place upgrades: apps, node agents and configuration of a running deployment updated without new VMs, images or lost settings",
+          "status": "implementing",
+          "evidence": [
+            "ics/tests/test_deploy_inplace.py"
+          ],
+          "note": "0.12.0 (owner 2026-11-23): agent.update (self-upgrade + allowlist growth + capability refresh), components added to existing VMs, config_revision and deployment-scoped reconfigure, Keycloak realm reconcile. Tested with fakes; first real in-place change on officeunbound8 pending."
         },
         {
           "id": "P5.2",

@@ -49,6 +49,7 @@ def load_agent_key(state_dir: str) -> Ed25519PrivateKey:
 
 class Agent:
     def __init__(self, cfg: dict, state_dir: str):
+        self.started = int(time.time())   # guest.facts: the ICS sees that a restart (upgrade, allowlist change) has happened
         self.cfg, self.state_dir = cfg, state_dir
         self.key = load_agent_key(state_dir)
         self.pub_b64 = b64pub(self.key)
@@ -179,6 +180,9 @@ class Agent:
             with self.exec_lock:
                 try:
                     result = runbooks.execute(req["action"], params)
+                    if req["action"] == "guest.facts" and isinstance(result, dict):
+                        # after an in-place agent upgrade the ICS re-reads what this agent can do (enrollment recorded the old version's set)
+                        result = {**result, "capabilities": runbooks.capabilities(self.cfg), "agent_version": __version__, "started": self.started}
                 except Exception as e:  # noqa: BLE001 - never echo internals
                     return 200, self.signed({**base, "status": "error", "code": "exec_failed", "result": {"error": type(e).__name__}})
             self.n += 1

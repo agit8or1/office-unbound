@@ -603,7 +603,7 @@ def _derive(vms: list[_Vm], inp: PlanInput, prof: Profile, cat: Catalog, warning
                                        "ports": [p.port for p in c.ports if _port_open(c.name, p, inp)], "volumes": [x.path for x in c.volumes]})
                 else:
                     services.append({"name": f"{v.name}-{a.name}", "vm": v.name, "component": c.name, "package": a.package,
-                                     "version": a.version, "repo": a.repo})
+                                     "version": a.version, "repo": a.repo, "config_revision": c.config_revision})
             for p in c.ports:
                 if not _port_open(c.name, p, inp):
                     continue

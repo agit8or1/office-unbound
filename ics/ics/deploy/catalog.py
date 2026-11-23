@@ -285,6 +285,11 @@ class Component(_M):
     health_checks: list[HealthCheck] = []
     backup: BackupSpec
     upgrade: Upgrade
+    config_scope: Literal["component", "deployment"] = Field(default="component", description="deployment: the configuration reads which "
+                                 "components the deployment has (edge sites and certificate names, sign-in clients, portal apps), so adding or removing "
+                                 "a component anywhere reconfigures it in place")
+    config_revision: int = Field(default=1, ge=1, le=10000, description="bumped whenever the configuration the ICS writes for this component changes "
+                                 "without an artifact version change: an applied deployment then gets that component reconfigured in place (deployment.change)")
     notices: list[str] = Field(default=[], description="plain-language caveats; every plan containing the component lists them as warnings")
     ha_note: str | None = Field(default=None, max_length=300, description="what replication/HA means (or does not mean) for this component")
     os_images: list[str] = Field(default=[], description="OS images the artifacts were built/validated for; empty = no restriction")
