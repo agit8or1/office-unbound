@@ -34,7 +34,7 @@ lifecycle always disables through this action, and a second disable removes them
 ## 2. Per-user termination of open IMAP sessions (PASS for IMAP; POP3/EWS/MAPI/EAS see residual risk)
 **Search result (source gromox 3.13).** No supported per-user session control exists: `gromox-mbop` has no such command, midb has only `X-UNLD`, zcore/exmdb have no session-close RPC, imap
 has only the global `imap_autologout_time`. The only inter-process channel that reaches every `gromox-imap` process is the **event bus** (`gromox-event`, `unix:/run/gromox/event.sock`), but it routes events
-only to hosts that have `user:folder` selected. Hence an upstream-quality patch (`blueprints/build/gromox/patches/0001-imap-event-USER-KICK-terminate-sessions-of-one-user.patch`, documented in the
+only to hosts that have `user:folder` selected. Hence an upstream-quality patch (`blueprints/build/gromox/patches/0002-imap-event-user-kick.patch`, documented in the
 README next to it, for agent K's pipeline): `gromox-event` delivers a new verb `USER-KICK <user> *` to every listener; `gromox-imap` remembers `kicked[user]=now`, remembers when each session authenticated,
 and ends sessions authenticated *before* the kick with `* BYE [UNAVAILABLE] Session terminated by administrator` (idle connections found by the sleeping-list scanner within ~100 ms, others at the next
 command). Sessions authenticated after the kick are unaffected (re-enable works; no ban list). Runbook `gromox.kill_sessions` (helper `ou-gw-user kill <uid>` speaks the event protocol: `OK`, `ID`, `USER-KICK`).
@@ -78,6 +78,14 @@ device oulabwipe0a9905: status=wiped_acknowledged history=[wiped_acknowledged 19
 seconds_request_to_delivery: 2.2
 ```
 The delivery is visible in the Provision response itself (`RemoteWipe` element = status delivered), the device list per user is `idm.user.devices` / `gromox.devices`, and the acknowledgement is recorded with time and the device's IP in `user_device_history`.
+
+**What this does and does not prove (added 2026-11-23, M365 parity roadmap revision).** This is existing, lab-tested functionality: the ICS can
+request an ActiveSync remote wipe, deliver it in the `Provision` response and record the device's acknowledgement. It is **not** complete mobile
+device management and must not be described as "remote wipe" capability: no real phone has been validated; an EAS wipe acknowledgement is the
+client's statement, not proof that data was erased; a device that stays offline, or a client that ignores or does not implement EAS remote wipe,
+never executes it; and it covers only the ActiveSync mail account path. Revocation, selective corporate-data wipe and full-device wipe are planned
+as separate actions in [mobile-remote-wipe-security.md](../requirements/mobile-remote-wipe-security.md) (WIPE-) and
+[intune-and-mobile-mdm.md](../requirements/intune-and-mobile-mdm.md) (MDM-).
 An earlier run with the 90 s wait and an unreachable device (wrong password) reported `delivered: 0, undelivered_devices: [...]` and the disable still succeeded and locked the account: PASS for the "report, do not hide" requirement.
 **Residual risk.** (a) A real phone/Outlook was **not** tested; only the protocol response is proven. A device that is offline, uses `LOOSE` clients without a policy key, or never calls Provision never wipes. (b) Delivery
 needs the device to authenticate once more before the account is suspended, so a disable with `wipe_wait_seconds: 0` normally leaves the wipe `wipe_pending` (reported as undelivered). Observed grommunio-sync behaviour:

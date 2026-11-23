@@ -212,3 +212,18 @@ distribution matrix on Linux is costly to validate; no Microsoft signals for con
 4. Apple Developer Program membership and Windows code-signing certificate (zero-cost rule exception or not).
 5. Supported OS and distribution matrix for the first release.
 6. Default offline sign-in period and revocation policy.
+
+## Cross-references (2026-11-23 roadmap revision)
+
+This document is unchanged otherwise; the identity and device requirements of the 2026-11-23 revision point to it instead of duplicating it.
+
+| Section here | Requirement IDs |
+|---|---|
+| 3 Entra ID comparison, 5 identity architecture | ENT-32 to ENT-37 in [entra-identity-parity.md](entra-identity-parity.md) |
+| 4.1 Windows | ENT-32, ENT-33 |
+| 4.2 macOS | ENT-34; MDM- ([intune-and-mobile-mdm.md](intune-and-mobile-mdm.md)) for MDM delivery of Platform SSO |
+| 4.3 Linux | ENT-35 |
+| 6 Enrollment, 10 security | ENT-36, ENT-37; MDM- enrollment requirements |
+| 8 Device management | MDM- ([intune-and-mobile-mdm.md](intune-and-mobile-mdm.md)) |
+| 7 User management, 11 offline access and revocation | ENT-09, GRP-20 in [unified-groups-and-permissions.md](unified-groups-and-permissions.md); WIPE- ([mobile-remote-wipe-security.md](mobile-remote-wipe-security.md)) for lost-device and wipe actions |
+| 12 Licensing, 17 decisions 4 | ENT owner decision 6 (Apple and code-signing costs) |

@@ -2,6 +2,8 @@
 
 **Status: DEFERRED — FINAL DEVELOPMENT PRIORITY** (owner directive, 2026-11-16).
 
+**Sequencing (2026-11-23):** P9 also comes after the P11 Microsoft 365 parity programme and the P10 Post-Core Expansion modules; it is the absolute last implementation priority ([post-core-expansion.md](../roadmap/post-core-expansion.md)). Planning content below is unchanged.
+
 Do not start this until all earlier alpha-readiness and MSP pilot objectives are complete and verified:
 1. security remediation
 2. production-grade Proxmox deployment

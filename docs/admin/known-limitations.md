@@ -47,6 +47,11 @@ What not to promise yet. Updated 2026-11-23 for the alpha; each line says where 
   ([ics-recovery-and-standby.md](ics-recovery-and-standby.md)).
 - Pushover and SMS alert channels cannot be enabled (ADR-0007); the webhook channel is tested locally only.
 - No mailbox purge or export action; revocation gaps are listed in [users-and-access.md](users-and-access.md).
+- **ActiveSync remote wipe is not device management.** `idm.user.disable` with `wipe_devices` asks **every** ActiveSync device of the user for a
+  full remote wipe; depending on the phone's mail app that can erase the whole phone, including a personally owned one. It was tested only with a
+  scripted client (no real phone), the device's acknowledgement is not proof of erasure, an offline device never receives it, and in
+  `single_admin` mode the administrator approves it alone. Use it only on company-owned devices you intend to erase
+  ([lifecycle-gaps-results.md](../status/lifecycle-gaps-results.md); planned replacement: [mobile-remote-wipe-security.md](../requirements/mobile-remote-wipe-security.md)).
 
 ## Security
 - No Critical findings are open. 5 High findings are Partial (they wait for the privilege-separation apply and the signed registry), plus

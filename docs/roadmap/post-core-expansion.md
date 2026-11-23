@@ -4,9 +4,18 @@
 
 P10 starts only after:
 1. the current core product, stages 1–8 of the alpha-readiness queue (`docs/status/ALPHA-EXECUTION-QUEUE.md`), and
-2. P9 PDF Studio (`docs/requirements/P9-pdf-reader-editor.md`)
+2. the Microsoft 365 parity programme **P11** priorities A–C (business-ready collaboration, mobile security, Entra/Intune expansion;
+   [m365-feature-parity.md](../requirements/m365-feature-parity.md))
 
-are complete and verified. The ten modules are then evaluated and prioritised; they are not built all at once. This document does not change any current priority.
+are complete and verified.
+
+**Sequencing revision (2026-11-23, owner M365 parity directive).** The earlier text made P10 wait for P9 PDF Studio, which contradicted the
+owner's standing rule that **PDF Studio is the absolute last implementation priority**. P9 now comes after P10 and P11; its ID, requirements
+([P9-pdf-reader-editor.md](../requirements/P9-pdf-reader-editor.md)) and planning are unchanged. P10 modules are **Priority D** in the parity
+matrix; P10.6, P10.10 and P10.12 are also referenced by Priority C (Entra/Intune) and are detailed in
+[entra-identity-parity.md](../requirements/entra-identity-parity.md), [intune-and-mobile-mdm.md](../requirements/intune-and-mobile-mdm.md) and
+[mobile-remote-wipe-security.md](../requirements/mobile-remote-wipe-security.md). P10.2 Intranet is detailed in
+[sharepoint-and-team-libraries.md](../requirements/sharepoint-and-team-libraries.md). Nothing here authorizes development. The ten modules are then evaluated and prioritised; they are not built all at once. This document does not change any current priority.
 
 **Licensing notes in this document reflect what we knew at planning time.** Every one of them is re-verified in **P10.0** before a component is adopted. P10.0 covers:
 - licence text
@@ -281,7 +290,7 @@ Desktop sign-in and device enrollment with the organisational identity are plann
 - **Templates:** document, spreadsheet and presentation templates.
 - **Fidelity and charts:** charting; file-format fidelity.
 - **Automation:** document automation; macros where technically and legally feasible.
-- **Integration:** desktop applications; collaboration; PDF integration with P9.
+- **Integration:** desktop applications; collaboration; PDF integration with P9 (when P9 is built, last).
 
 **Approach:**
 - Continue our own Collabora Online build.
@@ -291,7 +300,7 @@ Desktop sign-in and device enrollment with the organisational identity are plann
 - A fidelity test corpus with measured scores.
 - **We never claim full Microsoft Office compatibility without tests.**
 
-**Depends on:** P9, the template store (OpenCloud).
+**Depends on:** the template store (OpenCloud); PDF features wait for P9, which is the last priority.
 
 **Acceptance:**
 - Published fidelity metrics on a corpus of real-world DOCX, XLSX and PPTX files, improving release over release.
@@ -377,6 +386,9 @@ administration; C7 passwordless, device trust, conditional access; C8 hardening 
 9. BI (P10.9)
 10. Advanced Identity (P10.10)
 11. Office Unbound Connect (P10.12), after P10.6 and P10.10 (owner, 2026-11-21: planning only)
+
+Revised overall order (2026-11-23, proposed): core alpha/beta queue → P11 A (sharing, calendars/mailboxes, groups, desktop sync) → P11 B
+(mobile security) → P11 C (P10.10, P10.6, P10.12 with F2/F4/F6/F8 first) → remaining P10 modules (D) → **P9 PDF Studio last**.
 
 **Note for the future planner:** P10.4 SecOps and P10.10 conditional access both depend on the P10.6 device agent. P10.3 AI and P10.5 eDiscovery both depend on F2 and F4. Building F2, F4 and the P10.6 agent decision early inside P10 avoids rework, even though the module order above stays as the owner proposed.
 

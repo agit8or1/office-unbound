@@ -52,3 +52,14 @@ GPL-2.0-only files in gromox and combination with AGPL; Ext JS (GPL-3.0-only) in
 
 ## Future modules
 The Post-Core Expansion plan (`docs/roadmap/post-core-expansion.md`) lists the shared architecture rules for the ten planned modules and the foundations they depend on: F1 tenancy key, F2 service authorisation API, F3 event bus, F4 search index, F5 legal-hold hooks, F6 device posture, F7 export and ingestion, F8 separate device and ICS agents. It also holds P10.12 Office Unbound Connect (desktop sign-in and device enrollment, [requirements](requirements/office-unbound-connect.md)). Nothing in it is built yet.
+
+## Microsoft 365 parity programme (planning, 2026-11-23)
+The owner's goal is broad Microsoft 365 functional and workflow parity (not proprietary protocol compatibility) on the architecture above, which
+is preserved: OpenLDAP stays the single authoritative directory, Keycloak the identity provider, Gromox, OpenCloud, Collabora, Matrix, Jitsi and
+Asterisk the services, the ICS the infrastructure control plane, and employee endpoint management stays separate from the ICS node agent (F8).
+Cross-service permissions extend F2 rather than adding a second authorization system. The master matrix and readiness gates are in
+[m365-feature-parity.md](requirements/m365-feature-parity.md); details by area: [files and sharing](requirements/onedrive-and-file-sharing.md),
+[sites and team libraries](requirements/sharepoint-and-team-libraries.md), [calendars and mailboxes](requirements/calendar-and-mailbox-delegation.md),
+[groups and permissions](requirements/unified-groups-and-permissions.md), [identity](requirements/entra-identity-parity.md),
+[devices and mobile](requirements/intune-and-mobile-mdm.md), [remote wipe security](requirements/mobile-remote-wipe-security.md). Roadmap phase P11;
+PDF Studio (P9) is last. Nothing in it is built yet.

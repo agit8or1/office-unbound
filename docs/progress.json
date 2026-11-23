@@ -1065,108 +1065,84 @@
       ]
     },
     {
-      "id": "P9",
-      "name": "Office Unbound PDF Studio: full PDF reader, editor, forms and document management (DEFERRED — absolute last priority)",
-      "status": "deferred",
+      "id": "P11",
+      "name": "Microsoft 365 parity programme: business-ready collaboration (A), mobile security (B), Entra/Intune expansion (C) — proposed, not authorized for development",
+      "status": "planned",
       "items": [
         {
-          "id": "P9.0",
-          "title": "Engine research, licence audit and feature/dependency matrix (PDF.js, Nib, Stirling PDF as reference only, others)",
-          "status": "deferred",
+          "id": "P11.1",
+          "title": "Priority A — file and folder sharing, granular permissions, team document libraries, version and deleted-file recovery, sharing policies (OneDrive/SharePoint equivalent; ODB-, SPO-)",
+          "status": "planned",
           "evidence": [
-            "docs/requirements/P9-pdf-reader-editor.md"
+            "docs/requirements/onedrive-and-file-sharing.md",
+            "docs/requirements/sharepoint-and-team-libraries.md"
           ],
-          "note": "Deferred: starts only after every other planned core feature and integration is complete and stable (owner, 2026-11-16)"
+          "note": "Builds on P1.5 OpenCloud (Spaces, links, versions, trash in lab) and P1.6 documents. Proposed 2026-11-23 (owner M365 parity directive); planning only, not authorized for development; does not change current work."
         },
         {
-          "id": "P9.1",
-          "title": "PDF reader (tabs, presentation mode, protected documents, attachments)",
-          "status": "deferred",
-          "evidence": []
+          "id": "P11.2",
+          "title": "Priority A — shared calendars and delegation, shared mailboxes with Send As / Send on Behalf, shared contacts, resources (Exchange/Outlook equivalent; EXO-)",
+          "status": "planned",
+          "evidence": [
+            "docs/requirements/calendar-and-mailbox-delegation.md"
+          ],
+          "note": "Builds on P1.3 Gromox (shared mailbox among the 57 lab checks) and P1.11 real-client matrix. Proposed 2026-11-23 (owner M365 parity directive); planning only, not authorized for development; does not change current work."
         },
         {
-          "id": "P9.2",
-          "title": "Full editing of existing PDFs: text, images/objects, pages",
-          "status": "deferred",
-          "evidence": []
+          "id": "P11.3",
+          "title": "Priority A — unified groups and cross-service permissions, offboarding and access revocation (Microsoft 365 Groups equivalent; GRP-, extends F2)",
+          "status": "planned",
+          "evidence": [
+            "docs/requirements/unified-groups-and-permissions.md"
+          ],
+          "note": "Builds on P1.4 single directory and P1.8 measured revocation. Proposed 2026-11-23 (owner M365 parity directive); planning only, not authorized for development; does not change current work."
         },
         {
-          "id": "P9.3",
-          "title": "Annotations and multi-reviewer review",
-          "status": "deferred",
-          "evidence": []
+          "id": "P11.4",
+          "title": "Priority A — OneDrive-like desktop sync (selective sync, offline and on-demand files) and real desktop/mobile client compatibility testing (ODB-)",
+          "status": "planned",
+          "evidence": [
+            "docs/requirements/onedrive-and-file-sharing.md"
+          ],
+          "note": "Builds on P1.5 desktop sync engine (lab) and P1.11; on-demand placeholders per OS are not promised until proven. Proposed 2026-11-23 (owner M365 parity directive); planning only, not authorized for development; does not change current work."
         },
         {
-          "id": "P9.4",
-          "title": "Forms: filling and creation (AcroForm; XFA limits documented)",
-          "status": "deferred",
-          "evidence": []
+          "id": "P11.5",
+          "title": "Priority B — mobile security foundation: real-device ActiveSync, device inventory, account revocation, selective corporate-data wipe, tenant-admin fresh MFA, independent full-wipe approval, truthful wipe status (MDM-, WIPE-)",
+          "status": "planned",
+          "evidence": [
+            "docs/requirements/intune-and-mobile-mdm.md",
+            "docs/requirements/mobile-remote-wipe-security.md",
+            "docs/status/lifecycle-gaps-results.md"
+          ],
+          "note": "Existing: scripted ActiveSync remote wipe passed in the lab (no real phone; an EAS acknowledgement is not proof of erasure; not MDM). Proposed 2026-11-23 (owner M365 parity directive); planning only, not authorized for development; does not change current work."
         },
         {
-          "id": "P9.5",
-          "title": "Electronic signatures and signing workflows",
-          "status": "deferred",
-          "evidence": []
+          "id": "P11.6",
+          "title": "Priority C — Entra-like identity (passkeys, conditional access, governance, privileged access) and Intune-like endpoint management; detailed in P10.6, P10.10 and P10.12 (ENT-, MDM-)",
+          "status": "planned",
+          "evidence": [
+            "docs/requirements/entra-identity-parity.md",
+            "docs/requirements/intune-and-mobile-mdm.md",
+            "docs/requirements/office-unbound-connect.md"
+          ],
+          "note": "Proposed 2026-11-23 (owner M365 parity directive); planning only, not authorized for development; does not change current work."
         },
         {
-          "id": "P9.6",
-          "title": "Cryptographic digital signatures (PKCS#12/X.509, PAdES, RFC 3161 timestamps, OCSP/CRL)",
-          "status": "deferred",
-          "evidence": []
-        },
-        {
-          "id": "P9.7",
-          "title": "Secure redaction (verified non-recoverable)",
-          "status": "deferred",
-          "evidence": []
-        },
-        {
-          "id": "P9.8",
-          "title": "OCR and scanned documents",
-          "status": "deferred",
-          "evidence": []
-        },
-        {
-          "id": "P9.9",
-          "title": "Document conversion, merge/split, PDF/A",
-          "status": "deferred",
-          "evidence": []
-        },
-        {
-          "id": "P9.10",
-          "title": "Document security, untrusted-input sandboxing",
-          "status": "deferred",
-          "evidence": []
-        },
-        {
-          "id": "P9.11",
-          "title": "Advanced tools: compare, Bates, headers/footers, PDF/UA validation, reading-order editing, batch",
-          "status": "deferred",
-          "evidence": []
-        },
-        {
-          "id": "P9.12",
-          "title": "Office Unbound Files integration, versioning, APIs",
-          "status": "deferred",
-          "evidence": []
-        },
-        {
-          "id": "P9.13",
-          "title": "UX concept designs and review",
-          "status": "deferred",
-          "evidence": []
-        },
-        {
-          "id": "P9.14",
-          "title": "Test suite and final acceptance",
-          "status": "deferred",
-          "evidence": []
+          "id": "P11.7",
+          "title": "Master Microsoft 365 feature matrix, readiness gates (functional business beta, mobile security beta, advanced enterprise) and public website feature-list proposal",
+          "status": "planned",
+          "evidence": [
+            "docs/requirements/m365-feature-parity.md",
+            "docs/roadmap/website-feature-list-proposal.md"
+          ],
+          "note": "Website copy is a proposal and is not deployed. Proposed 2026-11-23 (owner M365 parity directive); planning only, not authorized for development; does not change current work."
         }
       ]
     },
     {
       "id": "P10",
-      "name": "Post-Core Expansion: planned future capabilities (not available; starts after the core product and P9)",
+      "name": "Post-Core Expansion: planned future capabilities (not available; after the core product and P11; Priority D)",
       "status": "deferred",
       "items": [
         {
@@ -1286,6 +1262,106 @@
             "docs/roadmap/post-core-expansion.md"
           ],
           "note": "PLANNED / NOT IMPLEMENTED. Planning only, not authorized for development (owner, 2026-11-21); after the current priorities, builds on P10.6 and P10.10."
+        }
+      ]
+    },
+    {
+      "id": "P9",
+      "name": "Office Unbound PDF Studio: full PDF reader, editor, forms and document management (DEFERRED — absolute last implementation priority, after P10 and P11)",
+      "status": "deferred",
+      "items": [
+        {
+          "id": "P9.0",
+          "title": "Engine research, licence audit and feature/dependency matrix (PDF.js, Nib, Stirling PDF as reference only, others)",
+          "status": "deferred",
+          "evidence": [
+            "docs/requirements/P9-pdf-reader-editor.md"
+          ],
+          "note": "Deferred: starts only after every other planned core feature and integration is complete and stable (owner, 2026-11-16)"
+        },
+        {
+          "id": "P9.1",
+          "title": "PDF reader (tabs, presentation mode, protected documents, attachments)",
+          "status": "deferred",
+          "evidence": []
+        },
+        {
+          "id": "P9.2",
+          "title": "Full editing of existing PDFs: text, images/objects, pages",
+          "status": "deferred",
+          "evidence": []
+        },
+        {
+          "id": "P9.3",
+          "title": "Annotations and multi-reviewer review",
+          "status": "deferred",
+          "evidence": []
+        },
+        {
+          "id": "P9.4",
+          "title": "Forms: filling and creation (AcroForm; XFA limits documented)",
+          "status": "deferred",
+          "evidence": []
+        },
+        {
+          "id": "P9.5",
+          "title": "Electronic signatures and signing workflows",
+          "status": "deferred",
+          "evidence": []
+        },
+        {
+          "id": "P9.6",
+          "title": "Cryptographic digital signatures (PKCS#12/X.509, PAdES, RFC 3161 timestamps, OCSP/CRL)",
+          "status": "deferred",
+          "evidence": []
+        },
+        {
+          "id": "P9.7",
+          "title": "Secure redaction (verified non-recoverable)",
+          "status": "deferred",
+          "evidence": []
+        },
+        {
+          "id": "P9.8",
+          "title": "OCR and scanned documents",
+          "status": "deferred",
+          "evidence": []
+        },
+        {
+          "id": "P9.9",
+          "title": "Document conversion, merge/split, PDF/A",
+          "status": "deferred",
+          "evidence": []
+        },
+        {
+          "id": "P9.10",
+          "title": "Document security, untrusted-input sandboxing",
+          "status": "deferred",
+          "evidence": []
+        },
+        {
+          "id": "P9.11",
+          "title": "Advanced tools: compare, Bates, headers/footers, PDF/UA validation, reading-order editing, batch",
+          "status": "deferred",
+          "evidence": []
+        },
+        {
+          "id": "P9.12",
+          "title": "Office Unbound Files integration, versioning, APIs",
+          "status": "deferred",
+          "evidence": []
+        },
+        {
+          "id": "P9.13",
+          "title": "UX concept designs and review",
+          "status": "deferred",
+          "evidence": []
+        },
+        {
+          "id": "P9.14",
+          "title": "Test suite and final acceptance",
+          "status": "deferred",
+          "evidence": []
         }
       ]
     }
