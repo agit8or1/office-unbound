@@ -5,8 +5,21 @@
   "repository": "https://github.com/agit8or1/office-unbound",
   "updated": "2026-11-23",
   "stage": "alpha",
-  "current_version": "0.12.1",
+  "current_version": "0.13.0",
   "releases": [
+    {
+      "version": "0.13.0",
+      "date": "2026-11-23",
+      "status": "prepared",
+      "codename": "Meridian",
+      "channel": "alpha",
+      "highlights": [
+        "0.13.0: one design for the suite: new portal shell and dashboard with live widgets, user-chosen light/dark, differentiated dark layers",
+        "0.13.0: Mail, Calendar and Contacts restyled into the shared design system through the supported skin hook"
+      ],
+      "notes_url": "https://github.com/agit8or1/office-unbound/blob/main/CHANGELOG.md",
+      "changelog": "CHANGELOG.md#0130---2026-11-23"
+    },
     {
       "version": "0.12.1",
       "date": "2026-11-23",

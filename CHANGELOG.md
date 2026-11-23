@@ -10,6 +10,29 @@ isolated lab; nothing is production supported ([ROADMAP.md](ROADMAP.md)).
 
 ## [Unreleased]
 
+## [0.13.0] - 2026-11-23
+
+**Meridian** brings the suite under one design: a new portal shell and dashboard, light and dark themes chosen by the user, and Mail,
+Calendar and Contacts restyled into the same system through their supported theming hook (owner brief 2026-11-23). Alpha.
+
+### Added
+- Portal 0.5.0: one top bar for every app (Dashboard, Mail, Calendar, Contacts, Files, Chat; an Apps menu on phones), file search,
+  a New menu (document, spreadsheet, presentation, email, event, upload or folder) and an account menu with Appearance (System, Light,
+  Dark) and, for tenant admins only, Organisation admin. No JavaScript (the portal's policy allows none).
+- Dashboard widgets: Inbox, This week, Quick create, Recent files and Shared with me (live, from Files), each can be hidden; a hidden
+  widget is not loaded. Inbox and agenda previews say plainly that they are not available yet instead of showing sample data.
+- Design system document with tokens, layering, upstream limits and evidence: `docs/design/design-system.md`.
+- ADR-0020 (proposed): updates from GitHub to the controller and from the controller to deployments (roadmap P2.13).
+
+### Changed
+- Shared tokens: a separate dark palette with distinct bar, canvas, side, surface and raised layers; muted teal for actions and
+  selection; per-app icon colours; AA contrast checked in both themes (`ics/tests/test_brand.py`). The console uses the same dark values.
+- Mail, Calendar and Contacts (grommunio-web skin): side-layer folder pane, teal selection and unread markers, sentence-case menu,
+  quiet secondary buttons, calendar today marker; colours, borders, type and shadows only (a test refuses layout rules).
+- Catalog pins `ou-portal` 0.5.0-ou1.
+
+Evidence: `docs/screenshots/portal-v5/`, `docs/screenshots/apps-v5/`, portal tests (`portal/tests/test_portal.py`).
+
 ## [0.12.1] - 2026-11-23
 
 ### Fixed
@@ -601,6 +624,7 @@ editing, chat/meetings, telephony prototype, migration tooling and package pipel
 - `SECURITY.md` (private reporting) and `CONTRIBUTING.md` (DCO sign-off) added; AGPL-3.0 license. [SECURITY](SECURITY.md)
 
 [Unreleased]: https://github.com/agit8or1/office-unbound/compare/v0.4.7...HEAD
+[0.13.0]: https://github.com/agit8or1/office-unbound/compare/v0.12.1...v0.13.0
 [0.12.1]: https://github.com/agit8or1/office-unbound/compare/v0.12.0...v0.12.1
 [0.12.0]: https://github.com/agit8or1/office-unbound/compare/v0.11.0...v0.12.0
 [0.11.0]: https://github.com/agit8or1/office-unbound/compare/v0.10.0...v0.11.0
