@@ -3,22 +3,56 @@ version: 1.0.0
 title: Team chat (Matrix Synapse + MAS + Element Web)
 description: Team messaging. Synapse homeserver, Matrix Authentication Service (sign-in only through Keycloak, no local passwords) and the Element Web client, with its own PostgreSQL.
 artifacts:
+  # FIRST the packages: the chat VM's own PostgreSQL (databases synapse and mas, cfg.pg_db) and the same-VM TLS proxy (one nginx with files/edge when co-located)
+  - {name: postgresql, kind: package, package: postgresql-16, version: "16.15-0ubuntu0.24.04.1", repo: ubuntu-noble}
+  - {name: nginx, kind: package, package: nginx, version: "1.24.0-2ubuntu7.19", repo: ubuntu-noble}
   # OCI images built by Office Unbound (blueprints/build/collab, blueprints/build/oci), pinned by digest and signed through ou-oci-sign (dev channel key; docs/status/oci-signing-results.md).
-  - {name: synapse, kind: oci, image: registry.ou.invalid/ou/synapse, digest: "sha256:542de3d410dc142cf45c69e42c13cbd970a497803dc7edb78c3e2b2ee5160a9d", version: "1.165.0"}
-  - {name: mas, kind: oci, image: registry.ou.invalid/ou/matrix-authentication-service, digest: "sha256:0cc079599c9ccd68b28a058726a4fb555cafb2c92d6731ebca721c43d1c9a019", version: "1.29.0"}
-  - {name: element-web, kind: oci, image: registry.ou.invalid/ou/element-web, digest: "sha256:3466abb4ade27ecaccf9d5f40bdd94525f2b8da86288b8854b1028696f3cba73", version: "1.12.35"}
-  - {name: postgresql, kind: package, package: postgresql-16, version: "16.15", repo: ubuntu-noble}
-  - {name: nginx, kind: package, package: nginx, version: "1.24.0", repo: ubuntu-noble}
+  # Configuration comes from the ICS (deploy/configure.py chat_runbooks, templates/chat): homeserver.yaml + signing key, MAS config, the web front.
+  - name: mas
+    kind: oci
+    image: registry.ou.invalid/ou/matrix-authentication-service
+    digest: "sha256:0cc079599c9ccd68b28a058726a4fb555cafb2c92d6731ebca721c43d1c9a019"
+    version: "1.29.0"
+    unit:
+      type: container-hostnet
+      memory_mib: 256
+      env: {MAS_CONFIG: /config/config.yaml, SSL_CERT_FILE: /config/trust.crt}
+      volumes: [{name: masconfig, path: /config, read_only: true}]
+  - name: synapse
+    kind: oci
+    image: registry.ou.invalid/ou/synapse
+    digest: "sha256:542de3d410dc142cf45c69e42c13cbd970a497803dc7edb78c3e2b2ee5160a9d"
+    version: "1.165.0"
+    unit:
+      type: container-hostnet
+      memory_mib: 1024
+      env: {SYNAPSE_CONFIG_PATH: /etc/ou-chat/homeserver.yaml}
+      volumes: [{name: config, path: /etc/ou-chat, read_only: true}, {name: media, path: /data}]
+  # Element Web; its nginx is the VM-local web front (127.0.0.1:8070) for the chat, matrix and mas names. The image's nginx writes under /tmp/nginx,
+  # which exists only in the image (a read-only root would put an empty tmpfs on /tmp): this unit keeps a writable root, it holds no data.
+  - name: element-web
+    kind: oci
+    image: registry.ou.invalid/ou/element-web
+    digest: "sha256:3466abb4ade27ecaccf9d5f40bdd94525f2b8da86288b8854b1028696f3cba73"
+    version: "1.12.35"
+    unit:
+      type: container-hostnet
+      memory_mib: 64
+      read_only: false
+      volumes: [{name: front, path: /etc/ou-element, read_only: true}]
 resources:
   cores:     {base: 2,    per_user: 0.004, source: "ASSUMPTION: lab (collaboration-lab-results.md section 4) had no load test; 1 core per 250 users planning value"}
   memory_mb: {base: 1536, per_user: 3,     source: "collaboration-lab-results.md section 4: ou-chat1 peak 1.27 GiB under MemoryMax 1.5G (idle 0.49 GiB; MAS 116 MB, Synapse 107 MB); 3 MB/user cache growth is an ASSUMPTION"}
   disk_gb:   {base: 8,    per_user: 0,     source: "ASSUMPTION: OS + Synapse/MAS images + Element tarball; not measured"}
 volumes:
   - {name: pgdata, path: /var/lib/postgresql, size_gb: {base: 5, per_user: 0.02, source: "ASSUMPTION: lab DB was tiny; 20 MB/user for events/state"}, backup: true}
-  - {name: media, path: /var/lib/matrix-synapse, size_gb: {base: 10, per_user: 0.5, source: "ASSUMPTION: 500 MB media per user; lab stored one 300 KB file"}, backup: true}
-  - {name: config, path: /etc/ou/chat, size_gb: {base: 1, per_user: 0, source: "signing key, homeserver and MAS config (MAS encryption secret)"}, backup: true}
+  # Synapse media and the configuration live in podman volumes on the root disk (ou-chat-media, ou-chat-config, ou-chat-masconfig, ou-chat-front);
+  # a separate media disk and its backup are Planned (alpha: media backup not drilled)
 ports:
-  - {name: https, port: 443, proto: tcp, exposure: edge}
+  - {name: front, port: 8070, proto: tcp, exposure: local}
+  - {name: synapse, port: 8008, proto: tcp, exposure: local}
+  - {name: mas, port: 8080, proto: tcp, exposure: local}
+  - {name: https, port: 443, proto: tcp, exposure: edge, shared_with: [edge, files, office, portal]}   # the same-VM TLS proxy (one nginx), reached by the edge VM only
   - {name: federation, port: 8448, proto: tcp, exposure: public, default_enabled: false}
 depends_on: [identity]
 dns:
@@ -62,9 +96,7 @@ sizing:
   disk_gb: {base: 8, base_evidence: estimate, source: "ESTIMATE: OS + Synapse/MAS images + Element tarball"}
   volumes:
     - {volume: pgdata, base: 5, base_evidence: estimate, source: "ESTIMATE", factors: [{per: total_user, value: 0.02, evidence: estimate, source: "ESTIMATE: 20 MB/user events/state"}]}
-    - {volume: media, base: 10, base_evidence: estimate, source: "ESTIMATE", factors: [{per: total_user, value: 0.5, evidence: estimate, source: "ESTIMATE: 500 MB media per user"}]}
-    - {volume: config, base: 1, base_evidence: estimate, source: "signing key and config", factors: []}
-  consolidation: {group: chat, isolation: none, reason: "binds tcp/443: own VM unless the edge proxy fronts it (not implemented)"}
+  consolidation: {group: files, isolation: none, reason: "behind the same-VM TLS proxy (127.0.0.1:8070), like files; shares a VM with files/documents"}
   ha:
     note: "No application HA: Synapse workers / PostgreSQL replication not implemented; a replica is an independent server."
     strategies:

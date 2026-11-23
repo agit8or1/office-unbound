@@ -73,7 +73,7 @@ def test_collab_artifacts_are_pinned_and_signed_and_the_gates_still_bite():
     assert not [e for e in p["errors"] if e["code"].startswith("artifact_")] and p["executable"]
     assert {"chat", "meet", "pbx"} <= {v["logical"] for v in p["vms"]}
     # the gates are unchanged: a cleared digest -> artifact_unpinned, signed: false -> artifact_unsigned
-    c.components["chat"].artifacts[1].digest = "sha256:"
+    next(a for a in c.components["chat"].artifacts if a.name == "mas").digest = "sha256:"
     c.components["meetings"].artifacts[0].signed = False
     p2 = generate_plan(inp(profile="medium", users=100), cap(3), c)
     assert ("chat", "mas") in {(e["component"], e["artifact"]) for e in p2["errors"] if e["code"] == "artifact_unpinned"}
@@ -92,7 +92,7 @@ def test_placement_small_optional_off_by_default_and_on_demand():
     assert on["consumption"]["memory_mb"] > off["consumption"]["memory_mb"] + 4000
     chat = next(v for v in on["vms"] if v["logical"] == "chat")
     assert chat["memory_mb"] >= 1536 + 512 + 3 * 40          # lab peak formula + VM overhead
-    assert {d["name"] for d in chat["disks"]} >= {"chat-pgdata", "chat-media", "chat-config"}
+    assert {d["name"] for d in chat["disks"]} >= {"chat-pgdata"}   # media and configuration: podman volumes on the root disk (alpha)
     codes_ = codes(on["warnings"])
     assert "component_notice" in codes_ and "sizing_assumptions" in codes_ and "backup_not_drilled" in codes_
     assert any("emergency" in w["message"].lower() for w in on["warnings"])
@@ -104,7 +104,7 @@ def test_placement_small_optional_off_by_default_and_on_demand():
     assert login["path"] == "/_matrix/client/v3/login" and login["body_contains"] == "m.login.sso" and login["host"].startswith("matrix.")
     # backups: Postgres dump for chat, config tar for the PBX, nothing for stateless Jitsi
     bk = {b["component"]: b for b in on["backups"]}
-    assert bk["chat"]["method"] == "online_dump" and "/var/lib/matrix-synapse" in bk["chat"]["volumes"]
+    assert bk["chat"]["method"] == "online_dump" and bk["chat"]["volumes"] == ["/var/lib/postgresql"]   # alpha: chat media is a podman volume, not yet backed up
     assert bk["telephony"]["method"] == "config_tar" and "/var/spool/asterisk" in bk["telephony"]["volumes"]
     assert "meetings" not in bk
 

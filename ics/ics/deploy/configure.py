@@ -29,13 +29,16 @@ LDAP_GROUPS = ("opencloudAdmin", "opencloudSpaceAdmin", "opencloudUser", "opencl
 ORG_ADMIN_GROUP = "org-admin"  # LDAP group -> realm role (role-ldap-mapper): the portal's admin area
 KEYCLOAK_UID = "10130:10130"   # the non-root user of the Keycloak image (blueprints/build/oci/idfiles)
 SECRET_PARAM_KEYS = ("admin_password", "bind_password", "password", "value", "key_pem", "db_password", "client_secret", "ics_key")
-CONFIGURED = ("identity", "edge", "files", "office", "groupware", "portal")   # components whose node-local state the engine creates today
+CONFIGURED = ("identity", "edge", "files", "office", "groupware", "portal", "chat")   # components whose node-local state the engine creates today
 MAIL_GROUP = "mail-users"      # directory group whose members get a mailbox (cfg.ldap_init creates it; ou-admin is a member)
 OPENCLOUD_UID = "10140:10140"  # the non-root user of the OpenCloud image (blueprints/build/oci/idfiles)
 DOCS_UID = "10001:10001"       # the non-root user of the Office Unbound Docs image (blueprints/build/collabora/oci)
 # the loopback port each web-facing component's service listens on (catalog ports with exposure local), by DNS host name
-LOCAL_PORT = {"auth": ("identity", 8080), "cloud": ("files", 9200), "office": ("office", 9980), "portal": ("portal", 8090)}
-PORTAL_CLIENT, WEBMAIL_CLIENT = "ou-portal", "ou-webmail"
+LOCAL_PORT = {"auth": ("identity", 8080), "cloud": ("files", 9200), "office": ("office", 9980), "portal": ("portal", 8090),
+              # team chat: one VM-local web front (Element Web's nginx) serves Element and routes the Matrix and MAS names (templates/chat/front.conf)
+              "chat": ("chat", 8070), "matrix": ("chat", 8070), "mas": ("chat", 8070)}
+PORTAL_CLIENT, WEBMAIL_CLIENT, MATRIX_CLIENT = "ou-portal", "ou-webmail", "ou-matrix"
+SYNAPSE_UID, MAS_UID, ELEMENT_UID = "10020:10020", "10120:10120", "10030:10030"   # non-root users of the chat images (blueprints/build/collab, blueprints/build/oci/mas)
 # web names whose service has its own TLS front on another VM (the groupware's nginx: webmail, ActiveSync, EWS, MAPI, DAV, Autodiscover): the
 # gateway serves them with ITS certificate (the public one once issued) and proxies over verified HTTPS, like any other web name
 EDGE_HTTPS = {"mail": "groupware", "autodiscover": "groupware"}
@@ -348,6 +351,21 @@ def sso_clients(portal: str, mail: str | None, portal_secret: str, webmail_secre
     return out
 
 
+def matrix_client(mas: str, secret_: str, provider_id: str) -> dict:
+    """Keycloak client of the chat sign-in service (MAS as upstream OIDC client: confidential, PKCE S256), with Keycloak's back-channel logout to
+    MAS so a Keycloak logout (and the ICS disabling a person) ends their Matrix sessions (docs/status/collaboration-lab-results.md, C05)."""
+    return {
+        "clientId": MATRIX_CLIENT, "name": "Office Unbound chat", "enabled": True, "protocol": "openid-connect",
+        "publicClient": False, "clientAuthenticatorType": "client-secret", "secret": secret_,
+        "standardFlowEnabled": True, "implicitFlowEnabled": False, "directAccessGrantsEnabled": False, "serviceAccountsEnabled": False,
+        "fullScopeAllowed": False, "rootUrl": f"https://{mas}", "baseUrl": f"https://{mas}/",
+        "redirectUris": [f"https://{mas}/upstream/callback/{provider_id}"], "webOrigins": [],
+        "attributes": {"pkce.code.challenge.method": "S256", "display.on.consent.screen": "false", "post.logout.redirect.uris": f"https://{mas}/",
+                       "backchannel.logout.url": f"https://{mas}/upstream/backchannel-logout/{provider_id}",
+                       "backchannel.logout.session.required": "true", "backchannel.logout.revoke.offline.tokens": "true"},
+        "defaultClientScopes": ["web-origins", "profile", "basic", "email"], "optionalClientScopes": []}
+
+
 def realm_json(domain: str, bind_password: str, auth: str | None = None, files: str | None = None, clients: list[dict] | None = None,
                signing_key: str | None = None) -> str:
     base = ",".join(f"dc={x}" for x in domain.split("."))
@@ -404,6 +422,8 @@ def identity_runbooks(ctx, vm: str) -> list[dict]:
     has_mail = vm_of(ctx.plan, "groupware", t) is not None
     clients = sso_clients(fq(ctx.plan, t, "portal"), fq(ctx.plan, t, "mail") if has_mail else None, _sec(ctx, t, "portal-client-secret"),
                           _sec(ctx, t, "webmail-client-secret") if has_mail else None)
+    if vm_of(ctx.plan, "chat", t) is not None:
+        clients.append(matrix_client(fq(ctx.plan, t, "mas"), _sec(ctx, t, "matrix-client-secret"), mas_provider_id(ctx.rt, ctx.deployment_id, t)))
     realm = realm_json(domain, bind_pw, fq(ctx.plan, t, "auth"), fq(ctx.plan, t, "cloud"), clients, realm_key(ctx.rt, ctx.deployment_id, t))
     return [
         {"runbook": "cfg.hosts", "params": {"entries": hosts_entries(ctx, names)}},
@@ -673,8 +693,77 @@ def portal_runbooks(ctx, vm: str) -> list[dict]:
     ]
 
 
+_ULID = "0123456789ABCDEFGHJKMNPQRSTVWXYZ"   # Crockford base32 (MAS ids are ULIDs)
+
+
+def _ulid() -> str:
+    import time
+    n = (int(time.time() * 1000) << 80) | secrets.randbits(80)
+    return "".join(_ULID[(n >> (5 * i)) & 31] for i in reversed(range(26)))
+
+
+def mas_provider_id(rt, dep: str, tenant: str | None = None) -> str:
+    """The id of the Keycloak provider in MAS (a ULID, part of the callback and back-channel logout URLs): made once per deployment/scope."""
+    return secret(rt, dep, sname(tenant, "mas-provider-id"), _ulid)
+
+
+def _synapse_signing_key() -> str:
+    """Synapse's server signing key file: `ed25519 <key id> <unpadded base64 seed>` (what `generate_signing_key` writes)."""
+    import base64
+    from cryptography.hazmat.primitives.asymmetric import ed25519
+    seed = ed25519.Ed25519PrivateKey.generate().private_bytes(serialization.Encoding.Raw, serialization.PrivateFormat.Raw, serialization.NoEncryption())
+    return f"ed25519 a_{secrets.token_hex(2)} {base64.b64encode(seed).decode().rstrip('=')}\n"
+
+
+def _hex32() -> str:
+    return secrets.token_hex(32)
+
+
+def chat_runbooks(ctx, vm: str) -> list[dict]:
+    """Team chat of the VM's scope: Synapse (own PostgreSQL), MAS signing people in through the scope's Keycloak only, and Element Web, behind
+    this VM's TLS proxy. Every secret (database passwords, MAS-Synapse shared secret, MAS encryption and signing keys, Synapse signing key) is
+    made by the ICS and kept in its vault, so a rebuild with the same deployment keeps the server identity. Lab proof of the topology:
+    docs/status/collaboration-lab-results.md (C01-C05); configuration: templates/chat."""
+    t = tenant_of(ctx.plan, vm)
+    domain = scope(ctx.plan, t)["domain"]
+    ca_pem = scope_ca(ctx, t)["cert"]
+    matrix, chat, mas = fq(ctx.plan, t, "matrix"), fq(ctx.plan, t, "chat"), fq(ctx.plan, t, "mas")
+    server_name = matrix   # no .well-known delegation on the customer's apex (often their website): Matrix ids are @user:matrix.<domain>
+    mas_secret, syn_pw, mas_pw = _sec(ctx, t, "mas-synapse-secret"), _sec(ctx, t, "synapse-db-password"), _sec(ctx, t, "mas-db-password")
+    mas_key = secret(ctx.rt, ctx.deployment_id, sname(t, "mas-signing-key"), _rsa_key)
+    hs = _template("chat/homeserver.yaml", SERVER_NAME=server_name, MATRIX_HOST=matrix, DB_PASSWORD=syn_pw, MAS_SECRET=mas_secret,
+                   MACAROON=_sec(ctx, t, "synapse-macaroon"), FORM_SECRET=_sec(ctx, t, "synapse-form-secret"))
+    masc = _template("chat/mas.yaml", MAS_HOST=mas, DB_PASSWORD=mas_pw, SERVER_NAME=server_name, MAS_SECRET=mas_secret,
+                     ENCRYPTION=secret(ctx.rt, ctx.deployment_id, sname(t, "mas-encryption"), _hex32), KID="ou-rsa",
+                     SIGNING_KEY="\n".join("        " + ln for ln in mas_key.strip().splitlines()), DOMAIN=domain,
+                     PROVIDER_ID=mas_provider_id(ctx.rt, ctx.deployment_id, t), AUTH_HOST=fq(ctx.plan, t, "auth"), REALM=REALM,
+                     CLIENT_ID=MATRIX_CLIENT, CLIENT_SECRET=_sec(ctx, t, "matrix-client-secret"))
+    hosts = dict(CHAT_HOST=chat, MATRIX_HOST=matrix, MAS_HOST=mas, SERVER_NAME=server_name)
+    img = _image(ctx, vm, "chat")
+    return [
+        {"runbook": "cfg.hosts", "params": {"entries": hosts_entries(ctx, names_by_vm(ctx.plan))}},
+        firewall_runbook(ctx, vm),
+        _tls(ctx, vm),
+        {"runbook": "cfg.pg_db", "params": {"role": "synapse", "database": "synapse", "password": syn_pw}},
+        {"runbook": "cfg.pg_db", "params": {"role": "mas", "database": "mas", "password": mas_pw}},
+        {"runbook": "cfg.volume_files", "params": {"component": "chat", "volume": "config", "image": img, "owner": SYNAPSE_UID,
+                                                   "files": [{"path": "homeserver.yaml", "mode": 0o600, "content": hs},
+                                                             {"path": "signing.key", "mode": 0o600,
+                                                              "content": secret(ctx.rt, ctx.deployment_id, sname(t, "synapse-signing-key"), _synapse_signing_key)}]}},
+        {"runbook": "cfg.volume_files", "params": {"component": "chat", "volume": "media", "image": img, "owner": SYNAPSE_UID,
+                                                   "files": [{"path": "media/ou-volume", "mode": 0o644, "content": "Office Unbound chat media volume\n"}]}},
+        {"runbook": "cfg.volume_files", "params": {"component": "chat", "volume": "masconfig", "image": img, "owner": MAS_UID,
+                                                   "files": [{"path": "config.yaml", "mode": 0o600, "content": masc},
+                                                             {"path": "trust.crt", "mode": 0o644, "content": office_trust(ca_pem)}]}},
+        {"runbook": "cfg.volume_files", "params": {"component": "chat", "volume": "front", "image": img, "owner": ELEMENT_UID,
+                                                   "files": [{"path": "nginx.conf", "mode": 0o644, "content": _template("chat/front.conf", **hosts)},
+                                                             {"path": "config.json", "mode": 0o644, "content": _template("chat/element.json", **hosts)}]}},
+        *_local_sites(ctx, vm, domain, ("chat", "matrix", "mas")),
+    ]
+
+
 BUILDERS = {"identity": identity_runbooks, "edge": edge_runbooks, "files": files_runbooks, "office": office_runbooks, "groupware": groupware_runbooks,
-            "portal": portal_runbooks}
+            "portal": portal_runbooks, "chat": chat_runbooks}
 
 
 def expand(ctx, vm: str, component: str, runbooks: list[dict]) -> list[dict]:

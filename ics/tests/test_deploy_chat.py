@@ -1,0 +1,111 @@
+"""Team chat deployed by the ICS (Synapse + MAS + Element Web behind the chat VM's TLS proxy, sign-in through the deployment's Keycloak):
+the configuration the engine writes, generated from a real plan, without a node."""
+import json
+import re
+
+import pytest
+import yaml
+from cryptography.hazmat.primitives import serialization
+
+from ics.deploy import configure
+from ics.deploy.plan import generate_plan
+from tests.test_deploy_plan import cap, inp, pinned
+
+DOMAIN = "chat.example"
+LAYOUT = [{"name": "id", "components": ["identity", "edge", "portal"]},
+          {"name": "files", "components": ["files", "office", "chat"]},
+          {"name": "mail", "components": ["groupware"]}]
+
+
+@pytest.fixture()
+def ctx(monkeypatch):
+    store = {}
+
+    def fake_secret(rt, dep, name, make=None):
+        if name not in store:
+            store[name] = (make or (lambda: "s3cret-" + name.replace(":", "-")))()
+        return store[name]
+    monkeypatch.setattr(configure, "secret", fake_secret)
+    p = generate_plan(inp(profile="custom", users=20, domain=DOMAIN, custom_layout=LAYOUT), cap(3), pinned())
+    assert p["errors"] == [], p["errors"]
+    addr = {v["name"]: f"10.0.0.{i + 10}" for i, v in enumerate(p["vms"])}
+    agent = type("A", (), {"address": staticmethod(lambda vm: addr[vm])})()
+    c = type("C", (), {"plan": p, "rt": None, "deployment_id": "dep-1", "slug": "dep", "env": type("E", (), {"agent": agent})()})()
+    c.store = store
+    return c
+
+
+def _vm(p, comp):
+    return next(v["name"] for v in p["vms"] if comp in (v.get("components") or []))
+
+
+def _files(rbs, volume):
+    rb = next(r for r in rbs if r["runbook"] == "cfg.volume_files" and r["params"]["volume"] == volume)
+    return {f["path"]: f for f in rb["params"]["files"]}
+
+
+def test_chat_is_configured_like_the_lab_proved_it(ctx):
+    vm = _vm(ctx.plan, "chat")
+    rbs = configure.chat_runbooks(ctx, vm)
+    kinds = [r["runbook"] for r in rbs]
+    assert kinds.count("cfg.pg_db") == 2 and {r["params"]["database"] for r in rbs if r["runbook"] == "cfg.pg_db"} == {"synapse", "mas"}
+    hs = yaml.safe_load(_files(rbs, "config")["homeserver.yaml"]["content"])
+    assert hs["server_name"] == f"matrix.{DOMAIN}" and hs["report_stats"] is False
+    assert hs["enable_registration"] is False and hs["password_config"]["enabled"] is False
+    assert hs["listeners"] == [{"port": 8008, "bind_addresses": ["127.0.0.1"], "type": "http", "x_forwarded": True, "resources": [{"names": ["client"]}]}]
+    assert hs["federation_domain_whitelist"] == [] and hs["trusted_key_servers"] == []
+    assert hs["matrix_authentication_service"]["endpoint"] == "http://127.0.0.1:8080/"
+    sk = _files(rbs, "config")["signing.key"]
+    assert sk["mode"] == 0o600 and re.fullmatch(r"ed25519 a_[0-9a-f]{4} [A-Za-z0-9+/]{43}\n", sk["content"])
+    mas = yaml.safe_load(_files(rbs, "masconfig")["config.yaml"]["content"])
+    assert mas["passwords"]["enabled"] is False and mas["account"]["password_registration_enabled"] is False
+    assert mas["matrix"]["secret"] == hs["matrix_authentication_service"]["secret"]
+    assert mas["http"]["issuer"] == f"https://mas.{DOMAIN}/" and mas["http"]["listeners"][0]["binds"] == [{"address": "127.0.0.1:8080"}]
+    serialization.load_pem_private_key(mas["secrets"]["keys"][0]["key"].encode(), password=None)
+    assert re.fullmatch(r"[0-9a-f]{64}", mas["secrets"]["encryption"])
+    prov = mas["upstream_oauth2"]["providers"][0]
+    assert re.fullmatch(r"[0-7][0-9A-HJKMNP-TV-Z]{25}", prov["id"])
+    assert prov["issuer"] == f"https://auth.{DOMAIN}/realms/{configure.REALM}" and prov["client_id"] == configure.MATRIX_CLIENT
+    assert prov["on_backchannel_logout"] == "logout_all" and prov["pkce_method"] == "always"
+    assert "telemetry" not in mas and "sentry" not in _files(rbs, "masconfig")["config.yaml"]["content"]
+    assert "BEGIN CERTIFICATE" in _files(rbs, "masconfig")["trust.crt"]["content"]
+    front = _files(rbs, "front")["nginx.conf"]["content"]
+    assert f"server_name matrix.{DOMAIN};" in front and f"server_name mas.{DOMAIN};" in front and "location /api/admin/ { return 403; }" in front
+    el = json.loads(_files(rbs, "front")["config.json"]["content"])
+    assert el["default_server_config"]["m.homeserver"]["base_url"] == f"https://matrix.{DOMAIN}" and el["disable_guests"] is True
+    sites = {r["params"]["server_names"][0]: r["params"]["upstream"] for r in rbs if r["runbook"] == "cfg.nginx_site"}
+    assert sites == {f"{h}.{DOMAIN}": "http://127.0.0.1:8070" for h in ("chat", "matrix", "mas")}
+    assert not re.search(r"@[A-Z_]+@", front + json.dumps(hs) + json.dumps(mas))       # every template placeholder filled
+
+
+def test_keycloak_gets_the_chat_client_with_back_channel_logout(ctx):
+    rbs = configure.identity_runbooks(ctx, _vm(ctx.plan, "identity"))
+    realm = json.loads(next(f["content"] for r in rbs if r["runbook"] == "cfg.volume_files" for f in r["params"]["files"] if f["path"].startswith("import/realm")))
+    cl = next(c for c in realm["clients"] if c["clientId"] == configure.MATRIX_CLIENT)
+    pid = configure.mas_provider_id(None, "dep-1")
+    assert cl["redirectUris"] == [f"https://mas.{DOMAIN}/upstream/callback/{pid}"] and cl["publicClient"] is False
+    assert cl["attributes"]["backchannel.logout.url"] == f"https://mas.{DOMAIN}/upstream/backchannel-logout/{pid}"
+    assert cl["directAccessGrantsEnabled"] is False and cl["attributes"]["pkce.code.challenge.method"] == "S256"
+
+
+def test_gateway_serves_and_certifies_the_chat_names(ctx):
+    edge = _vm(ctx.plan, "edge")
+    names = configure.edge_served_names(ctx.plan, edge, None)
+    assert {f"{h}.{DOMAIN}" for h in ("chat", "matrix", "mas")} <= set(names)
+    up = {r["params"]["server_names"][0]: r["params"] for r in configure.edge_runbooks(ctx, edge) if r["runbook"] == "cfg.nginx_site"}
+    files_ip = ctx.env.agent.address(_vm(ctx.plan, "chat"))
+    assert up[f"matrix.{DOMAIN}"]["upstream"] == f"https://{files_ip}:443" and up[f"matrix.{DOMAIN}"]["upstream_name"] == f"matrix.{DOMAIN}"
+
+
+def test_no_chat_no_chat_client():
+    p = generate_plan(inp(profile="custom", users=20, domain=DOMAIN, custom_layout=[LAYOUT[0], {"name": "files", "components": ["files", "office"]}]),
+                      cap(3), pinned())
+    assert configure.vm_of(p, "chat", None) is None
+    assert not {f"matrix.{DOMAIN}"} & set(configure.edge_served_names(p, _vm(p, "edge"), None))
+
+
+def test_audit_never_sees_chat_secrets(ctx):
+    for r in configure.chat_runbooks(ctx, _vm(ctx.plan, "chat")):
+        red = json.dumps(configure.redact(r["runbook"], r["params"]))
+        for v in ctx.store.values():
+            assert v not in red
