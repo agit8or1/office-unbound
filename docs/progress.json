@@ -1179,11 +1179,11 @@
         {
           "id": "P11.8",
           "title": "Office Unbound Desktop Connector: HTTPS mapped drives (rclone over WebDAV + WinFsp/FUSE) and OneDrive-style sync (OpenCloud Desktop), device-scoped revocable credentials, central admin and mass deployment",
-          "status": "planned",
+          "status": "researching",
           "evidence": [
             "docs/requirements/desktop-connector.md"
           ],
-          "note": "Planning only (owner 2026-11-23); development needs explicit approval, starting with spike M0."
+          "note": "Spike M0 approved by the owner 2026-11-23 (Linux part on the ICS host; Windows/macOS need test computers). M1+ need separate approval."
         },
         {
           "id": "P11.9",

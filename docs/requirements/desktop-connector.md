@@ -1,7 +1,7 @@
 # Office Unbound Desktop Connector: HTTPS mapped drives and OneDrive-style sync
 
-**Status: PLANNED / NOT IMPLEMENTED.** Planning document only (owner, 2026-11-23: "This is a planning and roadmap task only. Do not begin
-implementing it yet."). Development starts only after explicit owner approval. Nothing below exists in Office Unbound today unless marked
+**Status: PLANNED / NOT IMPLEMENTED; spike M0 APPROVED** (owner, 2026-11-23: "approve M0 spike for the desktop connector"). M0 is research
+(no product code); M1 and later need their own approval. Nothing below exists in Office Unbound today unless marked
 *exists*. Roadmap: [P11.8](../../ROADMAP.md). Builds on [ODB-C desktop sync](onedrive-and-file-sharing.md#34-desktop-sync-odb-c-windows-macos-linux)
 (sync requirements are **not** repeated here) and on [Office Unbound Connect](office-unbound-connect.md) (device enrolment).
 
@@ -136,7 +136,10 @@ items as ODB section 7). Without them the connector cannot be installed silently
 
 ## 9. Open owner decisions
 
-1. Approve M0 (spike, no product code).
+1. ~~Approve M0~~ approved 2026-11-23. Linux part runs on the ICS host (FUSE present) against the live test deployment with the test user;
+   harness [blueprints/research/desktop-connector-m0/m0.py](../../blueprints/research/desktop-connector-m0/m0.py) (rclone 1.60.1 from the
+   signed Ubuntu archive, not installed on the host; existing realm client `OpenCloudDesktop`, no realm change). **Windows and macOS parts need
+   test computers** (none is in the authorized endpoints): the owner provides them or approves adding them.
 2. Accept signing costs (Authenticode, Apple Developer ID) or ship unsigned community builds first.
 3. macOS mount layer: FUSE-T (no kernel extension) vs macFUSE (licence and kernel-extension approval).
 4. Drive letter default (`O:`) and whether admins may force letters.
