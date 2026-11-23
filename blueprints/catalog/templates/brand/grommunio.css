@@ -55,3 +55,13 @@ body #grommunio-mainmenu .ou-home-btn button.x-btn-text::before {
   content: ""; width: 20px; height: 20px; border-radius: 4px; background: var(--ou-logo) center / contain no-repeat;
 }
 body #grommunio-mainmenu .ou-home-btn:hover button.x-btn-text { border-color: var(--ou-bar-muted); }
+/* IBM Plex everywhere (0.10.0): the webmail's own grommunio.css sets `body, html, html * { font-family: Roboto }` and its ExtJS widgets set
+   their own fonts, so a font on body is never inherited; seen live on officeunbound7 (every element in Roboto). The webmail has no icon
+   font (icons are images), so one rule covers it; code stays monospace, and the editor's own !important monospace rules still win. */
+html body, html body * { font-family: var(--ou-font) !important; }
+html body :is(code, kbd, pre, samp, tt), html body :is(code, kbd, pre, samp, tt) * { font-family: var(--ou-mono) !important; }
+/* the upstream product logo: the welcome header's watermark and the main toolbar's right-hand image */
+body .k-welcome-header::after { display: none; }
+body #grommunio-maintoolbar { background-image: none !important; }
+/* a new account has no photo: the welcome avatar shows the mark instead of an empty white ring */
+body .k-welcome-avatar img { border-color: transparent; background: var(--ou-logo) center / 55% no-repeat, rgba(255, 255, 255, .08); }

@@ -47,8 +47,16 @@ def notes(version: str, text: str, repo_url: str = REPO_URL) -> str:
     footer = [f"Released {date}. Full changelog: {repo_url}/blob/v{version}/CHANGELOG.md"]
     if prev:
         footer.append(f"Changes since {prev[0]}: {repo_url}/compare/v{prev[0]}...v{version}")
-    stage = ("This is a pre-release (version 0.x): a lab-verified pre-alpha. It is not production supported and the release "
-             "is not signed with a production key unless stated here.\n\n") if version.startswith("0.") else ""
+    minor = int(version.split(".")[1]) if version.startswith("0.") else None
+    if minor is not None and minor >= 10:   # ADR-0011 amendment 2026-11-23: alpha from 0.10.0
+        stage = ("This is an alpha (version 0.x): installable by following docs/admin/alpha-install.md and proven on one reference "
+                 "installation. Not for production data; read docs/admin/known-limitations.md. The release is not signed with a production "
+                 "key unless stated here.\n\n")
+    elif minor is not None:
+        stage = ("This is a pre-release (version 0.x): a lab-verified pre-alpha. It is not production supported and the release "
+                 "is not signed with a production key unless stated here.\n\n")
+    else:
+        stage = ""
     return f"{stage}{body}\n\n---\n" + "\n".join(footer) + "\n"
 
 

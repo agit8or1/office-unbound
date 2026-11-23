@@ -1,6 +1,6 @@
 # Security policy
 
-Office Unbound is **pre-alpha lab software**. It is not supported for production use and has no supported releases yet.
+Office Unbound is **alpha software** (0.10.0). It is not supported for production use and has no supported releases yet; open findings and their state are in [docs/status/SECURITY-REMEDIATION.md](docs/status/SECURITY-REMEDIATION.md).
 
 ## Reporting a vulnerability
 Please report vulnerabilities **privately** through GitHub's private vulnerability reporting:

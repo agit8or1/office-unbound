@@ -3,18 +3,20 @@
   "schema_doc": "docs/progress-schema.md",
   "project": "Office Unbound",
   "repository": "https://github.com/agit8or1/office-unbound",
-  "updated": "2026-11-22",
-  "stage": "pre-alpha (lab)",
-  "current_version": "0.9.5",
+  "updated": "2026-11-23",
+  "stage": "alpha",
+  "current_version": "0.10.0",
   "releases": [
     {
-      "version": "0.9.5",
+      "version": "0.10.0",
       "date": "2026-11-23",
       "status": "prepared",
-      "codename": "Ironwood",
-      "channel": "pre-release",
+      "codename": "Juniper",
+      "channel": "alpha",
       "highlights": [
-        "0.9.5: sign-in page header no longer cut off; console sign-in headline on two lines"
+        "0.10.0: alpha: install guide (empty host to people signing in) and rewritten known limitations",
+        "0.10.0: sign-in page header no longer cut off; console sign-in headline on two lines",
+        "0.10.0: webmail in IBM Plex everywhere, upstream logo removed"
       ],
       "notes_url": "https://github.com/agit8or1/office-unbound/blob/main/CHANGELOG.md",
       "changelog": "CHANGELOG.md"
@@ -551,7 +553,7 @@
       "codename": "Anchor"
     }
   ],
-  "summary": "Core platform components are integrated and tested in an isolated lab: own source build of Exchange-compatible groupware with single sign-on webmail, Keycloak SSO, file sync and browser document editing, backup/restore drills, chat and video meetings, and an infrastructure control server with monitoring, self-healing and a real Proxmox integration (VM lifecycle verified on a live cluster). Guided deployment wizards, provisioning automation and the credential vault are being integrated.",
+  "summary": "Alpha (0.10.0 \"Juniper\"): an administrator installs the Infrastructure Control Server from the release tag, connects Proxmox VE and deploys the full stack (Keycloak sign-in, user portal, Exchange-compatible mail with webmail, calendar and contacts, file sync, browser document editing) onto real VMs, reachable from the internet with a Let's Encrypt certificate the ICS keeps across rebuilds. Proven on one reference installation; not for production data. Chat, meetings, telephony, anti-spam and migration are lab prototypes or planned.",
   "status_values": {
     "planned": "Planned",
     "researching": "Researching",
@@ -1428,9 +1430,12 @@
     }
   ],
   "known_limitations": [
-    "New Outlook for Windows and Outlook mobile cannot use MAPI/EWS against non-Microsoft servers (Microsoft limitation); IMAP/SMTP only",
-    "Lab currently runs in isolated containers on a single host; production topology is full VMs on Proxmox",
-    "Release 0.1.0 is a lab pre-alpha, unsigned; no production-supported release exists yet"
+    "Alpha: proven on one reference installation (one ICS host, one Proxmox node, one public IP); not for production data",
+    "Signed release artifacts (golden image, packages) are not publicly downloadable yet; outside installs need the project's help for that step",
+    "No in-place upgrade of a running deployment: a rebuild is needed and starts empty",
+    "The public name to gateway map on the ICS host is edited by hand after each rebuild",
+    "Internet mail delivery (MX, SPF/DKIM/DMARC) not verified end to end; chat, meetings, telephony and anti-spam are not deployed by the ICS",
+    "New Outlook for Windows and Outlook mobile cannot use MAPI/EWS against non-Microsoft servers (Microsoft limitation); IMAP/SMTP only; no real Outlook or phone client tested"
   ],
   "beta": {
     "target_date": "2026-12-31",

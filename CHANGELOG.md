@@ -10,9 +10,26 @@ isolated lab; nothing is production supported ([ROADMAP.md](ROADMAP.md)).
 
 ## [Unreleased]
 
-## [0.9.5] - 2026-11-23
+## [0.10.0] - 2026-11-23
+
+**Alpha.** Office Unbound moves from pre-alpha to alpha ("Juniper", [ADR-0011](docs/adr/0011-versioning-and-releases.md) amendment
+2026-11-23): installable from this tag with the [alpha install guide](docs/admin/alpha-install.md), full stack deployed onto a real Proxmox
+node and reachable from the internet with a trusted certificate, proven on one reference installation. Not for production data: read the
+[known limitations](docs/admin/known-limitations.md).
+
+### Added
+- **Alpha install guide** (`docs/admin/alpha-install.md`): empty host to people signing in, every step naming where it was run, including the
+  step that is not packaged yet (signed artifacts).
+
+### Changed
+- **Known limitations rewritten** for the alpha (`docs/admin/known-limitations.md`): what was proven on the reference installation and what was
+  not (no in-place upgrade of deployments, public name map edited by hand, artifacts not downloadable, internet mail not verified, ...).
+- README, SECURITY.md, the administrator guide, STATUS and the release notes state the alpha stage; ADR-0011 defines the stages.
 
 ### Fixed
+- **Webmail in IBM Plex**: grommunio-web's own `html *` Roboto rule and its widget fonts overrode the brand font on every element (seen live on
+  officeunbound7); the skin now sets the font on every element (code stays monospace). The upstream logo watermark (welcome header, main
+  toolbar) is removed and the welcome avatar of a new account shows the mark instead of an empty ring.
 - **Sign-in page header** (Keycloak): the mark and the organisation name sat 24 px too high and were cut off at the top of the navy bar
   (PatternFly gives `.pf-v5-c-brand` a 48 px bottom margin); now centred. Seen live on officeunbound7 after 0.9.4.
 - **Console sign-in headline** wraps as "Run your infrastructure / with confidence." instead of four lines with "with" alone.
@@ -506,7 +523,7 @@ editing, chat/meetings, telephony prototype, migration tooling and package pipel
 - `SECURITY.md` (private reporting) and `CONTRIBUTING.md` (DCO sign-off) added; AGPL-3.0 license. [SECURITY](SECURITY.md)
 
 [Unreleased]: https://github.com/agit8or1/office-unbound/compare/v0.4.7...HEAD
-[0.9.5]: https://github.com/agit8or1/office-unbound/compare/v0.9.4...v0.9.5
+[0.10.0]: https://github.com/agit8or1/office-unbound/compare/v0.9.4...v0.10.0
 [0.9.4]: https://github.com/agit8or1/office-unbound/compare/v0.9.3...v0.9.4
 [0.9.3]: https://github.com/agit8or1/office-unbound/compare/v0.9.2...v0.9.3
 [0.9.2]: https://github.com/agit8or1/office-unbound/compare/v0.9.1...v0.9.2

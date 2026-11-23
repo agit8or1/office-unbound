@@ -1,8 +1,8 @@
 # Office Unbound roadmap & progress
 
-> Generated from [`docs/progress.json`](docs/progress.json) by `scripts/render_roadmap.py` — edit the JSON, not this file. Last updated **2026-11-22** · stage: **pre-alpha (lab)** · current version: **0.9.5**.
+> Generated from [`docs/progress.json`](docs/progress.json) by `scripts/render_roadmap.py` — edit the JSON, not this file. Last updated **2026-11-23** · stage: **alpha** · current version: **0.10.0**.
 
-Core platform components are integrated and tested in an isolated lab: own source build of Exchange-compatible groupware with single sign-on webmail, Keycloak SSO, file sync and browser document editing, backup/restore drills, chat and video meetings, and an infrastructure control server with monitoring, self-healing and a real Proxmox integration (VM lifecycle verified on a live cluster). Guided deployment wizards, provisioning automation and the credential vault are being integrated.
+Alpha (0.10.0 "Juniper"): an administrator installs the Infrastructure Control Server from the release tag, connects Proxmox VE and deploys the full stack (Keycloak sign-in, user portal, Exchange-compatible mail with webmail, calendar and contacts, file sync, browser document editing) onto real VMs, reachable from the internet with a Let's Encrypt certificate the ICS keeps across rebuilds. Proven on one reference installation; not for production data. Chat, meetings, telephony, anti-spam and migration are lab prototypes or planned.
 
 **Principles**
 
@@ -174,7 +174,7 @@ Core platform components are integrated and tested in an isolated lab: own sourc
 
 | Version | Date | Status | Highlights |
 |---|---|---|---|
-| [0.9.5](https://github.com/agit8or1/office-unbound/blob/main/CHANGELOG.md) | 2026-11-23 | prepared | 0.9.5: sign-in page header no longer cut off; console sign-in headline on two lines |
+| [0.10.0](https://github.com/agit8or1/office-unbound/blob/main/CHANGELOG.md) | 2026-11-23 | prepared | 0.10.0: alpha: install guide (empty host to people signing in) and rewritten known limitations<br>0.10.0: sign-in page header no longer cut off; console sign-in headline on two lines<br>0.10.0: webmail in IBM Plex everywhere, upstream logo removed |
 | [0.9.4](https://github.com/agit8or1/office-unbound/blob/main/CHANGELOG.md) | 2026-11-22 | released | 0.9.4: a rebuilt deployment keeps its public certificate (no new Let's Encrypt order while it is valid for more than 30 days)<br>0.9.4: console, portal and app skins closer to the officeunbound.com concepts (site radii and hairlines, joined figure strip, Source Serif headlines); webmail in IBM Plex<br>0.9.4: agent 0.9.4-ou18, portal 0.3.2, golden image version 14 |
 | [0.9.3](https://github.com/agit8or1/office-unbound/blob/main/CHANGELOG.md) | 2026-11-22 | released | 0.9.3: every app takes the look of the officeunbound.com interface concepts (navy, copper, paper, IBM Plex self-hosted, three-square mark); console follows its own Infrastructure Control concept |
 | [0.9.2](https://github.com/agit8or1/office-unbound/blob/main/CHANGELOG.md) | 2026-11-22 | released | 0.9.2: gateway certificate covers mail/autodiscover before public certificates; Collabora trusts the deployment CA for file access |
@@ -222,6 +222,9 @@ Full history: [`CHANGELOG.md`](CHANGELOG.md). Process: [`docs/RELEASING.md`](doc
 
 ## Known limitations
 
-- New Outlook for Windows and Outlook mobile cannot use MAPI/EWS against non-Microsoft servers (Microsoft limitation); IMAP/SMTP only
-- Lab currently runs in isolated containers on a single host; production topology is full VMs on Proxmox
-- Release 0.1.0 is a lab pre-alpha, unsigned; no production-supported release exists yet
+- Alpha: proven on one reference installation (one ICS host, one Proxmox node, one public IP); not for production data
+- Signed release artifacts (golden image, packages) are not publicly downloadable yet; outside installs need the project's help for that step
+- No in-place upgrade of a running deployment: a rebuild is needed and starts empty
+- The public name to gateway map on the ICS host is edited by hand after each rebuild
+- Internet mail delivery (MX, SPF/DKIM/DMARC) not verified end to end; chat, meetings, telephony and anti-spam are not deployed by the ICS
+- New Outlook for Windows and Outlook mobile cannot use MAPI/EWS against non-Microsoft servers (Microsoft limitation); IMAP/SMTP only; no real Outlook or phone client tested

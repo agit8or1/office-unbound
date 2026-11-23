@@ -88,3 +88,15 @@ machine record used by the website and by ICS; GitHub Releases carry notes gener
 * **Numbered development builds (owner, 2026-11-16: "why aren't versions being bumped?").** Every production deploy from main gets its own number: `0.2.0-dev.1`, `0.2.0-dev.2`, ... (SemVer pre-release, ordered). The deploying merge bumps `VERSION` and `docs/progress.json` and adds a dated `### 0.2.0-dev.N` entry under `[Unreleased]`. `ics/deploy/install.sh` refuses to install a different commit under the version that is already installed (override `OU_ALLOW_SAME_VERSION=1` only for a re-install of the same build).
 * **Component bumps are part of every merge.** An integration that changes a component bumps that component in `VERSIONS.json` and in its own version constant in the same merge, following the table in §2. For example, the node agent wire protocol changes from the controller epoch bump `node_agent` MINOR and record the minimum compatible agent version, and a new `ou-docs` revision updates `docs_engine`.
 * 0.1.0 "Anchor" is tag `v0.1.0`. Its code is identical to the build deployed to the lab ICS on 2026-11-16 (416aafe).
+
+## Amendment 2026-11-23: stages (owner: "push this to alpha stage, include install instructions ... known limitations")
+* **Stages** are recorded in `docs/progress.json` `stage` and stated in README, SECURITY.md and every release note:
+  * **pre-alpha (lab)**: 0.1 to 0.9. Components proven in an isolated lab, then on one real Proxmox node; no install guide for others.
+  * **alpha**: from **0.10.0 "Juniper"**. An administrator can install from the release tag by following `docs/admin/alpha-install.md`,
+    and the full stack (identity, portal, mail with webmail, calendar, contacts, files, documents) deploys onto a real Proxmox node and is
+    reachable from the internet with a trusted certificate, proven on at least one reference installation. Data formats and the deployment
+    layout may still change; not for production data. Every alpha release ships an up-to-date `docs/admin/known-limitations.md`.
+  * **beta**: invite-only, the scorecard in `docs/status/ALPHA-EXECUTION-QUEUE.md` (target 2026-12-31).
+  * **1.0.0**: first production-supported release (unchanged).
+* Entering a stage opens a new MINOR line (and release name), so the stage is visible in the version.
+* GitHub Releases of an alpha are titled `Office Unbound X.Y.Z "Name" (alpha)` and stay marked as pre-releases.

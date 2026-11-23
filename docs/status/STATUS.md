@@ -1,5 +1,7 @@
 # Office Unbound — status
 
+**Milestone (2026-11-23): alpha, 0.10.0 "Juniper".** The full stack deploys through the ICS onto pve06 from signed golden image 14 and is reachable from the internet with a Let's Encrypt certificate kept by the ICS for rebuilds (officeunbound7). Install guide: `docs/admin/alpha-install.md`; limitations: `docs/admin/known-limitations.md`.
+
 **Milestone (2026-11-20):** first deployment of the full stack including mail (identity, edge, files, Office, groupware: gromox, Postfix, webmail, ActiveSync, CalDAV/CardDAV) through ICS 0.5.0 onto pve06, all ten health checks green (`groupware-deploy-results.md`). Current release 0.5.0.
 
 **Milestone (2026-11-19):** first repeatable multi-VM deployment of the core stack (identity, edge, files, Office) through the production ICS onto real Proxmox pve06, 3 of 3 green with clean destroy (`multi-vm-deploy-results.md`). Next: external mail (owner: public IP + domain). Beta plan and scorecard: `ALPHA-EXECUTION-QUEUE.md`; public roadmap: ROADMAP.md / docs/progress.json.

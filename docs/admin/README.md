@@ -1,8 +1,9 @@
 # Office Unbound administrator guide
 
-> **Pre-alpha lab software. Not for production use** ([SECURITY.md](../../SECURITY.md)). Every procedure here was run in the lab
-> (isolated systemd-nspawn machines on the ICS host, plus one real Proxmox node) unless it is labelled otherwise. Each page cites the
-> evidence document that records the run. Nothing here has been run against a production customer or a multi-host customer deployment.
+> **Alpha (0.10.0 "Juniper"). Not for production data** ([SECURITY.md](../../SECURITY.md)). The full stack installs and deploys onto a
+> real Proxmox node and is reachable from the internet; this was run on one reference installation. Start with the
+> [Alpha install guide](alpha-install.md) and [Known limitations](known-limitations.md). Pages below cite the evidence for each procedure
+> and label anything not proven; some older pages describe the lab stage and say so.
 
 This guide is for a new MSP engineer. You do not need the project chat history. Read the pages in the order below; each one says what you need first.
 
@@ -21,6 +22,7 @@ The labels are the project's own status values (`docs/progress.json`, [ADR-0000]
 ## Reading order
 | # | Page | You will be able to | Label of what it covers |
 |---|---|---|---|
+| 0 | [Alpha install guide](alpha-install.md) | Install the alpha end to end: ICS, Proxmox, image, deployment, public names, certificate, people | Integrated on the reference installation |
 | 1 | [Glossary](glossary.md) | Read the rest of the guide (plan, approval, job, endpoint, agent, profile, drift) | n/a |
 | 2 | [Quick start](quick-start.md) | Go from a fresh host to "Proxmox connected" in one sitting | Integrated in lab |
 | 3 | [Installing the ICS](installing-the-ics.md) | Install, TLS, first login with TOTP, first-run accounts, uninstall (reference) | Integrated in lab |
