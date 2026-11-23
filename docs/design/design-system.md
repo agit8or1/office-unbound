@@ -89,7 +89,9 @@ The fields sit on the suite's raised surface with the shared line colour; focus 
 
 Screenshots (local preview of the real portal app against the test suite's mocks): `docs/screenshots/portal-v5/` (`before-*` =
 portal 0.4.0; the rest = 0.5.0 at 2560x1440, 1920x1080, 1366x768, tablet and phone, light and dark, open menus, search). No
-horizontal scrolling at any size (checked by the screenshot script).
+horizontal scrolling at any size (checked by the screenshot script). Account, devices and About pages in the new shell at 1440 and 390
+wide, light and dark (`account-*`, `devices-*`, `about-*`); the devices page used to scroll sideways on a phone (its setting tables
+widened the `.stack` grid), fixed with `grid-template-columns: minmax(0, 1fr)`.
 
 Apps (officeunbound8, signed in as the `doctest` user, 1600x900): `docs/screenshots/apps-v5/` (`before-*` = the deployed skin;
 `after-*` = the stage-2 `brand.css` added in the browser only, the deployment unchanged; dark = the webmail's own `dark-mode`

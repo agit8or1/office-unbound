@@ -328,7 +328,7 @@ main { padding-block: 1.25rem 3rem; }
 /* cards */
 .card { background: var(--surface); border: 1px solid var(--line); border-radius: var(--radius); padding: 1.1rem 1.25rem; margin-top: 1.25rem; }
 .card > h2:first-child { margin-top: 0; }
-.stack { display: grid; gap: 0; }
+.stack { display: grid; grid-template-columns: minmax(0, 1fr); gap: 0; }   /* minmax(0,…): a wide child (a settings table) scrolls in its own wrapper instead of widening the page on a phone */
 .stack .card { margin-top: .75rem; }
 details.plat summary { cursor: pointer; display: flex; flex-wrap: wrap; align-items: center; gap: .25rem 1rem; list-style: none; min-height: 2.75rem; }
 details.plat summary::-webkit-details-marker { display: none; }
