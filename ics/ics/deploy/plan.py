@@ -773,6 +773,13 @@ def create_steps(vms: list[dict], inp: PlanInput, cat: Catalog, extra_nic: bool 
         steps.append(_step(f"vm.start:{n}", "provider_task", n, "power", {"op": "start"}, [f"vm.resize:{n}"]))
         steps.append(_step(f"guest.await_callback:{n}", "wait_guest_callback", n, "await_callback", {"timeout_seconds": 600}, [f"vm.start:{n}"]))
         steps.append(_step(f"agent.enroll:{n}", "wait_agent_enrollment", n, "enroll", {"timeout_seconds": 600}, [f"guest.await_callback:{n}"]))
+        # the golden image carries the agent it was built with; the catalog pin may be newer: the agent upgrades itself before anything is
+        # installed (a no-op when it already runs the pin), so the VM always runs the version the plan records
+        agent_pkg = next((a for c in (cat.components[x] for x in v["components"]) if c.placement == "every_vm" for a in c.artifacts
+                          if a.kind == "package"), None)
+        if agent_pkg is not None:
+            steps.append(_step(f"agent.update:{n}", "agent_update", n, "update", {"package": agent_pkg.package, "version": agent_pkg.version,
+                                                                                   "timeout_seconds": 300}, [f"agent.enroll:{n}"], est_seconds=30))
     for v in vms:
         n = v["name"]
         for cname in v["components"]:
@@ -780,7 +787,8 @@ def create_steps(vms: list[dict], inp: PlanInput, cat: Catalog, extra_nic: bool 
             if c.placement == "every_vm":   # the node agent: installed by the guest bootstrap (cloud-init bundle), enrolled by agent.enroll
                 continue
             # every VM of the deployment first: configuration needs the peers' addresses (name resolution, cfg.firewall peer allowances)
-            deps = [f"agent.enroll:{n}"] + [f"agent.enroll:{o['name']}" for o in vms if o["name"] != n]
+            deps = [f"agent.enroll:{n}"] + [f"agent.enroll:{o['name']}" for o in vms if o["name"] != n] + \
+                   [k for k in (f"agent.update:{n}",) if any(x["key"] == k for x in steps)]
             for d in (*c.depends_on, *c.after):
                 for (vn, vt) in inst.get(d, []):
                     if _scope_match(vt, v["tenant"]):

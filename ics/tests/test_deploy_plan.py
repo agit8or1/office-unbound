@@ -302,7 +302,9 @@ def test_steps_form_a_valid_dependency_order():
     assert pos["health.verify:acme-prod-files:files"] < pos["comp.install:acme-prod-files:office"]
     assert pos["health.verify:acme-prod-groupware:groupware"] < pos["comp.install:acme-prod-id:edge"]           # edge routes to what exists
     kinds = {s["kind"] for s in p["steps"]}
-    assert kinds == {"provider_task", "wait_guest_callback", "wait_agent_enrollment", "agent_runbook", "register_checks", "verify_health"}
+    assert kinds == {"provider_task", "wait_guest_callback", "wait_agent_enrollment", "agent_update", "agent_runbook", "register_checks", "verify_health"}
+    # the image's agent is brought to the catalog pin right after enrollment, before anything is installed on that VM
+    assert pos["agent.enroll:acme-prod-files"] < pos["agent.update:acme-prod-files"] < pos["comp.install:acme-prod-files:files"]
     inst = next(s for s in p["steps"] if s["key"] == "comp.install:acme-prod-files:files")
     # packages first (the engine's configuration, inserted before the first unit, writes the nginx site), then each unit after its pull
     assert [r["runbook"] for r in inst["params"]["runbooks"]] == ["pkg.install_pinned", "podman.pull_verified", "podman.deploy_unit",

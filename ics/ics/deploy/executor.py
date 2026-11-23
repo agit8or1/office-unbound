@@ -450,8 +450,9 @@ def h_agent_update(ctx: StepCtx) -> dict:
             t0 = facts.get("started", 0)
             facts = _await_agent(ctx, node, vm, lambda f: f.get("started", 0) > t0, "the restart", p)
         out["allowed"] = {k: res.get(k, []) for k in ("packages", "image_repos")}
-    if not isinstance(facts.get("capabilities"), dict):
-        raise StepFailed(f"the node agent on {vm} reports no capabilities (agent older than 0.10.1)", "Upgrade the node agent pin.", retryable=False)
+    if not isinstance(facts.get("capabilities"), dict):   # an agent before 0.10.1 reports none: enrollment's record stays
+        ctx.log(f"node agent {facts.get('agent_version', 'unknown')} running (capabilities as recorded at enrollment)")
+        return {**out, "runbooks": None}
     with ctx.rt.session() as db, db.begin():
         db.execute(text("UPDATE nodes SET capabilities = CAST(:c AS jsonb), agent_version = :v WHERE id::text = :i"),
                    {"c": json.dumps(facts["capabilities"]), "v": facts.get("agent_version"), "i": node})
@@ -472,7 +473,7 @@ def _await_agent(ctx: StepCtx, node: str, vm: str, ok, what: str, p: dict) -> di
     while True:
         ctx.checkpoint()
         f = _facts(ctx, node)
-        if f and ok(f) and isinstance(f.get("capabilities"), dict):
+        if f and ok(f):
             return f
         if ctx.env.clock() > deadline:
             raise StepFailed(f"node agent on {vm} did not come back with {what} (reports {(f or {}).get('agent_version', 'nothing')})",

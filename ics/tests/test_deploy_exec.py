@@ -120,6 +120,7 @@ class FakeAgent:
     def __init__(self):
         self.runbooks: list[tuple] = []
         self.enrolled: list[str] = []
+        self.agent_version: dict[str, str] = {}
 
     def wait_enrollment(self, vm, timeout_s):
         self.enrolled.append(vm)
@@ -127,6 +128,12 @@ class FakeAgent:
 
     def run_runbook(self, node, rb, params):
         self.runbooks.append((node, rb, params))
+        if rb == "pkg.install_pinned":   # the node agent upgrading itself (agent.update): it then answers with that version
+            for p in params["packages"]:
+                if p["name"] == "ou-node-agent":
+                    self.agent_version[node] = p["version"].split("-", 1)[0]
+        if rb == "guest.facts":
+            return {"ok": True, "agent_version": self.agent_version.get(node, "0.9.4")}
         return {"ok": True}
 
     def address(self, vm):
