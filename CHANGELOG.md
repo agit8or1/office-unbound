@@ -10,6 +10,14 @@ isolated lab; nothing is production supported ([ROADMAP.md](ROADMAP.md)).
 
 ## [Unreleased]
 
+## [0.12.1] - 2026-11-23
+
+### Fixed
+- In-place changes (first real run on officeunbound8): the node agent update waited for the version the helper process read from disk
+  while the old agent server still answered; it now waits for the restarted server. Every pre-change snapshot gets its own timestamped
+  name (a fixed name failed on a VM's second change). The Proxmox provider never re-creates a disk slot that is already attached.
+- Docs: the intro tour no longer opens on every document; it stays under Help (office image 26.04.6-ou5).
+
 ## [0.12.0] - 2026-11-23
 
 **Lantern** makes upgrades in place: a running deployment gets new app, node agent and configuration versions through an approved
@@ -593,6 +601,7 @@ editing, chat/meetings, telephony prototype, migration tooling and package pipel
 - `SECURITY.md` (private reporting) and `CONTRIBUTING.md` (DCO sign-off) added; AGPL-3.0 license. [SECURITY](SECURITY.md)
 
 [Unreleased]: https://github.com/agit8or1/office-unbound/compare/v0.4.7...HEAD
+[0.12.1]: https://github.com/agit8or1/office-unbound/compare/v0.12.0...v0.12.1
 [0.12.0]: https://github.com/agit8or1/office-unbound/compare/v0.11.0...v0.12.0
 [0.11.0]: https://github.com/agit8or1/office-unbound/compare/v0.10.0...v0.11.0
 [0.10.0]: https://github.com/agit8or1/office-unbound/compare/v0.9.4...v0.10.0

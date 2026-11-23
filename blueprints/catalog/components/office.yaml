@@ -3,15 +3,16 @@ version: 1.0.0
 title: Office (Office Unbound Docs, OB-built, dev-signed image)
 description: Browser document editing via WOPI, built by Office Unbound from pinned source (ADR-0008, blueprints/build/collabora).
 artifacts:
-  # Built from source in ou-build1 (blueprints/build/collabora/oci). 26.04.6-ou4 (2026-11-21): same coolwsd build, image layer only: the
+  # Built from source in ou-build1 (blueprints/build/collabora/oci). 26.04.6-ou5 (2026-11-23): image layer only, the onboarding tour never starts
+  # by itself (Help keeps it; owner report: it opened on every document); dev-signed, scan pass (24 vuln ids, max CVSS 8.5, as ou4). 26.04.6-ou4 (2026-11-21): same coolwsd build, image layer only: the
   # per-deployment WOPI proof key from the office tls volume (/etc/coolwsd/proof_key -> /opt/ou-tls/proof_key). ou3: DEV-SIGNED 2026-11-18 through the hardened signer ou-oci-sign (dev channel key,
   # SPKI sha256 cd28d8bcc53aa2568d28c259b0923bc87f5e1bbd21e09e1bcdf28280aae7ee10; runner scan attestation + SBOM), published to the ICS artifact
   # service (ADR-0015) whose host the signature names. The catalog keeps the .invalid placeholder host: OU_ARTIFACT_BASE replaces it at plan time.
   - name: collabora
     kind: oci
     image: registry.ou.invalid/ou/office
-    digest: "sha256:e0aab0ce8d48c1e3e2cd357fc6f3ac018281bd7d6e07656dec6925cb8d24e9cd"
-    version: "26.04.6-ou4"
+    digest: "sha256:0c8bee63f5615c5bf3ecc9d310bf3774d5b52f397ba6c058b4a4185b8744e5e3"
+    version: "26.04.6-ou5"
     unit:
       # host networking like every other unit (the files VM's nginx terminates TLS for office.<domain> and proxies to 127.0.0.1:9980; the guest
       # firewall drops every inbound port the engine did not open). A private podman network failed on the first real VM (e2e-fo5, podman 4.9.3:

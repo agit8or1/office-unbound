@@ -103,7 +103,7 @@ def test_the_secret_is_stored_encrypted_and_reused(rt):
 
 def test_the_image_links_the_key_and_bakes_none():
     cf = (OCI / "Containerfile").read_text()
-    assert "ARG OU_VERSION=26.04.6-ou4" in cf
+    assert "ARG OU_VERSION=26.04.6-ou5" in cf
     assert "rm -f /etc/coolwsd/proof_key /etc/coolwsd/proof_key.pub" in cf and "ln -s /opt/ou-tls/proof_key /etc/coolwsd/proof_key" in cf
     assert cf.index("ln -s /opt/ou-tls/proof_key") < cf.index("chown -R cool:cool /opt/ou-docs /etc/coolwsd")
 
@@ -154,3 +154,14 @@ def test_entrypoint_refuses_a_file_that_is_no_pem_key(entry, content):
     (tls / "proof_key").write_text(content)
     r = run()
     assert r.returncode == 64 and "proof_key" in r.stderr and r.stdout == "" and not os.path.exists("/tmp/ou-pwn")
+
+
+def test_the_image_turns_the_tour_autostart_off_and_the_catalog_pins_it():
+    # owner 2026-11-23: no automatic onboarding tour (Help keeps it). The build fails unless the expression occurs exactly once.
+    cf = (OCI / "Containerfile").read_text()
+    assert 'getBooleanDocTypePref("onboardingTourSeen",!1)' in cf and 'getBooleanDocTypePref("onboardingTourSeen",!0)' in cf
+    assert cf.index("onboardingTourSeen") < cf.index("USER 10001:10001")
+    cat = (OCI.parents[2] / "catalog" / "components" / "office.yaml").read_text()
+    assert 'version: "26.04.6-ou5"' in cat
+    patch = (OCI.parent / "patches" / "0004-office-unbound-no-tour-autostart.patch").read_text()
+    assert "getBooleanDocTypePref('onboardingTourSeen', true)" in patch
