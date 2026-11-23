@@ -247,3 +247,29 @@ def test_units_that_run_podman_create_no_mount_namespace(unit):
              "ProtectKernelModules", "ProtectKernelLogs", "ProtectProc", "ProtectClock", "PrivateMounts", "BindPaths", "BindReadOnlyPaths", "TemporaryFileSystem",
              "ReadWritePaths", "ProtectHostname", "PrivateNetwork", "PrivateIPC", "PrivateUsers"}
     assert not keys & mount, keys & mount
+
+
+def test_guest_facts_keep_what_the_running_agent_server_adds(rt, tmp_path, monkeypatch):
+    """officeunbound8 (2026-11-23): the agent server (>= 0.10.1) puts its capabilities, its own version and its start time NEXT TO the
+    helper's facts. The port used to return only the helper's dict, so agent.update saw the version on disk and never the capabilities
+    ("cannot extend its allowlists") nor `started` (the restart wait could never finish)."""
+    from .test_lab_ssh_bootstrap import _port
+    port = _port(rt, tmp_path, monkeypatch)
+
+    def reply(resp):
+        monkeypatch.setattr(agentport.agentcall, "execute", lambda *a, **k: resp)
+    helper = {"agent_version": "0.10.1", "hostname": "vm", "units": []}
+    reply({"status": "ok", "result": {"returncode": 0, "result": helper, "agent_version": "0.10.1", "started": 1795467073,
+                                      "capabilities": {"cfg.agent_allow": {"enabled": True}}}})
+    f = port.run_runbook("n", "guest.facts", {})
+    assert f["started"] == 1795467073 and "cfg.agent_allow" in f["capabilities"] and f["hostname"] == "vm"
+    # an old server (0.9.4) adds nothing: the helper's facts only, so the update keeps waiting for a server that reports `started`
+    reply({"status": "ok", "result": {"returncode": 0, "result": {**helper, "agent_version": "0.10.1"}}})
+    f = port.run_runbook("n", "guest.facts", {})
+    assert "started" not in f and "capabilities" not in f
+    # the RUNNING version wins over the code on disk (new files unpacked, old server still answering is the 0.9.4 case above)
+    reply({"status": "ok", "result": {"returncode": 0, "result": {**helper, "agent_version": "0.10.2"}, "agent_version": "0.10.1", "started": 5}})
+    assert port.run_runbook("n", "guest.facts", {})["agent_version"] == "0.10.1"
+    # other runbooks are unchanged: the helper's result only
+    reply({"status": "ok", "result": {"returncode": 0, "result": {"verified": True}, "agent_version": "0.10.1"}})
+    assert "agent_version" not in port.run_runbook("n", "podman.pull_verified", {})

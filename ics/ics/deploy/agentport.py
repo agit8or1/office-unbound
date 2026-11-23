@@ -524,6 +524,10 @@ class GuestAgentPort:
             raise StepFailed(f"{runbook} refused: {rej.get('code') or resp.get('code')}: {str(rej.get('message') or res.get('message') or '')[:200]}",
                              "The node agent rejected the runbook request.", retryable=False)
         inner = res.get("result") if isinstance(res.get("result"), dict) else res
+        if runbook == "guest.facts" and inner is not res:
+            # the agent server (>= 0.10.1) adds what only the RUNNING process knows next to the helper's facts: its capabilities, its own
+            # version and when it started. The helper's agent_version is the code on disk, which is new before the restart (officeunbound8).
+            inner = {**inner, **{k: res[k] for k in ("capabilities", "agent_version", "started") if k in res}}
         if inner.get("verified") is False:
             raise StepFailed(f"{runbook}: image verification failed: {str(inner.get('error', ''))[:300]}",
                              "The image is not signed by the pinned key, or its digest differs from the plan.", retryable=False)

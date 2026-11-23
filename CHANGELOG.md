@@ -31,6 +31,11 @@ Calendar and Contacts restyled into the same system through their supported them
   quiet secondary buttons, calendar today marker; colours, borders, type and shadows only (a test refuses layout rules).
 - Catalog pins `ou-portal` 0.5.0-ou1.
 
+### Fixed
+- In-place agent update (officeunbound8, job 7d53239d): the controller kept only the helper's part of `guest.facts` and dropped what the
+  running agent adds (its capabilities, its own version, its start time), so the update step saw the version on disk and refused with
+  "cannot extend its allowlists", and the restart wait could never complete. The agent itself was fine (`ics/tests/test_first_real_deployment.py`).
+
 Evidence: `docs/screenshots/portal-v5/`, `docs/screenshots/apps-v5/`, portal tests (`portal/tests/test_portal.py`).
 
 ## [0.12.1] - 2026-11-23
