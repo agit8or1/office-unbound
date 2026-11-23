@@ -5,8 +5,21 @@
   "repository": "https://github.com/agit8or1/office-unbound",
   "updated": "2026-11-23",
   "stage": "alpha",
-  "current_version": "0.10.0",
+  "current_version": "0.11.0",
   "releases": [
+    {
+      "version": "0.11.0",
+      "date": "2026-11-23",
+      "status": "prepared",
+      "codename": "Kestrel",
+      "channel": "alpha",
+      "highlights": [
+        "0.11.0: team chat (Matrix: Synapse, MAS, Element) deployed by the ICS, signed in through the deployment's Keycloak",
+        "0.11.0: chat bubble on every portal page, with a pop-out window"
+      ],
+      "notes_url": "https://github.com/agit8or1/office-unbound/blob/main/CHANGELOG.md",
+      "changelog": "CHANGELOG.md"
+    },
     {
       "version": "0.10.0",
       "date": "2026-11-23",
@@ -1012,10 +1025,12 @@
         {
           "id": "P6.2",
           "title": "Chat (Synapse + MAS + Element) and meetings (Jitsi with SSO-issued tokens)",
-          "status": "integrated_lab",
+          "status": "implementing",
           "evidence": [
-            "docs/status/collaboration-lab-results.md"
-          ]
+            "docs/status/collaboration-lab-results.md",
+            "ics/tests/test_deploy_chat.py"
+          ],
+          "note": "0.11.0: chat (Synapse + MAS + Element) is deployed by the ICS with a portal chat bubble; first real deployment pending. Meetings (Jitsi) not yet deployed by the ICS."
         },
         {
           "id": "P6.3",

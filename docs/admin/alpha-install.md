@@ -17,7 +17,7 @@ Terms (plan, approval, job, deployment, gateway) are in the [Glossary](glossary.
 |---|---|
 | ICS host | Ubuntu 24.04 (Debian 12 also installs), fixed IP, root, internet access. 2 vCPU, 4 GB RAM, 40 GB disk is enough for the controller. A VM on the same Proxmox works (the reference ICS is VM 126, outside the deployment pool). |
 | Proxmox VE | One node (PVE 9.2 tested) with a storage for VM disks and a directory storage (`local`) for image imports, and a bridge the VMs can use (`vmbr0` tested). Each deployment uses 3 VMs; every VM gets at least 8 vCPU, 8 GB RAM and 40 GB disk. |
-| A domain | DNS you can edit. The deployment uses `app.`, `auth.`, `cloud.`, `office.`, `mail.` and `autodiscover.` under it (shown by the console). |
+| A domain | DNS you can edit. The deployment uses `app.`, `auth.`, `cloud.`, `office.`, `mail.` and `autodiscover.` under it, plus `chat.`, `matrix.` and `mas.` when the deployment includes chat (shown by the console). |
 | One public IPv4 address | Your router forwards TCP 80 and 443 to the ICS host. The ICS routes each name to the right VM without decrypting it. Mail (25/587/993) forwarding is listed by the console. |
 | Signed images and packages | The golden VM image and the packages are signed by the release pipeline and served by the ICS's artifact service. **Read "Step 4" first**: there is no public download yet. |
 

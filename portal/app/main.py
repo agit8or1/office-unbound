@@ -70,7 +70,7 @@ def create_app(cfg: Settings | None = None, transport: httpx.AsyncBaseTransport 
     app.state.store, app.state.state = store, state
 
     csp = ("default-src 'none'; style-src 'self'; img-src 'self' data:; font-src 'self'; base-uri 'none'; frame-ancestors 'none'; "
-           f"form-action 'self' {cfg.issuer_origin} {cfg.files_url}; manifest-src 'self'")
+           f"form-action 'self' {cfg.issuer_origin} {cfg.files_url}; manifest-src 'self'" + (f"; frame-src {cfg.chat_origin}" if cfg.chat_url else ""))
 
     @app.middleware("http")
     async def headers(request: Request, call_next):
@@ -91,7 +91,9 @@ def create_app(cfg: Settings | None = None, transport: httpx.AsyncBaseTransport 
     @app.middleware("http")
     async def brand_mw(request: Request, call_next):
         ics = state.get("ics")
-        request.state.brand = await ics.branding() if ics and not request.url.path.startswith(("/static/", "/healthz", "/branding", "/brand/")) else None
+        page = not request.url.path.startswith(("/static/", "/healthz", "/branding", "/brand/"))
+        request.state.brand = await ics.branding() if ics and page else None
+        request.state.chat = await services.chat_available(cfg, state["http"]) if page and cfg.chat_url and state.get("http") else False
         return await call_next(request)
 
     # ---- helpers --------------------------------------------------------------------------------------------------
@@ -100,6 +102,7 @@ def create_app(cfg: Settings | None = None, transport: httpx.AsyncBaseTransport 
         brand = {"name": b.get("display_name") or cfg.org_name, "accent": b.get("accent") if HEXRE.match(b.get("accent") or "") else None,
                  "logo": bool(b.get("has_logo")), "apps": b.get("apps")}
         c = {"request": request, "sess": sess, "user": user_ctx(sess) if sess else None, "brand": brand,
+             "chat": bool(sess and getattr(request.state, "chat", False)),
              "is_admin": bool(sess and cfg.ics_url and admin.is_admin(cfg, sess.claims)), **(ctx or {})}
         return templates.TemplateResponse(name, c, status_code=status)
 

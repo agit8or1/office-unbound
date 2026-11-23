@@ -1,6 +1,6 @@
 # Office Unbound roadmap & progress
 
-> Generated from [`docs/progress.json`](docs/progress.json) by `scripts/render_roadmap.py` — edit the JSON, not this file. Last updated **2026-11-23** · stage: **alpha** · current version: **0.10.0**.
+> Generated from [`docs/progress.json`](docs/progress.json) by `scripts/render_roadmap.py` — edit the JSON, not this file. Last updated **2026-11-23** · stage: **alpha** · current version: **0.11.0**.
 
 Alpha (0.10.0 "Juniper"): an administrator installs the Infrastructure Control Server from the release tag, connects Proxmox VE and deploys the full stack (Keycloak sign-in, user portal, Exchange-compatible mail with webmail, calendar and contacts, file sync, browser document editing) onto real VMs, reachable from the internet with a Let's Encrypt certificate the ICS keeps across rebuilds. Proven on one reference installation; not for production data. Chat, meetings, telephony, anti-spam and migration are lab prototypes or planned.
 
@@ -87,7 +87,7 @@ Alpha (0.10.0 "Juniper"): an administrator installs the Infrastructure Control S
 | | Item | Status | Evidence |
 |---|---|---|---|
 | P6.1 | Zero-cost collaboration stack evaluation (Matrix, Jitsi/LiveKit, Asterisk) | ✅ Tested | [`docs/status/collaboration-eval.md`](docs/status/collaboration-eval.md) |
-| P6.2 | Chat (Synapse + MAS + Element) and meetings (Jitsi with SSO-issued tokens) | 🧪 Integrated in lab | [`docs/status/collaboration-lab-results.md`](docs/status/collaboration-lab-results.md) |
+| P6.2 | Chat (Synapse + MAS + Element) and meetings (Jitsi with SSO-issued tokens) <br><sub>0.11.0: chat (Synapse + MAS + Element) is deployed by the ICS with a portal chat bubble; first real deployment pending. Meetings (Jitsi) not yet deployed by the ICS.</sub> | 🛠️ Implementing | [`docs/status/collaboration-lab-results.md`](docs/status/collaboration-lab-results.md), [`ics/tests/test_deploy_chat.py`](ics/tests/test_deploy_chat.py) |
 | P6.3 | Business telephony (Asterisk + browser softphone) <br><sub>WebRTC + native SIP calls, voicemail to email, LDAP extensions, deprovisioning 0.6 s; no PSTN/E911 yet</sub> | 🧪 Integrated in lab | [`docs/status/telephony-lab-results.md`](docs/status/telephony-lab-results.md) |
 
 ## P7 — Migration Center (Microsoft 365, Google Workspace)  (🛠️ Implementing)
@@ -186,6 +186,7 @@ Alpha (0.10.0 "Juniper"): an administrator installs the Infrastructure Control S
 
 | Version | Date | Status | Highlights |
 |---|---|---|---|
+| [0.11.0](https://github.com/agit8or1/office-unbound/blob/main/CHANGELOG.md) | 2026-11-23 | prepared | 0.11.0: team chat (Matrix: Synapse, MAS, Element) deployed by the ICS, signed in through the deployment's Keycloak<br>0.11.0: chat bubble on every portal page, with a pop-out window |
 | [0.10.0](https://github.com/agit8or1/office-unbound/blob/main/CHANGELOG.md) | 2026-11-23 | released | 0.10.0: alpha: install guide (empty host to people signing in) and rewritten known limitations<br>0.10.0: sign-in page header no longer cut off; console sign-in headline on two lines<br>0.10.0: webmail in IBM Plex everywhere, upstream logo removed |
 | [0.9.4](https://github.com/agit8or1/office-unbound/blob/main/CHANGELOG.md) | 2026-11-22 | released | 0.9.4: a rebuilt deployment keeps its public certificate (no new Let's Encrypt order while it is valid for more than 30 days)<br>0.9.4: console, portal and app skins closer to the officeunbound.com concepts (site radii and hairlines, joined figure strip, Source Serif headlines); webmail in IBM Plex<br>0.9.4: agent 0.9.4-ou18, portal 0.3.2, golden image version 14 |
 | [0.9.3](https://github.com/agit8or1/office-unbound/blob/main/CHANGELOG.md) | 2026-11-22 | released | 0.9.3: every app takes the look of the officeunbound.com interface concepts (navy, copper, paper, IBM Plex self-hosted, three-square mark); console follows its own Infrastructure Control concept |

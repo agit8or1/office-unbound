@@ -187,3 +187,24 @@ def human_size(n: int | None) -> str:
             return f"{n:.0f} {unit}" if unit == "B" else f"{n:.1f} {unit}"
         n /= 1024
     return ""
+
+
+_CHAT = {"at": 0.0, "ok": False}
+CHAT_RECHECK = 300.0
+
+
+async def chat_available(cfg, http) -> bool:
+    """Whether the deployment's chat (Element Web behind the chat name) answers its health page; checked at most every 5 minutes, so a
+    deployment without chat shows no bubble and one that gains chat shows it without a portal restart."""
+    if not cfg.chat_url:
+        return False
+    now = time.monotonic()
+    if now - _CHAT["at"] < CHAT_RECHECK:
+        return _CHAT["ok"]
+    _CHAT["at"] = now
+    try:
+        r = await http.get(cfg.chat_url + "/healthz", timeout=3.0)
+        _CHAT["ok"] = r.status_code == 200 and r.text.strip() == "ok"
+    except httpx.HTTPError:
+        _CHAT["ok"] = False
+    return _CHAT["ok"]

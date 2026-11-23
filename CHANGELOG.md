@@ -10,6 +10,24 @@ isolated lab; nothing is production supported ([ROADMAP.md](ROADMAP.md)).
 
 ## [Unreleased]
 
+## [0.11.0] - 2026-11-23
+
+**Kestrel** opens the Teams-style line: team chat is part of a deployment (alpha; not for production data).
+
+### Added
+- **Team chat in deployments** (catalog `chat`, `deploy/configure.py` `chat_runbooks`, templates `blueprints/catalog/templates/chat/`): Synapse,
+  the Matrix Authentication Service and Element Web on the files VM behind its TLS proxy, at `chat.`, `matrix.` and `mas.` under the
+  deployment domain. People sign in only through the deployment's Keycloak (no chat passwords, no registration, no telemetry, federation off);
+  Keycloak logs chat sessions out over the back channel. Every secret (databases, server signing key, MAS keys) is made by the ICS and kept in
+  its vault. Tests: `ics/tests/test_deploy_chat.py`.
+- **Chat bubble in the user portal** (portal 0.3.3): on every page, bottom right, when the deployment has chat; chat loads with the page and
+  keeps running while the panel is closed, "Open in a window" pops it out. No script is added to the portal. Chat and its sign-in pages may be
+  framed by the chat and portal names only (CSP `frame-ancestors`).
+
+### Known limitations
+- Chat media and configuration are podman volumes on the VM's root disk and are **not backed up** yet; the chat database is.
+- Matrix ids are `@user:matrix.<domain>` (no delegation on the customer's apex, which is often their website).
+
 ## [0.10.0] - 2026-11-23
 
 **Alpha.** Office Unbound moves from pre-alpha to alpha ("Juniper", [ADR-0011](docs/adr/0011-versioning-and-releases.md) amendment
@@ -523,6 +541,7 @@ editing, chat/meetings, telephony prototype, migration tooling and package pipel
 - `SECURITY.md` (private reporting) and `CONTRIBUTING.md` (DCO sign-off) added; AGPL-3.0 license. [SECURITY](SECURITY.md)
 
 [Unreleased]: https://github.com/agit8or1/office-unbound/compare/v0.4.7...HEAD
+[0.11.0]: https://github.com/agit8or1/office-unbound/compare/v0.10.0...v0.11.0
 [0.10.0]: https://github.com/agit8or1/office-unbound/compare/v0.9.4...v0.10.0
 [0.9.4]: https://github.com/agit8or1/office-unbound/compare/v0.9.3...v0.9.4
 [0.9.3]: https://github.com/agit8or1/office-unbound/compare/v0.9.2...v0.9.3

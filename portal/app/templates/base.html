@@ -34,6 +34,17 @@
 <main id="main" class="wrap">
 {% block main %}{% endblock %}
 </main>
+{% if chat %}
+{#- the deployment's chat, always at hand (owner 2026-11-23: "chat running in the background ... in a bubble or popout window"). No script: the
+    portal's policy allows none. The panel is a <details>; chat loads with the page and keeps running while the panel is closed. -#}
+<details class="chatdock">
+  <summary aria-label="Chat"><svg viewBox="0 0 24 24" aria-hidden="true" focusable="false"><path d="M4 5h16v11H9l-5 4z"/></svg><span>Chat</span></summary>
+  <div class="chatdock-panel" role="region" aria-label="Chat">
+    <div class="chatdock-head"><span>Chat</span><a href="{{ cfg.chat_url }}/" target="ou-chat" rel="noopener">Open in a window</a></div>
+    <iframe src="{{ cfg.chat_url }}/" title="Chat" allow="clipboard-write; fullscreen" referrerpolicy="no-referrer"></iframe>
+  </div>
+</details>
+{% endif %}
 <footer class="wrap foot">
   <span>{{ brand.name }} portal</span><span aria-hidden="true">·</span><span>Your files and messages stay on your organisation's own servers.</span><span aria-hidden="true">·</span><a href="/about">Office Unbound portal v{{ version }}</a>
 </footer>

@@ -1,31 +1,32 @@
 {
- "schema": "office-unbound-versions/1",
- "_note": "Per-component versions for independently shipped parts. The product version is the VERSION file (ADR-0011). ICS core always equals the product version.",
- "components": {
-  "node_agent": "0.9.4",
-  "portal": "0.3.2",
-  "migration_toolkit": "0.1.0",
-  "docs_engine": "cp-26.04.6-1+ou2"
- },
- "interfaces": {
-  "api": "v1",
-  "msp_api": "v1",
-  "progress_feed_schema": "office-unbound-progress/1",
-  "catalog_schema": "1",
-  "agent_protocol": "2",
-  "agent_protocol_note": "2 = signed requests carry the controller epoch (warm standby, ADR-0012). An agent below 0.2.0 does not know the field: the ICS falls back to epoch-less requests for that node (agentclient legacy path, rechecked every 300 s) so mixed fleets keep working, but such a node is not fenced against a resurrected old primary. Minimum compatible agent for fencing: 0.2.0."
- },
- "release_names": {
-  "_note": "One name per MINOR release line, alphabetical (ADR-0011 \u00a71). Add the next name when a line opens.",
-  "0.1": "Anchor",
-  "0.2": "Beacon",
-  "0.3": "Compass",
-  "0.4": "Daybreak",
-  "0.5": "Ember",
-  "0.6": "Foundry",
-  "0.7": "Granite",
-  "0.8": "Harbor",
-  "0.9": "Ironwood",
-  "0.10": "Juniper"
- }
+  "schema": "office-unbound-versions/1",
+  "_note": "Per-component versions for independently shipped parts. The product version is the VERSION file (ADR-0011). ICS core always equals the product version.",
+  "components": {
+    "node_agent": "0.9.4",
+    "portal": "0.3.3",
+    "migration_toolkit": "0.1.0",
+    "docs_engine": "cp-26.04.6-1+ou2"
+  },
+  "interfaces": {
+    "api": "v1",
+    "msp_api": "v1",
+    "progress_feed_schema": "office-unbound-progress/1",
+    "catalog_schema": "1",
+    "agent_protocol": "2",
+    "agent_protocol_note": "2 = signed requests carry the controller epoch (warm standby, ADR-0012). An agent below 0.2.0 does not know the field: the ICS falls back to epoch-less requests for that node (agentclient legacy path, rechecked every 300 s) so mixed fleets keep working, but such a node is not fenced against a resurrected old primary. Minimum compatible agent for fencing: 0.2.0."
+  },
+  "release_names": {
+    "_note": "One name per MINOR release line, alphabetical (ADR-0011 §1). Add the next name when a line opens.",
+    "0.1": "Anchor",
+    "0.2": "Beacon",
+    "0.3": "Compass",
+    "0.4": "Daybreak",
+    "0.5": "Ember",
+    "0.6": "Foundry",
+    "0.7": "Granite",
+    "0.8": "Harbor",
+    "0.9": "Ironwood",
+    "0.10": "Juniper",
+    "0.11": "Kestrel"
+  }
 }

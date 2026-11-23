@@ -24,7 +24,9 @@ What not to promise yet. Updated 2026-11-23 for the alpha; each line says where 
 - **Certificates:** Let's Encrypt allows 5 certificates for the same set of names per week. Since 0.9.4 the ICS keeps an encrypted copy of the
   gateway's certificate and gives it back to a rebuilt gateway; verified live on 2026-11-23 (officeunbound7 rebuilt as officeunbound8: same
   certificate restored in 17 s, no new order; GitHub #24). Certificates are reused only while valid for more than 30 days. DNS-01, wildcard certificates and DNS automation are **Planned** (GitHub #25, #26).
-- **Not deployed by the ICS:** chat, meetings and telephony (lab prototypes only), anti-spam and antivirus (rspamd, ClamAV: **Planned**),
+- **Chat** (0.11.0) is deployed by the ICS when the layout includes it; its media and configuration are not backed up yet, Matrix ids are
+  `@user:matrix.<domain>`, federation is off, no mobile app is tested.
+- **Not deployed by the ICS:** meetings and telephony (lab prototypes only), anti-spam and antivirus (rspamd, ClamAV: **Planned**),
   mail archiving (**Planned**).
 - **Internet mail** (MX delivery in and out, SPF/DKIM/DMARC) is not verified end to end. On a deployment, webmail, ActiveSync and
   CalDAV/CardDAV answer and pass their health checks ([groupware-deploy-results.md](../status/groupware-deploy-results.md)).

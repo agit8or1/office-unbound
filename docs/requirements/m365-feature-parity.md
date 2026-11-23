@@ -121,6 +121,11 @@ portal, sign-in, Files and webmail (P3.4 `implementing`). *Planned:* guided desk
 search and notifications (UX rows). *Main gaps:* no Office Unbound mobile app; no tested phone client; no cross-application search or
 notifications.
 
+*Owner direction (2026-11-23):* chat is delivered two ways. (1) The **Office Unbound desktop app** for Windows and macOS combines file sync
+(ODB-sync) and chat (TMS-02) in one signed application. (2) On the web, chat is always at hand: the portal's chat bubble keeps chat running in
+the background on every page, with a pop-out window (portal 0.3.3, 0.11.0). Requirement UX-CHAT-1: the same chat session and unread state in
+both; the desktop app is Planned (costs: Windows code signing, Apple Developer Program, flagged in the ODB and ENT documents).
+
 ---
 
 ## Matrix

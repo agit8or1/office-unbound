@@ -367,7 +367,7 @@ def matrix_client(mas: str, secret_: str, provider_id: str) -> dict:
 
 
 def realm_json(domain: str, bind_password: str, auth: str | None = None, files: str | None = None, clients: list[dict] | None = None,
-               signing_key: str | None = None) -> str:
+               signing_key: str | None = None, frame_ancestors: list[str] | None = None) -> str:
     base = ",".join(f"dc={x}" for x in domain.split("."))
     raw = (catalog_dir() / "templates" / "identity" / "realm.json").read_text()
     auth, files = auth or f"auth.{domain}", files or f"cloud.{domain}"
@@ -383,6 +383,10 @@ def realm_json(domain: str, bind_password: str, auth: str | None = None, files: 
         return v
     r = walk(json.loads(raw))
     r["clients"] = [*r["clients"], *(clients or [])]
+    if frame_ancestors:
+        # Keycloak's default allows framing by itself only; a CSP frame-ancestors list replaces X-Frame-Options (empty = header not sent)
+        r["browserSecurityHeaders"] = {**r.get("browserSecurityHeaders", {}), "xFrameOptions": "",
+                                       "contentSecurityPolicy": "frame-src 'self'; frame-ancestors 'self' " + " ".join(frame_ancestors) + "; object-src 'none';"}
     if signing_key:
         r.setdefault("components", {})["org.keycloak.keys.KeyProvider"] = [
             {"name": "ou-rs256", "providerId": "rsa", "subComponents": {},
@@ -422,9 +426,13 @@ def identity_runbooks(ctx, vm: str) -> list[dict]:
     has_mail = vm_of(ctx.plan, "groupware", t) is not None
     clients = sso_clients(fq(ctx.plan, t, "portal"), fq(ctx.plan, t, "mail") if has_mail else None, _sec(ctx, t, "portal-client-secret"),
                           _sec(ctx, t, "webmail-client-secret") if has_mail else None)
+    frame = None
     if vm_of(ctx.plan, "chat", t) is not None:
         clients.append(matrix_client(fq(ctx.plan, t, "mas"), _sec(ctx, t, "matrix-client-secret"), mas_provider_id(ctx.rt, ctx.deployment_id, t)))
-    realm = realm_json(domain, bind_pw, fq(ctx.plan, t, "auth"), fq(ctx.plan, t, "cloud"), clients, realm_key(ctx.rt, ctx.deployment_id, t))
+        # chat signs in inside the portal's chat bubble: the sign-in pages may be framed by the chat and portal names only
+        frame = [f"https://{fq(ctx.plan, t, 'chat')}", f"https://{fq(ctx.plan, t, 'mas')}"] + ([portal_url(ctx.plan, t).rstrip("/")] if portal_url(ctx.plan, t) else [])
+    realm = realm_json(domain, bind_pw, fq(ctx.plan, t, "auth"), fq(ctx.plan, t, "cloud"), clients, realm_key(ctx.rt, ctx.deployment_id, t),
+                       frame_ancestors=frame)
     return [
         {"runbook": "cfg.hosts", "params": {"entries": hosts_entries(ctx, names)}},
         firewall_runbook(ctx, vm),
@@ -738,7 +746,9 @@ def chat_runbooks(ctx, vm: str) -> list[dict]:
                      SIGNING_KEY="\n".join("        " + ln for ln in mas_key.strip().splitlines()), DOMAIN=domain,
                      PROVIDER_ID=mas_provider_id(ctx.rt, ctx.deployment_id, t), AUTH_HOST=fq(ctx.plan, t, "auth"), REALM=REALM,
                      CLIENT_ID=MATRIX_CLIENT, CLIENT_SECRET=_sec(ctx, t, "matrix-client-secret"))
-    hosts = dict(CHAT_HOST=chat, MATRIX_HOST=matrix, MAS_HOST=mas, SERVER_NAME=server_name)
+    portal = portal_url(ctx.plan, t)
+    hosts = dict(CHAT_HOST=chat, MATRIX_HOST=matrix, MAS_HOST=mas, SERVER_NAME=server_name,
+                 FRAME_ANCESTORS=f"https://{chat}" + (f" {portal.rstrip('/')}" if portal else ""))
     img = _image(ctx, vm, "chat")
     return [
         {"runbook": "cfg.hosts", "params": {"entries": hosts_entries(ctx, names_by_vm(ctx.plan))}},

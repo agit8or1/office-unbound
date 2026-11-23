@@ -49,6 +49,12 @@ class Settings:
     ics_key: str = ""                 # per-customer service credential (file), identifies the customer to the ICS; never a user secret
     ics_ca_bundle: str | None = None  # CA for the ICS TLS certificate
     admin_role: str = "org-admin"     # Keycloak realm role that opens the Admin area (the ICS verifies it again from the signed token)
+    # team chat (Element Web) of the deployment: shown as the chat bubble on every page when it answers (services.chat_available); "" = never
+    chat_url: str = ""
+
+    @property
+    def chat_origin(self) -> str:
+        return "/".join(self.chat_url.split("/", 3)[:3]) if self.chat_url else ""
 
     @property
     def host(self) -> str:
@@ -69,6 +75,13 @@ class Settings:
         if view not in ("mail", "calendar", "contacts"):
             raise ValueError("unknown view")
         return self.mail_web_url if view == "mail" else f"{self.mail_web_url}?action=context&view={view}"
+
+
+def _chat_url(v: str | None, domain: str) -> str:
+    if v is not None and v.strip().lower() == "off":
+        return ""
+    url = (v or f"https://chat.{domain}").strip().rstrip("/")
+    return url if url.startswith("https://") and "/" not in url[len("https://"):] else ""
 
 
 def load() -> Settings:
@@ -98,4 +111,6 @@ def load() -> Settings:
         ics_key=_secret("PORTAL_ICS_KEY") if (os.environ.get("PORTAL_ICS_URL") or "") else "",
         ics_ca_bundle=os.environ.get("PORTAL_ICS_CA_BUNDLE") or None,
         admin_role=_env("PORTAL_ADMIN_ROLE", "org-admin"),
+        # the deployment's chat name by convention (ICS catalog: chat.<domain>); PORTAL_CHAT_URL overrides, "off" disables
+        chat_url=_chat_url(os.environ.get("PORTAL_CHAT_URL"), mail_domain),
     )

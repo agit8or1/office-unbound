@@ -402,3 +402,44 @@ def test_the_portal_default_editor_route_is_the_deployments():
     env = (Path(__file__).resolve().parents[2] / "blueprints/catalog/templates/files/opencloud.env").read_text()
     name = re.search(r"^COLLABORATION_APP_NAME=(\w+)$", env, re.M).group(1)
     assert CFG.editor_app == f"external-{name.lower()}" == "external-documents"
+
+
+def _chat_env(chat_up: bool):
+    import dataclasses
+    m = Mock()
+    base = m.handler
+
+    def handler(req):
+        if str(req.url) == "https://chat.example.test/healthz":
+            return httpx.Response(200, text="ok\n") if chat_up else httpx.Response(502)
+        return base(req)
+    services._CHAT.update(at=0.0, ok=False)
+    cfg = dataclasses.replace(CFG, chat_url="https://chat.example.test")
+    return m, create_app(cfg, transport=httpx.MockTransport(handler))
+
+
+@pytest.mark.parametrize("up", [True, False])
+def test_chat_bubble_only_when_chat_answers_and_only_signed_in(up):
+    m, app = _chat_env(up)
+    with TestClient(app, base_url=BASE) as c:
+        c.follow_redirects = False
+        assert "chatdock" not in c.get("/about").text                    # signed out: never
+        _, q = login(c, m)
+        finish(c, q)
+        r = c.get("/")
+        assert r.status_code == 200
+        assert ("chatdock" in r.text) is up
+        if up:
+            assert '<iframe src="https://chat.example.test/"' in r.text and 'target="ou-chat"' in r.text
+            assert "<script" not in r.text                                  # still no script on the portal
+        csp = r.headers["content-security-policy"]
+        assert "frame-src https://chat.example.test" in csp and "frame-ancestors 'none'" in csp and "script-src" not in csp
+
+
+def test_chat_url_convention_override_and_off():
+    from app.config import _chat_url
+    assert _chat_url(None, "acme.example") == "https://chat.acme.example"
+    assert _chat_url("https://talk.acme.example/", "acme.example") == "https://talk.acme.example"
+    assert _chat_url("off", "acme.example") == ""
+    for bad in ("http://chat.acme.example", "https://chat.acme.example/x", "javascript:alert(1)"):
+        assert _chat_url(bad, "acme.example") == ""

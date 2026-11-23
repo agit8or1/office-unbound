@@ -109,3 +109,17 @@ def test_audit_never_sees_chat_secrets(ctx):
         red = json.dumps(configure.redact(r["runbook"], r["params"]))
         for v in ctx.store.values():
             assert v not in red
+
+
+def test_only_the_portal_and_chat_may_frame_chat_and_sign_in(ctx):
+    front = _files(configure.chat_runbooks(ctx, _vm(ctx.plan, "chat")), "front")["nginx.conf"]["content"]
+    fa = f"frame-ancestors 'self' https://chat.{DOMAIN} https://portal.{DOMAIN}"
+    assert front.count(fa) == 2 and "X-Frame-Options SAMEORIGIN" not in front
+    rbs = configure.identity_runbooks(ctx, _vm(ctx.plan, "identity"))
+    realm = json.loads(next(f["content"] for r in rbs if r["runbook"] == "cfg.volume_files" for f in r["params"]["files"] if f["path"].startswith("import/realm")))
+    csp = realm["browserSecurityHeaders"]["contentSecurityPolicy"]
+    assert f"frame-ancestors 'self' https://chat.{DOMAIN} https://mas.{DOMAIN} https://portal.{DOMAIN};" in csp and "*" not in csp
+
+
+def test_without_chat_keycloak_keeps_its_default_framing():
+    assert "browserSecurityHeaders" not in json.loads(configure.realm_json(DOMAIN, "pw"))
