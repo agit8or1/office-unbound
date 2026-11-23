@@ -377,3 +377,15 @@ def test_the_calendar_server_password_prompt_names_office_unbound():
         if path == "/etc/grommunio-dav/config.php":
             again = re.sub(pat, rep, again)
     assert again == t                                                                        # idempotent: no rewrite on the next run
+
+
+def test_the_webmail_redesign_restyles_without_touching_extjs_layout():
+    """grommunio-web is ExtJS: every panel is sized in pixels from its own measurements, so the suite restyle (portal 0.5.0) may only change
+    colours, borders, type and shadows; a size, margin, padding or position rule would misalign panes the framework already laid out."""
+    css = (ROOT / "blueprints/catalog/templates/brand/grommunio.css").read_text()
+    redesign = css[css.index("/* Suite redesign"):]
+    decls = re.findall(r"(?<![\w-])([a-z-]+)\s*:", re.sub(r"/\*.*?\*/", "", redesign, flags=re.S).split("{", 1)[1])
+    layout = {d for d in decls if re.fullmatch(r"(min-|max-)?(width|height)|margin(-\w+)?|padding(-\w+)?|position|top|left|right|bottom|display|flex.*", d)}
+    assert not layout, layout
+    for token in ("--ou-side", "--ou-sel", "--ou-action"):   # the shared layering and the muted-teal selection
+        assert token in redesign

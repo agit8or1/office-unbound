@@ -48,14 +48,42 @@ deployed. Admin and ICS information never appears on the user dashboard.
 - Webmail, calendar and contacts (grommunio-web) and Files (OpenCloud) keep their own layouts; they share the tokens through their
   supported theming hooks (grommunio-web `/brand/brand.css`, OpenCloud theme + `web.config.styles`) and the "Dashboard" control
   back to the portal. Stage 2 restyles them further through the same hooks only (no DOM scripting, no upstream fork).
-- The theme choice is per app: grommunio-web and OpenCloud follow the system setting, not the portal's switch (they cannot read
-  the portal's cookie without a script in their pages).
+- The theme choice is per app, not the portal's switch (the apps cannot read the portal's cookie without a script in their pages):
+  grommunio-web uses its own saved setting (`grommunio/v1/main/dark_mode`: light by default; Light, Dark or System under its
+  Settings, read in `client/grommunio/core/DarkMode.js`), OpenCloud its own theme choice.
 - Unread counts and the next meeting need a mailbox data source for the portal (EWS/IMAP with the user's sign-in): not verified
   yet, so not shown.
 - Calendar has no "new event" deep link in grommunio-web 5.2; "New event" opens the calendar.
+
+## Stage 2: Mail, Calendar, Contacts (grommunio-web skin)
+
+Through the one supported hook, `/brand/brand.css` (`grommunio.css` adapter, "Suite redesign" block). The webmail is ExtJS, which lays
+out every panel in pixels from its own measurements, so the block changes colours, borders, type and inset shadows only; no size,
+margin, padding, position or display (enforced by `ics/tests/test_brand.py::test_the_webmail_redesign_restyles_without_touching_extjs_layout`).
+
+| Area | Change |
+|---|---|
+| Main menu | sentence case like the portal and Files; active app on `--ou-bar-2` with the copper underline |
+| Toolbar | own surface and rule; secondary icons quieter; the New button keeps the brand colour |
+| Folder, calendar and address-book pane | the side layer (`--ou-side`); selection = `--ou-sel` with a 3px teal bar, bold name; unread counts teal |
+| "Open shared ..." buttons | quiet secondary buttons instead of tinted blocks |
+| Lists | muted column titles; unread rows marked with a teal bar; calm empty state |
+| Panes | the canvas shows between list, reading pane and folders; tab strip on `--ou-bg2` (was near-black in dark) |
+| Calendar | today in teal in the date picker and the grid; week numbers muted (were red in dark); Today button secondary |
+
+Upstream specifics that needed matching selectors (found with a rule probe on officeunbound8): the menu's uppercase comes from
+`#grommunio-mainmenu.grommunio-maintabbar > .x-toolbar-ct .x-btn button.x-btn-text`; dark mode colours today's date gold
+(`.x-date-today .x-date-date`), the tab strip `--dm-bg` and the picker's Today button `--dm-selected`, all `!important`.
+
+Not changed: the reading pane's content, message compose, the settings pages and dialogs (upstream defaults with the shared tokens);
+Files keeps its stage-1 skin (its colours come from the token-derived `theme.json` roles).
 
 ## Evidence
 
 Screenshots (local preview of the real portal app against the test suite's mocks): `docs/screenshots/portal-v5/` (`before-*` =
 portal 0.4.0; the rest = 0.5.0 at 2560x1440, 1920x1080, 1366x768, tablet and phone, light and dark, open menus, search). No
 horizontal scrolling at any size (checked by the screenshot script).
+
+Apps (officeunbound8, signed in as the `doctest` user, 1600x900): `docs/screenshots/apps-v5/` (`before-*` = the deployed skin;
+`after-*` = the stage-2 `brand.css` added in the browser only, the deployment unchanged; dark = the webmail's own `dark-mode`
+class, as when the user picks Dark in its settings).

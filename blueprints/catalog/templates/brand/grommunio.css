@@ -65,3 +65,61 @@ body .k-welcome-header::after { display: none; }
 body #grommunio-maintoolbar { background-image: none !important; }
 /* a new account has no photo: the welcome avatar shows the mark instead of an empty white ring */
 body .k-welcome-avatar img { border-color: transparent; background: var(--ou-logo) center / 55% no-repeat, rgba(255, 255, 255, .08); }
+/* Suite redesign (portal 0.5.0 / 0.13.0): the shared layering (side panels on --ou-side, content on --ou-surface, the canvas between the
+   panes), muted-teal selection, quieter chrome. ExtJS lays every panel out in pixels from its own measurements, so these rules change only
+   colours, borders, type and inset shadows, never sizes, margins or padding of measured elements. */
+body.grommunio-webclient {
+  --ui-accent-soft: var(--ou-sel);
+  --ui-accent-text: var(--ou-action);
+  --ui-accent-ring: color-mix(in srgb, var(--ou-action) 45%, transparent);
+  background: var(--ou-bg);
+}
+/* main menu: sentence case like every other app's bar, the app colours on the active tab */
+body.grommunio-webclient #grommunio-mainmenu .x-tab-strip-text, body.grommunio-webclient #grommunio-mainmenu.grommunio-maintabbar > .x-toolbar-ct .x-btn button.x-btn-text {
+  text-transform: none; letter-spacing: 0; font-weight: 500;
+}
+body.grommunio-webclient #grommunio-mainmenu .x-tab-strip-active, body.grommunio-webclient #grommunio-mainmenu .x-btn-pressed { background: var(--ou-bar-2); }
+/* toolbar: a surface of its own, icons a little quieter; the New button keeps the brand colour */
+body.grommunio-webclient #grommunio-maintoolbar { background: var(--ou-surface); border-bottom: 1px solid var(--ou-line); }
+body.grommunio-webclient #grommunio-maintoolbar .x-btn:not(#grommunio-maintoolbar-newitem) button.x-btn-text { opacity: .8; }
+body.grommunio-webclient #grommunio-maintoolbar .x-btn:not(#grommunio-maintoolbar-newitem):hover button.x-btn-text { opacity: 1; }
+/* navigation (folders, calendars, address books): the side layer */
+body.grommunio-webclient #grommunio-navigationpanel, body.grommunio-webclient #grommunio-navigationpanel .x-panel-body,
+body.grommunio-webclient #grommunio-navigationpanel .x-panel-header, body.grommunio-webclient #grommunio-navigationpanel .x-tree-root-ct {
+  background-color: var(--ou-side);
+}
+body.grommunio-webclient #grommunio-navigationpanel { border-right: 1px solid var(--ou-line); }
+body.grommunio-webclient .grommunio-main-header .x-panel-header-text { color: var(--ou-ink); font-weight: 600; }
+body.grommunio-webclient .x-tree-node .grommunio-hierarchy-node:hover { background: color-mix(in srgb, var(--ou-sel) 55%, transparent); }
+body.grommunio-webclient .x-tree-node .grommunio-hierarchy-node.x-tree-selected {
+  background: var(--ou-sel) !important; box-shadow: inset 3px 0 0 var(--ou-action);
+}
+body.grommunio-webclient .x-tree-node .grommunio-hierarchy-node.x-tree-selected .grommunio-hierarchy-node-foldername { color: var(--ou-ink); font-weight: 600; }
+body.grommunio-webclient .grommunio-hierarchy-node-unread-count { color: var(--ou-action); font-weight: 600; }
+/* "Open Shared Mails / Calendar / Contacts": a quiet secondary button instead of a tinted block */
+body.grommunio-webclient [class*="grommunio-hierarchy-treepanel-footer-"] button.x-btn-text {
+  background: var(--ou-surface) !important; color: var(--ou-ink) !important; border: 1px solid var(--ou-line-2) !important; font-weight: 500;
+}
+body.grommunio-webclient [class*="grommunio-hierarchy-treepanel-footer-"]:hover button.x-btn-text { border-color: var(--ou-muted) !important; }
+/* lists: column titles quieter, unread rows marked with the action colour, the empty state calm */
+body.grommunio-webclient .x-grid3-hd-row td { color: var(--ou-muted); }
+body.grommunio-webclient .x-grid3-row.mail_unread { box-shadow: inset 3px 0 0 var(--ou-action); }
+body.grommunio-webclient .x-grid-empty .emptytext { color: var(--ou-muted); }
+body.grommunio-webclient .x-grid-empty, body.grommunio-webclient .grommunio-previewpanel .x-panel-body { background-color: var(--ou-surface); }
+/* the gaps between panes show the canvas, so list, reading pane and folders read as separate surfaces */
+body.grommunio-webclient .x-layout-split, body.grommunio-webclient .x-border-layout-ct { background-color: var(--ou-bg); }
+body.grommunio-webclient .grommunio-previewpanel { border-left: 1px solid var(--ou-line); }
+/* calendar: today stands out in the grid, the date picker and the day headers */
+body.grommunio-webclient .grommunio-calendar-container-body .k-html-body-background .k-today { background-color: color-mix(in srgb, var(--ou-action) 7%, var(--ou-surface)) !important; }
+body.grommunio-webclient .grommunio-calendar-container-header .k-html-header-background .k-today .k-cal-header-title { color: var(--ou-action) !important; font-weight: 600; }
+body.grommunio-webclient .x-date-picker .x-date-inner td.x-date-today a { background: var(--ou-action) !important; color: var(--ou-action-ink) !important; border-radius: 4px; }
+body.grommunio-webclient .x-date-picker .x-date-inner td.x-date-selected:not(.x-date-today) a { background: var(--ou-sel) !important; color: var(--ou-ink) !important; }
+body.grommunio-webclient .x-date-picker .x-date-inner td.x-date-today a *, body.grommunio-webclient .x-date-picker .x-date-inner td.x-date-today .x-date-date { color: var(--ou-action-ink) !important; }
+body.grommunio-webclient .grommunio-body-tabbar .x-tab-panel-header, body.grommunio-webclient .grommunio-body-tabbar .x-tab-strip-wrap,
+body.grommunio-webclient #grommunio-mainpanel .x-tab-strip.x-tab-strip-top { background-color: var(--ou-bg2) !important; }
+body.grommunio-webclient .x-date-picker td.x-date-weeknumber a, body.grommunio-webclient .x-date-picker td.x-date-weeknumber a * { color: var(--ou-muted) !important; }
+/* the picker's Today button: secondary, like the other footer buttons */
+body.grommunio-webclient .x-date-picker .x-date-bottom .x-btn .x-btn-small {
+  background: var(--ou-surface) !important; border: 1px solid var(--ou-line-2) !important;
+}
+body.grommunio-webclient .x-date-picker .x-date-bottom .x-btn .x-btn-small button.x-btn-text { color: var(--ou-ink) !important; }
