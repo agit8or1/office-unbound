@@ -87,6 +87,10 @@ class Mock:
                  "remoteItem": {"id": "s$b!7", "shared": {"sharedBy": {"user": {"displayName": "Anna Meyer"}}}}},
                 {"name": "Team folder", "lastModifiedDateTime": "2026-11-21T09:00:00Z", "remoteItem": {"id": "s$b!8", "folder": {}}},
                 {"name": "hidden.txt", "@UI.Hidden": True, "lastModifiedDateTime": "2026-11-22T09:00:00Z", "remoteItem": {"id": "s$b!9"}}]})
+        if u == FILES + "/ocs/v2.php/apps/notifications/api/v1/notifications":
+            if getattr(self, "notes", None) is None:
+                return httpx.Response(503)
+            return httpx.Response(200, json={"ocs": {"meta": {"status": "ok", "statuscode": 200, "message": ""}, "data": self.notes}})
         if u.startswith(FILES + "/app/new"):
             return httpx.Response(200, json={"file_id": "s$a!newfile"})
         if u == FILES + "/app/list" and self.app_list is not None:
@@ -616,6 +620,29 @@ def test_favourites_widget_asks_files_the_way_its_own_favourites_view_does(env):
     c.post("/prefs", data={"csrf": tok, "widgets_form": "1", "show": ["recent", "shared"]})
     m.report_bodies = []
     assert 'id="h-fav"' not in c.get("/").text and not any("is:favorite" in b for b in m.report_bodies)
+
+
+def test_bell_shows_files_notifications_escaped_and_asks_files_at_most_once_a_minute(env, monkeypatch):
+    c, m = _dash(env)
+    from app import main as portal_main
+    m.notes = [{"notification_id": "1", "app": "userlog", "user": "bob", "datetime": "2026-11-23T09:00:00Z", "object_id": "x", "object_type": "share",
+                "subject": "Anna Meyer shared <b>Budget</b> with you", "message": "Anna Meyer shared Budget with you", "subjectRich": "", "messageRich": ""},
+               {"notification_id": "2", "datetime": "2026-11-23T10:00:00Z", "subject": "You were added to space Sales", "message": ""},
+               {"notification_id": "3", "datetime": "not a date", "subject": "broken"}]
+    monkeypatch.setattr(portal_main, "NOTES_TTL", 0)
+    html = c.get("/account").text                                  # every page: the bell is part of the shell
+    bell = html.split('class="menu notes"', 1)[1].split("</details>", 1)[0]
+    assert 'aria-label="Notifications (2)"' in bell and ">2</span>" in bell
+    assert "&lt;b&gt;Budget&lt;/b&gt;" in bell and "<b>Budget</b>" not in bell                 # OpenCloud's text is shown, never as markup
+    assert bell.index("You were added to space Sales") < bell.index("Anna Meyer shared")     # newest first
+    assert "broken" not in bell
+    monkeypatch.setattr(portal_main, "NOTES_TTL", 60)
+    n = sum(1 for _, u, _ in m.calls if u.endswith("/notifications"))
+    c.get("/"); c.get("/devices")
+    assert sum(1 for _, u, _ in m.calls if u.endswith("/notifications")) == n               # cached for the session
+    m.notes = None
+    monkeypatch.setattr(portal_main, "NOTES_TTL", 0)
+    assert "Notifications are not available right now." in c.get("/").text                   # Files down: said plainly, page still works
 
 
 def test_prefs_cookie_parser_accepts_only_known_values():

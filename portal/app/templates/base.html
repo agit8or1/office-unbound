@@ -59,6 +59,19 @@
         {% if has_files %}<a class="mi" href="{{ cfg.files_url }}/">{{ icon('upload') }}<span>Upload or new folder</span><small>in Files</small></a>{% endif %}
       </div>
     </details>
+    {% if has_files %}
+    <details class="menu notes">
+      <summary aria-label="Notifications{% if notes %} ({{ notes | length }}){% endif %}">{{ icon('bell') }}{% if notes %}<span class="badge" aria-hidden="true">{{ notes | length }}</span>{% endif %}</summary>
+      <div class="menu-panel" role="region" aria-label="Notifications">
+        <p class="mh">Notifications</p>
+        {% if notes is none %}<p class="mempty">Notifications are not available right now.</p>
+        {% elif notes %}
+        <ul class="nlist">{% for n in notes %}<li><b>{{ n.subject }}</b>{% if n.message %}<span>{{ n.message }}</span>{% endif %}<time datetime="{{ n.mtime.isoformat() }}">{{ n.mtime | ago }}</time></li>{% endfor %}</ul>
+        {% else %}<p class="mempty">You're all caught up. Shares and space invitations show up here.</p>{% endif %}
+        <a class="mi" href="{{ cfg.files_url }}/">{{ icon('files') }}<span>Open Files</span></a>
+      </div>
+    </details>
+    {% endif %}
     <details class="menu profile">
       <summary aria-label="Account menu for {{ user.name }}"><span class="avatar" aria-hidden="true">{{ user.initial }}</span></summary>
       <div class="menu-panel">

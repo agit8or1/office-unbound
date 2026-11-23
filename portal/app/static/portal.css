@@ -221,6 +221,16 @@ code { font: .88em var(--ou-mono); background: var(--bg2); padding: .1em .35em; 
 .switcher .menu-panel { inset-inline: 0 auto; }
 .profile .who { display: flex; gap: 10px; align-items: center; padding: 8px 10px 10px; border-bottom: 1px solid var(--ou-line); margin-bottom: 4px; }
 .profile .who b { display: block; color: var(--ink); font-size: 14px; } .profile .who small { color: var(--muted); font-size: 12.5px; overflow-wrap: anywhere; }
+.notes > summary { position: relative; } .notes > summary .ic { width: 20px; height: 20px; }
+.notes .badge { position: absolute; top: 4px; inset-inline-end: 3px; min-width: 17px; height: 17px; padding: 0 4px; border-radius: 9px; background: var(--ou-accent);
+  color: var(--ou-accent-ink); font-size: 11px; font-weight: 700; line-height: 17px; text-align: center; }
+.notes .menu-panel { width: 22rem; }
+.mh { margin: 4px 10px 6px; color: var(--muted); font-size: 12px; font-weight: 600; text-transform: uppercase; letter-spacing: .04em; }
+.mempty { margin: 2px 10px 10px; color: var(--muted); font-size: 13.5px; }
+.nlist { list-style: none; margin: 0 0 4px; padding: 0; display: grid; gap: 1px; max-height: 22rem; overflow-y: auto; }
+.nlist li { display: grid; gap: 2px; padding: 8px 10px; border-radius: 5px; font-size: 13.5px; color: var(--text); }
+.nlist li + li { border-top: 1px solid var(--ou-line); }
+.nlist b { color: var(--ink); font-weight: 600; } .nlist span { overflow-wrap: anywhere; } .nlist time { color: var(--muted); font-size: 12px; }
 .avatar { width: 30px; height: 30px; border-radius: 50%; background: var(--ou-action); color: var(--ou-action-ink); display: inline-grid; place-items: center; font-weight: 600; font-size: 12.5px; flex: none; }
 .avatar.big { width: 40px; height: 40px; font-size: 15px; }
 .theme fieldset { border: 0; margin: 4px 0; padding: 8px 10px; border-top: 1px solid var(--ou-line); border-bottom: 1px solid var(--ou-line); display: flex; flex-wrap: wrap; gap: 4px; }

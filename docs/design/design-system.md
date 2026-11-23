@@ -32,6 +32,10 @@ One bar: mark + organisation name, app switcher (Dashboard, Mail, Calendar, Cont
 Apps menu below 820 px), file search, "New" (document, spreadsheet, presentation, email, event, upload/folder), account menu
 (account and security, devices, Organisation admin for tenant admins only, Appearance, Sign out). Menus are `<details>`: the
 portal's content security policy allows no script, so everything works without JavaScript and with the keyboard.
+- Notifications (0.13.1): a bell in the top bar on every page with the Files notifications (shares, space membership), read
+  server-side from the endpoint Files' own bell uses (`/ocs/v2.php/apps/notifications/api/v1/notifications`, OpenCloud 9.1.0 userlog),
+  at most once a minute per session; the text is OpenCloud's, shown escaped. Dismissing stays in Files (no write from the portal).
+  Mail and calendar reminders are not included (no verified mailbox source, see limitations).
 
 ## Dashboard (`home.html`)
 

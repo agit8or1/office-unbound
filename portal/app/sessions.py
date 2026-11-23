@@ -26,6 +26,8 @@ class Session:
     csrf: str = field(default_factory=lambda: secrets.token_urlsafe(24))
     lock: asyncio.Lock = field(default_factory=asyncio.Lock)
     drive: dict | None = None
+    notes: list | None = None          # Files notifications for the top bar, refreshed at most every NOTES_TTL seconds
+    notes_at: float = 0.0
 
 
 @dataclass

@@ -158,6 +158,33 @@ async def favorite_files(cfg: Settings, http: httpx.AsyncClient, token: str, use
         raise ServiceError("files: unreadable favourites response") from e
 
 
+async def notifications(cfg: Settings, http: httpx.AsyncClient, token: str, limit: int = 8) -> list[dict]:
+    """The user's Files notifications (shares, space membership, ...), newest first: the endpoint Files' own bell reads (OpenCloud userlog,
+    OCS JSON; services/userlog/pkg/service/conversion.go OC10Notification in 9.1.0). subject/message arrive as plain text rendered by
+    OpenCloud in the user's language; the portal shows them escaped and never follows anything in them."""
+    r = await http.get(cfg.files_url + "/ocs/v2.php/apps/notifications/api/v1/notifications", headers={**_h(token), "Accept": "application/json"},
+                       timeout=4.0)
+    if r.status_code != 200:
+        raise ServiceError(f"files: notifications answered {r.status_code}")
+    try:
+        data = (r.json().get("ocs") or {}).get("data") or []
+    except ValueError as e:
+        raise ServiceError("files: unreadable notifications") from e
+    out = []
+    for n in data[:200] if isinstance(data, list) else []:
+        if not isinstance(n, dict) or not n.get("subject"):
+            continue
+        try:
+            when = datetime.fromisoformat(str(n.get("datetime")).replace("Z", "+00:00"))
+        except ValueError:
+            continue
+        if when.tzinfo is None:
+            when = when.replace(tzinfo=timezone.utc)
+        out.append({"subject": str(n["subject"])[:200], "message": str(n.get("message") or "")[:300], "mtime": when})
+    out.sort(key=lambda i: i["mtime"], reverse=True)
+    return out[:limit]
+
+
 def stamp_name(kind: str, ext: str) -> str:
     label = {"document": "Document", "spreadsheet": "Spreadsheet", "presentation": "Presentation"}[kind]
     return f"New {label.lower()} {datetime.now().strftime('%Y-%m-%d %H%M%S')}.{ext}"

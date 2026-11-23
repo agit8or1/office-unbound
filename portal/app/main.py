@@ -37,6 +37,7 @@ def css_string(text: str) -> str:
 
 
 PREFS_COOKIE = "ou_prefs"
+NOTES_TTL = 60   # seconds between two reads of the Files notifications for one session (the bell in the top bar)
 THEMES = ("system", "light", "dark")
 WIDGETS = {"inbox": "Inbox", "calendar": "Calendar", "recent": "Recent files", "favorites": "Favourites", "shared": "Shared with me",
            "create": "Quick create"}
@@ -128,7 +129,7 @@ def create_app(cfg: Settings | None = None, transport: httpx.AsyncBaseTransport 
                  "logo": bool(b.get("has_logo")), "apps": b.get("apps")}
         c = {"request": request, "sess": sess, "user": user_ctx(sess) if sess else None, "brand": brand,
              "prefs": parse_prefs(request.cookies.get(PREFS_COOKIE)), "widgets": WIDGETS,
-             "chat": bool(sess and getattr(request.state, "chat", False)),
+             "chat": bool(sess and getattr(request.state, "chat", False)), "notes": sess.notes if sess else [],
              "is_admin": bool(sess and cfg.ics_url and admin.is_admin(cfg, sess.claims)), **(ctx or {})}
         return templates.TemplateResponse(name, c, status_code=status)
 
@@ -162,6 +163,13 @@ def create_app(cfg: Settings | None = None, transport: httpx.AsyncBaseTransport 
                         return None
                     s.access_token, s.access_exp = t["access_token"], time.time() + int(t.get("expires_in", 300))
                     s.refresh_token = t.get("refresh_token", s.refresh_token)
+        if request.method == "GET" and state.get("http") and time.time() - s.notes_at > NOTES_TTL:
+            s.notes_at = time.time()                          # also on failure: a slow Files is asked again only after the TTL
+            try:
+                s.notes = await services.notifications(cfg, state["http"], s.access_token)
+            except (services.ServiceError, httpx.HTTPError) as e:
+                log.warning("notifications unavailable: %s", e)
+                s.notes = None
         return s
 
     def login_redirect(request: Request) -> Response:
