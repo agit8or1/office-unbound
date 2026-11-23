@@ -38,7 +38,8 @@ def css_string(text: str) -> str:
 
 PREFS_COOKIE = "ou_prefs"
 THEMES = ("system", "light", "dark")
-WIDGETS = {"inbox": "Inbox", "calendar": "Calendar", "recent": "Recent files", "shared": "Shared with me", "create": "Quick create"}
+WIDGETS = {"inbox": "Inbox", "calendar": "Calendar", "recent": "Recent files", "favorites": "Favourites", "shared": "Shared with me",
+           "create": "Quick create"}
 
 
 def parse_prefs(raw: str | None) -> dict:
@@ -273,7 +274,7 @@ def create_app(cfg: Settings | None = None, transport: httpx.AsyncBaseTransport 
             # owner 2026-11-20: "https://app.<domain>/ should go right to auth": no intermediate page, straight to the sign-in service
             return RedirectResponse("/login", status_code=303)
         prefs = parse_prefs(request.cookies.get(PREFS_COOKIE))
-        notices, recent, shared = [], [], []
+        notices, recent, shared, favorites = [], [], [], []
         user = s.claims.get("preferred_username", "")
         if "recent" not in prefs["hidden"]:
             try:
@@ -287,7 +288,13 @@ def create_app(cfg: Settings | None = None, transport: httpx.AsyncBaseTransport 
             except (services.ServiceError, httpx.HTTPError) as e:
                 log.warning("shared-with-me unavailable: %s", e)
                 shared = None
-        return render(request, "home.html", {"recent": recent, "shared": shared, "notices": notices, "kinds": KINDS,
+        if "favorites" not in prefs["hidden"]:
+            try:
+                favorites = await services.favorite_files(cfg, state["http"], s.access_token, user)
+            except (services.ServiceError, httpx.HTTPError) as e:
+                log.warning("favourites unavailable: %s", e)
+                favorites = None
+        return render(request, "home.html", {"recent": recent, "shared": shared, "favorites": favorites, "notices": notices, "kinds": KINDS,
                                              "today": time.strftime("%A, %d %B %Y"), "week": week_days(),
                                              "flash": request.query_params.get("flash")}, sess=s)
 

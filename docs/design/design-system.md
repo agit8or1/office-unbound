@@ -42,6 +42,9 @@ Welcome line with the date and the two most used actions; app tiles; a 12-column
 Honesty rule: nothing is shown that was not read. Mail and calendar have no dashboard data source yet, so their widgets say so and
 offer working actions (Compose opens a new message, New event opens the calendar). Tasks and Notes are not shown: no such app is
 deployed. Admin and ICS information never appears on the user dashboard.
+- Favourites (0.13.1): the files and folders starred in Files, from the same search Files' own Favourites view sends (KQL
+  `is:favorite`, recorded on officeunbound8); "All favourites" opens that view. Recent files spans two rows on wide screens with
+  Favourites and Shared with me stacked beside it; the first row (Inbox, This week, Quick create) has equal heights.
 
 ## Upstream limitations (stage 1)
 

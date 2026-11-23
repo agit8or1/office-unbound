@@ -113,6 +113,13 @@
   </section>
   {% endif %}
 
+  {% if has_files and "favorites" not in hidden %}
+  <section class="widget w-fav" aria-labelledby="h-fav">
+    <header class="wh"><h2 id="h-fav">{{ icon('star') }}Favourites</h2><a class="wlink" href="{{ cfg.files_url }}/files/favorites">All favourites</a></header>
+    {{ filerows(favorites, "No favourites yet", "Mark a file or folder with the star in Files and it appears here.") }}
+  </section>
+  {% endif %}
+
   {% if has_files and "shared" not in hidden %}
   <section class="widget w-shared" aria-labelledby="h-shared">
     <header class="wh"><h2 id="h-shared">{{ icon('share') }}Shared with me</h2><a class="wlink" href="{{ cfg.files_url }}/files/shares/with-me">All shares</a></header>

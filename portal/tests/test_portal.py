@@ -604,6 +604,20 @@ def test_theme_and_widgets_are_saved_per_browser_and_need_csrf(env):
     assert 'id="h-shared"' in html
 
 
+def test_favourites_widget_asks_files_the_way_its_own_favourites_view_does(env):
+    c, m = _dash(env)
+    m.report_bodies = []
+    html = c.get("/").text
+    assert any("<oc:pattern>is:favorite</oc:pattern>" in b for b in m.report_bodies)        # the KQL Files' Favourites view sends
+    fav = html.split('id="h-fav"', 1)[1].split("</section>", 1)[0]
+    assert 'data-file="dir"' in fav and 'data-file="new.xlsx"' in fav                          # folders can be favourites too
+    assert f'href="{FILES}/files/favorites"' in fav
+    tok = _csrf(html)
+    c.post("/prefs", data={"csrf": tok, "widgets_form": "1", "show": ["recent", "shared"]})
+    m.report_bodies = []
+    assert 'id="h-fav"' not in c.get("/").text and not any("is:favorite" in b for b in m.report_bodies)
+
+
 def test_prefs_cookie_parser_accepts_only_known_values():
     from app.main import WIDGETS, dump_prefs, parse_prefs
     assert parse_prefs(None) == {"theme": "system", "hidden": []}

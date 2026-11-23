@@ -144,6 +144,20 @@ async def recent_files(cfg: Settings, http: httpx.AsyncClient, token: str, usern
         raise ServiceError("files: unreadable search response") from e
 
 
+async def favorite_files(cfg: Settings, http: httpx.AsyncClient, token: str, username: str, limit: int = 6) -> list[dict]:
+    """Files and folders the user marked as favourites in Files, newest first: the same search Files' own Favourites view sends
+    (KQL `is:favorite`, seen on officeunbound8 2026-11-23)."""
+    body = _SEARCH.format(pattern="is:favorite", limit=100)
+    r = await http.request("REPORT", f"{cfg.files_url}/remote.php/dav/files/{quote(username, safe='')}",
+                           headers={**_h(token), "Content-Type": "application/xml"}, content=body)
+    if r.status_code != 207:
+        raise ServiceError(f"files: favourites answered {r.status_code}")
+    try:
+        return parse_recent(r.content, cfg, limit, dirs=True)
+    except ET.ParseError as e:
+        raise ServiceError("files: unreadable favourites response") from e
+
+
 def stamp_name(kind: str, ext: str) -> str:
     label = {"document": "Document", "spreadsheet": "Spreadsheet", "presentation": "Presentation"}[kind]
     return f"New {label.lower()} {datetime.now().strftime('%Y-%m-%d %H%M%S')}.{ext}"
