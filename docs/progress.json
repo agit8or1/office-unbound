@@ -5,21 +5,8 @@
   "repository": "https://github.com/agit8or1/office-unbound",
   "updated": "2026-11-23",
   "stage": "alpha",
-  "current_version": "0.12.0",
+  "current_version": "0.11.0",
   "releases": [
-    {
-      "version": "0.12.0",
-      "date": "2026-11-23",
-      "status": "prepared",
-      "codename": "Lantern",
-      "channel": "alpha",
-      "highlights": [
-        "0.12.0: editable profile on the portal account page (name, display name, phone, mobile)",
-        "0.12.0: change password and two-step setup from the portal; the sign-in service gets its own directory writer account"
-      ],
-      "notes_url": "https://github.com/agit8or1/office-unbound/blob/main/CHANGELOG.md",
-      "changelog": "CHANGELOG.md"
-    },
     {
       "version": "0.11.0",
       "date": "2026-11-23",
@@ -28,7 +15,10 @@
       "channel": "alpha",
       "highlights": [
         "0.11.0: team chat (Matrix: Synapse, MAS, Element) deployed by the ICS, signed in through the deployment's Keycloak",
-        "0.11.0: chat bubble on every portal page, with a pop-out window"
+        "0.11.0: chat bubble on every portal page, with a pop-out window",
+        "0.11.0: editable profile on the portal account page (name, display name, phone, mobile)",
+        "0.11.0: change password and two-step setup from the portal; the sign-in service gets its own directory writer account",
+        "0.11.0: Choose how you work: office applications in the portal; Desktop Connector planned"
       ],
       "notes_url": "https://github.com/agit8or1/office-unbound/blob/main/CHANGELOG.md",
       "changelog": "CHANGELOG.md"
@@ -957,7 +947,7 @@
             "portal/tests/test_portal.py",
             "ics/tests/test_deploy_chat.py"
           ],
-          "note": "0.12.0: needs node agent 0.10.0 (directory writer account) and golden image built with it; first real deployment pending. Forgotten-password e-mail on the sign-in page is Planned (needs the sign-in service to send mail)."
+          "note": "0.11.0: needs node agent 0.10.0 (directory writer account) and golden image built with it; first real deployment pending. Forgotten-password e-mail on the sign-in page is Planned (needs the sign-in service to send mail)."
         },
         {
           "id": "P3.6",

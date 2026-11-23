@@ -10,12 +10,20 @@ isolated lab; nothing is production supported ([ROADMAP.md](ROADMAP.md)).
 
 ## [Unreleased]
 
-## [0.12.0] - 2026-11-23
+## [0.11.0] - 2026-11-23
 
-**Lantern**: the account page becomes a full, editable profile (owner 2026-11-23: "`/account` should be a FULL profile thats also editable,
-reset password, etc").
+**Kestrel** opens the Teams-style line: team chat is part of a deployment, the account page becomes a full editable profile, and the portal
+shows which office applications people can use with their files (alpha; not for production data).
 
 ### Added
+- **Team chat in deployments** (catalog `chat`, `deploy/configure.py` `chat_runbooks`, templates `blueprints/catalog/templates/chat/`): Synapse,
+  the Matrix Authentication Service and Element Web on the files VM behind its TLS proxy, at `chat.`, `matrix.` and `mas.` under the
+  deployment domain. People sign in only through the deployment's Keycloak (no chat passwords, no registration, no telemetry, federation off);
+  Keycloak logs chat sessions out over the back channel. Every secret (databases, server signing key, MAS keys) is made by the ICS and kept in
+  its vault. Tests: `ics/tests/test_deploy_chat.py`.
+- **Chat bubble in the user portal** (portal 0.4.0): on every page, bottom right, when the deployment has chat; chat loads with the page and
+  keeps running while the panel is closed, "Open in a window" pops it out. No script is added to the portal. Chat and its sign-in pages may be
+  framed by the chat and portal names only (CSP `frame-ancestors`).
 - **Editable profile** on the portal's account page (portal 0.4.0): first and last name, display name, phone and mobile, saved through the
   sign-in service's account API into the directory, so mail, files and chat show the same name. User name and e-mail address (the mailbox)
   stay administrator-only. What may be edited is declared once in the realm's user profile (`deploy/configure.py` `SELF_PROFILE`); the
@@ -26,11 +34,9 @@ reset password, etc").
   `svc-idp`, which may set passwords (never read them) and the six self-service attributes of people only. The read account shared by files,
   mail and sign-in stays read-only. Deployments built before this agent keep a read-only directory; their account page shows the profile
   without a form and points to the administrator for password changes.
-
 - **Chat opens signed in** when you are signed in to the portal: Element goes straight to sign-in (`sso_redirect_options.immediate`), the
   chat sign-in service forwards to the portal's Keycloak session, and the first visit no longer asks to confirm a new chat account
   (`claims_imports.skip_confirmation`).
-
 - **Choose how you work** (portal *Set up devices* page, linked from *Start something new*): the built-in editor first, then LibreOffice,
   ONLYOFFICE Desktop Editors, Collabora Office and the experimental ArtCraft apps, with a comparison table (words, no ticks), filters by
   system and type (plain form, no script), official links marked as external, licences, maturity and limitations
@@ -42,20 +48,8 @@ reset password, etc").
 ### Fixed
 - The account page's "Change your password" link opened a page that could not save a password (the directory was read-only to the sign-in
   service).
-
-## [0.11.0] - 2026-11-23
-
-**Kestrel** opens the Teams-style line: team chat is part of a deployment (alpha; not for production data).
-
-### Added
-- **Team chat in deployments** (catalog `chat`, `deploy/configure.py` `chat_runbooks`, templates `blueprints/catalog/templates/chat/`): Synapse,
-  the Matrix Authentication Service and Element Web on the files VM behind its TLS proxy, at `chat.`, `matrix.` and `mas.` under the
-  deployment domain. People sign in only through the deployment's Keycloak (no chat passwords, no registration, no telemetry, federation off);
-  Keycloak logs chat sessions out over the back channel. Every secret (databases, server signing key, MAS keys) is made by the ICS and kept in
-  its vault. Tests: `ics/tests/test_deploy_chat.py`.
-- **Chat bubble in the user portal** (portal 0.3.3): on every page, bottom right, when the deployment has chat; chat loads with the page and
-  keeps running while the panel is closed, "Open in a window" pops it out. No script is added to the portal. Chat and its sign-in pages may be
-  framed by the chat and portal names only (CSP `frame-ancestors`).
+- Deployment sizing: two VMs could get the same name when two components of one consolidation group cannot share a VM (chat and files);
+  `deploy/sizer.py` `_free_name`.
 
 ### Known limitations
 - Chat media and configuration are podman volumes on the VM's root disk and are **not backed up** yet; the chat database is.
@@ -574,7 +568,6 @@ editing, chat/meetings, telephony prototype, migration tooling and package pipel
 - `SECURITY.md` (private reporting) and `CONTRIBUTING.md` (DCO sign-off) added; AGPL-3.0 license. [SECURITY](SECURITY.md)
 
 [Unreleased]: https://github.com/agit8or1/office-unbound/compare/v0.4.7...HEAD
-[0.12.0]: https://github.com/agit8or1/office-unbound/compare/v0.11.0...v0.12.0
 [0.11.0]: https://github.com/agit8or1/office-unbound/compare/v0.10.0...v0.11.0
 [0.10.0]: https://github.com/agit8or1/office-unbound/compare/v0.9.4...v0.10.0
 [0.9.4]: https://github.com/agit8or1/office-unbound/compare/v0.9.3...v0.9.4

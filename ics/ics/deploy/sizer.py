@@ -118,6 +118,16 @@ def _group(cat: Catalog, c: str) -> str:
     return s.consolidation.group if s else c
 
 
+def _free_name(vms: list[tuple[str, list[str]]], want: str, comp: str) -> str:
+    """A VM name not used yet: the wanted one (group), else the component's, else component-2, -3... Two components of one consolidation
+    group that cannot share a VM (chat and files both bind tcp/443 for the sizer) must not produce two VMs of the same name."""
+    used = {n for n, _ in vms}
+    for n in (want, comp, *(f"{comp}-{i}" for i in range(2, 100))):
+        if n not in used:
+            return n
+    raise ValueError("no free VM name")
+
+
 def build_layout(arch: str, comps: set[str], cat: Catalog, multi: bool) -> list[dict]:
     """Deterministic VM layout (list of VmLayout dicts) for an architecture. MSP: edge is one shared VM, everything else per tenant."""
     order = [c for c in cat.dependency_order(comps) if cat.components[c].placement != "every_vm"]
@@ -131,7 +141,7 @@ def build_layout(arch: str, comps: set[str], cat: Catalog, multi: bool) -> list[
                     members.append(c)
                     break
             else:
-                vms.append(("core" if not vms else _group(cat, c), [c]))
+                vms.append((_free_name(vms, "core" if not vms else _group(cat, c), c), [c]))
     elif arch in ("balanced", "dedicated"):
         for c in order:
             g = _group(cat, c)
@@ -139,7 +149,7 @@ def build_layout(arch: str, comps: set[str], cat: Catalog, multi: bool) -> list[
             if slot is not None and _can_share(cat, c, slot):
                 slot.append(c)
             else:
-                vms.append((g if slot is None else c, [c]))
+                vms.append((_free_name(vms, g if slot is None else c, c), [c]))
     else:  # isolated / ha
         vms = [(c, [c]) for c in order]
     out = []
