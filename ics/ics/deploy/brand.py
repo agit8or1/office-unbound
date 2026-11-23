@@ -124,6 +124,27 @@ def skin(adapter: str, *, portal: str | None, dark: str, mark_url: str, fonts_ur
             + token_css(dark, mark_url) + components() + _src(adapter))
 
 
+# ---------------------------------------------------------------- Element (chat)
+ELEMENT_THEME = "Office Unbound"
+
+
+def element_themes() -> list[dict]:
+    """Element Web custom themes (config.json setting_defaults.custom_themes; docs/theming.md of element-web 1.12.35): the suite's
+    layering in light and dark, the action teal as Element's accent. Literal colours: Element sets them as its own properties and
+    has no access to the suite's tokens. The app keeps its own fonts (the theme's font faces need font files on the chat front)."""
+    def theme(name: str, t: dict, dark: bool) -> dict:
+        return {"name": name, "is_dark": dark,
+                "colors": {"accent-color": t["action"], "primary-color": t["action"], "warning-color": t["bad"],
+                           "sidebar-color": t["bar-bg"], "roomlist-background-color": t["side"], "roomlist-text-color": t["ink"],
+                           "roomlist-text-secondary-color": t["muted"], "roomlist-highlights-color": t["sel"],
+                           "roomlist-separator-color": t["line"], "timeline-background-color": t["surface"],
+                           "timeline-text-color": t["ink"], "timeline-text-secondary-color": t["muted"], "timeline-highlights-color": t["bg2"]},
+                "compound": {"--cpd-color-text-action-accent": t["action"], "--cpd-color-icon-accent-tertiary": t["action"],
+                             "--cpd-color-bg-accent-rest": t["action"], "--cpd-color-border-focused": t["action"]}}
+    light, dark = tokens()
+    return [theme(ELEMENT_THEME, light, False), theme(f"{ELEMENT_THEME} Dark", dark, True)]
+
+
 # ---------------------------------------------------------------- Keycloak
 def keycloak_theme(portal: str | None) -> list[dict]:
     """Files of the theme folder "ou" (paths relative to /opt/keycloak/themes; at most 4 levels: cfg.volume_files RELPATH_RE)."""

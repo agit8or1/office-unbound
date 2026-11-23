@@ -75,6 +75,13 @@ def test_chat_is_configured_like_the_lab_proved_it(ctx):
     el = json.loads(_files(rbs, "front")["config.json"]["content"])
     assert el["default_server_config"]["m.homeserver"]["base_url"] == f"https://matrix.{DOMAIN}" and el["disable_guests"] is True
     assert el["sso_redirect_options"] == {"immediate": True}          # no "Sign in" click: straight through MAS to the portal's Keycloak session
+    # the suite's look (0.13.1): two custom themes from the shared tokens, the light one by default (Element applies a custom theme only
+    # with its system-theme setting off); every colour literal (Element cannot read the suite's tokens) and the registration switches kept
+    themes = {t["name"]: t for t in el["setting_defaults"]["custom_themes"]}
+    assert set(themes) == {"Office Unbound", "Office Unbound Dark"} and el["default_theme"] == "custom-Office Unbound"
+    assert el["setting_defaults"]["use_system_theme"] is False and el["setting_defaults"]["UIFeature.registration"] is False
+    assert themes["Office Unbound Dark"]["is_dark"] and not themes["Office Unbound"]["is_dark"]
+    assert all(re.fullmatch(r"#[0-9a-f]{6}", v) for t in themes.values() for v in [*t["colors"].values(), *t["compound"].values()])
     sites = {r["params"]["server_names"][0]: r["params"]["upstream"] for r in rbs if r["runbook"] == "cfg.nginx_site"}
     assert sites == {f"{h}.{DOMAIN}": "http://127.0.0.1:8070" for h in ("chat", "matrix", "mas")}
     assert not re.search(r"@[A-Z_]+@", front + json.dumps(hs) + json.dumps(mas))       # every template placeholder filled

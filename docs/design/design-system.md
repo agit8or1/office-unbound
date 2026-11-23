@@ -85,6 +85,16 @@ The fields sit on the suite's raised surface with the shared line colour; focus 
 (`keycloak-login.css`, `keycloak-account.css`), nothing else changed. Evidence: `docs/screenshots/signin-v5/` (live sign-in page,
 1440 and 390 wide, light and dark; `after-*` with the new stylesheet added in the browser only, so its logo URL does not resolve there).
 
+## Chat (Element Web custom themes)
+
+Element's supported runtime theming (`setting_defaults.custom_themes` in its `config.json`, docs/theming.md of element-web 1.12.35):
+two themes, "Office Unbound" and "Office Unbound Dark", generated from the shared tokens (`brand.element_themes`, rendered by
+`configure.element_config`): navy sidebar, the side layer for the room list, the surface for the timeline, the action teal as accent.
+Limits: Element applies a custom theme only with its "match system theme" setting off, so chat opens in the light theme and each user
+can choose the dark one under Settings, Appearance; Element keeps its own fonts (theme font faces need font files on the chat front).
+Not yet seen in a browser: chat reaches officeunbound8 with the in-place change; screenshots and the contrast of Element's accent
+buttons in the dark theme are checked then.
+
 ## Evidence
 
 Screenshots (local preview of the real portal app against the test suite's mocks): `docs/screenshots/portal-v5/` (`before-*` =
