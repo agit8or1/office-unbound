@@ -99,8 +99,14 @@ two themes, "Office Unbound" and "Office Unbound Dark", generated from the share
 `configure.element_config`): navy sidebar, the side layer for the room list, the surface for the timeline, the action teal as accent.
 Limits: Element applies a custom theme only with its "match system theme" setting off, so chat opens in the light theme and each user
 can choose the dark one under Settings, Appearance; Element keeps its own fonts (theme font faces need font files on the chat front).
-Not yet seen in a browser: chat reaches officeunbound8 with the in-place change; screenshots and the contrast of Element's accent
-buttons in the dark theme are checked then.
+Accent contrast (checked against the deployed bundle, `theme-dark-custom.css` of the element-web image): Element paints white text on
+its accent (home page buttons, toasts, search highlights) and uses the same accent as text on the timeline (29 rules). With the dark
+action teal `#6cb8b2`, white text on it was 2.3:1 (Element's own default `#0dbd8b`: 2.4:1). No single teal reaches 4.5:1 for both, so
+the accent is `brand.fill_shade(action)`: the lightest shade of the action teal with white text at 3:1 (WCAG large text and UI
+components), dark `#4ea29b`; as text it stays at 4.5:1 or more on the timeline and the room list (`test_brand.py`). Light keeps the
+action teal (white 6.2:1). Known gap: normal-size white text on the dark accent is below 4.5:1, and the accent as text on Element's
+menus and the selected room is about 4.3:1 and 3.6:1. Element's compound text and focus colours keep the brighter action teal.
+Not yet seen in a browser: chat reaches officeunbound8 with the in-place change; screenshots then.
 
 ## Evidence
 

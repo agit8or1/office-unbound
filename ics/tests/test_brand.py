@@ -389,3 +389,14 @@ def test_the_webmail_redesign_restyles_without_touching_extjs_layout():
     assert not layout, layout
     for token in ("--ou-side", "--ou-sel", "--ou-action"):   # the shared layering and the muted-teal selection
         assert token in redesign
+
+
+def test_element_accent_fills_carry_white_text_and_still_read_as_text_on_the_dark_timeline():
+    """Element 1.12.35's custom dark theme (theme-dark-custom.css, read from the deployed image) paints white text on --accent-color
+    (home page buttons, toasts, search highlights) and uses the same accent 29 times as text. The dark action teal gave white 2.3:1."""
+    light, dark = brand.tokens()
+    for theme, t in zip(brand.element_themes(), (light, dark)):
+        accent = theme["colors"]["accent-color"]
+        assert brand.contrast("#ffffff", accent) >= 3.0, theme["name"]
+        assert brand.contrast(accent, t["surface"]) >= 4.5 and brand.contrast(accent, t["side"]) >= 4.5, theme["name"]
+    assert brand.element_themes()[0]["colors"]["accent-color"] == light["action"]   # light: the action teal itself (6.2:1 with white)

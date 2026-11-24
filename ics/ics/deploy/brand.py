@@ -16,6 +16,7 @@ Organisation branding (portal admin: accent, logo) is live, not baked: every ski
 --ou-org-accent(-dark), --ou-org-soft(-dark) and --ou-org-logo when the organisation set them; the derived --ou-a / --ou-a-soft / --ou-logo
 fall back to the deployment tokens otherwise."""
 import base64
+import colorsys
 import hashlib
 import json
 import re
@@ -144,13 +145,40 @@ def digest() -> str:
 ELEMENT_THEME = "Office Unbound"
 
 
+def _luminance(hexcolor: str) -> float:
+    r, g, b = (int(hexcolor.lstrip("#")[i:i + 2], 16) / 255 for i in (0, 2, 4))
+    f = lambda c: c / 12.92 if c <= 0.03928 else ((c + 0.055) / 1.055) ** 2.4   # noqa: E731 (WCAG 2.x relative luminance)
+    return 0.2126 * f(r) + 0.7152 * f(g) + 0.0722 * f(b)
+
+
+def contrast(a: str, b: str) -> float:
+    x, y = sorted((_luminance(a), _luminance(b)), reverse=True)
+    return (x + 0.05) / (y + 0.05)
+
+
+def fill_shade(color: str, on: str = "#ffffff", ratio: float = 3.0) -> str:
+    """The lightest shade of `color` (same hue and saturation) that `on`-coloured text reaches `ratio` against; `color` itself when it
+    already does. Element's dark theme puts white text on its accent (home page buttons, toasts, search highlights) and also uses the same
+    accent as text on the dark timeline: no single teal reaches 4.5:1 for both, so the fill gets 3:1 (WCAG large text and UI components)
+    and stays readable as text (ics/tests/test_brand.py)."""
+    if contrast(on, color) >= ratio:
+        return color
+    h, l, s = colorsys.rgb_to_hls(*(int(color.lstrip("#")[i:i + 2], 16) / 255 for i in (0, 2, 4)))
+    while l > 0:
+        l = round(l - 0.002, 3)
+        c = "#%02x%02x%02x" % tuple(round(v * 255) for v in colorsys.hls_to_rgb(h, l, s))
+        if contrast(on, c) >= ratio:
+            return c
+    return "#000000"
+
+
 def element_themes() -> list[dict]:
     """Element Web custom themes (config.json setting_defaults.custom_themes; docs/theming.md of element-web 1.12.35): the suite's
     layering in light and dark, the action teal as Element's accent. Literal colours: Element sets them as its own properties and
     has no access to the suite's tokens. The app keeps its own fonts (the theme's font faces need font files on the chat front)."""
     def theme(name: str, t: dict, dark: bool) -> dict:
         return {"name": name, "is_dark": dark,
-                "colors": {"accent-color": t["action"], "primary-color": t["action"], "warning-color": t["bad"],
+                "colors": {"accent-color": fill_shade(t["action"]), "primary-color": t["action"], "warning-color": t["bad"],
                            "sidebar-color": t["bar-bg"], "roomlist-background-color": t["side"], "roomlist-text-color": t["ink"],
                            "roomlist-text-secondary-color": t["muted"], "roomlist-highlights-color": t["sel"],
                            "roomlist-separator-color": t["line"], "timeline-background-color": t["surface"],
