@@ -5,19 +5,31 @@
   "repository": "https://github.com/agit8or1/office-unbound",
   "updated": "2026-11-24",
   "stage": "alpha",
-  "current_version": "0.13.1",
+  "current_version": "0.13.2",
   "releases": [
+    {
+      "version": "0.13.2",
+      "date": "2026-11-24",
+      "status": "prepared",
+      "codename": "Meridian",
+      "channel": "alpha",
+      "highlights": [
+        "0.13.2: in-place agent update records the upgraded agent's runbooks before using them (officeunbound8)"
+      ],
+      "notes_url": "https://github.com/agit8or1/office-unbound/blob/main/CHANGELOG.md",
+      "changelog": "CHANGELOG.md#0132---2026-11-24"
+    },
     {
       "version": "0.13.1",
       "date": "2026-11-24",
-      "status": "prepared",
+      "status": "released",
       "codename": "Meridian",
       "channel": "alpha",
       "highlights": [
         "0.13.1: in-place agent updates work end to end (controller runbook list), brand changes roll out to running deployments by digest",
         "0.13.1: portal 0.5.1 with a notifications bell and a Favourites widget; chat and sign-in in the suite's design"
       ],
-      "notes_url": "https://github.com/agit8or1/office-unbound/blob/main/CHANGELOG.md",
+      "notes_url": "https://github.com/agit8or1/office-unbound/releases/tag/v0.13.1",
       "changelog": "CHANGELOG.md#0131---2026-11-24"
     },
     {

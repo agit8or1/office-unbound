@@ -10,6 +10,14 @@ isolated lab; nothing is production supported ([ROADMAP.md](ROADMAP.md)).
 
 ## [Unreleased]
 
+## [0.13.2] - 2026-11-24
+
+### Fixed
+- In-place agent update (officeunbound8, job 66c48b4a): the step now records the running agent's runbooks before it sends
+  `cfg.agent_allow`; the controller checks every call against that record, which still held the agent's enrollment list
+  ("node does not offer this runbook"). The test agent now refuses what the record lacks, as the real call path does
+  (`ics/tests/test_deploy_inplace.py`).
+
 ## [0.13.1] - 2026-11-24
 
 ### Added
@@ -648,6 +656,7 @@ editing, chat/meetings, telephony prototype, migration tooling and package pipel
 - `SECURITY.md` (private reporting) and `CONTRIBUTING.md` (DCO sign-off) added; AGPL-3.0 license. [SECURITY](SECURITY.md)
 
 [Unreleased]: https://github.com/agit8or1/office-unbound/compare/v0.4.7...HEAD
+[0.13.2]: https://github.com/agit8or1/office-unbound/compare/v0.13.1...v0.13.2
 [0.13.1]: https://github.com/agit8or1/office-unbound/compare/v0.13.0...v0.13.1
 [0.13.0]: https://github.com/agit8or1/office-unbound/compare/v0.12.1...v0.13.0
 [0.12.1]: https://github.com/agit8or1/office-unbound/compare/v0.12.0...v0.12.1
