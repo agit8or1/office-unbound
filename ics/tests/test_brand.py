@@ -408,7 +408,7 @@ def test_field_borders_reach_3_to_1_on_every_surface_a_field_sits_on():
     for t in brand.tokens():
         for bg in ("bg", "bg2", "side", "surface", "raised"):
             assert _contrast(t["field"], t[bg]) >= 3.0, (bg, t["field"], t[bg])
-    for f in ("keycloak-login.css", "keycloak-account.css", "opencloud.css"):
+    for f in ("keycloak-login.css", "keycloak-account.css", "opencloud.css", "grommunio.css"):
         assert "var(--ou-field)" in (ROOT / "blueprints/catalog/templates/brand" / f).read_text(), f
     assert "border: 1px solid var(--ou-field)" in (ROOT / "portal/app/static/portal.css").read_text()
 

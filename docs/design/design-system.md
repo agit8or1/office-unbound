@@ -77,6 +77,7 @@ margin, padding, position or display (enforced by `ics/tests/test_brand.py::test
 | Lists | muted column titles; unread rows marked with a teal bar; calm empty state |
 | Panes | the canvas shows between list, reading pane and folders; tab strip on `--ou-bg2` (was near-black in dark) |
 | Calendar | today in teal in the date picker and the grid; week numbers muted (were red in dark); Today button secondary |
+| List search | a visible field (the field border as an inset shadow, so ExtJS measures nothing new; teal ring on focus); it was borderless |
 
 Upstream specifics that needed matching selectors (found with a rule probe on officeunbound8): the menu's uppercase comes from
 `#grommunio-mainmenu.grommunio-maintabbar > .x-toolbar-ct .x-btn button.x-btn-text`; dark mode colours today's date gold
@@ -98,7 +99,7 @@ Through `web.config.styles` (`opencloud.css`, "Suite redesign" block): colours, 
 
 Field borders (all apps): `--ou-field` (light `#90856f`, dark `#607a9d`) is at least 3:1 on every surface a field sits on (WCAG 1.4.11,
 `test_field_borders_reach_3_to_1_on_every_surface_a_field_sits_on`); the line tokens stay for separators. Used by the portal's inputs,
-the sign-in fields and Files. Evidence: `docs/screenshots/files-v5/` (`before-*` = the deployed skin and palette; `after-*` = the 0.13
+the sign-in fields, Files and the webmail search. Evidence: `docs/screenshots/files-v5/` (`before-*` = the deployed skin and palette; `after-*` = the 0.13
 palette and this block added in the browser only, the deployment unchanged).
 
 ## Sign-in page (Keycloak theme)
