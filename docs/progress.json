@@ -3,35 +3,48 @@
   "schema_doc": "docs/progress-schema.md",
   "project": "Office Unbound",
   "repository": "https://github.com/agit8or1/office-unbound",
-  "updated": "2026-11-23",
+  "updated": "2026-11-24",
   "stage": "alpha",
-  "current_version": "0.13.0",
+  "current_version": "0.13.1",
   "releases": [
+    {
+      "version": "0.13.1",
+      "date": "2026-11-24",
+      "status": "prepared",
+      "codename": "Meridian",
+      "channel": "alpha",
+      "highlights": [
+        "0.13.1: in-place agent updates work end to end (controller runbook list), brand changes roll out to running deployments by digest",
+        "0.13.1: portal 0.5.1 with a notifications bell and a Favourites widget; chat and sign-in in the suite's design"
+      ],
+      "notes_url": "https://github.com/agit8or1/office-unbound/blob/main/CHANGELOG.md",
+      "changelog": "CHANGELOG.md#0131---2026-11-24"
+    },
     {
       "version": "0.13.0",
       "date": "2026-11-23",
-      "status": "prepared",
+      "status": "released",
       "codename": "Meridian",
       "channel": "alpha",
       "highlights": [
         "0.13.0: one design for the suite: new portal shell and dashboard with live widgets, user-chosen light/dark, differentiated dark layers",
         "0.13.0: Mail, Calendar and Contacts restyled into the shared design system through the supported skin hook"
       ],
-      "notes_url": "https://github.com/agit8or1/office-unbound/blob/main/CHANGELOG.md",
-      "changelog": "CHANGELOG.md#0130---2026-11-23"
+      "notes_url": "https://github.com/agit8or1/office-unbound/releases/tag/v0.13.0",
+      "changelog": "CHANGELOG.md"
     },
     {
       "version": "0.12.1",
       "date": "2026-11-23",
-      "status": "prepared",
+      "status": "released",
       "codename": "Lantern",
       "channel": "alpha",
       "highlights": [
         "0.12.1: in-place changes are safe to re-run: the agent update waits for the restarted agent, every snapshot gets its own name, an attached disk is never re-created",
         "0.12.1: Docs no longer opens its intro tour on every document (Help keeps it; office image 26.04.6-ou5)"
       ],
-      "notes_url": "https://github.com/agit8or1/office-unbound/blob/main/CHANGELOG.md",
-      "changelog": "CHANGELOG.md#0121---2026-11-23"
+      "notes_url": "https://github.com/agit8or1/office-unbound/releases/tag/v0.12.1",
+      "changelog": "CHANGELOG.md"
     },
     {
       "version": "0.12.0",

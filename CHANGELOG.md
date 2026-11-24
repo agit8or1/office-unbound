@@ -10,6 +10,25 @@ isolated lab; nothing is production supported ([ROADMAP.md](ROADMAP.md)).
 
 ## [Unreleased]
 
+## [0.13.1] - 2026-11-24
+
+### Added
+- Portal 0.5.1: a notifications bell in the top bar with the Files notifications (shares, space membership; read at most once a minute
+  per session, shown escaped); a live Favourites widget (Files' own `is:favorite` search); Recent files beside Favourites and Shared with
+  me, an even first row.
+- Chat: Element custom themes "Office Unbound" (default) and "Office Unbound Dark" generated from the shared tokens.
+- Sign-in page: fields on the suite's surfaces with the teal focus line (PatternFly's own form-control properties).
+- A brand change (palette, skins, chat themes) now reconfigures identity, files, groupware and chat of a running deployment in place:
+  the plan records a brand digest on those components (`ics/tests/test_deploy_inplace.py`). The first change after this upgrade rolls
+  the current brand out once.
+
+### Fixed
+- In-place agent update (officeunbound8, job eda57650): the controller refused to send `cfg.agent_allow` and `cfg.keycloak_realm`
+  ("not a guest runbook"); its runbook list is now tested to equal the agent's (`ics/tests/test_first_real_deployment.py`).
+- Portal: the devices page scrolled sideways on a phone.
+
+Evidence: `docs/screenshots/portal-v5/`, `docs/screenshots/signin-v5/`, `docs/design/design-system.md`.
+
 ## [0.13.0] - 2026-11-23
 
 **Meridian** brings the suite under one design: a new portal shell and dashboard, light and dark themes chosen by the user, and Mail,
@@ -629,6 +648,7 @@ editing, chat/meetings, telephony prototype, migration tooling and package pipel
 - `SECURITY.md` (private reporting) and `CONTRIBUTING.md` (DCO sign-off) added; AGPL-3.0 license. [SECURITY](SECURITY.md)
 
 [Unreleased]: https://github.com/agit8or1/office-unbound/compare/v0.4.7...HEAD
+[0.13.1]: https://github.com/agit8or1/office-unbound/compare/v0.13.0...v0.13.1
 [0.13.0]: https://github.com/agit8or1/office-unbound/compare/v0.12.1...v0.13.0
 [0.12.1]: https://github.com/agit8or1/office-unbound/compare/v0.12.0...v0.12.1
 [0.12.0]: https://github.com/agit8or1/office-unbound/compare/v0.11.0...v0.12.0
