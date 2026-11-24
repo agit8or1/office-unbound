@@ -1038,8 +1038,15 @@
           "status": "implementing",
           "evidence": [
             "docs/design/design-system.md",
-            "docs/screenshots/portal-v5"
-          ]
+            "docs/screenshots/portal-v5",
+            "docs/screenshots/apps-v5",
+            "docs/screenshots/files-v5",
+            "docs/screenshots/signin-v5",
+            "ics/tests/test_brand.py",
+            "portal/tests/test_portal.py",
+            "docs/admin/known-limitations.md"
+          ],
+          "note": "Done in code: portal shell and dashboard (0.13.0, live widgets incl. Favourites and the notifications bell 0.13.1), webmail/calendar/contacts skin, sign-in fields, chat themes, Files stage 2, field border token at 3:1. Not yet on a running deployment: officeunbound8's in-place change (pending) delivers it; screenshots of the apps after that are the remaining evidence."
         }
       ]
     },
