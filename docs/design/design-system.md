@@ -97,6 +97,9 @@ Through `web.config.styles` (`opencloud.css`, "Suite redesign" block): colours, 
 | Text fields, filters | the field border `--ou-field` (was the muted text colour: a bright outline in dark); focus ring in the action teal (was lilac) |
 | File list | a selected row keeps the selection colour and gets the teal bar (`tr.oc-table-highlighted`; seen in the build, not on screen: the test account has no files) |
 
+Focus: text fields focus in the action teal in every app (the portal's own fields were copper; copper stays the focus colour of
+links and buttons).
+
 Field borders (all apps): `--ou-field` (light `#90856f`, dark `#607a9d`) is at least 3:1 on every surface a field sits on (WCAG 1.4.11,
 `test_field_borders_reach_3_to_1_on_every_surface_a_field_sits_on`); the line tokens stay for separators. Used by the portal's inputs,
 the sign-in fields, Files and the webmail search. Evidence: `docs/screenshots/files-v5/` (`before-*` = the deployed skin and palette; `after-*` = the 0.13

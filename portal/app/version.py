@@ -3,7 +3,7 @@ BUILD_INFO.json beside the app directory (written when the deployment tarball is
 import json
 from pathlib import Path
 
-PORTAL_VERSION = "0.5.1"
+PORTAL_VERSION = "0.5.2"
 
 
 def build_info() -> dict:
