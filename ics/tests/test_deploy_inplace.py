@@ -96,13 +96,34 @@ def test_a_configuration_revision_reconfigures_only_that_component():
     assert k["comp.upgrade:acme-prod-mail:groupware"]["disruptive"] is False and not d["empty"]
 
 
+def test_a_skin_or_palette_change_reconfigures_exactly_the_apps_that_carry_the_brand(monkeypatch):
+    """0.13.0 changed the palette and the webmail skin but no config_revision, so a running deployment would never have got them: the
+    brand digest on identity, files, groupware and chat does it. Office, edge and portal carry nothing from the brand sources."""
+    from ics.deploy import brand
+    c = pinned()
+    old = _plan(c, _layout())
+    assert all(x.get("brand") for x in old["containers"] + old["services"] if x["component"] in brand.BRAND_COMPONENTS)
+    assert not any("brand" in x for x in old["containers"] + old["services"] if x["component"] not in brand.BRAND_COMPONENTS)
+    monkeypatch.setattr(brand, "digest", lambda: "0" * 16)
+    k = _keys(diff_plans(old, _plan(c, _layout()), c))
+    ups = {x for x in k if x.startswith("comp.upgrade:")}
+    assert ups == {"comp.upgrade:acme-prod-gateway:identity", "comp.upgrade:acme-prod-files:files", "comp.upgrade:acme-prod-mail:groupware"}
+    assert all(not k[x]["disruptive"] for x in ups)
+
+
 def test_an_unchanged_plan_has_no_steps_and_old_plans_without_revisions_compare_equal():
     c = pinned()
     old = _plan(c, _layout())
     legacy = json.loads(json.dumps(old))
     for x in legacy["containers"] + legacy["services"]:
         x.pop("config_revision", None)   # applied before 0.11.0
-    assert diff_plans(legacy, _plan(c, _layout()), c)["steps"] == []
+    for x in legacy["containers"] + legacy["services"]:
+        x.pop("brand", None)             # and before 0.13.1: the first change after the upgrade rolls the current brand out once
+    k = _keys(diff_plans(legacy, _plan(c, _layout()), c))
+    assert {x for x in k if x.startswith("comp.upgrade:")} == {"comp.upgrade:acme-prod-gateway:identity", "comp.upgrade:acme-prod-files:files",
+                                                             "comp.upgrade:acme-prod-mail:groupware"}
+    current = _plan(c, _layout())
+    assert diff_plans(current, _plan(c, _layout()), c)["steps"] == []
 
 
 # ---- executor: agent.update ---------------------------------------------------------------------------------------------------------

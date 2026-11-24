@@ -8,7 +8,7 @@ from ..deploy.configure import redact
 from ..agentclient import AgentError
 
 GUEST_RUNBOOKS = ("podman.pull_verified", "podman.deploy_unit", "podman.remove_unit", "podman.status", "guest.facts", "pkg.install_pinned",
-                  "cfg.hosts", "cfg.tls", "cfg.ldap_init", "cfg.ldap_user", "cfg.ldap_list", "cfg.ldap_groups", "cfg.ldap_lock", "cfg.ldap_delete", "cfg.pg_db", "cfg.podman_secret", "cfg.volume_files", "cfg.nginx_site", "cfg.firewall", "cfg.gromox", "cfg.nginx_default", "cfg.portal", "cfg.acme", "guest.probe",
+                  "cfg.hosts", "cfg.tls", "cfg.ldap_init", "cfg.ldap_user", "cfg.ldap_list", "cfg.ldap_groups", "cfg.ldap_lock", "cfg.ldap_delete", "cfg.pg_db", "cfg.podman_secret", "cfg.volume_files", "cfg.nginx_site", "cfg.firewall", "cfg.gromox", "cfg.nginx_default", "cfg.portal", "cfg.acme", "cfg.keycloak_realm", "cfg.agent_allow", "guest.probe",
                   "guest.journal")   # read-only diagnostics (deploy/diagnostics.py); only to nodes whose enrollment reported it
 
 

@@ -181,7 +181,7 @@ def change_steps(old: dict, new: dict, added, changed, removed, cat) -> list[dic
 def _artifacts(plan: dict, vm: str, comp: str) -> list:
     """What a component on a VM is made of in a plan: every artifact pin plus the catalog's configuration revision. Per component, not per
     resource name: two components may share an artifact name on one VM (nginx), and only one of them owns the resource row."""
-    return sorted((x["name"], x["version"], x.get("digest", ""), x.get("config_revision", 1))
+    return sorted((x["name"], x["version"], x.get("digest", ""), x.get("config_revision", 1), x.get("brand", ""))
                   for x in plan["containers"] + plan["services"] if x["vm"] == vm and x["component"] == comp)
 
 

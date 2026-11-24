@@ -273,3 +273,15 @@ def test_guest_facts_keep_what_the_running_agent_server_adds(rt, tmp_path, monke
     # other runbooks are unchanged: the helper's result only
     reply({"status": "ok", "result": {"returncode": 0, "result": {"verified": True}, "agent_version": "0.10.1"}})
     assert "agent_version" not in port.run_runbook("n", "podman.pull_verified", {})
+
+
+def test_the_controller_may_send_every_runbook_the_node_agent_offers():
+    """officeunbound8 (job eda57650): agent 0.10.1 offered cfg.agent_allow and cfg.keycloak_realm, but the controller's own list refused to
+    send them ("not a guest runbook"), so every real in-place agent update failed; the tests ran against a fake port that skipped the list."""
+    import sys
+    from pathlib import Path
+    sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "agent"))
+    from ou_agent import cfgspec, diagspec, guestspec, probespec
+    from ics.guest.agentcall import GUEST_RUNBOOKS
+    agent = set(cfgspec.CFG_RUNBOOKS) | set(guestspec.GUEST_RUNBOOKS) | {probespec.PROBE_RUNBOOK, diagspec.DIAG_RUNBOOK}
+    assert agent == set(GUEST_RUNBOOKS)

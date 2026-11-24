@@ -20,6 +20,7 @@ from pydantic import BaseModel, ConfigDict, Field, field_validator
 from .netmodel import NetworkModel, resolve as resolve_network
 from ..artifacts import REPO_SUITE, SENTINEL_REGISTRY, ArtifactMap, placeholder_images
 from .catalog import Catalog, Component, Profile, VmLayout, get_catalog
+from . import brand
 from .sizing import SizingSpec, ceil as _dceil, component_size, drivers
 
 PLAN_VERSION = 1
@@ -596,14 +597,15 @@ def _derive(vms: list[_Vm], inp: PlanInput, prof: Profile, cat: Catalog, warning
         scope = names.setdefault(v.tenant or "", {"domain": dom, "hosts": {}})
         for cname in [*v.components, *(c.name for c in every)]:
             c = cat.components[cname]
+            bx = {"brand": brand.digest()} if c.name in brand.BRAND_COMPONENTS else {}   # a skin change reconfigures these in place (state._artifacts)
             for a in c.artifacts:
                 if a.kind == "oci":
                     containers.append({"name": f"{v.name}-{a.name}", "vm": v.name, "component": c.name, "image": a.image, "digest": a.digest,
                                        "version": a.version, "pinned": a.pinned, "runtime": "podman-rootless-quadlet",
-                                       "ports": [p.port for p in c.ports if _port_open(c.name, p, inp)], "volumes": [x.path for x in c.volumes]})
+                                       "ports": [p.port for p in c.ports if _port_open(c.name, p, inp)], "volumes": [x.path for x in c.volumes], **bx})
                 else:
                     services.append({"name": f"{v.name}-{a.name}", "vm": v.name, "component": c.name, "package": a.package,
-                                     "version": a.version, "repo": a.repo, "config_revision": c.config_revision})
+                                     "version": a.version, "repo": a.repo, "config_revision": c.config_revision, **bx})
             for p in c.ports:
                 if not _port_open(c.name, p, inp):
                     continue
