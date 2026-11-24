@@ -10,6 +10,14 @@ isolated lab; nothing is production supported ([ROADMAP.md](ROADMAP.md)).
 
 ## [Unreleased]
 
+## [0.13.4] - 2026-11-24
+
+### Fixed
+- Installing a component with several images no longer fails at its configuration: every image is pulled and verified before the
+  first configuration runbook (chat names its element-web image, its last artifact; the agent refused the volume: officeunbound8,
+  job 1a635703, "the image was not pulled and verified on this node"). The test expands every catalog component with a configuration
+  naming each of its images (`ics/tests/test_deploy_catalog_install.py`).
+
 ## [0.13.3] - 2026-11-24
 
 ### Fixed

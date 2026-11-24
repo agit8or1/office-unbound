@@ -49,3 +49,34 @@ def test_only_the_document_engine_gets_sys_chroot_and_the_plan_carries_it():
     assert len(unit) == 1 and unit[0]["params"]["capabilities"] == ["SYS_CHROOT"]
     files = [r for r in _install_params(cat.components["files"], "e.example") if r["runbook"] == "podman.deploy_unit"]
     assert files and all("capabilities" not in r["params"] for r in files)
+
+
+def test_every_image_of_a_component_is_pulled_before_its_configuration_names_it(monkeypatch):
+    """cfg.volume_files is refused for an image the node has not verified. Chat's configuration names element-web (its first container by
+    name) while element-web is its last artifact: the expanded install must pull every image before the first configuration runbook
+    (officeunbound8 job 1a635703, 2026-11-24). Checked for every catalog component with images, with a configuration naming each image."""
+    from ics.deploy import configure
+    from ics.deploy.catalog import load_catalog
+    from ics.deploy.plan import _install_params
+    cat = load_catalog()
+    checked = 0
+    for name, c in cat.components.items():
+        rbs = _install_params(c, "e.example")
+        images = [r["params"]["image"] for r in rbs if r["runbook"] == "podman.pull_verified"]
+        if len(images) < 1:
+            continue
+        cfg = [{"runbook": "cfg.volume_files", "params": {"image": im}} for im in reversed(images)]
+        monkeypatch.setitem(configure.BUILDERS, name, lambda ctx, vm, cfg=cfg: cfg)
+        out = configure.expand(None, "vm", name, rbs)
+        assert sorted(map(str, out)) == sorted(map(str, rbs + cfg)), name   # nothing dropped or duplicated
+        pulled = set()
+        for r in out:
+            if r["runbook"] == "podman.pull_verified":
+                pulled.add(r["params"]["image"])
+            elif r["runbook"] in ("cfg.volume_files", "podman.deploy_unit"):
+                assert r["params"]["image"] in pulled, (name, r["runbook"], r["params"]["image"])
+        first_cfg = next(n for n, r in enumerate(out) if r["runbook"].startswith("cfg."))
+        assert all(n < first_cfg for n, r in enumerate(out) if r["runbook"] == "podman.pull_verified"), name
+        assert [r for r in out if r["runbook"] == "podman.deploy_unit"] == [r for r in rbs if r["runbook"] == "podman.deploy_unit"], name
+        checked += 1
+    assert checked >= 5 and "chat" in cat.components

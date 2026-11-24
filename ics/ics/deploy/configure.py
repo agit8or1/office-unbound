@@ -863,7 +863,11 @@ def expand(ctx, vm: str, component: str, runbooks: list[dict]) -> list[dict]:
     late = [{k: v for k, v in r.items() if k != "after_unit"} for r in cfg if r.get("after_unit")]   # needs the running service (realm reconcile)
     cfg = [r for r in cfg if not r.get("after_unit")]
     i = next((n for n, r in enumerate(runbooks) if r["runbook"] == "podman.deploy_unit"), len(runbooks))
-    return list(runbooks[:i]) + cfg + list(runbooks[i:]) + late
+    # every image of the component is pulled and verified BEFORE its configuration: cfg.volume_files names one of them (chat: element-web, the
+    # first container by name) and the agent refuses a volume for an image it has not verified (officeunbound8 job 1a635703, 2026-11-24)
+    pulls = [r for r in runbooks[i:] if r["runbook"] == "podman.pull_verified"]
+    rest = [r for r in runbooks[i:] if r["runbook"] != "podman.pull_verified"]
+    return list(runbooks[:i]) + pulls + cfg + rest + late
 
 
 def redact(runbook: str, params: dict) -> dict:
