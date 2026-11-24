@@ -4,7 +4,7 @@
 # Signing is deliberately NOT done here: the OCI signing path is not a hardened signer yet (ou-image-sign only signs golden qcow2 images).
 # usage: build.sh <image|all>   images: synapse element-web meet-token softphone pbx-helper
 set -euo pipefail
-SRC=/root/collab/src; OUT=/root/collab/out; REG=127.0.0.1:5000; BASE=localhost/ou-base-noble:latest
+SRC=${OU_COLLAB_SRC:-/root/collab/src}; OUT=/root/collab/out; REG=127.0.0.1:5000; BASE=localhost/ou-base-noble:latest
 ELEMENT_V=1.12.35; ELEMENT_SHA=5aaff32e348eba976aea8da11cd50f9ca7f824f235aa66e24d1176f829e6bba5
 ELEMENT_FPR=712BFBEE92DCA45252DB17D7C7BE97EFA179B100
 mkdir -p "$OUT"
