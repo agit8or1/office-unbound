@@ -26,8 +26,8 @@ artifacts:
     unit:
       type: container-hostnet
       memory_mib: 1024
-      env: {SYNAPSE_CONFIG_PATH: /etc/ou-chat/homeserver.yaml}
-      volumes: [{name: config, path: /etc/ou-chat, read_only: true}, {name: media, path: /data}]
+      env: {SYNAPSE_CONFIG_PATH: /ou-chat/homeserver.yaml}
+      volumes: [{name: config, path: /ou-chat, read_only: true}, {name: media, path: /data}]
   # Element Web; its nginx is the VM-local web front (127.0.0.1:8070) for the chat, matrix and mas names. The image's nginx writes under /tmp/nginx,
   # which exists only in the image (a read-only root would put an empty tmpfs on /tmp): this unit keeps a writable root, it holds no data.
   - name: element-web
@@ -39,7 +39,7 @@ artifacts:
       type: container-hostnet
       memory_mib: 64
       read_only: false
-      volumes: [{name: front, path: /etc/ou-element, read_only: true}]
+      volumes: [{name: front, path: /ou-element, read_only: true}]
 resources:
   cores:     {base: 2,    per_user: 0.004, source: "ASSUMPTION: lab (collaboration-lab-results.md section 4) had no load test; 1 core per 250 users planning value"}
   memory_mb: {base: 1536, per_user: 3,     source: "collaboration-lab-results.md section 4: ou-chat1 peak 1.27 GiB under MemoryMax 1.5G (idle 0.49 GiB; MAS 116 MB, Synapse 107 MB); 3 MB/user cache growth is an ASSUMPTION"}

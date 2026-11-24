@@ -80,3 +80,39 @@ def test_every_image_of_a_component_is_pulled_before_its_configuration_names_it(
         assert [r for r in out if r["runbook"] == "podman.deploy_unit"] == [r for r in rbs if r["runbook"] == "podman.deploy_unit"], name
         checked += 1
     assert checked >= 5 and "chat" in cat.components
+
+
+def test_every_catalog_install_runbook_passes_the_node_agents_own_checks():
+    """The plan's install runbooks of EVERY catalog component, run through the real agent validators (guestspec), as a node would. Chat mounted
+    /etc/ou-chat and /etc/ou-element, which the agent has refused since 2026-11-15 (FORBIDDEN_MOUNT_PREFIXES): officeunbound8 job 61b91492
+    stopped at "mount path is not allowed". Test doubles accepted it; this test uses the agent's code."""
+    import sys
+    from pathlib import Path
+    sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "agent"))
+    from ou_agent import guestspec
+    from ou_agent.proto import Reject
+    from ics.deploy.catalog import load_catalog
+    from ics.deploy.plan import _install_params
+    cat = load_catalog()
+    checks = {"podman.pull_verified": guestspec.check_pull, "podman.deploy_unit": guestspec.check_deploy, "pkg.install_pinned": guestspec.check_pkg}
+    bad, seen = [], set()
+    for name, c in sorted(cat.components.items()):
+        for r in _install_params(c, "e.example", lambda lb: f"{lb}.e.example"):
+            fn = checks.get(r["runbook"])
+            if fn is None:
+                continue
+            p = r["params"]
+            regs = [p["image"].split("/", 1)[0]] if "image" in p else []
+            pkgs = [x["name"] for x in p.get("packages", [])] if r["runbook"] == "pkg.install_pinned" else []
+            try:
+                fn(p, {"registries": regs, "packages": pkgs})
+                seen.add(r["runbook"])
+            except Reject as e:
+                bad.append((name, r["runbook"], p.get("name"), e.code, e.msg))
+    # meetings and telephony are lab prototypes the ICS does not deploy (known-limitations; their images are refused at plan time as unsigned or
+    # unpinned): their units publish ports below 1024 (443), which the agent refuses for a rootless unit. Listed exactly, so fixing them or a
+    # new refusal anywhere else changes this test.
+    known = {("meetings", n) for n in ("jitsi-web", "prosody", "jicofo", "jvb", "meet-token-service")} | {("telephony", n) for n in ("pbx-helper", "softphone-web")}
+    assert {(b[0], b[2]) for b in bad if b[4] == "invalid host port"} == known, bad
+    assert [b for b in bad if (b[0], b[2]) not in known] == [], bad
+    assert seen == set(checks), seen

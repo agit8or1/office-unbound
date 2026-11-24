@@ -64,7 +64,7 @@ for n in synapse element-web meet-token softphone pbx-helper; do
   [ "$T" = all ] || [ "$T" = "$n" ] || continue
   case $n in
     synapse) build synapse ou/synapse 1.165.0 ;;
-    element-web) build element-web ou/element-web 1.12.35 ;;
+    element-web) build element-web ou/element-web 1.12.35-ou2 ;;   # ou2: config under /ou-element (was /etc/ou-element: refused as a mount)
     meet-token) build meet-token ou/meet-token-service 0.1.0-ou1 ;;
     softphone) build softphone ou/ou-softphone 0.1.0-ou1 ;;
     pbx-helper) build pbx-helper ou/ou-pbx 0.1.0-ou1 ;;

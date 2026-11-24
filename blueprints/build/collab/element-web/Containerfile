@@ -6,13 +6,14 @@ RUN apt-get -o APT::Sandbox::User=root update && apt-get -o APT::Sandbox::User=r
  && rm -rf /var/lib/apt/lists/* /var/cache/apt/archives/* /etc/nginx/sites-enabled /etc/nginx/conf.d \
  && groupadd -g 10030 element && useradd -u 10030 -g 10030 -d /nonexistent -M -s /usr/sbin/nologin element
 COPY webroot/ /usr/share/element-web/
-COPY nginx.conf /etc/ou-element/nginx.conf
+# its config lives in /ou-element, where a deployment mounts its own (the node agent refuses container mounts under /etc)
+COPY nginx.conf /ou-element/nginx.conf
 COPY config.json /usr/share/element-web/config.json
-RUN chmod -R a+rX /usr/share/element-web /etc/ou-element && install -d -o element -g element /tmp/nginx
+RUN chmod -R a+rX /usr/share/element-web /ou-element && install -d -o element -g element /tmp/nginx
 LABEL org.opencontainers.image.title="Element Web (Office Unbound build)" org.opencontainers.image.version="1.12.35" \
       org.opencontainers.image.licenses="AGPL-3.0-only OR GPL-3.0-only OR LicenseRef-Element-Commercial" \
       org.opencontainers.image.source="https://github.com/element-hq/element-web/releases/tag/v1.12.35"
 USER 10030:10030
 EXPOSE 8080
 HEALTHCHECK --interval=30s --timeout=5s --start-period=10s --retries=3 CMD ["curl","-fsS","http://127.0.0.1:8080/healthz"]
-ENTRYPOINT ["nginx","-c","/etc/ou-element/nginx.conf","-e","/tmp/nginx/error.log","-g","daemon off;"]
+ENTRYPOINT ["nginx","-c","/ou-element/nginx.conf","-e","/tmp/nginx/error.log","-g","daemon off;"]

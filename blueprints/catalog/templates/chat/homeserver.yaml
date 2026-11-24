@@ -21,7 +21,7 @@ database:
     host: 127.0.0.1
     cp_min: 2
     cp_max: 6
-signing_key_path: /etc/ou-chat/signing.key
+signing_key_path: /ou-chat/signing.key
 macaroon_secret_key: "@MACAROON@"
 form_secret: "@FORM_SECRET@"
 media_store_path: /data/media
