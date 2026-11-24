@@ -11,7 +11,7 @@ artifacts:
   # distro-neutral php-* deps: the existing builds install unchanged on noble (verified 2026-11-18). The Debian 12 3.13-ou2 builds stay in the channel.
   - {name: gromox, kind: package, package: ou-gromox, version: "3.13-ou3+noble1", repo: ob-apt-dev}
   - {name: gromox-php-mapi, kind: package, package: ou-gromox-php-mapi, version: "3.13-ou3+noble1", repo: ob-apt-dev}
-  - {name: groupware-web, kind: package, package: ou-grommunio-web, version: "5.2-ou4", repo: ob-apt-dev}
+  - {name: groupware-web, kind: package, package: ou-grommunio-web, version: "5.2-ou5", repo: ob-apt-dev}
   - {name: groupware-dav, kind: package, package: ou-grommunio-dav, version: "1.9-ou1", repo: ob-apt-dev}
   - {name: groupware-sync, kind: package, package: ou-grommunio-sync, version: "2.7-ou1", repo: ob-apt-dev}
   # distribution packages: floors (the agent installs the archive's current update); versions current on noble 2026-11-19. Everything cfg.gromox

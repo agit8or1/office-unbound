@@ -419,3 +419,21 @@ def test_the_files_redesign_restyles_without_touching_opencloud_layout():
     props = {m.strip() for m in re.findall(r"[{;]\s*([a-z-]+)\s*:", re.sub(r"/\*.*?\*/", "", css, flags=re.S))}
     assert props and not props & {"width", "height", "margin", "padding", "position", "top", "left", "right", "bottom", "display", "flex", "gap"}, props
     assert props <= {"border-color", "border-bottom-color", "outline-color", "background", "color", "box-shadow"}, props
+
+
+def test_webmail_follows_the_browser_theme_unless_the_user_chose_one():
+    """The portal's default is the browser's light/dark; webmail's upstream default is light. The Office Unbound plugin sets the sysadmin
+    default main/dark_mode = 'system' (upstream DarkMode.js and webclient.php honour it; a stored user choice wins over a sysadmin default),
+    and the pinned package is the revision that carries it."""
+    gw = ROOT / "blueprints/build/grommunio-web"
+    php = (gw / "debian/ou-plugins/oudashboard/php/plugin.oudashboard.php").read_text()
+    assert re.search(r"'main'\s*=>\s*\[\s*'dark_mode'\s*=>\s*'system'\s*\]", php)
+    assert "addSysAdminDefaults" in php and "setSetting" not in php and "->set(" not in php   # a default, never an overwrite of a user's choice
+    rev = yaml.safe_load((gw / "recipe.yaml").read_text())["ou_revision"]
+    assert rev >= "ou5"
+    comp = yaml.safe_load((ROOT / "blueprints/catalog/components/groupware.yaml").read_text())
+    pin = next(a["version"] for a in comp["artifacts"] if a.get("package") == "ou-grommunio-web")
+    assert pin == f"5.2-{rev}"
+    up = ROOT.parent / "office-unbound/reference/upstream/grommunio-web/client/grommunio/core/DarkMode.js"
+    if up.exists():   # the upstream reading the default (read-only reference clone)
+        assert "get('grommunio/v1/main/dark_mode')" in up.read_text()
