@@ -448,6 +448,8 @@ def h_agent_update(ctx: StepCtx) -> dict:
             if x["vm"] == vm and x["package"] == p["package"]:
                 ctx.resource("service", x["name"], state="present", actual={"version": x["version"], "package": x["package"], "installed_by": "agent.update"})
     if p.get("allow"):
+        if isinstance(facts.get("capabilities"), dict):
+            _record_capabilities(ctx, node, facts)   # first: the ICS sends only runbooks the node RECORD offers (agentcall.execute)
         want_allow = allowlist(ctx.plan, vm, getattr(ctx.env.agent, "registry_prefix", lambda: None)())
         if "cfg.agent_allow" not in (facts.get("capabilities") or {}):
             raise StepFailed(f"the node agent on {vm} cannot extend its allowlists (needs agent 0.10.1 or later)",
@@ -462,11 +464,17 @@ def h_agent_update(ctx: StepCtx) -> dict:
     if not isinstance(facts.get("capabilities"), dict):   # an agent before 0.10.1 reports none: enrollment's record stays
         ctx.log(f"node agent {facts.get('agent_version', 'unknown')} running (capabilities as recorded at enrollment)")
         return {**out, "runbooks": None}
+    _record_capabilities(ctx, node, facts)
+    ctx.log(f"node agent {facts.get('agent_version')} running; {len(facts['capabilities'])} runbook(s) recorded")
+    return {**out, "runbooks": sorted(facts["capabilities"])}
+
+
+def _record_capabilities(ctx: StepCtx, node: str, facts: dict) -> None:
+    """The running agent's runbooks replace the enrollment record that `agentcall.execute` checks every call against (officeunbound8 job
+    66c48b4a: the 0.9.4 record refused cfg.agent_allow on the upgraded 0.10.1 agent, "node does not offer this runbook")."""
     with ctx.rt.session() as db, db.begin():
         db.execute(text("UPDATE nodes SET capabilities = CAST(:c AS jsonb), agent_version = :v WHERE id::text = :i"),
                    {"c": json.dumps(facts["capabilities"]), "v": facts.get("agent_version"), "i": node})
-    ctx.log(f"node agent {facts.get('agent_version')} running; {len(facts['capabilities'])} runbook(s) recorded")
-    return {**out, "runbooks": sorted(facts["capabilities"])}
 
 
 def _server_reports(version: str) -> bool:

@@ -129,8 +129,8 @@ def test_an_unchanged_plan_has_no_steps_and_old_plans_without_revisions_compare_
 # ---- executor: agent.update ---------------------------------------------------------------------------------------------------------
 
 class _Db:
-    def __init__(self, log):
-        self.log = log
+    def __init__(self, log, on_update=None):
+        self.log, self.on_update = log, on_update
 
     def __enter__(self):
         return self
@@ -143,6 +143,8 @@ class _Db:
 
     def execute(self, stmt, params=None):
         self.log.append((str(stmt), params))
+        if self.on_update and str(stmt).startswith("UPDATE nodes SET capabilities"):
+            self.on_update(json.loads(params["c"]))
 
         class R:
             def scalar(self):
@@ -151,11 +153,11 @@ class _Db:
 
 
 class _Rt:
-    def __init__(self):
-        self.sql = []
+    def __init__(self, on_update=None):
+        self.sql, self.on_update = [], on_update
 
     def session(self):
-        return _Db(self.sql)
+        return _Db(self.sql, self.on_update)
 
 
 @dataclass
@@ -174,8 +176,12 @@ class _Agent:
     """A node agent that restarts as the new version ~2 polls after pkg.install_pinned and restarts after cfg.agent_allow."""
     def __init__(self, version="0.9.4", caps=None):
         self.version, self.caps, self.started, self.calls, self.pending = version, caps, 100, [], None
+        # what the ICS recorded at enrollment (nodes.capabilities); like agentcall.execute, a runbook outside it is never sent
+        self.recorded = set(caps or ()) | {"guest.facts", "pkg.install_pinned"}
 
     def run_runbook(self, node, rb, params):
+        if rb not in self.recorded:
+            raise ValueError("node does not offer this runbook")
         self.calls.append((rb, params))
         if rb == "guest.facts":
             if self.pending:
@@ -210,7 +216,7 @@ class _Agent:
 def _ctx(agent, params, plan=None):
     t = [0.0]
     env = ExecEnv(agent=agent, sleep=lambda s: t.__setitem__(0, t[0] + s), clock=lambda: t[0], poll_interval=5)
-    return _Ctx(rt=_Rt(), env=env, job_id="j", deployment_id="d", slug="s", created_by="u", row_id=1, plan=plan or {"services": [], "containers": []},
+    return _Ctx(rt=_Rt(lambda caps: setattr(agent, "recorded", set(caps))), env=env, job_id="j", deployment_id="d", slug="s", created_by="u", row_id=1, plan=plan or {"services": [], "containers": []},
                 step={"target": "vm1", "params": params}, outputs={"agent.enroll:vm1": {"node_id": "n1"}})
 
 
@@ -249,6 +255,16 @@ def test_agent_update_grows_the_allowlists_from_the_plan_and_waits_for_the_resta
     allow = next(p for rb, p in a.calls if rb == "cfg.agent_allow")
     assert allow == {"packages": ["nginx", "postgresql-16"], "image_repos": ["ou/synapse"]}   # this VM's only, never another VM's
     assert a.started == 110 and out["allowed"]["image_repos"] == ["ou/synapse"]
+
+
+def test_agent_update_on_an_agent_upgraded_earlier_records_its_runbooks_before_using_them():
+    # officeunbound8-files, job 66c48b4a: the agent already ran 0.10.1 (an earlier attempt), the ICS record still said 0.9.4
+    caps = {"guest.facts": {"enabled": True}, "cfg.agent_allow": {"enabled": True}}
+    a = _Agent(version="0.10.1", caps=caps)
+    a.recorded = {"guest.facts", "pkg.install_pinned"}
+    plan = {"services": [{"vm": "vm1", "package": "postgresql-16"}], "containers": []}
+    out = executor.h_agent_update(_ctx(a, {"package": "ou-node-agent", "version": "0.10.1-ou20", "allow": True, "timeout_seconds": 300}, plan))
+    assert [c[0] for c in a.calls].count("pkg.install_pinned") == 0 and out["allowed"]["packages"] == ["postgresql-16"]
 
 
 def test_agent_update_refuses_to_grow_allowlists_on_an_agent_without_the_runbook():
