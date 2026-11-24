@@ -10,6 +10,25 @@ isolated lab; nothing is production supported ([ROADMAP.md](ROADMAP.md)).
 
 ## [Unreleased]
 
+## [0.13.3] - 2026-11-24
+
+### Fixed
+- Node agent 0.10.2 (`0.10.2-ou21`): the root helper now applies the runbooks implied by a VM's role, as the agent itself does, so
+  `cfg.agent_allow` and `cfg.keycloak_realm` run on VMs created before agent 0.10.1 (officeunbound8, job 7c750171: "action not allowed
+  for this helper"). The test runs the real helper against the list the agent advertises (`ics/tests/test_first_real_deployment.py`).
+- Chat (Element) dark theme: white text on the accent was 2.3:1; the accent is now the lightest shade of the action teal with white
+  at 3:1, still 4.5:1 as text on the timeline and room list (`brand.fill_shade`, `ics/tests/test_brand.py`).
+- Text field borders were the separator colour (2.1:1 light, 1.7:1 dark): a new `--ou-field` token at 3:1 or more on every surface
+  (WCAG 1.4.11), used by the portal, the sign-in page, Files and the webmail search.
+
+### Changed
+- Files (OpenCloud): stage 2 of the redesign through its supported stylesheet: the selected place with the teal bar, teal tab line,
+  field borders and teal focus ring (was lilac), selected rows marked. Colours, borders and shadows only.
+- Webmail: the list search is a visible field.
+- Portal 0.5.2: field borders at 3:1, fields focus in the action teal like the other apps.
+
+Evidence: `docs/screenshots/files-v5/`, `docs/screenshots/apps-v5/`, `docs/screenshots/portal-v5/`, `docs/design/design-system.md`.
+
 ## [0.13.2] - 2026-11-24
 
 ### Fixed
@@ -656,6 +675,7 @@ editing, chat/meetings, telephony prototype, migration tooling and package pipel
 - `SECURITY.md` (private reporting) and `CONTRIBUTING.md` (DCO sign-off) added; AGPL-3.0 license. [SECURITY](SECURITY.md)
 
 [Unreleased]: https://github.com/agit8or1/office-unbound/compare/v0.4.7...HEAD
+[0.13.3]: https://github.com/agit8or1/office-unbound/compare/v0.13.2...v0.13.3
 [0.13.2]: https://github.com/agit8or1/office-unbound/compare/v0.13.1...v0.13.2
 [0.13.1]: https://github.com/agit8or1/office-unbound/compare/v0.13.0...v0.13.1
 [0.13.0]: https://github.com/agit8or1/office-unbound/compare/v0.12.1...v0.13.0

@@ -1,6 +1,6 @@
 # Office Unbound roadmap & progress
 
-> Generated from [`docs/progress.json`](docs/progress.json) by `scripts/render_roadmap.py` — edit the JSON, not this file. Last updated **2026-11-24** · stage: **alpha** · current version: **0.13.2**.
+> Generated from [`docs/progress.json`](docs/progress.json) by `scripts/render_roadmap.py` — edit the JSON, not this file. Last updated **2026-11-24** · stage: **alpha** · current version: **0.13.3**.
 
 Alpha (0.10.0 "Juniper"): an administrator installs the Infrastructure Control Server from the release tag, connects Proxmox VE and deploys the full stack (Keycloak sign-in, user portal, Exchange-compatible mail with webmail, calendar and contacts, file sync, browser document editing) onto real VMs, reachable from the internet with a Let's Encrypt certificate the ICS keeps across rebuilds. Proven on one reference installation; not for production data. Chat, meetings, telephony, anti-spam and migration are lab prototypes or planned.
 
@@ -193,7 +193,8 @@ Alpha (0.10.0 "Juniper"): an administrator installs the Infrastructure Control S
 
 | Version | Date | Status | Highlights |
 |---|---|---|---|
-| [0.13.2](https://github.com/agit8or1/office-unbound/blob/main/CHANGELOG.md) | 2026-11-24 | prepared | 0.13.2: in-place agent update records the upgraded agent's runbooks before using them (officeunbound8) |
+| [0.13.3](https://github.com/agit8or1/office-unbound/blob/main/CHANGELOG.md) | 2026-11-24 | prepared | 0.13.3: node agent 0.10.2: the root helper runs the runbooks the agent advertises (in-place changes on older VMs)<br>0.13.3: Files restyled (stage 2), field borders at 3:1 in every app, chat dark accent readable with white text |
+| [0.13.2](https://github.com/agit8or1/office-unbound/releases/tag/v0.13.2) | 2026-11-24 | released | 0.13.2: in-place agent update records the upgraded agent's runbooks before using them (officeunbound8) |
 | [0.13.1](https://github.com/agit8or1/office-unbound/releases/tag/v0.13.1) | 2026-11-24 | released | 0.13.1: in-place agent updates work end to end (controller runbook list), brand changes roll out to running deployments by digest<br>0.13.1: portal 0.5.1 with a notifications bell and a Favourites widget; chat and sign-in in the suite's design |
 | [0.13.0](https://github.com/agit8or1/office-unbound/releases/tag/v0.13.0) | 2026-11-23 | released | 0.13.0: one design for the suite: new portal shell and dashboard with live widgets, user-chosen light/dark, differentiated dark layers<br>0.13.0: Mail, Calendar and Contacts restyled into the shared design system through the supported skin hook |
 | [0.12.1](https://github.com/agit8or1/office-unbound/releases/tag/v0.12.1) | 2026-11-23 | released | 0.12.1: in-place changes are safe to re-run: the agent update waits for the restarted agent, every snapshot gets its own name, an attached disk is never re-created<br>0.12.1: Docs no longer opens its intro tour on every document (Help keeps it; office image 26.04.6-ou5) |
