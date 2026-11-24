@@ -82,8 +82,24 @@ Upstream specifics that needed matching selectors (found with a rule probe on of
 `#grommunio-mainmenu.grommunio-maintabbar > .x-toolbar-ct .x-btn button.x-btn-text`; dark mode colours today's date gold
 (`.x-date-today .x-date-date`), the tab strip `--dm-bg` and the picker's Today button `--dm-selected`, all `!important`.
 
-Not changed: the reading pane's content, message compose, the settings pages and dialogs (upstream defaults with the shared tokens);
-Files keeps its stage-1 skin (its colours come from the token-derived `theme.json` roles).
+Not changed: the reading pane's content, message compose, the settings pages and dialogs (upstream defaults with the shared tokens).
+
+## Stage 2: Files (OpenCloud Web skin)
+
+Through `web.config.styles` (`opencloud.css`, "Suite redesign" block): colours, borders, outlines and shadows only (enforced by
+`test_brand.py::test_the_files_redesign_restyles_without_touching_opencloud_layout`). Selectors from the deployed build's own styles.
+
+| Area | Change |
+|---|---|
+| Navigation | the selected place on `--ou-sel` with the 3px teal bar (was a white card with an outline) |
+| Tabs (Shares) | the chosen tab in ink with a teal line |
+| Text fields, filters | the field border `--ou-field` (was the muted text colour: a bright outline in dark); focus ring in the action teal (was lilac) |
+| File list | a selected row keeps the selection colour and gets the teal bar (`tr.oc-table-highlighted`; seen in the build, not on screen: the test account has no files) |
+
+Field borders (all apps): `--ou-field` (light `#90856f`, dark `#607a9d`) is at least 3:1 on every surface a field sits on (WCAG 1.4.11,
+`test_field_borders_reach_3_to_1_on_every_surface_a_field_sits_on`); the line tokens stay for separators. Used by the portal's inputs,
+the sign-in fields and Files. Evidence: `docs/screenshots/files-v5/` (`before-*` = the deployed skin and palette; `after-*` = the 0.13
+palette and this block added in the browser only, the deployment unchanged).
 
 ## Sign-in page (Keycloak theme)
 

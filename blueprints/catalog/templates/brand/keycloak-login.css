@@ -41,9 +41,9 @@
   border-radius: var(--ou-radius-sm);
   /* the fields on the suite's own surfaces (PatternFly's dark grey #353535 and its blue underline otherwise; 0.13.0) */
   --pf-v5-c-form-control--BackgroundColor: var(--ou-raised); --pf-v5-c-form-control--Color: var(--ou-ink);
-  --pf-v5-c-form-control--before--BorderTopColor: var(--ou-line-2); --pf-v5-c-form-control--before--BorderRightColor: var(--ou-line-2);
-  --pf-v5-c-form-control--before--BorderBottomColor: var(--ou-line-2); --pf-v5-c-form-control--before--BorderLeftColor: var(--ou-line-2);
-  --pf-v5-c-form-control--after--BorderBottomColor: var(--ou-line-2); --pf-v5-c-form-control--hover--after--BorderBottomColor: var(--ou-muted);
+  --pf-v5-c-form-control--before--BorderTopColor: var(--ou-field); --pf-v5-c-form-control--before--BorderRightColor: var(--ou-field);
+  --pf-v5-c-form-control--before--BorderBottomColor: var(--ou-field); --pf-v5-c-form-control--before--BorderLeftColor: var(--ou-field);
+  --pf-v5-c-form-control--after--BorderBottomColor: var(--ou-field); --pf-v5-c-form-control--hover--after--BorderBottomColor: var(--ou-muted);
   --pf-v5-c-form-control--focus--after--BorderBottomColor: var(--ou-action);
 }
 .pf-v5-c-button.pf-m-control { --pf-v5-c-button--m-control--BackgroundColor: var(--ou-raised); --pf-v5-c-button--m-control--Color: var(--ou-muted); }

@@ -32,3 +32,17 @@ body { font-family: var(--ou-font); }
      is dropped by the option's omitempty, so the link is hidden here. */
 #web-nav-sidebar .text-xs > span:first-child { display: none; }
 a[href^="https://docs.opencloud.eu"] { display: none !important; }
+/* Suite redesign (stage 2, 0.13): colours, borders and shadows only; OpenCloud Web keeps its layout. Selectors read from the deployed
+   build (OpenCloud 9.1.0 web assets) and the live officeunbound8 page. */
+/* text fields and outlined filters: the field border (3:1, WCAG 1.4.11) instead of the muted text colour; the bar's search keeps its own */
+.oc-input:not(#oc-topbar .oc-input) { border-color: var(--ou-field) !important; }
+.oc-input:focus-visible, .oc-input:focus { outline-color: var(--ou-action) !important; }
+.oc-filter-chip-button, .item-inline-filter { outline-color: var(--ou-field) !important; }
+/* navigation: the selected place like the portal and webmail: selection colour with a teal bar, no white card */
+#web-nav-sidebar .oc-sidebar-nav-item-link.active {
+  background: var(--ou-sel) !important; color: var(--ou-ink) !important; outline-color: transparent !important; box-shadow: inset 3px 0 0 var(--ou-action);
+}
+/* tabs (Shares: with me / with others / via link): the chosen one in ink with a teal line */
+.oc-button.border-b.border-role-secondary { border-bottom-color: var(--ou-action) !important; color: var(--ou-ink) !important; }
+/* a selected file or folder: the table already uses the selection colour; the teal bar marks it like an unread mail */
+.oc-table tr.oc-table-highlighted > td:first-child { box-shadow: inset 3px 0 0 var(--ou-action); }

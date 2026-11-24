@@ -17,6 +17,7 @@
   --ou-muted: #5c6470;
   --ou-line: #ddd8cd;
   --ou-line-2: #b9b2a4;
+  --ou-field: #90856f;
   --ou-sel: #e4ebf2;
   --ou-navy: #14243a;
   --ou-accent: #a9481f;
@@ -67,6 +68,7 @@
     --ou-muted: #9aa8b9;
     --ou-line: #2a384b;
     --ou-line-2: #3b4b61;
+    --ou-field: #607a9d;
     --ou-sel: #1f3d4a;
     --ou-navy: #9fb8d6;
     --ou-accent: #ec9a70;
@@ -110,6 +112,7 @@
   --ou-muted: #9aa8b9;
   --ou-line: #2a384b;
   --ou-line-2: #3b4b61;
+  --ou-field: #607a9d;
   --ou-sel: #1f3d4a;
   --ou-navy: #9fb8d6;
   --ou-accent: #ec9a70;

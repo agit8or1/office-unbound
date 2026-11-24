@@ -400,3 +400,22 @@ def test_element_accent_fills_carry_white_text_and_still_read_as_text_on_the_dar
         assert brand.contrast("#ffffff", accent) >= 3.0, theme["name"]
         assert brand.contrast(accent, t["surface"]) >= 4.5 and brand.contrast(accent, t["side"]) >= 4.5, theme["name"]
     assert brand.element_themes()[0]["colors"]["accent-color"] == light["action"]   # light: the action teal itself (6.2:1 with white)
+
+
+def test_field_borders_reach_3_to_1_on_every_surface_a_field_sits_on():
+    """WCAG 1.4.11: a text field's boundary is a UI component (>= 3:1). The line tokens are for separators (light 2.1:1, dark 1.7:1);
+    fields in the portal, the sign-in page and Files use --ou-field."""
+    for t in brand.tokens():
+        for bg in ("bg", "bg2", "side", "surface", "raised"):
+            assert _contrast(t["field"], t[bg]) >= 3.0, (bg, t["field"], t[bg])
+    for f in ("keycloak-login.css", "keycloak-account.css", "opencloud.css"):
+        assert "var(--ou-field)" in (ROOT / "blueprints/catalog/templates/brand" / f).read_text(), f
+    assert "border: 1px solid var(--ou-field)" in (ROOT / "portal/app/static/portal.css").read_text()
+
+
+def test_the_files_redesign_restyles_without_touching_opencloud_layout():
+    """Stage 2 for Files (OpenCloud Web) changes colours, borders, outlines and shadows only, like the webmail block."""
+    css = (ROOT / "blueprints/catalog/templates/brand/opencloud.css").read_text().split("/* Suite redesign", 1)[1]
+    props = {m.strip() for m in re.findall(r"[{;]\s*([a-z-]+)\s*:", re.sub(r"/\*.*?\*/", "", css, flags=re.S))}
+    assert props and not props & {"width", "height", "margin", "padding", "position", "top", "left", "right", "bottom", "display", "flex", "gap"}, props
+    assert props <= {"border-color", "border-bottom-color", "outline-color", "background", "color", "box-shadow"}, props
