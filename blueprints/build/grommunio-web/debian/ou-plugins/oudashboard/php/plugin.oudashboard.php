@@ -32,8 +32,13 @@ class Pluginoudashboard extends Plugin {
 				$label = $cfg['label'];
 			}
 		}
+		// main/dark_mode 'system': the suite follows the browser's light/dark like the portal's default; a user's own choice under
+		// Settings (light, dark or system) is stored and wins (upstream DarkMode.js and webclient.php read the same setting)
 		$data['settingsObj']->addSysAdminDefaults([
-			'grommunio' => ['v1' => ['plugins' => ['oudashboard' => ['enable' => $url !== '', 'url' => $url, 'label' => $label]]]],
+			'grommunio' => ['v1' => [
+				'main' => ['dark_mode' => 'system'],
+				'plugins' => ['oudashboard' => ['enable' => $url !== '', 'url' => $url, 'label' => $label]],
+			]],
 		]);
 	}
 }
