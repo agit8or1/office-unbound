@@ -5,18 +5,31 @@
   "repository": "https://github.com/agit8or1/office-unbound",
   "updated": "2026-11-24",
   "stage": "alpha",
-  "current_version": "0.13.4",
+  "current_version": "0.13.5",
   "releases": [
     {
-      "version": "0.13.4",
+      "version": "0.13.5",
       "date": "2026-11-24",
       "status": "prepared",
       "codename": "Meridian",
       "channel": "alpha",
       "highlights": [
-        "0.13.4: a component added in place pulls all its images before its configuration is written (chat on officeunbound8)"
+        "0.13.5: chat installs on a real VM: its configuration is mounted outside /etc (Element image 1.12.35-ou2); every catalog install step is checked by the node agent's own rules",
+        "0.13.5: webmail 5.2-ou5 follows the browser's light/dark until a user chooses, like the portal and Files"
       ],
       "notes_url": "https://github.com/agit8or1/office-unbound/blob/main/CHANGELOG.md",
+      "changelog": "CHANGELOG.md#0135---2026-11-24"
+    },
+    {
+      "version": "0.13.4",
+      "date": "2026-11-24",
+      "status": "released",
+      "codename": "Meridian",
+      "channel": "alpha",
+      "highlights": [
+        "0.13.4: a component added in place pulls all its images before its configuration is written (chat on officeunbound8)"
+      ],
+      "notes_url": "https://github.com/agit8or1/office-unbound/releases/tag/v0.13.4",
       "changelog": "CHANGELOG.md#0134---2026-11-24"
     },
     {

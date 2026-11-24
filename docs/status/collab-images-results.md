@@ -6,7 +6,7 @@ Status: **Partially done.** Five OCI images were built from source in the builde
 | Artifact | Version | Digest (registry manifest, docker v2) | State |
 |---|---|---|---|
 | chat/synapse | 1.165.0 | `sha256:542de3d410dc142cf45c69e42c13cbd970a497803dc7edb78c3e2b2ee5160a9d` | pinned, **unsigned** |
-| chat/element-web | 1.12.35 | `sha256:3466abb4ade27ecaccf9d5f40bdd94525f2b8da86288b8854b1028696f3cba73` | pinned, **unsigned** |
+| chat/element-web | 1.12.35-ou2 (2026-11-24: config under /ou-element) | `sha256:13210cdafd616799bc3673a7ac7c6cb11ea58ae201c5f369c5d08c2eaecb01a3` | pinned, dev-signed (runner scan pass: 229 vuln ids, max CVSS 9.8); 1.12.35 was `sha256:3466abb4…` |
 | meetings/meet-token-service | 0.1.0-ou1 | `sha256:69b20d09d661d29ad5482e9603dfe628d5ca176925513c5d312ba04513e1e283` | pinned, **unsigned** |
 | telephony/softphone-web | 0.1.0-ou1 | `sha256:efc5d8b4ad04b70e25d66b3ef9219c5009f4ee33d328005d6ed3accaa8b33941` | pinned, **unsigned** |
 | telephony/pbx-helper | 0.1.0-ou1 | `sha256:481adefa96c173b81a7871b738498edea255269441ae2dde8c1d25d9f2c97f8d` | pinned, **unsigned**, not usable standalone (see below) |

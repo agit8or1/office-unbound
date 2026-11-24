@@ -33,8 +33,8 @@ artifacts:
   - name: element-web
     kind: oci
     image: registry.ou.invalid/ou/element-web
-    digest: "sha256:3466abb4ade27ecaccf9d5f40bdd94525f2b8da86288b8854b1028696f3cba73"
-    version: "1.12.35"
+    digest: "sha256:13210cdafd616799bc3673a7ac7c6cb11ea58ae201c5f369c5d08c2eaecb01a3"   # 1.12.35-ou2: config under /ou-element (2026-11-24)
+    version: "1.12.35-ou2"
     unit:
       type: container-hostnet
       memory_mib: 64

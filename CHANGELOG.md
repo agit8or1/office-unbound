@@ -10,6 +10,16 @@ isolated lab; nothing is production supported ([ROADMAP.md](ROADMAP.md)).
 
 ## [Unreleased]
 
+## [0.13.5] - 2026-11-24
+
+### Fixed
+- Chat could not be installed on any real VM: the node agent has always refused container mounts under `/etc`, and chat mounted
+  `/etc/ou-chat` (Synapse) and `/etc/ou-element` (Element). They are now `/ou-chat` and `/ou-element`; the Element image is rebuilt as
+  1.12.35-ou2 because its start command named the old path (dev-signed, runner scan pass). officeunbound8, job 61b91492: "mount path is
+  not allowed". A new test runs the install steps of every catalog component through the agent's own checks
+  (`ics/tests/test_deploy_catalog_install.py`); it also shows that meetings and telephony (not deployed by the ICS) publish port 443,
+  which the agent refuses: listed there as known.
+
 ### Changed
 - Webmail 5.2-ou5: until a user picks Light or Dark, webmail follows the browser's light/dark like the portal and Files (Office Unbound
   plugin sysadmin default `dark_mode = system`; upstream's default is light). Files was checked live: it already follows the browser.
@@ -687,6 +697,7 @@ editing, chat/meetings, telephony prototype, migration tooling and package pipel
 - `SECURITY.md` (private reporting) and `CONTRIBUTING.md` (DCO sign-off) added; AGPL-3.0 license. [SECURITY](SECURITY.md)
 
 [Unreleased]: https://github.com/agit8or1/office-unbound/compare/v0.4.7...HEAD
+[0.13.5]: https://github.com/agit8or1/office-unbound/compare/v0.13.4...v0.13.5
 [0.13.4]: https://github.com/agit8or1/office-unbound/compare/v0.13.3...v0.13.4
 [0.13.3]: https://github.com/agit8or1/office-unbound/compare/v0.13.2...v0.13.3
 [0.13.2]: https://github.com/agit8or1/office-unbound/compare/v0.13.1...v0.13.2

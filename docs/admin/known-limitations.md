@@ -21,8 +21,9 @@ What not to promise yet. Updated 2026-11-24 (0.13); each line says where it is t
   the components that depend on them, on the VMs a deployment already has (no new image, accounts, mail and files stay). The first
   real change (officeunbound8) has not completed yet: five attempts stopped at the first VM's agent update, each on a gap the test
   doubles did not have (fixed in 0.12.1, 0.13.0, 0.13.1, 0.13.2 and 0.13.3); the sixth updated that agent and stopped at the chat install
-  (image pull order, fixed in 0.13.4). Every stop left the running apps unchanged; the sixth left chat's packages and empty databases on
-  the files VM ([host-changes.md](../status/host-changes.md)). A deployment whose agent is older than 0.10.1 first gets the agent upgrade (one
+  (image pull order, fixed in 0.13.4), the seventh at chat's first unit (mounts under /etc, fixed in 0.13.5). Every stop left the running
+  apps unchanged; the last two left chat's packages, databases, configuration and one loopback-only service (MAS) on the files VM
+  ([host-changes.md](../status/host-changes.md)). A deployment whose agent is older than 0.10.1 first gets the agent upgrade (one
   change), then the rest. Not yet in place: removing a component from a VM, moving one to another VM, a new golden image for existing VMs
   (the OS is patched by package updates, not replaced), and runbook unit files changed by a newer agent (`/etc/systemd/system` copies
   written at first boot take precedence). Data disks of components added later are attached but, as at creation, not mounted.
