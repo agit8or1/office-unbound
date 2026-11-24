@@ -34,10 +34,14 @@ def from_plan_check(c: dict, node_id: str, server_name: str | None) -> dict:
         p = {"name": c["name"][:63], "kind": "tls", "port": c["port"], "server_name": server_name}
     elif c["kind"] == "http":
         p = {"name": c["name"][:63], "kind": "http", "port": c["port"], "path": c.get("path") or "/", "expect_status": c.get("expect_status", 200)}
+        if c.get("tls"):   # an HTTPS port: plain HTTP to it is answered 400 by nginx (officeunbound8 job 8b19638e, 2026-11-24)
+            p.update(kind="https", server_name=server_name)
         if c.get("body_contains"):
             p["body_contains"] = c["body_contains"]
     else:
         raise ValueError(f"no agent probe for check kind {c['kind']}")
+    if p["kind"] in ("tls", "https") and not server_name:
+        raise ValueError(f"check {c['name']}: a {p['kind']} probe needs the name its certificate must carry")
     return AgentProbeCheck.model_validate({"node_id": node_id, "probe": p}).model_dump(mode="json", exclude_none=True)
 
 

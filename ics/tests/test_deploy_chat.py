@@ -158,3 +158,50 @@ def test_self_service_profile_only_with_a_writer_capable_agent(ctx, monkeypatch)
     assert edit["email"] == ["admin"] and edit["username"] == ["admin"] and edit["phone"] == ["admin", "user"] and "unmanagedAttributePolicy" not in prof
     assert set(configure.SELF_PROFILE.values()) <= set(__import__("ou_agent.cfghelper", fromlist=["x"]).LDAP_SELF_ATTRS)
     assert configure.redact("cfg.ldap_init", init)["writer_password"] == "[redacted]"
+
+
+def test_every_check_of_a_chat_deployment_registers_as_a_probe_the_node_agent_runs(ctx, monkeypatch):
+    """officeunbound8 job 8b19638e stopped at chat's health.verify: the chat checks were registered as probes the agent cannot run. chat-tls
+    had no server_name (taken from the VM's A records; chat's names point at the gateway) and the agent refused it; matrix-versions and
+    matrix-login-flows were plain `http` to the TLS port 443 and nginx answered 400. Every check of a real plan, through the real
+    registration code, then through the agent's own probe validator."""
+    import sys
+    from pathlib import Path
+    sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "agent"))
+    from ou_agent import probespec
+    from ics.deploy import executor
+    p = ctx.plan
+    got = []
+    ctx.env.agent.local_probes = True
+    ctx.env.agent.tls_trust = staticmethod(lambda node, port: pytest.fail("probed checks need no TLS trust discovery"))
+    ctx.env.checks = type("K", (), {"register": staticmethod(lambda rt, c, host, trust, by, dep: got.append(c) or "id")})()
+    ctx.created_by, ctx.resource, ctx.log = "test", (lambda *a, **k: None), (lambda *a, **k: None)
+    monkeypatch.setattr(executor, "_node_for", lambda c, vm: "00000000-0000-0000-0000-0000000000" + str(10 + [v["name"] for v in p["vms"]].index(vm)))
+    for vm, comp in sorted({(c["vm"], c["component"]) for c in p["checks"]}):
+        ctx.step = {"target": vm, "params": {"component": comp}}
+        executor.h_register_checks(ctx)
+    probes = {c["name"]: c["config"]["probe"] for c in got if c["kind"] == "agent_probe"}
+    for n, pr in probes.items():
+        probespec.check({"probes": [pr]})        # raises Reject as the agent would
+    pre = f"{_vm(p, 'chat')}-chat-"
+    assert probes[pre + "chat-tls"] == {"name": pre + "chat-tls", "kind": "tls", "port": 443, "server_name": f"matrix.{DOMAIN}"}
+    for n in ("matrix-versions", "matrix-login-flows"):
+        assert probes[pre + n]["kind"] == "https" and probes[pre + n]["server_name"] == f"matrix.{DOMAIN}"
+    # the names the probes verify are on the certificate of the VM that serves them
+    certs = {}
+    for c in got:
+        if c["kind"] == "agent_probe" and c["config"]["probe"].get("server_name"):
+            vm = next(x["vm"] for x in p["checks"] if x["name"] == c["name"])
+            certs.setdefault(vm, set()).add(c["config"]["probe"]["server_name"])
+    for vm, names in certs.items():
+        tls = configure._tls(ctx, vm)["params"]["cert_pem"]
+        from cryptography import x509
+        san = set(x509.load_pem_x509_certificate(tls.encode()).extensions.get_extension_for_class(x509.SubjectAlternativeName).value.get_values_for_type(x509.DNSName))
+        assert names <= san, (vm, names - san)
+
+
+def test_an_http_check_on_a_tls_port_says_so():
+    """Plain HTTP to 443 is answered 400 by nginx: an http check on 443 must be marked tls (probed as https with the certificate verified)."""
+    from ics.deploy.catalog import load_catalog
+    bad = [(n, h.name) for n, c in load_catalog().components.items() for h in c.health_checks if h.kind == "http" and h.port == 443 and not h.tls]
+    assert bad == []

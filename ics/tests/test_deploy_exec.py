@@ -835,3 +835,23 @@ def _agent_accepts_every_cfg_runbook(env):
                 cfgspec.CHECKS[name](prm, {"runbooks": {name: {"enabled": True}}})
             except Exception as e:
                 raise AssertionError(f"{node} {name} {prm.get('component', '')}/{prm.get('volume', prm.get('name', ''))}: {e!r}") from None
+
+
+def test_re_registering_a_deployments_own_check_corrects_its_configuration(client, actors, rt, env):
+    """A re-run registers what the plan says now: officeunbound8's chat checks, registered wrongly by 0.13.5 (job 8b19638e), are corrected by
+    the next run instead of being kept because the name exists. A check of another deployment is still never adopted."""
+    from ics.deploy.ports import DbChecks
+    _active(actors, rt)
+    with rt.session() as db:
+        did = str(db.execute(text("SELECT id FROM deployments WHERE slug = 'prod'")).scalar())
+        row = db.execute(text("SELECT id, name, interval_seconds FROM checks WHERE deployment_id = CAST(:d AS uuid) AND kind = 'http' LIMIT 1"), {"d": did}).first()
+        old = db.execute(text("SELECT config FROM checks WHERE id = :i"), {"i": row.id}).scalar()
+    probe = {"name": "re-reg", "kind": "https", "port": 443, "path": "/_matrix/client/versions", "expect_status": 200, "server_name": "matrix.acme.example"}
+    new = {"name": row.name, "kind": "agent_probe", "interval_seconds": row.interval_seconds,
+           "config": {"node_id": "00000000-0000-0000-0000-000000000001", "probe": probe}}
+    assert DbChecks().register(rt, new, "files.acme.example", None, "t", did) == str(row.id)
+    with rt.session() as db:
+        r2 = db.execute(text("SELECT kind, config FROM checks WHERE id = :i"), {"i": row.id}).first()
+    assert r2.config != old and r2.kind == "agent_probe" and r2.config["probe"] == probe
+    with pytest.raises(StepFailed):
+        DbChecks().register(rt, new, "files.acme.example", None, "t", str(uuid.uuid4()))

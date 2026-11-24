@@ -643,7 +643,8 @@ def _derive(vms: list[_Vm], inp: PlanInput, prof: Profile, cat: Catalog, warning
             for h in c.health_checks:
                 checks.append({"name": f"{v.name}-{c.name}-{h.name}", "component": c.name, "vm": v.name, "kind": h.kind,
                                "host": fqdn or f"vm:{v.name}", "port": h.port, "path": h.path, "expect_status": h.expect_status,
-                               "interval_seconds": h.interval_seconds, **({"body_contains": h.body_contains} if h.body_contains else {})})
+                               "interval_seconds": h.interval_seconds, **({"body_contains": h.body_contains} if h.body_contains else {}),
+                               **({"tls": True} if h.tls else {})})   # only when set: plans without it keep their hash
             vols = [x for x in c.volumes if x.backup]
             if c.backup.method != "stateless" and vols:
                 backups.append({"vm": v.name, "component": c.name, "method": c.backup.method, "quiesce": c.backup.quiesce,

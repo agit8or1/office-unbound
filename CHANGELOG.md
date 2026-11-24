@@ -10,6 +10,16 @@ isolated lab; nothing is production supported ([ROADMAP.md](ROADMAP.md)).
 
 ## [Unreleased]
 
+## [0.13.6] - 2026-11-24
+
+### Fixed
+- Chat's health checks are probes the node agent can run. On officeunbound8 (job 8b19638e) chat installed, then its health check failed:
+  the TLS check had no certificate name (it was taken from the VM's own DNS names; chat's names point at the gateway), so the agent
+  refused it, and the two Matrix checks spoke plain HTTP to the HTTPS port, answered 400 by nginx. Catalog http checks on a TLS port now
+  say `tls: true` and are probed as https, with the certificate verified for the check's host name; a TLS check without a name is refused
+  when it is registered, not when it runs. Re-running a deployment corrects the checks it registered earlier (they used to be kept as
+  they were). Tests run every check of a chat deployment through the agent's own probe validator (`ics/tests/test_deploy_chat.py`).
+
 ## [0.13.5] - 2026-11-24
 
 ### Fixed
@@ -697,6 +707,7 @@ editing, chat/meetings, telephony prototype, migration tooling and package pipel
 - `SECURITY.md` (private reporting) and `CONTRIBUTING.md` (DCO sign-off) added; AGPL-3.0 license. [SECURITY](SECURITY.md)
 
 [Unreleased]: https://github.com/agit8or1/office-unbound/compare/v0.4.7...HEAD
+[0.13.6]: https://github.com/agit8or1/office-unbound/compare/v0.13.5...v0.13.6
 [0.13.5]: https://github.com/agit8or1/office-unbound/compare/v0.13.4...v0.13.5
 [0.13.4]: https://github.com/agit8or1/office-unbound/compare/v0.13.3...v0.13.4
 [0.13.3]: https://github.com/agit8or1/office-unbound/compare/v0.13.2...v0.13.3

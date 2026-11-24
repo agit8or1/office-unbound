@@ -158,6 +158,7 @@ class HealthCheck(_M):
     path: str | None = Field(default=None, pattern=r"^/[A-Za-z0-9_./?=&%-]{0,200}$")
     expect_status: int = Field(default=200, ge=100, le=599)
     body_contains: str | None = Field(default=None, max_length=200, description="http only: text the response body must contain")
+    tls: bool = Field(default=False, description="http only: the port speaks HTTPS; probed with the certificate verified for the check's host name")
     interval_seconds: int = Field(default=60, ge=5, le=86400)
 
     @model_validator(mode="after")
@@ -166,6 +167,8 @@ class HealthCheck(_M):
             raise ValueError("path only applies to http checks")
         if self.body_contains and self.kind != "http":
             raise ValueError("body_contains only applies to http checks")
+        if self.tls and self.kind != "http":
+            raise ValueError("tls only applies to http checks (tcp_tls is TLS already)")
         return self
 
 

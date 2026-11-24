@@ -1,6 +1,6 @@
 # Office Unbound roadmap & progress
 
-> Generated from [`docs/progress.json`](docs/progress.json) by `scripts/render_roadmap.py` — edit the JSON, not this file. Last updated **2026-11-24** · stage: **alpha** · current version: **0.13.5**.
+> Generated from [`docs/progress.json`](docs/progress.json) by `scripts/render_roadmap.py` — edit the JSON, not this file. Last updated **2026-11-24** · stage: **alpha** · current version: **0.13.6**.
 
 Alpha (0.10.0 "Juniper"): an administrator installs the Infrastructure Control Server from the release tag, connects Proxmox VE and deploys the full stack (Keycloak sign-in, user portal, Exchange-compatible mail with webmail, calendar and contacts, file sync, browser document editing) onto real VMs, reachable from the internet with a Let's Encrypt certificate the ICS keeps across rebuilds. Proven on one reference installation; not for production data. Chat, meetings, telephony, anti-spam and migration are lab prototypes or planned.
 
@@ -193,7 +193,8 @@ Alpha (0.10.0 "Juniper"): an administrator installs the Infrastructure Control S
 
 | Version | Date | Status | Highlights |
 |---|---|---|---|
-| [0.13.5](https://github.com/agit8or1/office-unbound/blob/main/CHANGELOG.md) | 2026-11-24 | prepared | 0.13.5: chat installs on a real VM: its configuration is mounted outside /etc (Element image 1.12.35-ou2); every catalog install step is checked by the node agent's own rules<br>0.13.5: webmail 5.2-ou5 follows the browser's light/dark until a user chooses, like the portal and Files |
+| [0.13.6](https://github.com/agit8or1/office-unbound/blob/main/CHANGELOG.md) | 2026-11-24 | prepared | 0.13.6: chat's health checks run on the node agent (HTTPS with the certificate verified for the chat name); a re-run corrects checks registered earlier |
+| [0.13.5](https://github.com/agit8or1/office-unbound/releases/tag/v0.13.5) | 2026-11-24 | released | 0.13.5: chat installs on a real VM: its configuration is mounted outside /etc (Element image 1.12.35-ou2); every catalog install step is checked by the node agent's own rules<br>0.13.5: webmail 5.2-ou5 follows the browser's light/dark until a user chooses, like the portal and Files |
 | [0.13.4](https://github.com/agit8or1/office-unbound/releases/tag/v0.13.4) | 2026-11-24 | released | 0.13.4: a component added in place pulls all its images before its configuration is written (chat on officeunbound8) |
 | [0.13.3](https://github.com/agit8or1/office-unbound/releases/tag/v0.13.3) | 2026-11-24 | released | 0.13.3: node agent 0.10.2: the root helper runs the runbooks the agent advertises (in-place changes on older VMs)<br>0.13.3: Files restyled (stage 2), field borders at 3:1 in every app, chat dark accent readable with white text |
 | [0.13.2](https://github.com/agit8or1/office-unbound/releases/tag/v0.13.2) | 2026-11-24 | released | 0.13.2: in-place agent update records the upgraded agent's runbooks before using them (officeunbound8) |

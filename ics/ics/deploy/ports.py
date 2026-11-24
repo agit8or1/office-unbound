@@ -101,6 +101,12 @@ class DbChecks:
                 if deployment_id is None or str(row.deployment_id) != deployment_id:
                     raise StepFailed(f"a check named {check['name']!r} already exists and does not belong to this deployment",
                                      "Rename or remove the conflicting check, then re-run the deployment.", retryable=False)
+                # this deployment's own check: a re-run registers what the plan says now (a check registered wrongly by an earlier
+                # release is corrected, officeunbound8 job 8b19638e); state and history stay with the row
+                db.execute(text("UPDATE checks SET kind = :k, config = CAST(:c AS jsonb), interval_seconds = :iv WHERE id = :i "
+                                "AND (kind <> :k OR config <> CAST(:c AS jsonb) OR interval_seconds <> :iv)"),
+                           {"i": row.id, "k": kind, "c": json.dumps(cfg, sort_keys=True), "iv": check["interval_seconds"]})
+                db.commit()
                 return str(row.id)
             cid = str(uuid.uuid4())
             db.execute(text("INSERT INTO checks (id, name, kind, config, interval_seconds, created_by, deployment_id, customer_id) "

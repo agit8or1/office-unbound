@@ -527,7 +527,10 @@ def h_register_checks(ctx: StepCtx) -> dict:
         if probes and c["kind"] in ("http", "tcp_tls"):
             # service ports are loopback-only or open to the deployment's own VMs: probed by the agent, TLS verified against the deployment CA
             sn = next((n for n in vm_names if n.startswith("ldap.")), None) if c["port"] == 636 else None
-            c = {**c, "kind": "agent_probe", "config": guestprobe.from_plan_check(c, node, sn or (vm_names[0] if vm_names else None))}
+            # a component whose names resolve to another VM (chat: matrix/chat/mas point at the gateway) still serves them here: the
+            # check's own host is the name its certificate carries (officeunbound8 job 8b19638e, 2026-11-24)
+            own = c["host"] if c.get("host") and not str(c["host"]).startswith("vm:") else None
+            c = {**c, "kind": "agent_probe", "config": guestprobe.from_plan_check(c, node, sn or (vm_names[0] if vm_names else None) or own)}
         elif c["kind"] in ("http", "tcp_tls", "sip_options_tls", "jitsi_jwt"):
             trust = ctx.env.agent.tls_trust(node, c["port"])
         ctx.env.checks.register(ctx.rt, c, host, trust, ctx.created_by, ctx.deployment_id)

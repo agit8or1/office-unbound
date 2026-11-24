@@ -5,19 +5,31 @@
   "repository": "https://github.com/agit8or1/office-unbound",
   "updated": "2026-11-24",
   "stage": "alpha",
-  "current_version": "0.13.5",
+  "current_version": "0.13.6",
   "releases": [
+    {
+      "version": "0.13.6",
+      "date": "2026-11-24",
+      "status": "prepared",
+      "codename": "Meridian",
+      "channel": "alpha",
+      "highlights": [
+        "0.13.6: chat's health checks run on the node agent (HTTPS with the certificate verified for the chat name); a re-run corrects checks registered earlier"
+      ],
+      "notes_url": "https://github.com/agit8or1/office-unbound/blob/main/CHANGELOG.md",
+      "changelog": "CHANGELOG.md#0136---2026-11-24"
+    },
     {
       "version": "0.13.5",
       "date": "2026-11-24",
-      "status": "prepared",
+      "status": "released",
       "codename": "Meridian",
       "channel": "alpha",
       "highlights": [
         "0.13.5: chat installs on a real VM: its configuration is mounted outside /etc (Element image 1.12.35-ou2); every catalog install step is checked by the node agent's own rules",
         "0.13.5: webmail 5.2-ou5 follows the browser's light/dark until a user chooses, like the portal and Files"
       ],
-      "notes_url": "https://github.com/agit8or1/office-unbound/blob/main/CHANGELOG.md",
+      "notes_url": "https://github.com/agit8or1/office-unbound/releases/tag/v0.13.5",
       "changelog": "CHANGELOG.md#0135---2026-11-24"
     },
     {

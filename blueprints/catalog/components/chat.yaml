@@ -60,8 +60,8 @@ dns:
   - {host: chat, type: CNAME, target: matrix}
   - {host: mas, type: CNAME, target: matrix}
 health_checks:
-  - {name: matrix-versions, kind: http, port: 443, path: /_matrix/client/versions, expect_status: 200, body_contains: versions}
-  - {name: matrix-login-flows, kind: http, port: 443, path: /_matrix/client/v3/login, expect_status: 200, body_contains: m.login.sso}
+  - {name: matrix-versions, kind: http, port: 443, path: /_matrix/client/versions, expect_status: 200, body_contains: versions, tls: true}
+  - {name: matrix-login-flows, kind: http, port: 443, path: /_matrix/client/v3/login, expect_status: 200, body_contains: m.login.sso, tls: true}
   - {name: chat-tls, kind: tcp_tls, port: 443}
 backup:
   method: online_dump
