@@ -1,6 +1,6 @@
-# Known limitations (0.10.0 "Juniper", alpha)
+# Known limitations (0.13 "Meridian", alpha)
 
-What not to promise yet. Updated 2026-11-23 for the alpha; each line says where it is tracked. Install steps: [Alpha install guide](alpha-install.md).
+What not to promise yet. Updated 2026-11-24 (0.13); each line says where it is tracked. Install steps: [Alpha install guide](alpha-install.md).
 
 ## Scope of what was proven
 - **One reference installation.** Everything below "works" means: run on one ICS host, one Proxmox VE node (pve06) and one public IP, with
@@ -18,12 +18,15 @@ What not to promise yet. Updated 2026-11-23 for the alpha; each line says where 
 
 ## Deployments
 - **In-place upgrades** (0.12.0, implementing): `deployment.change` updates the node agent, adds components to existing VMs and reconfigures
-  the components that depend on them, on the VMs a deployment already has (no new image, accounts, mail and files stay). Tested with fakes
-  only so far; the first real in-place change is pending. A deployment whose agent is older than 0.10.1 first gets the agent upgrade (one
+  the components that depend on them, on the VMs a deployment already has (no new image, accounts, mail and files stay). The first
+  real change (officeunbound8) has not completed yet: four attempts stopped at the first VM's agent update, each on a gap the test
+  doubles did not have (fixed in 0.12.1, 0.13.0, 0.13.1 and 0.13.2); every stop left the running deployment unchanged apart from a
+  snapshot ([host-changes.md](../status/host-changes.md)). A deployment whose agent is older than 0.10.1 first gets the agent upgrade (one
   change), then the rest. Not yet in place: removing a component from a VM, moving one to another VM, a new golden image for existing VMs
   (the OS is patched by package updates, not replaced), and runbook unit files changed by a newer agent (`/etc/systemd/system` copies
   written at first boot take precedence). Data disks of components added later are attached but, as at creation, not mounted.
-- Branding/skin changes reach a deployment when the catalog's `config_revision` of the component is raised (then reconfigured in place).
+- Branding/skin changes (0.13.1) reach a running deployment with its next change: the plan records a digest of the brand sources on
+  identity, files, groupware and chat, and a different digest reconfigures those in place (no automatic push; each change is approved).
 - **Certificates:** Let's Encrypt allows 5 certificates for the same set of names per week. Since 0.9.4 the ICS keeps an encrypted copy of the
   gateway's certificate and gives it back to a rebuilt gateway; verified live on 2026-11-23 (officeunbound7 rebuilt as officeunbound8: same
   certificate restored in 17 s, no new order; GitHub #24). Certificates are reused only while valid for more than 30 days. DNS-01, wildcard certificates and DNS automation are **Planned** (GitHub #25, #26).
@@ -36,6 +39,17 @@ What not to promise yet. Updated 2026-11-23 for the alpha; each line says where 
   mail archiving (**Planned**).
 - **Internet mail** (MX delivery in and out, SPF/DKIM/DMARC) is not verified end to end. On a deployment, webmail, ActiveSync and
   CalDAV/CardDAV answer and pass their health checks ([groupware-deploy-results.md](../status/groupware-deploy-results.md)).
+
+## Look and design (0.13 redesign)
+- **One design, three upstream apps.** The portal is Office Unbound's own; webmail/calendar/contacts (grommunio-web), Files (OpenCloud),
+  sign-in (Keycloak) and chat (Element) are restyled only through their supported theming hooks (colours, borders, type), never their
+  layouts, dialogs or settings pages ([design-system.md](../design/design-system.md)). Upstream wording and layout show through there.
+- **Light/dark is per app.** The portal's Appearance switch does not reach the apps; webmail, Files and chat each keep their own choice
+  (webmail light by default; chat opens light, its dark theme is under Settings, Appearance).
+- **The dashboard shows only what it can read.** Inbox, unread counts, the next meeting and mail/calendar reminders need a mailbox data
+  source that is not verified yet: those widgets offer working actions instead of data. Notifications in the bell are the Files ones only.
+  No tasks or notes app exists, so none is shown.
+- Chat's dark accent: white text on its accent buttons is 3:1 (large-text level, not 4.5:1), the accent as text on menus about 4.3:1.
 
 ## Apps and clients
 - Webmail is grommunio-web with the Office Unbound look; the upstream name can still appear where the skin does not reach (texts inside
