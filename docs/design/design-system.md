@@ -56,8 +56,11 @@ deployed. Admin and ICS information never appears on the user dashboard.
   supported theming hooks (grommunio-web `/brand/brand.css`, OpenCloud theme + `web.config.styles`) and the "Dashboard" control
   back to the portal. Stage 2 restyles them further through the same hooks only (no DOM scripting, no upstream fork).
 - The theme choice is per app, not the portal's switch (the apps cannot read the portal's cookie without a script in their pages):
-  grommunio-web uses its own saved setting (`grommunio/v1/main/dark_mode`: light by default; Light, Dark or System under its
-  Settings, read in `client/grommunio/core/DarkMode.js`), OpenCloud its own theme choice.
+  grommunio-web uses its own saved setting (`grommunio/v1/main/dark_mode`; Light, Dark or System under its Settings, read in
+  `client/grommunio/core/DarkMode.js`), OpenCloud its own theme choice. Until a user chooses, both follow the browser like the portal's
+  default: OpenCloud does so itself (fresh profile, live: surface `#ffffff` light, `#18263a` dark), webmail from 5.2-ou5 through the
+  Office Unbound plugin's sysadmin default `dark_mode = system` (upstream's default is light; a stored choice wins over the default).
+  Chat opens light: Element applies a custom theme only with its system-theme setting off.
 - Unread counts and the next meeting need a mailbox data source for the portal (EWS/IMAP with the user's sign-in): not verified
   yet, so not shown.
 - Calendar has no "new event" deep link in grommunio-web 5.2; "New event" opens the calendar.

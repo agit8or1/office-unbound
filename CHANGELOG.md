@@ -10,6 +10,10 @@ isolated lab; nothing is production supported ([ROADMAP.md](ROADMAP.md)).
 
 ## [Unreleased]
 
+### Changed
+- Webmail 5.2-ou5: until a user picks Light or Dark, webmail follows the browser's light/dark like the portal and Files (Office Unbound
+  plugin sysadmin default `dark_mode = system`; upstream's default is light). Files was checked live: it already follows the browser.
+
 ## [0.13.4] - 2026-11-24
 
 ### Fixed

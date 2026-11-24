@@ -45,8 +45,9 @@ What not to promise yet. Updated 2026-11-24 (0.13); each line says where it is t
 - **One design, three upstream apps.** The portal is Office Unbound's own; webmail/calendar/contacts (grommunio-web), Files (OpenCloud),
   sign-in (Keycloak) and chat (Element) are restyled only through their supported theming hooks (colours, borders, type), never their
   layouts, dialogs or settings pages ([design-system.md](../design/design-system.md)). Upstream wording and layout show through there.
-- **Light/dark is per app.** The portal's Appearance switch does not reach the apps; webmail, Files and chat each keep their own choice
-  (webmail light by default; chat opens light, its dark theme is under Settings, Appearance).
+- **Light/dark is per app.** The portal's Appearance switch does not reach the apps; webmail, Files and chat each keep their own choice.
+  Until a user chooses, Files and (from webmail 5.2-ou5) webmail follow the browser like the portal; chat always opens light, its dark
+  theme is under Settings, Appearance.
 - **The dashboard shows only what it can read.** Inbox, unread counts, the next meeting and mail/calendar reminders need a mailbox data
   source that is not verified yet: those widgets offer working actions instead of data. Notifications in the bell are the Files ones only.
   No tasks or notes app exists, so none is shown.
