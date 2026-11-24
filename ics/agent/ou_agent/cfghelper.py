@@ -1494,7 +1494,8 @@ DISPATCH = {"cfg.firewall": firewall, "cfg.hosts": hosts, "cfg.tls": tls, "cfg.l
 
 def handle(req, cfg):
     action = req.get("action")
-    if action not in c.CFG_RUNBOOKS or action not in cfg.get("runbooks", {}):
+    cfg = {**cfg, "runbooks": c.with_implied(cfg.get("runbooks", {}))}   # the same allowlist the agent server advertises (cfgspec.IMPLIED)
+    if action not in c.CFG_RUNBOOKS or action not in cfg["runbooks"]:
         raise Reject("not_allowed", "action not allowed for this helper")
     params = c.CHECKS[action](req.get("params"), cfg["runbooks"][action])
     return DISPATCH[action](params, Ctx(params))

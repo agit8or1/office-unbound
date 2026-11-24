@@ -285,3 +285,26 @@ def test_the_controller_may_send_every_runbook_the_node_agent_offers():
     from ics.guest.agentcall import GUEST_RUNBOOKS
     agent = set(cfgspec.CFG_RUNBOOKS) | set(guestspec.GUEST_RUNBOOKS) | {probespec.PROBE_RUNBOOK, diagspec.DIAG_RUNBOOK}
     assert agent == set(GUEST_RUNBOOKS)
+
+
+def test_the_root_helper_accepts_every_cfg_runbook_the_agent_advertises():
+    """officeunbound8 (job 7c750171): agent 0.10.1 advertised cfg.agent_allow (implied by cfg.hosts on a VM created before it), the
+    root cfghelper read agent.json raw and refused it ("action not allowed for this helper"); same for cfg.keycloak_realm on identity VMs."""
+    import sys
+    from pathlib import Path
+    sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "agent"))
+    import pytest
+    from ou_agent import cfghelper, cfgspec, runbooks
+    from ou_agent.proto import Reject
+    raw = {"runbooks": {"guest.facts": {"enabled": True}, "cfg.hosts": {"enabled": True}, "cfg.ldap_list": {"enabled": True}}}   # pre-0.10.1 VM
+    cfg = json.loads(json.dumps(raw))
+    runbooks.validate_config(cfg)
+    advertised = {k for k in runbooks.capabilities(cfg) if k in cfgspec.CFG_RUNBOOKS}
+    assert {"cfg.agent_allow", "cfg.keycloak_realm"} <= advertised
+    for action in sorted(advertised):
+        with pytest.raises(Reject) as e:
+            cfghelper.handle({"action": action, "params": {"not": "valid"}}, json.loads(json.dumps(raw)))   # the raw file, as the helper reads it
+        assert e.value.code == "bad_params", (action, e.value.code)   # past the allowlist, stopped by the parameter check
+    with pytest.raises(Reject) as e:
+        cfghelper.handle({"action": "cfg.gromox", "params": {}}, json.loads(json.dumps(raw)))
+    assert e.value.code == "not_allowed"   # nothing beyond the role

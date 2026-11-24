@@ -18,6 +18,16 @@ CFG_RUNBOOKS = ("cfg.hosts", "cfg.tls", "cfg.ldap_init", "cfg.ldap_user", "cfg.l
                 "cfg.pg_db", "cfg.podman_secret", "cfg.volume_files", "cfg.nginx_site",
                 "cfg.firewall", "cfg.gromox", "cfg.nginx_default", "cfg.portal", "cfg.acme", "cfg.keycloak_realm", "cfg.agent_allow")
 IMPLIED = {"cfg.keycloak_realm": "cfg.ldap_list", "cfg.agent_allow": "cfg.hosts"}   # enabled wherever the marker is (runbooks.validate_config): the identity VM
+
+
+def with_implied(runbooks: dict) -> dict:
+    """The allowlist with the runbooks its role implies (IMPLIED). The agent server and the root cfghelper must agree: the server
+    advertised cfg.agent_allow from this while the helper read the file raw and refused it (officeunbound8, job 7c750171)."""
+    out = dict(runbooks)
+    for implied, marker in IMPLIED.items():
+        if marker in out and implied not in out:
+            out[implied] = {"enabled": True}
+    return out
 FAMILY = "cfg"
 
 FQDN_RE = re.compile(r"^(?=.{4,200}$)([a-z0-9]([a-z0-9-]{0,61}[a-z0-9])?\.)+[a-z]{2,24}$")
