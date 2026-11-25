@@ -11,7 +11,10 @@
 }
 body { font-family: var(--ou-font); }
 #oc-topbar {
+  /* the Tailwind utilities (bg-role-chrome, text-role-on-chrome) read --color-role-*, which :root resolves from --oc-role-* once: redefine
+     both, or the phone search bar (bg-role-chrome) stays paper under the bar's light text ("Cancel" invisible) */
   --oc-role-chrome: var(--ou-bar-bg); --oc-role-on-chrome: var(--ou-bar-text);
+  --color-role-chrome: var(--ou-bar-bg); --color-role-on-chrome: var(--ou-bar-text);
   background: var(--ou-bar-bg); color: var(--ou-bar-text); border-bottom: 1px solid var(--ou-bar-line); margin-block: 0; font-family: var(--ou-font);
 }
 #oc-topbar > * > .oc-button, #oc-topbar .oc-topbar-right .oc-button, #oc-topbar .oc-logo-wrapper a { color: var(--ou-bar-text); }
@@ -19,9 +22,17 @@ body { font-family: var(--ou-font); }
   background: var(--ou-bar-2); color: var(--ou-bar-text); border: 1px solid var(--ou-bar-line); border-radius: var(--ou-radius-sm);
 }
 #oc-topbar .oc-search-input::placeholder, #oc-topbar input[type="search"]::placeholder { color: var(--ou-bar-muted); }
+/* the search field's scope chip ("All files") and search button are surface buttons: their ink was the page's text colour, invisible on the
+   navy field in the light theme */
+#oc-topbar #files-global-search-bar .oc-button { --oc-button-color: var(--ou-bar-muted); --oc-button-on-color: var(--ou-bar-text); }
 #oc-topbar .oc-logo-image { border-radius: 4px; content: var(--ou-org-logo, normal); }
 #oc-topbar .oc-logo-wrapper .ou-home { margin-inline-start: .5rem; }
-@media (max-width: 640px) { #oc-topbar .ou-home { padding-inline-end: 6px; font-size: 0; gap: 0; } }
+/* phones: the Dashboard control is icon-only and carries the mark (or the organisation logo), so the upstream logo next to it would show
+   the same picture twice; the personal files stay one tap away in the navigation menu */
+@media (max-width: 640px) {
+  #oc-topbar .ou-home { padding-inline-end: 6px; font-size: 0; gap: 0; }
+  #oc-topbar .oc-logo-wrapper > a:not(.ou-home) { display: none; }
+}
 #web-nav-sidebar { background: var(--ou-side); border-right: 1px solid var(--ou-line); }
 .oc-button { border-radius: var(--ou-radius-btn); }
 .oc-card, .oc-modal { border-radius: var(--ou-radius); }
@@ -32,6 +43,29 @@ body { font-family: var(--ou-font); }
      is dropped by the option's omitempty, so the link is hidden here. */
 #web-nav-sidebar .text-xs > span:first-child { display: none; }
 a[href^="https://docs.opencloud.eu"] { display: none !important; }
+/* Files UI audit (2026-11-25): density and hierarchy. OpenCloud Web lays itself out with CSS (Vue + Tailwind; nothing is measured in
+   script), so these few spacing and size rules are safe; they are scoped to OpenCloud's own component classes and keep every control.
+   OpenCloud's theme.json carries colours (roles) and the font only, so none of this can be a theme token. */
+/* empty states: OpenCloud centres a 120px illustration in 65vh of blank page; a compact one in the upper part of the list area instead */
+.no-content-message { height: auto !important; min-height: min(45vh, 24rem); padding-block: 2rem; }
+.no-content-message .no-content-message-image { width: 72px; height: 72px; }
+.no-content-message .text-xl { font-size: 1.0625rem; line-height: 1.4; font-weight: 500; color: var(--ou-ink); }
+/* navigation: the item height of the portal's and webmail's lists (40px, was 45px); labels in medium weight, bold only for the current place */
+#web-nav-sidebar .oc-sidebar-nav-item-link { padding-block: .625rem; }
+#web-nav-sidebar .oc-sidebar-nav-item-link .font-bold { font-weight: 500; }
+#web-nav-sidebar .oc-sidebar-nav-item-link.active .font-bold { font-weight: 600; }
+/* file list headings: one style for sortable and plain columns (Status, Tags and Actions were ink and bold, the rest muted) */
+.oc-table .oc-table-header-cell { color: var(--ou-muted); font-weight: 500; }
+.oc-table .oc-table-header-cell .oc-button-sort { --oc-button-color: var(--ou-muted); font-weight: 500; }
+/* the rename pencil beside every name: shown on the row being pointed at, focused or selected (mouse), in the row menu on phones */
+@media (hover: hover) and (pointer: fine) {
+  .oc-table .resource-table-edit-name { opacity: 0; }
+  .oc-table tr:hover .resource-table-edit-name, .oc-table tr:focus-within .resource-table-edit-name,
+  .oc-table tr.oc-table-highlighted .resource-table-edit-name { opacity: 1; }
+}
+@media (max-width: 640px) { .oc-table .resource-table-edit-name { display: none; } }
+/* previews of text files are white pages: a hairline keeps them from glaring as blank squares in the dark theme */
+.oc-resource img, .oc-tile-card-preview img { box-shadow: 0 0 0 1px var(--ou-line); }
 /* Suite redesign (stage 2, 0.13): colours, borders and shadows only; OpenCloud Web keeps its layout. Selectors read from the deployed
    build (OpenCloud 9.1.0 web assets) and the live officeunbound8 page. */
 /* text fields and outlined filters: the field border (3:1, WCAG 1.4.11) instead of the muted text colour; the bar's search keeps its own */
