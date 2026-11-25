@@ -162,6 +162,6 @@ def test_the_image_turns_the_tour_autostart_off_and_the_catalog_pins_it():
     assert 'getBooleanDocTypePref("onboardingTourSeen",!1)' in cf and 'getBooleanDocTypePref("onboardingTourSeen",!0)' in cf
     assert cf.index("onboardingTourSeen") < cf.index("USER 10001:10001")
     cat = (OCI.parents[2] / "catalog" / "components" / "office.yaml").read_text()
-    assert 'version: "26.04.6-ou5"' in cat
+    assert 'version: "26.04.6-ou6"' in cat
     patch = (OCI.parent / "patches" / "0004-office-unbound-no-tour-autostart.patch").read_text()
     assert "getBooleanDocTypePref('onboardingTourSeen', true)" in patch
