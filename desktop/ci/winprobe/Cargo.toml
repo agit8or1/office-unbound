@@ -1,0 +1,14 @@
+# Windows-only probe tests for ou-files, run by .github/workflows/desktop-windows.yml on windows-latest.
+# Exercises the #[cfg(windows)] code against real NTFS (junctions, symlinks, reparse tags, name rules, drive letters).
+# Not shipped. Standalone workspace so it never changes desktop/Cargo.toml; the job seeds Cargo.lock from the workspace lock.
+[package]
+name = "ou-winprobe"
+version = "0.0.0"
+edition = "2021"
+license = "AGPL-3.0-only"
+publish = false
+
+[workspace]
+
+[dependencies]
+ou-files = { path = "../../crates/ou-files" }
