@@ -79,7 +79,6 @@ function Install-Silent([string]$exe, [string]$label) {
 
 function Uninstall-Silent($entry, [string]$label) {
   $dir = Get-InstallDir $entry
-  Stop-OurProcesses $dir
   $u = $entry.Props.UninstallString.Trim('"')
   if ($entry.Props.PSObject.Properties.Name -contains "QuietUninstallString" -and $entry.Props.QuietUninstallString) {
     Write-Host "QuietUninstallString: $($entry.Props.QuietUninstallString)"
@@ -92,6 +91,7 @@ function Uninstall-Silent($entry, [string]$label) {
     Start-Sleep 1
   }
   Check ($p.ExitCode -eq 0) "$label silent uninstall exit code $($p.ExitCode)"
+  Check ((Get-AgentProcs).Count -eq 0) "$label no ou-agent process left after uninstall"
   Check $gone "$label uninstall removed the program files and the registry entry ($dir)"
   $lnk = @(Get-ChildItem -Path $StartMenu -Recurse -Filter "*.lnk" -ErrorAction SilentlyContinue | Where-Object { $_.Name -like "*Office Unbound*" })
   Check ($lnk.Count -eq 0) "$label uninstall removed the Start-menu entries"
@@ -136,6 +136,50 @@ function Scan-Secrets([string[]]$dirs) {
   Check ($c[0] -ge 1) "secret scanner self-test flags a planted fake token"
   $r = Count-SecretHits $dirs
   Check ($r[0] -eq 0) "no secret-like strings in $($r[1]) config/data/log file(s) under install dir and $DataRoot (no sign-in happens in CI)"
+}
+
+function Invoke-Exe([string]$exe, [string]$argline, [int]$seconds) {
+  $tag = [guid]::NewGuid().ToString("N").Substring(0, 8)
+  $out = Join-Path $env:RUNNER_TEMP "run-$tag.out.txt"; $err = Join-Path $env:RUNNER_TEMP "run-$tag.err.txt"
+  $sp = @{ FilePath = $exe; PassThru = $true; RedirectStandardOutput = $out; RedirectStandardError = $err; WindowStyle = "Hidden" }
+  if ($argline) { $sp.ArgumentList = $argline }
+  $p = Start-Process @sp
+  $done = $p.WaitForExit($seconds * 1000)
+  $txt = (Get-Content $out -Raw -ErrorAction SilentlyContinue); if ($null -eq $txt) { $txt = "" }
+  $etxt = (Get-Content $err -Raw -ErrorAction SilentlyContinue); if ($null -eq $etxt) { $etxt = "" }
+  return [pscustomobject]@{ Process = $p; Exited = $done; Code = $(if ($done) { $p.ExitCode } else { $null }); Out = $txt.Trim(); Err = $etxt.Trim() }
+}
+
+function Get-AgentProcs { @(Get-Process -Name "ou-agent" -ErrorAction SilentlyContinue) }
+
+# Background agent lifecycle: --version, start, single instance, --status over IPC, idle CPU/RAM, --quit.
+function Agent-Lifecycle([string]$exe, [string]$label) {
+  if (-not (Test-Path $exe)) { Note "FAIL" "${label}: $exe missing"; return }
+  $v = Invoke-Exe $exe "--version" 10
+  Check ($v.Exited -and $v.Code -eq 0 -and $v.Out -like "ou-agent *") "$label --version exit $($v.Code): '$($v.Out)'"
+  $a = Invoke-Exe $exe "" 8
+  if ($a.Exited) {
+    Note "FAIL" "$label background start exited at once (code $($a.Code), stderr '$($a.Err)')"
+    return
+  }
+  $agentProc = $a.Process
+  Note "PASS" "$label background process running (pid $($agentProc.Id))"
+  $second = Invoke-Exe $exe "" 10
+  Check ($second.Exited -and $second.Code -eq 0) "$label second start is a no-op (exit $($second.Code))"
+  Check ((Get-AgentProcs).Count -eq 1) "$label single instance: $((Get-AgentProcs).Count) ou-agent process(es)"
+  $st = Invoke-Exe $exe "--status" 15
+  Check ($st.Exited -and $st.Code -eq 0 -and $st.Out.StartsWith("{")) "$label --status over the per-user IPC endpoint: exit $($st.Code), $($st.Out.Length) bytes JSON"
+  $pp = Get-Process -Id $agentProc.Id
+  $cpu0 = $pp.TotalProcessorTime.TotalMilliseconds
+  Start-Sleep -Seconds 20
+  $pp.Refresh()
+  $cpuMs = [int]($pp.TotalProcessorTime.TotalMilliseconds - $cpu0)
+  $wsMb = [math]::Round($pp.WorkingSet64 / 1MB, 1)
+  $thr = $pp.Threads.Count
+  Check ($cpuMs -lt 1000) "$label idle: ${cpuMs} ms CPU in 20 s, working set $wsMb MB, $thr threads"
+  $q = Invoke-Exe $exe "--quit" 15
+  $gone = $agentProc.WaitForExit(15000)
+  Check ($q.Code -eq 0 -and $gone) "$label --quit: exit $($q.Code), agent stopped: $gone"
 }
 
 function Launch-Check([string]$exe, [string]$label, [int]$seconds) {
@@ -184,7 +228,9 @@ $lnk = @(Get-ChildItem -Path $StartMenu -Recurse -Filter "*.lnk" -ErrorAction Si
 Check ($lnk.Count -ge 1) "Start-menu entry present: $(($lnk | ForEach-Object { $_.FullName.Substring($StartMenu.Length) }) -join ', ')"
 
 # --- 2. launch ---
-Launch-Check $agent "ou-agent" 10
+Agent-Lifecycle $agent "ou-agent"
+$logs = @(Get-ChildItem -Path $DataRoot -Recurse -File -ErrorAction SilentlyContinue | ForEach-Object { $_.FullName.Substring($DataRoot.Length) })
+Note "INFO" "files the agent wrote under the data root: $($logs -join ', ')"
 $gui = @(Get-ChildItem -Path $dir -Filter "*.exe" -File | Where-Object { $_.Name -notin @("ou-agent.exe", "uninstall.exe") })
 if ($gui.Count -gt 0) {
   foreach ($g in $gui) { Launch-Check $g.FullName $g.BaseName 15 }
@@ -197,7 +243,9 @@ if ($gui.Count -gt 0) {
 $marker = Seed-UserData "uninstall"
 Scan-Secrets @($dir, $DataRoot)
 
-# --- 4. uninstall keeps user data ---
+# --- 4. uninstall (with the agent running) keeps user data ---
+$bg = Invoke-Exe $agent "" 5
+Note "INFO" "agent started before uninstall: running=$(-not $bg.Exited)"
 Uninstall-Silent $entry "fresh"
 Check (Test-Path $marker) "user data kept after uninstall ($marker)"
 
@@ -208,15 +256,17 @@ if ($Previous -and (Test-Path $Previous)) {
   $old = Install-Silent $Previous "previous"
   $oldBuild = if ($old.Props.PSObject.Properties.Name -contains "BuildId") { $old.Props.BuildId } else { "" }
   $marker = Seed-UserData "upgrade"
-  Stop-OurProcesses (Get-InstallDir $old)
+  $bg = Invoke-Exe (Join-Path (Get-InstallDir $old) "ou-agent.exe") "" 5
+  Note "INFO" "previous agent started before the upgrade: running=$(-not $bg.Exited)"
   $new = Install-Silent $Installer "upgrade"
+  Check ((Get-AgentProcs).Count -eq 0) "upgrade stopped the running previous agent"
   $newBuild = if ($new.Props.PSObject.Properties.Name -contains "BuildId") { $new.Props.BuildId } else { "" }
   Note "INFO" "upgrade: $($old.Props.DisplayVersion) ($oldBuild) -> $($new.Props.DisplayVersion) ($newBuild)"
   $entries = @(Get-ChildItem "HKCU:\Software\Microsoft\Windows\CurrentVersion\Uninstall" | ForEach-Object { Get-ItemProperty $_.PSPath -ErrorAction SilentlyContinue } | Where-Object { $_ -and ($_.PSObject.Properties.Name -contains "DisplayName") -and $_.DisplayName -like "$Product*" })
   Check ($entries.Count -eq 1) "exactly one installed entry after the upgrade (found $($entries.Count))"
   if ($oldBuild -and $newBuild) { Check ($newBuild -ne $oldBuild -or $oldBuild -eq $env:GITHUB_SHA) "upgrade replaced the build id" }
   Check (Test-Path $marker) "user data kept across the upgrade"
-  Launch-Check (Join-Path (Get-InstallDir $new) "ou-agent.exe") "ou-agent-after-upgrade" 10
+  Agent-Lifecycle (Join-Path (Get-InstallDir $new) "ou-agent.exe") "after-upgrade"
   Uninstall-Silent $new "upgrade"
 } else {
   Note "SKIP" "no previous CI installer artifact found: upgrade path not tested in this run"
