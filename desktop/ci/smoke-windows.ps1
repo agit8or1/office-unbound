@@ -91,7 +91,7 @@ function Uninstall-Silent($entry, [string]$label) {
     Start-Sleep 1
   }
   Check ($p.ExitCode -eq 0) "$label silent uninstall exit code $($p.ExitCode)"
-  Check ((Get-AgentProcs).Count -eq 0) "$label no ou-agent process left after uninstall"
+  Check (@(Get-AgentProcs).Count -eq 0) "$label no ou-agent process left after uninstall"
   Check $gone "$label uninstall removed the program files and the registry entry ($dir)"
   $lnk = @(Get-ChildItem -Path $StartMenu -Recurse -Filter "*.lnk" -ErrorAction SilentlyContinue | Where-Object { $_.Name -like "*Office Unbound*" })
   Check ($lnk.Count -eq 0) "$label uninstall removed the Start-menu entries"
@@ -166,7 +166,7 @@ function Agent-Lifecycle([string]$exe, [string]$label) {
   Note "PASS" "$label background process running (pid $($agentProc.Id))"
   $second = Invoke-Exe $exe "" 10
   Check ($second.Exited -and $second.Code -eq 0) "$label second start is a no-op (exit $($second.Code))"
-  Check ((Get-AgentProcs).Count -eq 1) "$label single instance: $((Get-AgentProcs).Count) ou-agent process(es)"
+  Check (@(Get-AgentProcs).Count -eq 1) "$label single instance: $(@(Get-AgentProcs).Count) ou-agent process(es)"
   $st = Invoke-Exe $exe "--status" 15
   Check ($st.Exited -and $st.Code -eq 0 -and $st.Out.StartsWith("{")) "$label --status over the per-user IPC endpoint: exit $($st.Code), $($st.Out.Length) bytes JSON"
   $pp = Get-Process -Id $agentProc.Id
@@ -259,7 +259,7 @@ if ($Previous -and (Test-Path $Previous)) {
   $bg = Invoke-Exe (Join-Path (Get-InstallDir $old) "ou-agent.exe") "" 5
   Note "INFO" "previous agent started before the upgrade: running=$(-not $bg.Exited)"
   $new = Install-Silent $Installer "upgrade"
-  Check ((Get-AgentProcs).Count -eq 0) "upgrade stopped the running previous agent"
+  Check (@(Get-AgentProcs).Count -eq 0) "upgrade stopped the running previous agent"
   $newBuild = if ($new.Props.PSObject.Properties.Name -contains "BuildId") { $new.Props.BuildId } else { "" }
   Note "INFO" "upgrade: $($old.Props.DisplayVersion) ($oldBuild) -> $($new.Props.DisplayVersion) ($newBuild)"
   $entries = @(Get-ChildItem "HKCU:\Software\Microsoft\Windows\CurrentVersion\Uninstall" | ForEach-Object { Get-ItemProperty $_.PSPath -ErrorAction SilentlyContinue } | Where-Object { $_ -and ($_.PSObject.Properties.Name -contains "DisplayName") -and $_.DisplayName -like "$Product*" })
