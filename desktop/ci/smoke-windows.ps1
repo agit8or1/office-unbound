@@ -229,6 +229,11 @@ Check ($entry.Hive -like "HKCU:*") "uninstall entry is per-user (HKCU), no eleva
 Check (-not $dir.TrimEnd('\').Equals($DataRoot, [System.StringComparison]::OrdinalIgnoreCase)) "program dir is separate from the user data root $DataRoot"
 $exes = @(Get-ChildItem -Path $dir -Filter "*.exe" -File | ForEach-Object { $_.Name })
 Note "INFO" "installed executables: $($exes -join ', ')"
+foreach ($x in @(Get-ChildItem -Path $dir -Filter "*.exe" -File | Where-Object { $_.Name -ne "uninstall.exe" })) {
+  $txt = [Text.Encoding]::ASCII.GetString([IO.File]::ReadAllBytes($x.FullName))
+  $leaks = @(@($env:USERPROFILE, "$env:GITHUB_WORKSPACE", ".cargo\registry") | Where-Object { $_ -and $txt.IndexOf($_, [StringComparison]::OrdinalIgnoreCase) -ge 0 })
+  Check ($leaks.Count -eq 0) "$($x.Name) embeds no build-machine paths (checked user profile, workspace, cargo registry)$(if ($leaks.Count) { ': found ' + ($leaks -join ', ') })"
+}
 $agent = Join-Path $dir "ou-agent.exe"
 Check (Test-Path $agent) "ou-agent.exe installed"
 $lnk = @(Get-ChildItem -Path $StartMenu -Recurse -Filter "*.lnk" -ErrorAction SilentlyContinue | Where-Object { $_.Name -like "*Office Unbound*" })

@@ -99,7 +99,7 @@ jobs:
   windows:
     name: test, installer, smoke (windows-latest)
     runs-on: windows-latest
-    timeout-minutes: 60
+    timeout-minutes: 120   # a cold build of the chat stack (matrix-sdk, bundled SQLite) is slow; warm runs use the cache
     permissions:
       contents: read
       actions: read   # find and download the previous run's installer for the upgrade test
@@ -137,6 +137,14 @@ jobs:
           rustup default "$RUST_TOOLCHAIN"
           rustc -vV
 
+      - name: Keep build-machine paths out of the binaries (--remap-path-prefix)
+        run: |
+          set -euo pipefail
+          ch=$(cygpath -w "${CARGO_HOME:-$USERPROFILE/.cargo}")
+          ws=$(cygpath -w "$GITHUB_WORKSPACE")
+          echo "RUSTFLAGS=--remap-path-prefix=$ch=cargo --remap-path-prefix=$ws=src" >> "$GITHUB_ENV"
+          echo "remapping $ch -> cargo, $ws -> src"
+
       - uses: actions/cache@27d5ce7f107fe9357f9df03efb73ab90386fccae # v5.0.5
         with:
           path: |
@@ -144,8 +152,8 @@ jobs:
             ~/.cargo/registry/cache
             ~/.cargo/git/db
             desktop/target
-          key: win-${{ env.RUST_TOOLCHAIN }}-${{ hashFiles('desktop/Cargo.lock') }}
-          restore-keys: win-${{ env.RUST_TOOLCHAIN }}-
+          key: win-remap-${{ env.RUST_TOOLCHAIN }}-${{ hashFiles('desktop/Cargo.lock') }}
+          restore-keys: win-remap-${{ env.RUST_TOOLCHAIN }}-
 
       # The GUI crate embeds the built frontend (frontendDist) at compile time, so build it before any cargo test.
       - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4.4.0
@@ -176,22 +184,29 @@ jobs:
           mkdir -p "$GUI_DIR/binaries"
           cp desktop/target/release/ou-agent.exe "$GUI_DIR/binaries/ou-agent-x86_64-pc-windows-msvc.exe"
 
-      - name: cargo test --workspace (Windows; ou-files unit tests only)
+      - name: cargo test --workspace (Windows; offline tests only, never live tests)
         working-directory: desktop
         run: |
           set -euo pipefail
-          # ou-files' live tests need real credentials, which never go into CI: run its --lib tests only.
-          unset OU_FILES_LIVE_URL OU_FILES_TOKEN_CMD OU_FILES_ENGINE
-          if [ ! -d crates/ou-files ]; then
-            cargo test --workspace --locked
-          elif grep -q '^\[workspace\]' crates/ou-files/Cargo.toml; then
-            echo "ou-files is still a standalone workspace"
-            cargo test --workspace --locked --exclude ou-files
-            cargo test --manifest-path crates/ou-files/Cargo.toml --lib --locked
-          else
-            cargo test --workspace --locked --exclude ou-files
-            cargo test -p ou-files --lib --locked
-          fi
+          # Live tests (tests/live_*.rs) need real credentials, which never go into CI. For crates that have them, run the
+          # lib tests and every other test target; all remaining crates run in full.
+          unset OU_FILES_LIVE_URL OU_FILES_TOKEN_CMD OU_FILES_ENGINE OU_CHAT_LIVE
+          live=""
+          for d in crates/*/; do ls "$d"tests/live_*.rs >/dev/null 2>&1 && live="$live $(basename "$d")"; done
+          excl=""; for c in $live; do excl="$excl --exclude $c"; done
+          echo "crates with live tests (offline targets only):$live"
+          # shellcheck disable=SC2086
+          cargo test --workspace --locked $excl
+          for c in $live; do
+            args="--lib"
+            for t in crates/"$c"/tests/*.rs; do
+              n=$(basename "$t" .rs)
+              case "$n" in live_*) ;; *) args="$args --test $n" ;; esac
+            done
+            echo "== $c: cargo test $args"
+            # shellcheck disable=SC2086
+            cargo test -p "$c" --locked $args
+          done
 
       - name: ou-files Windows probe (real NTFS junctions, symlinks, name rules, drive letters)
         if: hashFiles('desktop/crates/ou-files/Cargo.toml') != ''
@@ -219,16 +234,19 @@ jobs:
           setup=$(ls -1 desktop/target/release/bundle/nsis/*-setup.exe | head -n1)
           cp "$setup" "$RUNNER_TEMP/out/OfficeUnbound-${VERSION}-${SHORT}-x64-setup.exe"
 
-      - name: MSI (WiX; best effort, the Tauri MSI is per-machine and needs a numeric-only pre-release)
+      - name: MSI (WiX; best effort, the Tauri MSI is per-machine)
         if: steps.meta.outputs.gui_dir != ''
         continue-on-error: true
         env:
+          VERSION4: ${{ steps.meta.outputs.version4 }}
           VERSION: ${{ steps.meta.outputs.version }}
           SHORT: ${{ steps.meta.outputs.short }}
           GUI_DIR: ${{ steps.meta.outputs.gui_dir }}
         run: |
           set -euo pipefail
-          (cd "$GUI_DIR/.." && npx --no-install tauri build --bundles msi -- --locked)
+          # WiX rejects "-alpha.1"; override only the MSI version (tauri.conf.json unchanged), e.g. 0.1.0.<run number>.
+          (cd "$GUI_DIR/.." && npx --no-install tauri build --bundles msi \
+             --config "{\"bundle\":{\"windows\":{\"wix\":{\"version\":\"$VERSION4\"}}}}" -- --locked)
           msi=$(ls -1 desktop/target/release/bundle/msi/*.msi | head -n1)
           cp "$msi" "$RUNNER_TEMP/out/OfficeUnbound-${VERSION}-${SHORT}-x64.msi"
 
