@@ -49,3 +49,11 @@ regexTarget = "line"
 regexes = ['''key pin unchanged: `[0-9a-f]{64}`''']
 paths = ['''^docs/status/oci-signing-results\.md$''']
 condition = "AND"
+
+[[allowlists]]
+description = "PEM header/footer literals in the Office image entrypoint's proof-key format check (a case statement; no key material). Triaged 2026-11-25"
+targetRules = ["private-key"]
+regexTarget = "match"
+regexes = ['''^-----BEGIN (RSA )?PRIVATE KEY-----"\) end="-----END (RSA )?PRIVATE KEY-----''']
+paths = ['''^blueprints/build/collabora/oci/entrypoint\.sh$''']
+condition = "AND"
