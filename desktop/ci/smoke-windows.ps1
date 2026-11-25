@@ -13,7 +13,8 @@ param(
   [Parameter(Mandatory = $true)][string]$Installer,
   [string]$Previous = "",
   [string]$Msi = "",
-  [string]$Report = "smoke-report.md"
+  [string]$Report = "smoke-report.md",
+  [string]$ExpectVersion = ""   # the version the build should carry; empty = not checked
 )
 $ErrorActionPreference = "Stop"
 Set-StrictMode -Version Latest
@@ -164,6 +165,7 @@ function Agent-Lifecycle([string]$exe, [string]$label) {
   if (-not (Test-Path $exe)) { Note "FAIL" "${label}: $exe missing"; return }
   $v = Invoke-Exe $exe "--version" 10
   Check ($v.Exited -and $v.Code -eq 0 -and $v.Out -like "ou-agent *") "$label --version exit $($v.Code): '$($v.Out)'"
+  if ($ExpectVersion -and $label -ne "previous") { Check ($v.Out -eq "ou-agent $ExpectVersion") "$label agent reports the built version $ExpectVersion" }
   $a = Invoke-Exe $exe "" 8
   if ($a.Exited) {
     Note "FAIL" "$label background start exited at once (code $($a.Code), stderr '$($a.Err)')"
@@ -224,6 +226,7 @@ if (Get-UninstallEntry) { throw "a previous '$Product' install exists on this ru
 $entry = Install-Silent $Installer "fresh"
 $dir = Get-InstallDir $entry
 Note "INFO" "install dir: $dir; registry: $($entry.Hive); DisplayVersion $($entry.Props.DisplayVersion)"
+if ($ExpectVersion) { Check ($entry.Props.DisplayVersion -eq $ExpectVersion) "installed DisplayVersion '$($entry.Props.DisplayVersion)' is the built version '$ExpectVersion'" }
 Check ($dir -and $dir.StartsWith($env:LOCALAPPDATA, [System.StringComparison]::OrdinalIgnoreCase)) "per-user install location under %LOCALAPPDATA%"
 Check ($entry.Hive -like "HKCU:*") "uninstall entry is per-user (HKCU), no elevation needed"
 Check (-not $dir.TrimEnd('\').Equals($DataRoot, [System.StringComparison]::OrdinalIgnoreCase)) "program dir is separate from the user data root $DataRoot"

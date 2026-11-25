@@ -243,9 +243,12 @@ jobs:
           grep -q '"installMode" *: *"currentUser"' "$GUI_DIR/tauri.conf.json" \
             || echo "::warning::tauri.conf.json does not set bundle.windows.nsis.installMode=currentUser"
           mkdir -p "$RUNNER_TEMP/out"
+          # The cached target dir holds earlier bundles: clear them, then take exactly this version's installer.
+          rm -rf desktop/target/release/bundle
           (cd "$GUI_DIR/.." && npx --no-install tauri build --bundles nsis -- --locked)
           ls -l desktop/target/release/bundle/nsis/
-          setup=$(ls -1 desktop/target/release/bundle/nsis/*-setup.exe | head -n1)
+          setup="desktop/target/release/bundle/nsis/Office Unbound_${VERSION}_x64-setup.exe"
+          test -f "$setup" || { echo "::error::no installer for version $VERSION"; exit 1; }
           cp "$setup" "$RUNNER_TEMP/out/OfficeUnbound-${VERSION}-${SHORT}-x64-setup.exe"
 
       - name: MSI (WiX; best effort, the Tauri MSI is per-machine)
@@ -261,7 +264,8 @@ jobs:
           # WiX rejects "-alpha.1"; override only the MSI version (tauri.conf.json unchanged), e.g. 0.1.0.<run number>.
           (cd "$GUI_DIR/.." && npx --no-install tauri build --bundles msi \
              --config "{\"bundle\":{\"windows\":{\"wix\":{\"version\":\"$VERSION4\"}}}}" -- --locked)
-          msi=$(ls -1 desktop/target/release/bundle/msi/*.msi | head -n1)
+          msi="desktop/target/release/bundle/msi/Office Unbound_${VERSION}_x64_en-US.msi"
+          test -f "$msi" || msi=$(ls -1t desktop/target/release/bundle/msi/*.msi | head -n1)
           cp "$msi" "$RUNNER_TEMP/out/OfficeUnbound-${VERSION}-${SHORT}-x64.msi"
 
       # ---- Fallback path: ou-agent packaged by desktop/ci/installer.nsi ----
@@ -319,13 +323,14 @@ jobs:
         shell: pwsh
         env:
           PREV: ${{ steps.prev.outputs.installer }}
+          VERSION: ${{ steps.meta.outputs.version }}
         run: |
           $setup = Get-ChildItem "$env:RUNNER_TEMP\out\*-setup.exe" | Select-Object -First 1
           if (-not $setup) { $setup = Get-ChildItem "$env:RUNNER_TEMP\out\*.exe" | Select-Object -First 1 }
           $msi = Get-ChildItem "$env:RUNNER_TEMP\out\*.msi" -ErrorAction SilentlyContinue | Select-Object -First 1
           $prev = if ($env:PREV) { $env:PREV } else { "" }
           $msiPath = if ($msi) { $msi.FullName } else { "" }
-          & desktop/ci/smoke-windows.ps1 -Installer $setup.FullName -Previous $prev -Msi $msiPath -Report "$env:RUNNER_TEMP\out\smoke-report.md"
+          & desktop/ci/smoke-windows.ps1 -Installer $setup.FullName -Previous $prev -Msi $msiPath -Report "$env:RUNNER_TEMP\out\smoke-report.md" -ExpectVersion $env:VERSION
           if ($LASTEXITCODE) { exit $LASTEXITCODE }
 
       - uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
