@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { computed, ref, watch } from 'vue'
+import { computed, onMounted, onUnmounted, ref, watch } from 'vue'
 import { loadMetric, type MetricName, type MetricSeries, type Res } from '../infra'
 import { RANGES } from '../charts/geometry'
 import { fmtRate } from '../format'
@@ -21,6 +21,8 @@ const data = ref<Partial<Record<MetricName, MetricSeries>>>({})
 const loading = ref(false), failed = ref(false)
 const rangeMs = computed(() => RANGES.find((r) => r.value === range.value)?.ms ?? 86400e3)
 const current = computed(() => props.scopes.find((s) => `${s.scope}:${s.id}` === sel.value) ?? props.scopes[0])
+// the scope picker shows the scope the charts are drawn for (it was blank until the operator picked one)
+watch(() => props.scopes.map((s) => s.scope + ':' + s.id).join(), () => { if (!props.scopes.some((s) => `${s.scope}:${s.id}` === sel.value) && props.scopes[0]) sel.value = `${props.scopes[0].scope}:${props.scopes[0].id}` }, { immediate: true })
 
 async function load() {
   const s = current.value
@@ -34,6 +36,12 @@ async function load() {
 watch([() => props.scopes.map((s) => s.id).join(), range, sel], load, { immediate: true })
 const anyData = computed(() => metrics.some((m) => (data.value[m.key]?.points.length ?? 0) > 0))
 const last = (k: MetricName) => { const p = data.value[k]?.points; return p?.length ? p[p.length - 1]!.v : null }
+// phones: four stacked charts at full height filled two screens; a shorter plot keeps the four together
+const narrow = window.matchMedia?.('(max-width: 600px)')
+const compact = ref(!!narrow?.matches)
+const onNarrow = () => { compact.value = !!narrow?.matches }
+onMounted(() => narrow?.addEventListener?.('change', onNarrow))
+onUnmounted(() => narrow?.removeEventListener?.('change', onNarrow))
 const fmt = (u: 'pct' | 'rate') => (v: number) => (u === 'pct' ? `${Math.round(v)}%` : fmtRate(v))
 </script>
 <template>
@@ -50,7 +58,7 @@ const fmt = (u: 'pct' | 'rate') => (v: number) => (u === 'pct' ? `${Math.round(v
     <div v-else class="charts">
       <div v-for="m in metrics" :key="m.key" class="chartbox">
         <div class="ct"><span>{{ m.label }}</span><b>{{ last(m.key) === null ? '-' : fmt(m.unit)(last(m.key)!) }}</b></div>
-        <LineChart :series="[{ name: m.label, points: data[m.key]?.points ?? [] }]" :range-ms="rangeMs" :fmt="fmt(m.unit)" :y-max="m.unit === 'pct' ? 100 : undefined" />
+        <LineChart :series="[{ name: m.label, points: data[m.key]?.points ?? [] }]" :range-ms="rangeMs" :fmt="fmt(m.unit)" :y-max="m.unit === 'pct' ? 100 : undefined" :height="compact ? 130 : 210" />
       </div>
     </div>
   </Card>

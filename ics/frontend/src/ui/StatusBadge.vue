@@ -4,4 +4,4 @@ import { label, tone } from './status'
 const props = defineProps<{ s: string | null | undefined; text?: string }>()
 const t = computed(() => tone(props.s))
 </script>
-<template><span class="badge" :class="t">{{ text ?? label(s) }}</span></template>
+<template><span class="badge" :class="t"><span class="bt">{{ text ?? label(s) }}</span></span></template>

@@ -79,7 +79,7 @@ const may = (c: PromotionCandidate) => canPromote(c, rel.data.value!, session.us
                   <thead><tr><th>Package</th><th>Version</th><th>Tests</th></tr></thead>
                   <tbody>
                     <tr v-for="p in c.packages" :key="p.file">
-                      <td><span class="mono">{{ p.name }}</span><div class="muted small mono" :title="p.sha256">{{ shortHash(p.sha256) }}</div></td>
+                      <td><span class="mono">{{ p.name }}</span><div class="muted small mono hash" :title="p.sha256">{{ shortHash(p.sha256) }}</div></td>
                       <td class="mono">{{ p.version }}</td>
                       <td><StatusBadge :s="evidenceView(p, recordsOk).tone === 'ok' ? 'ok' : evidenceView(p, recordsOk).tone === 'bad' ? 'failed' : evidenceView(p, recordsOk).tone === 'warn' ? 'warning' : 'idle'" :text="evidenceView(p, recordsOk).text" /></td>
                     </tr>
@@ -127,10 +127,17 @@ const may = (c: PromotionCandidate) => canPromote(c, rel.data.value!, session.us
 .rel-item { display: flex; gap: 16px; justify-content: space-between; flex-wrap: wrap; padding: 12px 0; border-top: 1px solid var(--line); }
 .rel-item:first-child { border-top: 0; padding-top: 0; }
 .rel-main { flex: 1 1 320px; min-width: 0; }
-.rel-side { display: flex; flex-direction: column; gap: 6px; align-items: flex-start; }
+.rel-side { display: flex; flex-direction: column; gap: 6px; align-items: flex-end; text-align: right; flex: 0 0 220px; }
+@media (max-width: 640px) { .rel-side { align-items: flex-start; text-align: left; flex-basis: 100%; } }
 .rel-block { color: var(--bad); margin: 6px 0 0; padding-left: 18px; }
-.rel-chans { margin-top: 18px; }
-.rel-comp h3 { font-size: 13px; margin: 10px 0 4px; }
+/* channel tables: identifiers wrap, test badges wrap inside their cell instead of being clipped */
+.rel-chans td { vertical-align: top; }
+.rel-chans td .mono { overflow-wrap: anywhere; } .rel-chans td .hash { white-space: nowrap; overflow-wrap: normal; }
+.rel-chans .badge { white-space: normal; line-height: 1.35; padding: 2px 8px; border-radius: 10px; align-items: baseline; }
+.rel-chans .badge::before { flex: none; transform: translateY(-1px); }
+.rel-chans th:nth-child(2), .rel-chans td:nth-child(2) { white-space: nowrap; }
+.rel-drawer td.mono { overflow-wrap: anywhere; }
+.rel-comp h3 { font-size: 13px; margin: 12px 0 4px; color: var(--ink); font-family: var(--mono); font-weight: 500; }
 .rel-drawer { padding: 0 20px 20px; display: grid; gap: 14px; }
 .fld { display: grid; gap: 4px; } .fld textarea { width: 100%; font: inherit; }
 </style>

@@ -34,5 +34,5 @@ const TEXT = {
   </Card>
 </template>
 <style scoped>
-.tc-row { display: grid; gap: 6px; } .tc-row label { display: flex; gap: 8px; align-items: baseline; }
+.tc-row { display: grid; gap: 8px; justify-items: start; } .tc-row label { display: flex; flex-direction: row; gap: 8px; align-items: baseline; font-weight: 400; }
 </style>

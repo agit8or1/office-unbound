@@ -29,8 +29,8 @@ const counts = computed(() => {
     </PageHeader>
     <ErrorBox :error="checks.error.value" />
     <div v-if="checks.data.value?.length" class="statgrid" role="status">
-      <div class="stat ok"><div class="lbl">Healthy</div><div class="val">{{ counts.ok }}</div></div>
-      <div class="stat warn"><div class="lbl">Warning</div><div class="val">{{ counts.warning }}</div></div>
+      <div class="stat idle"><div class="lbl">Healthy</div><div class="val">{{ counts.ok }}</div></div>
+      <div class="stat" :class="counts.warning ? 'warn' : 'idle'"><div class="lbl">Warning</div><div class="val">{{ counts.warning }}</div></div>
       <div class="stat" :class="counts.critical ? 'bad' : 'idle'"><div class="lbl">Critical</div><div class="val">{{ counts.critical }}</div></div>
       <div class="stat idle"><div class="lbl">Unknown</div><div class="val">{{ counts.unknown }}</div></div>
     </div>
@@ -42,7 +42,7 @@ const counts = computed(() => {
             <thead><tr><th>Check</th><th>Kind</th><th>State</th><th>Last result</th><th>Every</th><th>Auto-fix</th></tr></thead>
             <tbody>
               <tr v-for="c in checks.data.value" :key="c.id" :class="{ sel: c.id === selId }">
-                <td><a :href="'#/checks/' + c.id">{{ c.name }}</a><span v-if="!c.enabled" class="muted"> (disabled)</span></td>
+                <td class="ident"><a :href="'#/checks/' + c.id">{{ c.name }}</a><span v-if="!c.enabled" class="muted"> (disabled)</span></td>
                 <td class="mono">{{ c.kind }}</td>
                 <td><Status :s="c.state" /></td>
                 <td class="wrap msg"><TechText :text="c.last_message" fallback="not run yet" /><span v-if="c.last_run_at" class="muted small"> · {{ fmtTime(c.last_run_at) }}</span></td>
@@ -80,7 +80,7 @@ const counts = computed(() => {
           <div class="scroll short" tabindex="0" role="region" aria-label="Scrollable table">
             <table v-if="results.data.value?.length">
               <thead><tr><th>Time</th><th>Result</th><th class="num">ms</th><th>Message</th></tr></thead>
-              <tbody><tr v-for="r in results.data.value" :key="r.id"><td>{{ fmtTime(r.at) }}</td><td><Status :s="r.status" /></td><td class="num">{{ r.latency_ms ?? '-' }}</td><td class="wrap"><TechText :text="r.message" /></td></tr></tbody>
+              <tbody><tr v-for="r in results.data.value" :key="r.id"><td class="nowrap">{{ fmtTime(r.at) }}</td><td><Status :s="r.status" /></td><td class="num">{{ r.latency_ms ?? '-' }}</td><td class="wrap"><TechText :text="r.message" /></td></tr></tbody>
             </table>
             <p v-else class="muted">No results yet.</p>
           </div>

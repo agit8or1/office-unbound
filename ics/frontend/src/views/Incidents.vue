@@ -47,7 +47,7 @@ const secs = (a: string, b: string | null) => (b ? Math.round((+new Date(b) - +n
           <table v-if="list.data.value?.length">
             <thead><tr><th>Check</th><th>Severity</th><th>Status</th><th>Opened</th><th>Recovered</th></tr></thead>
             <tbody><tr v-for="i in list.data.value" :key="i.id" :class="{ sel: i.id === selId }">
-              <td><a :href="'#/incidents/' + i.id">{{ i.check_name }}</a><span v-if="i.escalated_at" class="chip bad"> escalated</span></td>
+              <td class="ident"><a :href="'#/incidents/' + i.id">{{ i.check_name }}</a><span v-if="i.escalated_at" class="chip bad"> escalated</span></td>
               <td><Status :s="i.severity" /></td><td><Status :s="i.status" /></td><td>{{ fmtTime(i.opened_at) }}</td><td>{{ fmtTime(i.recovered_at) }}</td>
             </tr></tbody>
           </table>
