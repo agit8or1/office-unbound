@@ -18,13 +18,102 @@ keeps equal, and `ics/ics/deploy/brand.py` renders every app skin (Keycloak, Ope
 | Menus, hover | `--ou-raised` | `#fbfaf7` | `#212e40` |
 | Selected rows | `--ou-sel` | `#e4ebf2` | `#1f3d4a` |
 
-Accents: copper `--ou-accent` is the brand (mark, top-bar "New", links); muted teal `--ou-action` is for primary buttons and
-selected states (today in the week strip, the chosen theme). Status: `--ou-ok` green, `--ou-warn` amber, `--ou-bad` restrained red.
+Accents: copper `--ou-accent` is the brand (mark, the "New" create button of an app bar, the active app underline); muted teal
+`--ou-action` is for primary buttons, links (`--ou-link`), focus (`--ou-focus`) and selected states (today in the week strip, the
+chosen theme). See "Roles" below (UI audit 2026-11-25: links were copper in some places and teal in others). Status: `--ou-ok` green, `--ou-warn` amber, `--ou-bad` restrained red.
 Every app has one restrained colour (`--ou-app-mail`, `-calendar`, `-contacts`, `-files`, `-doc`, `-sheet`, `-slide`, `-chat`),
 used for its icon only, never for large areas. Type: IBM Plex Sans/Mono, Source Serif for page titles, self-hosted (SIL OFL).
 
 Theme: System by default (`prefers-color-scheme`); the portal's Appearance switch (account menu) sets `data-theme` on `<html>`,
 which wins both ways. Stored per browser in the `ou_prefs` cookie (`<theme>:<hidden widgets>`, HttpOnly, read only by the portal).
+
+### Roles (UI audit 2026-11-25)
+
+| Role | Token | Light | Dark | Use |
+|---|---|---|---|---|
+| Primary action | `--ou-action` / `--ou-action-hover` / `--ou-action-ink` | `#2d6a68` / `#245654` / white | `#6cb8b2` / `#86c7c1` / `#0e151f` | primary buttons, selected states, the selected-item bar |
+| Brand accent | `--ou-accent` / `--ou-accent-hover` (`--ou-a` = organisation accent if set) | `#a9481f` / `#923d1a` | `#ec9a70` / `#f0a982` | the mark, the "New" create button of an app bar, the active app underline. Not for ordinary buttons or links |
+| Link | `--ou-link` | `#2d6a68` | `#6cb8b2` | text links, underlined in running text (>= 4.5:1 on every surface and on `--ou-sel`) |
+| Focus | `--ou-focus`, `--ou-focus-w` 2px, `--ou-focus-offset` 2px | `#2d6a68` | `#6cb8b2` | the one focus ring of every control (>= 3:1 on every surface); inside the navy bar `--ou-bar-text` |
+| Information | `--ou-info` / `--ou-info-bg` | `#3e5878` / `#e2e8f0` | `#9fb8d6` / `#22344c` | neutral notices (the console's `--info` values) |
+| Healthy / warning / critical | `--ou-ok`, `--ou-warn`, `--ou-bad` + `-bg` | | | status text, badges, small tints; a full-width tinted block only for a real, current problem |
+| Overlay | `--ou-scrim` | navy 45 % | black 60 % | behind dialogs and the mobile drawer |
+
+`--ou-teal` equals `--ou-action` (kept for existing references). Checked by `ics/tests/test_uiaudit_system.py` (contrast of every role on
+`bg`, `bg2`, `side`, `surface`, `raised`, `sel`, both themes; the forced dark block equals the system one).
+
+Surfaces: the layer table above, back to front. A panel is one of these layers, never an ad-hoc grey, beige, blue or black. Side panels
+(`--ou-side`) sit next to the canvas or cards and are separated by a `--ou-line` rule (the side/canvas step alone is 1.03:1 light, 1.05:1
+dark: not visible without the rule). Selection = `--ou-sel` + a 3px `--ou-action` bar on the leading edge + weight 500/600: the tint alone is
+only 1.07-1.5:1 against its neighbours. Separators `--ou-line`; control outlines `--ou-line-2`; text-field borders `--ou-field` (3:1).
+
+### Typography
+
+IBM Plex Sans for everything, Plex Mono only for technical values (hashes, versions, IP addresses, paths, code); Source Serif only for the
+portal's greeting. Weights 400 (body), 500 (labels, nav items, buttons), 600 (headings, numbers); no other weights, no letter spacing except
+the uppercase overline (`--ou-fs-xs`, 600, .04em, used sparingly for group titles). Sentence case everywhere (buttons too: "Sign in").
+
+| Step | Token | Size / line height | Use |
+|---|---|---|---|
+| xs | `--ou-fs-xs` | 12px / 1.5 | metadata, captions, table column headings, badges. Nothing is smaller |
+| sm | `--ou-fs-sm` | 13px / 1.5 | secondary text, form labels, nav items, dense tables |
+| md | `--ou-fs-md` | 14px / 1.5 | body, controls, table cells |
+| lg | `--ou-fs-lg` | 16px / 1.25 | card, panel and dialog titles |
+| xl | `--ou-fs-xl` | 20px / 1.25 | page titles (console, account, admin); the sign-in title on phones |
+| 2xl | `--ou-fs-2xl` | 24px / 1.25 | the one top heading of a page (portal greeting, sign-in title) |
+
+### Spacing and sizes
+
+One 4px scale: `--ou-sp-1` 4, `-2` 8, `-3` 12, `-4` 16, `-5` 20, `-6` 24, `-8` 32, `-12` 48 px.
+
+| Element | Value |
+|---|---|
+| Card padding | 16px (`sp-4`), 20px (`sp-5`) for a page's main card; gap between cards 16px |
+| Page gutter | 24px desktop, 16px below 576px (the sign-in card, the portal, the console) |
+| App bar | `--ou-bar-h` 46px |
+| Toolbar | `--ou-toolbar-h` 44px |
+| Buttons and fields | `--ou-control-h` 36px, `--ou-control-h-sm` 30px (bar controls, compact toolbars); padding 0 12px (`sp-3`) |
+| Nav items | `--ou-nav-item-h` 32px, 8px gap icon/label |
+| Table rows | `--ou-row-h` 40px; `--ou-row-h-dense` 32px for operations tables |
+| Section header margin | 24px above, 12px below |
+| Empty state | inside the region it describes, centred, 48px (`sp-12`) from the top; an icon of at most 48px, a sentence, one action |
+| Dialogs | `--ou-dialog-w` 560px max, full width minus 16px gutters on phones |
+
+### Radii, borders, shadows, focus
+
+`--ou-radius-sm` 3px (buttons, fields, badges), `--ou-radius` 4px (cards, panels, tables), `--ou-radius-lg` 6px (menus, popovers, dialogs,
+toasts), `--ou-radius-pill` for status pills and avatars only. Borders 1px. Shadows: none on cards in the canvas (border only) or
+`--ou-shadow`; `--ou-shadow-lg` for floating layers (menus, dialogs, toasts). No glass, no blur, no gradients. Hover = the next layer
+(`--ou-raised`/`--ou-bg2`); pressed/selected = `--ou-sel`; disabled = `--ou-muted` text, no outline change, `cursor: default`. Focus: a 2px
+`--ou-focus` outline 2px outside the control (text fields: around the whole field, offset 0), never removed without a replacement.
+
+### Icons
+
+Standard: the in-repo 24x24 outline icons the portal (`portal/app/templates/_icons.html`) and the console (`ics/frontend/src/ui/icons.ts`)
+already ship: stroke `currentColor`, round caps and joins, stroke width 1.75 (portal 1.7, console 1.8 today: within tolerance, new icons
+1.75), no fill, no icon font, no CDN (ADR-0002). Their geometry is Lucide's; a missing glyph is taken from Lucide (ISC licence, FOSS) and
+inlined in the same style, so the set never mixes families. Sizes: `--ou-icon-sm` 16px inline and in navigation, `--ou-icon` 18px toolbar
+and icon buttons, `--ou-icon-lg` 20px app tiles and the app bar; larger only for an empty-state illustration (max 48px). Icons sit on the
+text's centre line with an 8px gap. Every icon-only control has an `aria-label` and a tooltip (`title`); decorative icons `aria-hidden`.
+Destructive actions use the label and `--ou-bad`, never the icon alone, and ask for confirmation. No emoji as icons.
+
+Vendor icons stay where replacing them would need DOM changes or break the supported hooks: grommunio-web's sprite and SVG icons (ExtJS
+measures them), OpenCloud Web's Remix icons, Element's Compound icons, Keycloak/PatternFly's Font Awesome eye toggle. They are recoloured
+through the skins (muted for secondary actions), not replaced.
+
+### Who owns what
+
+| Surface | Layout owner | Styling hook (supported) | Adapter |
+|---|---|---|---|
+| Portal, dashboard, org admin | Office Unbound (`portal/`) | own templates and `portal.css` (token blocks copied verbatim) | none |
+| ICS console | Office Unbound (`ics/frontend`) | own `style.css` (shared values mapped, `test_brand.py`) | none |
+| Sign-in, account (Keycloak 26) | Keycloak/PatternFly 5 | theme "ou": `theme.properties` styles, messages | `keycloak-login.css`, `keycloak-account.css` |
+| Mail, calendar, contacts (grommunio-web 5.2) | grommunio-web (ExtJS) | `/brand/brand.css` + oudashboard plugin | `grommunio.css` (colours/borders only) |
+| Files, Docs (OpenCloud Web 8.2, Collabora) | OpenCloud | theme.json roles + `web.config.styles` | `opencloud.css`, `brand._roles` |
+| Chat (Element Web 1.12) | Element | config.json `custom_themes` + `branding` | `brand.element_themes`, `brand.element_branding` |
+
+Every adapter is generated by `ics/ics/deploy/brand.py` from `ou-brand.css`; no adapter contains a literal colour except Element's themes
+(Element cannot read CSS custom properties: the values are filled in from the tokens at generation time).
 
 ## App shell (portal `base.html`)
 
@@ -115,6 +204,20 @@ The fields sit on the suite's raised surface with the shared line colour; focus 
 (`keycloak-login.css`, `keycloak-account.css`), nothing else changed. Evidence: `docs/screenshots/signin-v5/` (live sign-in page,
 1440 and 390 wide, light and dark; `after-*` with the new stylesheet added in the browser only, so its logo URL does not resolve there).
 
+UI audit 2026-11-25 (`docs/screenshots/uiaudit-system/signin-*`, 320/390/768/1366/1920, light and dark; `after-*` = the generated skin
+injected in the browser only):
+- Stale stylesheet in browsers: Keycloak serves theme resources under one URL per Keycloak build with a 30-day max-age and answers gzip
+  requests from a cache it does not refresh when a theme file changes. officeunbound8 sent browsers a 7111-byte `ou.css` from before
+  0.13.0 (PatternFly's `#36373a` fields and `#1fa7f8` focus line on screen) while the theme volume held the current 8618-byte file
+  (served only to clients without gzip). The theme now names the skin by content (`ou-<sha256:10>.css`, `brand.versioned`; plain
+  `ou.css` kept for pages rendered from theme properties read earlier). Keycloak caches theme properties until it restarts, so a brand
+  change reaches the sign-in page after the identity service restarts (see known limitations).
+- Primary button in the action teal (was copper), links `--ou-link`, one 2px `--ou-focus` ring around the whole field (was copper
+  outline on the input plus PatternFly's 2px underline in teal/blue), the masthead's controls focus in the bar text colour.
+- Phones: a 16px gutter around the card (it touched the screen edges, border and corners cut off) and a 20px title (24px from 576px).
+- Sentence case: "Sign in", "Forgot password?", "Back to sign-in" (messages; upstream "Sign In", "Forgot Password?", "« Back to Login").
+- Account console: the selected navigation item carries the teal bar like Files, webmail and the console (was copper).
+
 ## Chat (Element Web custom themes)
 
 Element's supported runtime theming (`setting_defaults.custom_themes` in its `config.json`, docs/theming.md of element-web 1.12.35):
@@ -130,7 +233,21 @@ components), dark `#4ea29b`; as text it stays at 4.5:1 or more on the timeline a
 action teal (white 6.2:1). Known gap: normal-size white text on the dark accent is below 4.5:1, and the accent as text on Element's
 menus and the selected room is about 4.3:1 and 3.6:1. Element's compound text and focus colours keep the brighter action teal.
 Seen in a browser on officeunbound8 (2026-11-25, `docs/screenshots/live-0.13.6/`): sign-in through Keycloak and MAS, Element home in the
-light theme with the action teal. Element's identity-confirmation screen keeps its stock background image (not themed).
+light theme with the action teal.
+
+UI audit 2026-11-25 (`docs/screenshots/uiaudit-system/chat-*`; `after-*` = the generated config.json served to the browser only):
+- Element's auth pages (sign-in, "Confirm your digital identity") showed its stock landscape photo, Element's logo and its Blog/Mastodon/
+  GitHub links. config.json `branding` (element-web 1.12.35 `AuthPage`, `AuthFooter`, `AuthHeaderLogo`): `welcome_background_url` = a
+  base64 SVG filled with `--ou-bar-bg` (Element writes the value unquoted into `url()`, so no plain SVG text), `auth_header_logo_url` =
+  the mark, `auth_footer_links` = "Office Unbound Dashboard" to the portal (empty without a portal). Element always adds "Powered by
+  Matrix" and the "Learn more" link to its own documentation (not configurable).
+- Compound (Element's newer components) kept its near-black primary buttons ("Create recovery key", "Use another device") and in dark a
+  `#101317` canvas (black secondary buttons on the navy card). The custom themes map `--cpd-color-bg-action-primary-*` and
+  `--cpd-color-text-on-solid-primary` to the action teal and its ink (6.2:1 light, 8.0:1 dark), the canvas to `--ou-surface`, the subtle
+  tints to `--ou-bg2`/`--ou-line`, the secondary outline to `--ou-line-2`, focus to `--ou-focus` (Element accepts any `--cpd-*` key).
+- Limits: Element Web has no phone layout for these pages (at 390px the identity card is wider than the screen; the branding changes no geometry; Element
+  points phone users to its mobile apps); fonts stay Element's (Inter): custom-theme font faces need font files the chat front does not
+  serve, and data: URIs in config.json would add about 200 KB per theme to every load.
 
 ## Evidence
 
@@ -143,3 +260,11 @@ widened the `.stack` grid), fixed with `grid-template-columns: minmax(0, 1fr)`.
 Apps (officeunbound8, signed in as the `doctest` user, 1600x900): `docs/screenshots/apps-v5/` (`before-*` = the deployed skin;
 `after-*` = the stage-2 `brand.css` added in the browser only, the deployment unchanged; dark = the webmail's own `dark-mode`
 class, as when the user picks Dark in its settings).
+
+## Groupware
+
+## Files
+
+## Portal
+
+## Console

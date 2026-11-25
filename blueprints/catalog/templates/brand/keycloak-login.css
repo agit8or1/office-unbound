@@ -1,13 +1,14 @@
 /* Keycloak 26 sign-in pages (login theme "ou", parent keycloak.v2 = PatternFly 5): the product's navy top bar with the mark and the name
-   (the organisation's when the portal branding has one), a white card on paper, copper primary button, IBM Plex (ou-fonts.css). */
+   (the organisation's when the portal branding has one), a white card on paper, IBM Plex (ou-fonts.css). Roles as everywhere in the suite
+   (UI audit 2026-11-25): the primary button in the action teal, links --ou-link, one focus colour --ou-focus. */
 :root {
   --pf-v5-global--FontFamily--text: var(--ou-font);
   --pf-v5-global--FontFamily--heading: var(--ou-font);
   --pf-v5-global--FontFamily--monospace: var(--ou-mono);
   --pf-v5-global--primary-color--100: var(--ou-a);
   --pf-v5-global--primary-color--200: var(--ou-a);
-  --pf-v5-global--link--Color: var(--ou-a);
-  --pf-v5-global--link--Color--hover: var(--ou-a);
+  --pf-v5-global--link--Color: var(--ou-link);
+  --pf-v5-global--link--Color--hover: var(--ou-link);
   --pf-v5-global--BackgroundColor--100: var(--ou-surface);
   --pf-v5-global--Color--100: var(--ou-text);
   --pf-v5-global--Color--200: var(--ou-muted);
@@ -36,7 +37,14 @@
   background: var(--ou-surface); border: 1px solid var(--ou-line); border-radius: var(--ou-radius); box-shadow: var(--ou-shadow); overflow: hidden;
 }
 .pf-v5-c-login__main-header { border-top: 0; }
-.pf-v5-c-login__main-header h1, #kc-page-title { font-weight: 600; letter-spacing: -.01em; color: var(--ou-ink); }
+.pf-v5-c-login__main-header h1, #kc-page-title {
+  font-weight: 600; font-size: var(--ou-fs-2xl); line-height: var(--ou-lh-tight); letter-spacing: -.01em; color: var(--ou-ink);
+}
+/* phones: PatternFly lets the card touch the screen edges (border and corners cut off at 320-575 px); the suite keeps a 16 px gutter */
+@media (max-width: 575px) {
+  .pf-v5-c-login__container { padding-inline: var(--ou-sp-4); }
+  .pf-v5-c-login__main-header h1, #kc-page-title { font-size: var(--ou-fs-xl); }
+}
 .pf-v5-c-form-control {
   border-radius: var(--ou-radius-sm);
   /* the fields on the suite's own surfaces (PatternFly's dark grey #353535 and its blue underline otherwise; 0.13.0) */
@@ -44,20 +52,25 @@
   --pf-v5-c-form-control--before--BorderTopColor: var(--ou-field); --pf-v5-c-form-control--before--BorderRightColor: var(--ou-field);
   --pf-v5-c-form-control--before--BorderBottomColor: var(--ou-field); --pf-v5-c-form-control--before--BorderLeftColor: var(--ou-field);
   --pf-v5-c-form-control--after--BorderBottomColor: var(--ou-field); --pf-v5-c-form-control--hover--after--BorderBottomColor: var(--ou-muted);
-  --pf-v5-c-form-control--focus--after--BorderBottomColor: var(--ou-action);
+  --pf-v5-c-form-control--focus--after--BorderBottomColor: var(--ou-focus); --pf-v5-c-form-control--focus--after--BorderBottomWidth: 1px;
 }
+/* one focus ring around the whole field, as in the portal and the console (was the input's own outline plus PatternFly's 2px underline
+   below it, in two colours) */
+.pf-v5-c-form-control > input:focus-visible, .pf-v5-c-form-control > textarea:focus-visible { outline: none; }
+.pf-v5-c-form-control:focus-within { outline: var(--ou-focus-w) solid var(--ou-focus); outline-offset: 0; }
 .pf-v5-c-button.pf-m-control { --pf-v5-c-button--m-control--BackgroundColor: var(--ou-raised); --pf-v5-c-button--m-control--Color: var(--ou-muted); }
 .pf-v5-c-form-control::after { border-radius: var(--ou-radius-sm); }
 .pf-v5-c-button { border-radius: var(--ou-radius-btn); min-height: 2.5rem; font-weight: 500; }
 .pf-v5-c-button.pf-m-primary {
-  --pf-v5-c-button--m-primary--BackgroundColor: var(--ou-a); --pf-v5-c-button--m-primary--hover--BackgroundColor: var(--ou-a);
-  --pf-v5-c-button--m-primary--focus--BackgroundColor: var(--ou-a); --pf-v5-c-button--m-primary--active--BackgroundColor: var(--ou-a);
-  --pf-v5-c-button--m-primary--Color: var(--ou-a-ink); --pf-v5-c-button--m-primary--hover--Color: var(--ou-a-ink);
+  --pf-v5-c-button--m-primary--BackgroundColor: var(--ou-action); --pf-v5-c-button--m-primary--hover--BackgroundColor: var(--ou-action-hover);
+  --pf-v5-c-button--m-primary--focus--BackgroundColor: var(--ou-action-hover); --pf-v5-c-button--m-primary--active--BackgroundColor: var(--ou-action-hover);
+  --pf-v5-c-button--m-primary--Color: var(--ou-action-ink); --pf-v5-c-button--m-primary--hover--Color: var(--ou-action-ink);
+  --pf-v5-c-button--m-primary--focus--Color: var(--ou-action-ink); --pf-v5-c-button--m-primary--active--Color: var(--ou-action-ink);
 }
-.pf-v5-c-button.pf-m-primary:hover { filter: brightness(.94); }
 .pf-v5-c-button.pf-m-secondary, .pf-v5-c-button.pf-m-tertiary {
   --pf-v5-c-button--after--BorderColor: var(--ou-line-2); --pf-v5-c-button--m-secondary--Color: var(--ou-ink); --pf-v5-c-button--m-tertiary--Color: var(--ou-ink);
   background: var(--ou-surface);
 }
-a { color: var(--ou-a); text-underline-offset: 3px; }
-:focus-visible { outline: 2px solid var(--ou-a); outline-offset: 2px; }
+a { color: var(--ou-link); text-underline-offset: 3px; }
+:focus-visible { outline: var(--ou-focus-w) solid var(--ou-focus); outline-offset: var(--ou-focus-offset); }
+#kc-header :focus-visible { outline-color: var(--ou-bar-text); }

@@ -1,5 +1,6 @@
 /* Keycloak 26 account console (account theme "ou", parent keycloak.v3 = React + PatternFly 5): the product's navy top bar, the paper side
-   navigation of the interface concepts (selected item: soft blue with a copper edge), white cards, copper primary buttons, IBM Plex.
+   navigation (selected item: the selection colour with the teal bar, as in Files, webmail and the console), white cards, primary buttons in
+   the action teal, links --ou-link, one focus colour --ou-focus (UI audit 2026-11-25), IBM Plex.
    The masthead logo links to the portal (theme.properties logoUrl); arriving from the portal adds Keycloak's own "Back to ..." referrer link. */
 :root {
   --pf-v5-global--FontFamily--text: var(--ou-font);
@@ -7,8 +8,8 @@
   --pf-v5-global--FontFamily--monospace: var(--ou-mono);
   --pf-v5-global--primary-color--100: var(--ou-a);
   --pf-v5-global--primary-color--200: var(--ou-a);
-  --pf-v5-global--link--Color: var(--ou-a);
-  --pf-v5-global--link--Color--hover: var(--ou-a);
+  --pf-v5-global--link--Color: var(--ou-link);
+  --pf-v5-global--link--Color--hover: var(--ou-link);
   --pf-v5-global--BackgroundColor--100: var(--ou-surface);
   --pf-v5-global--BackgroundColor--200: var(--ou-bg);
   --pf-v5-global--Color--100: var(--ou-text);
@@ -34,7 +35,7 @@ body { font-family: var(--ou-font); background: var(--ou-bg); color: var(--ou-te
   --pf-v5-c-nav__link--hover--BackgroundColor: var(--ou-bg2); --pf-v5-c-nav__link--before--BorderColor: transparent; }
 .pf-v5-c-nav__link { border-radius: var(--ou-radius-sm); }
 .pf-v5-c-nav__link.pf-m-current, .pf-v5-c-nav__link[aria-current="page"] {
-  font-weight: 500; color: var(--ou-ink); background: var(--ou-sel); box-shadow: inset 3px 0 0 var(--ou-a);
+  font-weight: 500; color: var(--ou-ink); background: var(--ou-sel); box-shadow: inset 3px 0 0 var(--ou-action);
 }
 .pf-v5-c-card, .pf-v5-c-data-list { border: 1px solid var(--ou-line); border-radius: var(--ou-radius); box-shadow: none; background: var(--ou-surface); }
 .pf-v5-c-title { color: var(--ou-ink); font-weight: 600; }
@@ -45,12 +46,17 @@ body { font-family: var(--ou-font); background: var(--ou-bg); color: var(--ou-te
   --pf-v5-c-form-control--before--BorderTopColor: var(--ou-field); --pf-v5-c-form-control--before--BorderRightColor: var(--ou-field);
   --pf-v5-c-form-control--before--BorderBottomColor: var(--ou-field); --pf-v5-c-form-control--before--BorderLeftColor: var(--ou-field);
   --pf-v5-c-form-control--after--BorderBottomColor: var(--ou-field); --pf-v5-c-form-control--hover--after--BorderBottomColor: var(--ou-muted);
-  --pf-v5-c-form-control--focus--after--BorderBottomColor: var(--ou-action);
+  --pf-v5-c-form-control--focus--after--BorderBottomColor: var(--ou-focus); --pf-v5-c-form-control--focus--after--BorderBottomWidth: 1px;
 }
+/* one focus ring around the whole field, as in the portal and the console (was the input's own outline plus PatternFly's 2px underline
+   below it, in two colours) */
+.pf-v5-c-form-control > input:focus-visible, .pf-v5-c-form-control > textarea:focus-visible { outline: none; }
+.pf-v5-c-form-control:focus-within { outline: var(--ou-focus-w) solid var(--ou-focus); outline-offset: 0; }
 .pf-v5-c-button.pf-m-control { --pf-v5-c-button--m-control--BackgroundColor: var(--ou-raised); --pf-v5-c-button--m-control--Color: var(--ou-muted); }
 .pf-v5-c-button { border-radius: var(--ou-radius-btn); font-weight: 500; }
-.pf-v5-c-button.pf-m-primary { --pf-v5-c-button--m-primary--BackgroundColor: var(--ou-a); --pf-v5-c-button--m-primary--hover--BackgroundColor: var(--ou-a);
-  --pf-v5-c-button--m-primary--Color: var(--ou-a-ink); --pf-v5-c-button--m-primary--hover--Color: var(--ou-a-ink); }
+.pf-v5-c-button.pf-m-primary { --pf-v5-c-button--m-primary--BackgroundColor: var(--ou-action); --pf-v5-c-button--m-primary--hover--BackgroundColor: var(--ou-action-hover);
+  --pf-v5-c-button--m-primary--Color: var(--ou-action-ink); --pf-v5-c-button--m-primary--hover--Color: var(--ou-action-ink); }
 .pf-v5-c-button.pf-m-secondary { --pf-v5-c-button--m-secondary--Color: var(--ou-ink); --pf-v5-c-button--m-secondary--BorderColor: var(--ou-line-2);
   --pf-v5-c-button--after--BorderColor: var(--ou-line-2); }
-:focus-visible { outline: 2px solid var(--ou-a); outline-offset: 2px; }
+:focus-visible { outline: var(--ou-focus-w) solid var(--ou-focus); outline-offset: var(--ou-focus-offset); }
+.pf-v5-c-masthead :focus-visible { outline-color: var(--ou-bar-text); }

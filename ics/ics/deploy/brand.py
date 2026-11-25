@@ -184,32 +184,77 @@ def element_themes() -> list[dict]:
                            "roomlist-separator-color": t["line"], "timeline-background-color": t["surface"],
                            "timeline-text-color": t["ink"], "timeline-text-secondary-color": t["muted"], "timeline-highlights-color": t["bg2"]},
                 "compound": {"--cpd-color-text-action-accent": t["action"], "--cpd-color-icon-accent-tertiary": t["action"],
-                             "--cpd-color-bg-accent-rest": t["action"], "--cpd-color-border-focused": t["action"]}}
+                             "--cpd-color-bg-accent-rest": t["action"], "--cpd-color-border-focused": t["focus"],
+                             # Compound's primary button is near-black (light) / near-white (dark): the suite's primary is the action
+                             # teal ("Create recovery key", "Use another device", dialogs), text in the action ink like the portal's
+                             "--cpd-color-bg-action-primary-rest": t["action"], "--cpd-color-bg-action-primary-hovered": t["action-hover"],
+                             "--cpd-color-bg-action-primary-pressed": t["action-hover"], "--cpd-color-text-on-solid-primary": t["action-ink"],
+                             # Compound's own neutral layers (near-black #101317 canvas in dark: black secondary buttons on the navy
+                             # card of "Confirm your digital identity") on the suite's: canvas = the surface, tints = the side tint and line
+                             "--cpd-color-bg-canvas-default": t["surface"], "--cpd-color-bg-subtle-secondary": t["bg2"],
+                             "--cpd-color-bg-subtle-primary": t["line"], "--cpd-color-border-interactive-secondary": t["line-2"]}}
     light, dark = tokens()
     return [theme(ELEMENT_THEME, light, False), theme(f"{ELEMENT_THEME} Dark", dark, True)]
 
 
+def _svg_data_uri(svg: str) -> str:
+    """base64: Element writes the background as `center/cover fixed url(<value>)` without quotes, so the value may hold no space,
+    quote or parenthesis (element-web 1.12.35 AuthPage)."""
+    return "data:image/svg+xml;base64," + base64.b64encode(svg.encode()).decode()
+
+
+def element_background_svg() -> str:
+    """The sign-in / identity-confirmation backdrop: the suite's app-bar navy (dark in both themes, so the light and the dark card both
+    sit on it), nothing else. Replaces Element's stock landscape photo (themes/element/img/backgrounds/lake.jpg)."""
+    light, _ = tokens()
+    return ('<svg xmlns="http://www.w3.org/2000/svg" width="1600" height="900" viewBox="0 0 1600 900" preserveAspectRatio="none">'
+            f'<rect width="1600" height="900" fill="{light["bar-bg"]}"/></svg>')
+
+
+def element_branding(portal: str | None) -> dict:
+    """config.json `branding` (element-web 1.12.35 docs/config.md): the backdrop of Element's auth pages (sign-in, "Confirm your digital
+    identity") in the suite's navy instead of the stock photo, the Office Unbound mark instead of Element's logo, and the footer links
+    (default: Element's blog, Mastodon and GitHub) replaced by the way back to the portal. Element always adds "Powered by Matrix"."""
+    return {"welcome_background_url": _svg_data_uri(element_background_svg()),
+            "auth_header_logo_url": _svg_data_uri(mark_svg()),
+            "auth_footer_links": [{"text": f"{PRODUCT} {HOME_LABEL}", "url": portal}] if portal else []}
+
+
 # ---------------------------------------------------------------- Keycloak
+def versioned(name: str, content: str) -> str:
+    """`name` with a fingerprint of `content` (ou.css -> ou-<10 hex>.css). Keycloak serves theme resources under one URL per Keycloak
+    build (/resources/<version>/...) with a 30-day max-age, and answers gzip requests from a cache it never refreshes for a changed file:
+    officeunbound8 (2026-11-25) sent browsers a 7111-byte ou.css from before 0.13.0 while the volume held the 8618-byte current one (PatternFly's
+    dark grey fields and blue focus line still on screen). A new name per content is a new URL, so neither cache can serve an old skin."""
+    stem, dot, ext = name.rpartition(".")
+    return f"{stem}-{hashlib.sha256(content.encode()).hexdigest()[:10]}{dot}{ext}"
+
+
 def keycloak_theme(portal: str | None) -> list[dict]:
-    """Files of the theme folder "ou" (paths relative to /opt/keycloak/themes; at most 4 levels: cfg.volume_files RELPATH_RE)."""
+    """Files of the theme folder "ou" (paths relative to /opt/keycloak/themes; at most 4 levels: cfg.volume_files RELPATH_RE). The skin is
+    referenced under a content-versioned name (`versioned`); plain ou.css stays as well, with the same content, for pages rendered from
+    theme properties Keycloak read before this change (it caches them until it restarts)."""
+    login_css = skin("keycloak-login.css", portal=portal, dark=".pf-v5-theme-dark", mark_url="ou-mark.svg")
+    account_css = skin("keycloak-account.css", portal=portal, dark=".pf-v5-theme-dark", mark_url="ou-mark.svg")
+    login_v, account_v = versioned("ou.css", login_css), versioned("ou.css", account_css)
     login = ("parent=keycloak.v2\nimport=common/keycloak\n"
-             f"# the parent's stylesheet first, the fonts, the skin last so it wins\nstyles=css/styles.css {FONTS_CSS} ou.css\ndarkMode=true\n"
+             f"# the parent's stylesheet first, the fonts, the skin last so it wins\nstyles=css/styles.css {FONTS_CSS} {login_v}\ndarkMode=true\n"
              # the tab icon (ThemeResourcesParser `favicons`, href = resourcesPath + "/" + path); without it keycloak.v2's img/favicon.ico
              "favicons=ou-mark.svg\n")
-    account = (f"parent=keycloak.v3\nstyles={FONTS_CSS} ou.css\nlogo=/ou-mark.svg\ndarkMode=true\n"
+    account = (f"parent=keycloak.v3\nstyles={FONTS_CSS} {account_v}\nlogo=/ou-mark.svg\ndarkMode=true\n"
                # index.ftl: <title>${properties.title!'Account Management'}</title>, favicon from `favicons` (resourceUrl + "/" + path)
                f"title=Your account - {PRODUCT}\nfavicons=ou-mark.svg\n" + (f"logoUrl={portal}\n" if portal else ""))
     mark, fonts = mark_svg(), fonts_css()
     return [
         {"path": "ou/login/theme.properties", "mode": 0o644, "content": login},
         {"path": "ou/login/messages/messages_en.properties", "mode": 0o644, "content": keycloak_login_messages()},
-        {"path": "ou/login/resources/ou.css", "mode": 0o644,
-         "content": skin("keycloak-login.css", portal=portal, dark=".pf-v5-theme-dark", mark_url="ou-mark.svg")},
+        {"path": f"ou/login/resources/{login_v}", "mode": 0o644, "content": login_css},
+        {"path": "ou/login/resources/ou.css", "mode": 0o644, "content": login_css},
         {"path": "ou/login/resources/ou-mark.svg", "mode": 0o644, "content": mark},
         {"path": f"ou/login/resources/{FONTS_CSS}", "mode": 0o644, "content": fonts},
         {"path": "ou/account/theme.properties", "mode": 0o644, "content": account},
-        {"path": "ou/account/resources/ou.css", "mode": 0o644,
-         "content": skin("keycloak-account.css", portal=portal, dark=".pf-v5-theme-dark", mark_url="ou-mark.svg")},
+        {"path": f"ou/account/resources/{account_v}", "mode": 0o644, "content": account_css},
+        {"path": "ou/account/resources/ou.css", "mode": 0o644, "content": account_css},
         {"path": "ou/account/resources/ou-mark.svg", "mode": 0o644, "content": mark},
         {"path": f"ou/account/resources/{FONTS_CSS}", "mode": 0o644, "content": fonts},
         {"path": "ou/email/theme.properties", "mode": 0o644, "content": "parent=base\n"},
@@ -225,7 +270,11 @@ def keycloak_login_messages() -> str:
     return ("# Office Unbound sign-in texts (generated by ics/ics/deploy/brand.py; overrides of the keycloak.v2/base login messages)\n"
             f"loginTitle=Sign in - {PRODUCT}\n"
             f"loginTitleHtml={PRODUCT}\n"
-            "loginAccountTitle=Sign in to your account\n")
+            "loginAccountTitle=Sign in to your account\n"
+            # sentence case like every other button and link of the suite (upstream: "Sign In", "Forgot Password?", "« Back to Login")
+            "doLogIn=Sign in\n"
+            "doForgotPassword=Forgot password?\n"
+            "backToLogin=Back to sign-in\n")
 
 
 # base/email/messages/messages_en.properties (Keycloak 26.8.2) keys whose text names the realm ({2} = realm display name) or the upstream

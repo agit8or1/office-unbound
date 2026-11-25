@@ -140,9 +140,11 @@ def test_keycloak_theme_fits_the_volume_files_schema_and_links_the_portal():
     files = brand.keycloak_theme(PORTAL)
     assert c.check_volume_files({**VF, "files": files}, {"enabled": True})["files"] == files
     f = {x["path"]: x["content"] for x in files}
-    assert "parent=keycloak.v2" in f["ou/login/theme.properties"] and "styles=css/styles.css ou-fonts.css ou.css" in f["ou/login/theme.properties"]
+    login_v, account_v = brand.versioned("ou.css", f["ou/login/resources/ou.css"]), brand.versioned("ou.css", f["ou/account/resources/ou.css"])
+    assert "parent=keycloak.v2" in f["ou/login/theme.properties"] and f"styles=css/styles.css ou-fonts.css {login_v}\n" in f["ou/login/theme.properties"]
     acc = f["ou/account/theme.properties"]
-    assert "parent=keycloak.v3" in acc and f"logoUrl={PORTAL}" in acc and "logo=/ou-mark.svg" in acc and "styles=ou-fonts.css ou.css" in acc
+    assert "parent=keycloak.v3" in acc and f"logoUrl={PORTAL}" in acc and "logo=/ou-mark.svg" in acc and f"styles=ou-fonts.css {account_v}\n" in acc
+    assert f[f"ou/login/resources/{login_v}"] == f["ou/login/resources/ou.css"] and f[f"ou/account/resources/{account_v}"] == f["ou/account/resources/ou.css"]
     for t in ("login", "account"):                                                         # the fonts travel with each theme type
         assert f[f"ou/{t}/resources/ou-fonts.css"] == brand.fonts_css()
     assert ".pf-v5-theme-dark {" in f["ou/login/resources/ou.css"] and f["ou/login/resources/ou-mark.svg"].startswith("<svg")
