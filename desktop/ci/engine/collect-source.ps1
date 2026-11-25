@@ -31,11 +31,11 @@ foreach ($g in Get-ChildItem $CraftRoot -Recurse -Directory -Filter ".git" -Dept
 # Our build recipe.
 Copy-Item (Join-Path $OcDir ".craft.shelf") $src
 Copy-Item "$env:GITHUB_WORKSPACE/ou/.github/workflows/desktop-engine-windows.yml" $src
-Copy-Item "$env:GITHUB_WORKSPACE/ou/desktop/ci/engine/*.ps1" $src
+Copy-Item "$env:GITHUB_WORKSPACE/ou/desktop/ci/engine/*" $src
+Copy-Item "$env:RUNNER_TEMP/pinned.shelf" $src
 
 # Installed Craft packages.
-$craft = "$OcDir/.github/workflows/.craft.ps1"
-$list = & $craft -c --list-installed 2>&1 | Out-String
+$list = & $env:CRAFT -c --list-installed 2>&1 | Out-String
 Set-Content -Path (Join-Path $src "packages.txt") -Value $list
 
 $md = @("# Corresponding source: opencloudcmd $Tag for Windows x64", "",
