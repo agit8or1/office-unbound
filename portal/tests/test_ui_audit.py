@@ -77,3 +77,12 @@ def test_devices_tables_carry_labels_and_the_start_link_targets_the_dashboard(pe
     assert 'href="/#h-create"' in t and 'href="/#h-new"' not in t
     home = c.get("/").text
     assert 'id="h-create"' in home
+
+
+def test_admin_app_choices_keep_their_names_when_branding_lists_apps(env):
+    c, m, _ = env
+    signin(c, m)
+    assert m.branding["apps"]                                                      # the shell's app list is set
+    for path in ("/admin/users/anna", "/admin/users/new", "/admin/groups"):
+        t = c.get(path).text
+        assert "<b>Mail, calendar and contacts</b>" in t and "<span><b></b></span>" not in t, path
