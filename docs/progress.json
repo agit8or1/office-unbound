@@ -5,8 +5,20 @@
   "repository": "https://github.com/agit8or1/office-unbound",
   "updated": "2026-11-25",
   "stage": "alpha",
-  "current_version": "0.13.9",
+  "current_version": "0.13.10",
   "releases": [
+    {
+      "version": "0.13.10",
+      "date": "2026-11-26",
+      "status": "prepared",
+      "codename": "Meridian",
+      "channel": "alpha",
+      "highlights": [
+        "0.13.10: the desktop sign-in client and discovery document reach running deployments (identity and groupware configuration revision 2)"
+      ],
+      "notes_url": "https://github.com/agit8or1/office-unbound/releases/tag/v0.13.10",
+      "changelog": "CHANGELOG.md#01310---2026-11-26"
+    },
     {
       "version": "0.13.9",
       "date": "2026-11-25",

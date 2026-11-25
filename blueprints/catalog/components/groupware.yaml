@@ -1,5 +1,6 @@
 name: groupware
 version: 1.0.0
+config_revision: 2   # 2: cfg.gromox serves the desktop discovery document /.well-known/office-unbound/client.json (0.13.10, agent 0.10.3 feature client_document)
 title: Groupware (gromox stack, package-based)
 description: Mail/calendar/contacts (gromox + web + postfix + MariaDB), built by Office Unbound and installed from the OB apt repo (ADR-0003/0008).
 artifacts:

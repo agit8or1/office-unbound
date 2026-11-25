@@ -1,5 +1,6 @@
 name: identity
 version: 1.0.0
+config_revision: 2   # 2: the realm template adds the Office Unbound Desktop client ou-desktop (0.13.10); the in-place realm reconcile creates it on existing deployments
 title: Identity (OpenLDAP + Keycloak + PostgreSQL)
 description: Directory of record (OpenLDAP), OIDC provider (Keycloak) and its database (PostgreSQL). ADR-0004.
 artifacts:

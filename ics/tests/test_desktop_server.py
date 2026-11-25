@@ -193,3 +193,12 @@ def test_the_agent_writes_the_document_as_a_world_readable_static_file_and_remov
     assert json.loads(f.read_text()) == doc and oct(f.stat().st_mode & 0o777) == "0o644"
     h._client_document(None)
     assert not f.exists()
+
+
+def test_running_deployments_get_the_desktop_client_and_document_with_their_next_change():
+    """0.13.9 shipped the realm client and the discovery document without a config_revision bump, so a running deployment's in-place change
+    never re-ran the identity and groupware configuration (the preview on officeunbound8 had no step for either). Revision 2 makes it."""
+    from ics.deploy.catalog import load_catalog
+    cat = load_catalog()
+    assert cat.components["identity"].config_revision >= 2
+    assert cat.components["groupware"].config_revision >= 2

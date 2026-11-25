@@ -10,6 +10,13 @@ isolated lab; nothing is production supported ([ROADMAP.md](ROADMAP.md)).
 
 ## [Unreleased]
 
+## [0.13.10] - 2026-11-26
+
+### Fixed
+- The Office Unbound Desktop sign-in client (`ou-desktop`) and the discovery document of 0.13.9 now reach running deployments: the identity
+  and groupware components have configuration revision 2, so the next in-place change re-runs the realm reconcile and the mail server's
+  configuration. 0.13.9 left the revision unchanged, so its change on officeunbound8 had no step for either (`ics/tests/test_desktop_server.py`).
+
 ## [0.13.9] - 2026-11-25
 
 ### Changed
@@ -786,6 +793,7 @@ editing, chat/meetings, telephony prototype, migration tooling and package pipel
 - `SECURITY.md` (private reporting) and `CONTRIBUTING.md` (DCO sign-off) added; AGPL-3.0 license. [SECURITY](SECURITY.md)
 
 [Unreleased]: https://github.com/agit8or1/office-unbound/compare/v0.4.7...HEAD
+[0.13.10]: https://github.com/agit8or1/office-unbound/compare/v0.13.9...v0.13.10
 [0.13.9]: https://github.com/agit8or1/office-unbound/compare/v0.13.8...v0.13.9
 [0.13.8]: https://github.com/agit8or1/office-unbound/compare/v0.13.7...v0.13.8
 [0.13.7]: https://github.com/agit8or1/office-unbound/compare/v0.13.6...v0.13.7

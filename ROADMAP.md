@@ -1,6 +1,6 @@
 # Office Unbound roadmap & progress
 
-> Generated from [`docs/progress.json`](docs/progress.json) by `scripts/render_roadmap.py` — edit the JSON, not this file. Last updated **2026-11-25** · stage: **alpha** · current version: **0.13.9**.
+> Generated from [`docs/progress.json`](docs/progress.json) by `scripts/render_roadmap.py` — edit the JSON, not this file. Last updated **2026-11-25** · stage: **alpha** · current version: **0.13.10**.
 
 Alpha (0.10.0 "Juniper"): an administrator installs the Infrastructure Control Server from the release tag, connects Proxmox VE and deploys the full stack (Keycloak sign-in, user portal, Exchange-compatible mail with webmail, calendar and contacts, file sync, browser document editing) onto real VMs, reachable from the internet with a Let's Encrypt certificate the ICS keeps across rebuilds. Proven on one reference installation; not for production data. Chat, meetings, telephony, anti-spam and migration are lab prototypes or planned.
 
@@ -194,6 +194,7 @@ Alpha (0.10.0 "Juniper"): an administrator installs the Infrastructure Control S
 
 | Version | Date | Status | Highlights |
 |---|---|---|---|
+| [0.13.10](https://github.com/agit8or1/office-unbound/releases/tag/v0.13.10) | 2026-11-26 | prepared | 0.13.10: the desktop sign-in client and discovery document reach running deployments (identity and groupware configuration revision 2) |
 | [0.13.9](https://github.com/agit8or1/office-unbound/releases/tag/v0.13.9) | 2026-11-25 | prepared | 0.13.9: Office Unbound Docs ou6: a new Docs image reaches browsers at once (the welcome tour no longer reappears from a cached editor)<br>0.13.9: the deployment's realm has the Office Unbound Desktop sign-in client, and autodiscover.<domain> serves the desktop app's discovery document<br>0.13.9: node agent 0.10.3 |
 | [0.13.8](https://github.com/agit8or1/office-unbound/releases/tag/v0.13.8) | 2026-11-25 | released | 0.13.8: Administration > Tenants: each tenant's deployments with their VMs (where they run, size, node agent, health), domains and a DNS checker that asks the domain's own name servers (ADR-0021 step 1); Users & roles is now Platform admins<br>0.13.8: the tenant portal's DNS check covers the client-setup SRV records and no longer asks for a DKIM key the deployment does not have<br>0.13.8: deployment.snapshots.prune deletes a deployment's own pre-change snapshots older than a cutoff (approved, audited) |
 | [0.13.7](https://github.com/agit8or1/office-unbound/releases/tag/v0.13.7) | 2026-11-25 | released | 0.13.7: the calendar opened from the dashboard shows its days and dates again (webmail 5.2-ou6: the deep link loads the calendar's folder)<br>0.13.7: UI audit across portal, organization admin, console, Files, webmail, sign-in and chat: phone layouts without sideways scrolling, calmer status colours, readable dense metadata<br>0.13.7: experimental features (meetings, telephony, multi-tenant, device remote wipe) are off unless the host owner turns them on |

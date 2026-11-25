@@ -88,7 +88,7 @@ def test_a_new_agent_pin_upgrades_every_agent_in_place_before_anything_else_on_i
 def test_a_configuration_revision_reconfigures_only_that_component():
     c = pinned()
     old = _plan(c, _layout())
-    c.components["groupware"].config_revision = 2
+    c.components["groupware"].config_revision += 1
     new = _plan(c, _layout())
     d = diff_plans(old, new, c)
     k = _keys(d)
