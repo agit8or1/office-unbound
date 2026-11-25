@@ -1,6 +1,13 @@
 # Building `opencloudcmd.exe` (OpenCloud Desktop sync engine) for Windows: investigation
 
-Status: **investigated, not built, not in any workflow.** Whether to build it is an owner decision.
+Status: **approved by the owner on 2026-11-25; workflow `.github/workflows/desktop-engine-windows.yml`.** It runs on
+push to `desktop-*` when the workflow or `desktop/ci/engine/**` changes, or by hand. Pins: OpenCloud Desktop `v4.0.0` @
+`9f701e6db2e101cb3247d3331647a60266e83b0f`, CraftMaster `8a19d8fc`, craft-core `b80e8f8c` and both blueprint
+repositories at the revisions in upstream's `.craft.shelf`, runner `windows-2022` (that Craft does not
+detect VS 2026 on `windows-latest`) (`desktop/ci/engine/craft-pin.ini` + a pinned shelf copy).
+Output artifact `opencloudcmd-windows-x64-v4.0.0-<run>`: `opencloudcmd/` (the exe, its DLL import closure, Qt tls and
+networkinformation plugins, OpenSSL, checked by starting it with a clean PATH), `source/` (desktop tree archive,
+Craft repo archives, shelf, recipe, installed-package list, SOURCES.md) and `SHA256SUMS`.
 Facts below come from upstream's public repo and Actions runs (read 2026-11-25); the time figures are upstream's,
 not ours.
 
@@ -19,7 +26,7 @@ not ours.
 - Measured on upstream's run 45663663783 (main, 2026-11-25, warm caches), Windows x64 job: about 17 min.
   That was Craft unshelve plus prebuilt dependencies 4m37s, build 8m16s, tests 3m01s.
 
-## How we would do it (not done)
+## Plan (now implemented as the workflow above)
 
 A separate `desktop-opencloudcmd.yml` workflow, started by hand (`workflow_dispatch`):
 1. Check out `opencloud-eu/desktop` at the tag (`v4.0.0`, matching the brief), pinned by commit SHA.

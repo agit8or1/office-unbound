@@ -33,8 +33,10 @@ env:
 
 jobs:
   engine:
-    name: opencloudcmd.exe (Craft, ${{ github.event_name }})
-    runs-on: windows-latest
+    name: opencloudcmd.exe (Craft, windows-2022)
+    # Craft at upstream's v4.0.0 revisions finds only Visual Studio 2022; windows-latest now ships VS 2026 (VS 18), which that
+    # Craft rejects ("Unable to locate Visual Studio"). windows-2022 is the image upstream built v4.0.0 on.
+    runs-on: windows-2022
     timeout-minutes: 300
     defaults:
       run:
