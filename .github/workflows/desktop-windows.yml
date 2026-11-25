@@ -7,6 +7,11 @@ name: desktop-windows
 on:
   push:
     branches: ["desktop-*"]
+    # Engine-only changes have their own workflow (desktop-engine-windows.yml) and do not change the app.
+    paths-ignore:
+      - ".github/workflows/desktop-engine-windows.yml"
+      - "desktop/ci/engine/**"
+      - "docs/desktop/build-opencloudcmd.md"
   pull_request:
     paths:
       - "desktop/**"
