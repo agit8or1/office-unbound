@@ -142,3 +142,36 @@ widened the `.stack` grid), fixed with `grid-template-columns: minmax(0, 1fr)`.
 Apps (officeunbound8, signed in as the `doctest` user, 1600x900): `docs/screenshots/apps-v5/` (`before-*` = the deployed skin;
 `after-*` = the stage-2 `brand.css` added in the browser only, the deployment unchanged; dark = the webmail's own `dark-mode`
 class, as when the user picks Dark in its settings).
+
+## Portal (UI audit 2026-11-25)
+
+Owner brief 2026-11-25 sections 6, 7 and the device setup page of 12. Evidence: `docs/screenshots/uiaudit-portal/` (`before-*` = 0.13.6 portal,
+`after-*` = this branch; local preview of the real portal app against the test suite's mocks, with long fixture values such as
+`ou-lab.internal`, a 50-character e-mail address and long request summaries).
+
+Type hierarchy (signed-in pages): page title `h1` Plex Sans 600, `clamp(1.375rem, 1.1rem + 1vw, 1.625rem)` (the dashboard greeting is the
+same title, no longer a 36px serif); section `h2` 1rem 600; widget and card titles 14.5px 600; intro paragraph `.sub` muted, at most 72
+characters per line; labels and metadata .82-.85rem muted; technical values (`code`, checksums) Plex Mono. Source Serif stays for the
+signed-out hero (`.hero h1`).
+
+Layout rules:
+- Dashboard: two bands of three equal-height cards (Inbox, This week, Quick create; Recent files, Favourites, Shared with me) above
+  1280px; 6/6 pairs with Quick create and Shared with me full width (Quick create in one row of six) from 761 to 1280px; one column below.
+  No card spans rows, so a short list never leaves a hole. Each widget links to its app once (header link); no duplicate buttons.
+- Tables with class `rt` turn into labelled record cards below 640px: every `td` carries `data-label`, the row header becomes the card
+  title, nothing is hidden and nothing scrolls sideways on a phone. The software comparison shows two values per line. Above 640px wide
+  tables may still scroll inside `.tablewrap`. Checksums are two even lines of 32 characters.
+- Long values (domains, e-mail addresses, URLs, IDs) wrap with `overflow-wrap: break-word` (tables) or `anywhere` (definition lists,
+  the domain figure), never widen the page. The overview figures strip gives the mail domain a double-width cell in smaller type.
+- Admin navigation: one tab row that never wraps (scrolls if it must); below 900px a single "Administration / <section>" menu (a
+  `<details>`; the portal runs no script) listing every section with the current one marked.
+- Menus: `<details>` panels; on phones (<= 520px) every panel, the app switcher included, is fixed 12px from both screen edges.
+
+Checked in a browser (scratch scripts, results in the audit report): no page-level horizontal scroll on 19 pages and 4 open menus at
+320, 390, 768, 1024, 1366, 1920 and 2560px in light and dark; keyboard: every menu opens with Enter, Tab enters it, Enter closes it,
+focus ring visible; 200% zoom (1280px window) on the dashboard, the activity page and devices without horizontal scroll.
+`portal/e2e/layout-check.cjs` repeats the overflow check against a running portal.
+
+Known limits: menus do not close on Escape or on a click outside (no script allowed by the portal's content security policy); two
+menus can be open at once. A CSS `display` change on a table can drop its table semantics in some screen readers (WebKit); Chromium
+and Firefox keep them.

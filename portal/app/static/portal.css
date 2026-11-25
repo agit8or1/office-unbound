@@ -249,7 +249,7 @@ code { font: .88em var(--ou-mono); background: var(--bg2); padding: .1em .35em; 
   .brand span { display: none; } .brand { border: 0; padding-inline-end: 0; }
   .newbtn-top span { display: none; } .newbtn-top { padding: 0 8px !important; }
 }
-@media (max-width: 520px) { .gsearch input[type=search] { padding-inline-end: 6px; } .menu-panel { position: fixed; inset-inline: 12px; top: 58px; } }
+@media (max-width: 520px) { .gsearch input[type=search] { padding-inline-end: 6px; } .menu-panel, .switcher .menu-panel { position: fixed; inset-inline: 12px; top: 58px; } }
 
 /* hero / landing */
 .hero { padding-block: clamp(2rem, 7vw, 4.5rem) 2rem; max-width: 40rem; }
@@ -286,7 +286,7 @@ main { padding-block: 1.25rem 3rem; }
 .apptiles { list-style: none; padding: 0; margin: 0 0 18px; display: grid; grid-template-columns: repeat(auto-fit, minmax(min(100%, 12.5rem), 1fr)); gap: 10px; }
 .apptiles li { display: flex; } .apptiles .apptile { flex: 1; }
 @media (max-width: 520px) { .apptiles { grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 8px; } .apptile .d { display: none; }
-  .apptile { min-height: 3.5rem; padding: 10px; column-gap: 10px; grid-template-rows: auto; } .apptile .ic { width: 34px; height: 34px; padding: 7px; grid-row: auto; } }
+  .apptiles .apptile { min-height: 3.5rem; padding: 10px; column-gap: 10px; grid-template-rows: auto; } .apptiles .apptile .ic { width: 34px; height: 34px; padding: 7px; grid-row: auto; } }
 .apptile { display: grid; grid-template-columns: auto 1fr; grid-template-rows: auto auto; column-gap: 12px; align-items: center; padding: 12px 14px; min-height: 4.25rem;
   background: var(--surface); border: 1px solid var(--line); border-radius: 8px; text-decoration: none; color: var(--text); transition: border-color .12s, background .12s; }
 .apptile:hover { border-color: var(--line2); background: var(--ou-raised); }
@@ -528,8 +528,8 @@ td, .act small, .notice, .card p { overflow-wrap: break-word; }   /* long addres
   table.rt > tbody > tr > th, table.rt > tbody > tr > td { border: 0; padding: .2rem 0; white-space: normal; }
   table.rt > tbody > tr > th { font-weight: 600; padding-bottom: .4rem; overflow-wrap: anywhere; }
   /* label column + value column; positioned, so a cell with mixed text and elements stays one value */
-  table.rt > tbody > tr > td[data-label] { position: relative; padding-inline-start: calc(36% + .75rem); min-height: 1.9em; }
-  table.rt > tbody > tr > td[data-label]::before { content: attr(data-label); position: absolute; inset-inline-start: 0; top: .3rem; width: 36%;
+  table.rt > tbody > tr > td[data-label] { position: relative; padding-inline-start: calc(min(36%, 9rem) + .75rem); min-height: 1.9em; }
+  table.rt > tbody > tr > td[data-label]::before { content: attr(data-label); position: absolute; inset-inline-start: 0; top: .3rem; width: min(36%, 9rem);
     color: var(--muted); font-size: .82rem; overflow-wrap: break-word; }
   table.rt .row2 input { flex: 1 1 6rem; min-width: 0; }
   /* the software comparison: many short values, so two per line with the label above each */
