@@ -284,7 +284,7 @@ jobs:
           KIND: ${{ steps.meta.outputs.gui_dir != '' && 'OfficeUnbound-' || 'OfficeUnboundDesktop-' }}
         run: |
           set -euo pipefail
-          ids=$(gh run list -R "$GITHUB_REPOSITORY" --workflow desktop-windows.yml --status success -L 20 \
+          ids=$(gh run list -R "$GITHUB_REPOSITORY" --workflow desktop-windows.yml --status completed -L 20 \
                   --json databaseId --jq ".[] | select(.databaseId != $GITHUB_RUN_ID) | .databaseId" | head -n 6)
           for id in $ids; do
             d="$RUNNER_TEMP/prev/$id"
@@ -296,7 +296,7 @@ jobs:
               exit 0
             fi
           done
-          echo "no previous successful run with a ${KIND}* installer"
+          echo "no previous run with a ${KIND}* installer"
 
       - name: Smoke test the installer on Windows
         shell: pwsh
