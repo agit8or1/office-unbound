@@ -61,6 +61,9 @@ pub struct ChatClient {
     account: ChatAccount,
     store: Arc<dyn SecretStore>,
     store_name: String,
+    /// Background tasks that hold a `Client` clone (session persister). Stopped before the store is closed or deleted: on Windows
+    /// an open SQLite file cannot be removed (OS error 32).
+    tasks: std::sync::Mutex<Vec<tokio::task::JoinHandle<()>>>,
 }
 
 impl ChatClient {
@@ -74,7 +77,7 @@ impl ChatClient {
         client.restore_session(AuthSession::OAuth(Box::new(saved.session.clone()))).await.map_err(mx)?;
         let store_name = saved.store;
         drop(s);
-        Ok(Some(Self { client, account, store, store_name }))
+        Ok(Some(Self { client, account, store, store_name, tasks: Default::default() }))
     }
 
     /// Interactive sign-in through MAS in the system browser. Each sign-in is a new Matrix device with a fresh encrypted store.
@@ -91,18 +94,35 @@ impl ChatClient {
             Ok(x) => x,
             Err(e) => {
                 drop(client);
-                let _ = std::fs::remove_dir_all(&dir);
+                if let Err(rm) = remove_store(&dir).await {
+                    return Err(ChatError::Store(format!("{e}; {rm}")));
+                }
                 return Err(e);
             }
         };
         auth::save_session(&s, &auth::StoredSession { v: 1, store: store_name.clone(), session })?;
         drop(s);
-        Ok(Self { client, account, store, store_name })
+        Ok(Self { client, account, store, store_name, tasks: Default::default() })
     }
 
     /// Starts token persistence and the revoke watcher. Call once after `restore`/`sign_in`.
     pub fn watch_session(&self, on_signed_out: Arc<dyn Fn() + Send + Sync>) {
-        auth::spawn_session_persister(self.client.clone(), self.store.clone(), self.account.clone(), self.store_name.clone(), on_signed_out);
+        let h = auth::spawn_session_persister(self.client.clone(), self.store.clone(), self.account.clone(), self.store_name.clone(), on_signed_out);
+        self.tasks.lock().unwrap().push(h);
+    }
+
+    /// Stops this client's background tasks and closes its store (every `Client` clone dropped). Use before deleting the store, or
+    /// to end a session without signing out. The caller must not hold other clones from `sdk()`.
+    pub async fn close(self) {
+        let ChatClient { client, tasks, .. } = self;
+        let handles = std::mem::take(&mut *tasks.lock().unwrap());
+        for h in handles {
+            h.abort();
+            let _ = h.await;   // the task (and its Client clone) is gone once this returns
+        }
+        drop(client);
+        // matrix-sdk's own tasks and the SQLite pool release their handles as the last clone drops; give them a tick
+        tokio::task::yield_now().await;
     }
 
     pub fn user_id(&self) -> Option<String> {
@@ -133,13 +153,49 @@ impl ChatClient {
         let _ = self.client.oauth().logout().await;
         let s = auth::secrets(self.store.as_ref(), &self.account)?;
         s.delete(auth::SESSION_SECRET).map_err(|e| ChatError::Store(e.to_string()))?;
+        drop(s);
         let dir = auth::store_dir(&self.account.data_dir, &self.store_name)?;
-        drop(self.client);
-        remove_store(&dir);
-        Ok(())
+        self.close().await;
+        remove_store(&dir).await
     }
 }
 
-fn remove_store(dir: &Path) {
-    let _ = std::fs::remove_dir_all(dir);
+/// Deletes a device store directory. Windows refuses to delete a file that is still open (OS error 32) and releases SQLite handles
+/// shortly after the last close, so this retries with a short backoff (about 6 s in all) and reports failure instead of silently
+/// leaving the encrypted store on disk.
+pub async fn remove_store(dir: &Path) -> Result<(), ChatError> {
+    let mut wait = Duration::from_millis(50);
+    let mut last = None;
+    for _ in 0..8 {
+        match std::fs::remove_dir_all(dir) {
+            Ok(()) => return Ok(()),
+            Err(e) if e.kind() == std::io::ErrorKind::NotFound => return Ok(()),
+            Err(e) => last = Some(e),
+        }
+        tokio::time::sleep(wait).await;
+        wait = (wait * 2).min(Duration::from_millis(1600));
+    }
+    if !dir.exists() {
+        return Ok(());
+    }
+    Err(ChatError::Store(format!(
+        "the local chat store {} could not be deleted: {}",
+        dir.display(),
+        last.map(|e| e.to_string()).unwrap_or_default()
+    )))
+}
+
+#[cfg(test)]
+mod store_tests {
+    use super::*;
+
+    #[tokio::test]
+    async fn remove_store_deletes_and_tolerates_absent() {
+        let d = std::env::temp_dir().join(format!("ou-chat-rm-{}", ou_core::oidc::random_token(6)));
+        std::fs::create_dir_all(d.join("device-x")).unwrap();
+        std::fs::write(d.join("device-x").join("matrix-sdk-state.sqlite3"), b"x").unwrap();
+        remove_store(&d).await.unwrap();
+        assert!(!d.exists());
+        remove_store(&d).await.unwrap();
+    }
 }

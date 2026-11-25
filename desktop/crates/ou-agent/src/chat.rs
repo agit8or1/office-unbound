@@ -22,6 +22,8 @@ const MAX_BODY: usize = 32 * 1024;
 pub struct ChatHub {
     clients: Mutex<HashMap<String, Arc<ChatClient>>>,
     state: Mutex<HashMap<String, SessionState>>,
+    /// Per-account sync loop; it holds an `Arc<ChatClient>` and is stopped before sign-out deletes the store.
+    sync_tasks: Mutex<HashMap<String, tokio::task::JoinHandle<()>>>,
 }
 
 fn err(m: impl std::fmt::Display) -> Response {
@@ -125,7 +127,8 @@ impl ChatHub {
         self.clients.lock().await.insert(id.clone(), c.clone());
         self.set(&id, SessionState::SignedIn).await;
         let me = self.clone();
-        tokio::spawn(async move {
+        let task_id = id.clone();
+        let h = tokio::spawn(async move {
             let mut backoff = Duration::from_secs(5);
             loop {
                 if !me.clients.lock().await.contains_key(&id) {
@@ -148,25 +151,35 @@ impl ChatHub {
                 }
             }
         });
+        if let Some(old) = self.sync_tasks.lock().await.insert(task_id, h) {
+            old.abort();
+        }
     }
 
     pub async fn sign_out(&self, id: &str) -> Response {
         let c = self.clients.lock().await.remove(id);
         self.set(id, SessionState::SignedOut).await;
-        match c {
-            Some(c) => match Arc::try_unwrap(c) {
-                Ok(c) => match c.sign_out().await {
-                    Ok(()) => Response::Ok,
-                    Err(e) => err(e),
-                },
-                // The sync task still holds a reference: it ends at its next round; sign out of MAS through the SDK now.
-                Err(c) => {
-                    let _ = c.sdk().oauth().logout().await;
-                    Response::Ok
-                }
-            },
-            None => Response::Ok,
+        // stop the sync loop first: it holds a clone, and an open store cannot be deleted on Windows
+        if let Some(h) = self.sync_tasks.lock().await.remove(id) {
+            h.abort();
+            let _ = h.await;
         }
+        let Some(mut c) = c else { return Response::Ok };
+        // a request that is still running holds a clone for a moment
+        for _ in 0..50 {
+            match Arc::try_unwrap(c) {
+                Ok(inner) => {
+                    return match inner.sign_out().await {
+                        Ok(()) => Response::Ok,
+                        Err(e) => err(e),
+                    }
+                }
+                Err(back) => c = back,
+            }
+            tokio::time::sleep(Duration::from_millis(100)).await;
+        }
+        let _ = c.sdk().oauth().logout().await;
+        err("signed out of chat, but the local chat store is still in use and was not deleted; quit and restart Office Unbound")
     }
 
     pub async fn rooms(&self, id: &str) -> Response {

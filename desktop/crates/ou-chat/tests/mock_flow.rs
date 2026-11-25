@@ -113,7 +113,7 @@ async fn sign_in_restore_rooms_notify_send_attach_search_sign_out() {
     let access: &str = TestAuthToken::AccessDefault.into();
     let refresh: &str = TestAuthToken::RefreshDefault.into();
     assert!(!files_contain(&dir, access.as_bytes()) && !files_contain(&dir, refresh.as_bytes()), "token found in a file");
-    drop(chat);
+    chat.close().await;
 
     // Restart: restore without another registration or browser.
     let chat = ChatClient::restore(account(&server, &dir), ou_core::http::test_client(), store.clone()).await.unwrap().expect("restored");
@@ -184,11 +184,17 @@ async fn sign_in_restore_rooms_notify_send_attach_search_sign_out() {
 
     // Sign-out: revocation at MAS, credentials and the device store removed.
     server.oauth().mock_revocation().ok().mount().await;
+    // The session persister holds a Client clone (the Windows OS error 32 case): sign-out must stop it before deleting the store.
+    chat.watch_session(Arc::new(|| {}));
+    let device_dirs: Vec<_> = std::fs::read_dir(&dir).unwrap().map(|e| e.unwrap().path()).collect();
+    assert_eq!(device_dirs.len(), 1);
     chat.sign_out().await.unwrap();
+    assert!(!device_dirs[0].exists(), "device store directory is gone");
     let s = AccountSecrets::new(store.as_ref(), "acct1").unwrap();
     assert!(s.get(auth::SESSION_SECRET).unwrap().is_none());
     assert!(std::fs::read_dir(&dir).unwrap().next().is_none(), "device store deleted");
-    std::fs::remove_dir_all(&dir).unwrap();
+    ou_chat::remove_store(&dir).await.unwrap();
+    assert!(!dir.exists());
 }
 
 #[tokio::test(flavor = "multi_thread")]
@@ -221,8 +227,9 @@ async fn revoked_session_signals_signed_out_and_keeps_the_store() {
     assert!(s.get(auth::SESSION_SECRET).unwrap().is_none(), "dead tokens forgotten");
     assert!(std::fs::read_dir(&dir).unwrap().next().is_some(), "encrypted store kept (room keys)");
     assert!(ChatClient::restore(account(&server, &dir), ou_core::http::test_client(), store.clone()).await.unwrap().is_none(), "asks for sign-in");
-    drop(chat);
-    std::fs::remove_dir_all(&dir).unwrap();
+    chat.close().await;
+    ou_chat::remove_store(&dir).await.unwrap();
+    assert!(!dir.exists());
 }
 
 #[tokio::test(flavor = "multi_thread")]
@@ -235,9 +242,10 @@ async fn second_sign_in_reuses_the_registered_client() {
         let c = ChatClient::sign_in(account(&server, &dir), ou_core::http::test_client(), store.clone(), Duration::from_secs(20), fake_browser(Arc::new(Mutex::new(None))))
             .await
             .unwrap();
-        drop(c);
+        c.close().await;
     }
-    std::fs::remove_dir_all(&dir).unwrap();
+    ou_chat::remove_store(&dir).await.unwrap();
+    assert!(!dir.exists());
 }
 
 #[tokio::test(flavor = "multi_thread")]
@@ -251,5 +259,6 @@ async fn browser_failure_cleans_up() {
     let r = ChatClient::sign_in(account(&server, &dir), ou_core::http::test_client(), store.clone(), Duration::from_secs(5), |_| Err("no browser".into())).await;
     assert!(matches!(r, Err(ChatError::Login(_))));
     assert!(std::fs::read_dir(&dir).unwrap().next().is_none(), "no half-created device store");
-    std::fs::remove_dir_all(&dir).unwrap();
+    ou_chat::remove_store(&dir).await.unwrap();
+    assert!(!dir.exists());
 }

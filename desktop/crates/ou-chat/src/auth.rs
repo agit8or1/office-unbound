@@ -201,7 +201,7 @@ where
 }
 
 /// Writes every token rotation to the credential store; reports a revoked session once.
-pub(crate) fn spawn_session_persister(client: Client, store: Arc<dyn SecretStore>, account: ChatAccount, store_name: String, on_signed_out: Arc<dyn Fn() + Send + Sync>) {
+pub(crate) fn spawn_session_persister(client: Client, store: Arc<dyn SecretStore>, account: ChatAccount, store_name: String, on_signed_out: Arc<dyn Fn() + Send + Sync>) -> tokio::task::JoinHandle<()> {
     let mut rx = client.subscribe_to_session_changes();
     tokio::spawn(async move {
         while let Ok(change) = rx.recv().await {
@@ -220,7 +220,7 @@ pub(crate) fn spawn_session_persister(client: Client, store: Arc<dyn SecretStore
                 }
             }
         }
-    });
+    })
 }
 
 #[cfg(test)]
