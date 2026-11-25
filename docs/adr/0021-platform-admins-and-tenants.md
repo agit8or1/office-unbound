@@ -39,7 +39,7 @@ Why it is confusing:
 | Section | Backed by |
 |---|---|
 | Overview: deployments, apps, health, open requests | deployments, checks, `tenant_requests` |
-| Domains: names, DNS status, mail DNS records, certificate | `tenant_admin` domains + `dnscheck`, gateway certificate state |
+| Domains: names, certificate, and a **DNS checker** (section 2a) | `tenant_admin` domains + `dnscheck` (extended), gateway certificate state |
 | Users: list, create, disable or enable, reset, delete, groups, aliases, quotas | the `tenant_admin.service` functions behind `/api/v1/tenant/users*` |
 | Tenant admins: who holds `org-admin`; grant or remove | `directory.account.*` with the org-admin group (always a HIGH-risk plan, as today) |
 | Groups and shared mailboxes | `/api/v1/tenant/groups`, `/shared*` |
@@ -47,6 +47,26 @@ Why it is confusing:
 | Branding: display name, accent, logo | `set_branding`, `set_logo` |
 | Policy: provisioning mode, approval categories, the portal binding and its key rotation | the current Customers editor, `/customers/{id}/tenant-admin*` |
 | Requests: what tenant admins asked for and its state | `requests_view` |
+
+### 2a. DNS checker (owner, 2026-11-25: "add for tenants; under their domains; dns checker. checks all dns records. autodiscover, etc")
+Under each of the tenant's domains, one **Check DNS** button. It is read-only and can be run on demand by viewer and up. It checks every
+record the deployment needs against what the ICS expects. The record list comes from the applied plan, never from a caller-supplied name,
+as `dnscheck` does today.
+
+| Group | Records checked | Expected value from |
+|---|---|---|
+| Web names | A/AAAA (or CNAME) of `app.`, `auth.`, `cloud.`, `office.`, `mail.`, `autodiscover.`, and `chat.`, `matrix.`, `mas.` when chat is deployed | `gateway.web_names(plan)` and the installation's public IP (Network & domains) |
+| Incoming mail | MX on the domain → the mail host; the mail host's A record | applied plan |
+| Sending | SPF (exactly one `v=spf1`, includes the mail host or `mx`), DKIM (the TXT at `<selector>._domainkey` **equals** the public key the deployment generated, not merely "a key"), DMARC present (and its policy shown) | plan, the deployment's DKIM key |
+| Client setup | `autodiscover.` CNAME or A; SRV `_autodiscover._tcp`, `_imaps._tcp`, `_submission._tcp`, `_caldavs._tcp`, `_carddavs._tcp` (recommended, shown as optional) | applied plan |
+| Certificates | CAA: if present, it must allow `letsencrypt.org` (otherwise issuance fails) | — |
+| Reverse DNS | PTR of the public IP matches the mail host (warning only: set by the IP's provider) | installation public IP |
+
+Each row shows its status (ok, missing, differs, optional missing, or unknown when the resolver failed), what was found, the exact record
+to create (copy button), and why it matters. Results show their check time. They are kept for 24 h so the page opens without a new query.
+Queries go to the ICS host's own resolver, and for the public view to the domain's authoritative servers, found from its NS records. No
+third-party DNS API is used. It is a standalone, low-risk read; it ships with step 1, and the tenant's portal organisation admin gets
+the same view.
 
 The deployment page keeps deployment matters (VMs, components, checks, upgrades). Its People panel becomes a link to the tenant's
 Users section.
