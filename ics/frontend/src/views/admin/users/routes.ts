@@ -7,7 +7,7 @@ import UsersPage from './UsersPage.vue'
 export interface AdminRoute { id: string; label: string; min: Role; comp: unknown; group: 'Administration' }
 
 export const usersRoutes: AdminRoute[] = [
-  { id: 'users', label: 'Users & roles', min: 'viewer', comp: UsersPage, group: 'Administration' },
+  { id: 'users', label: 'Platform admins', min: 'viewer', comp: UsersPage, group: 'Administration' },
 ]
 export const usersTabs = ['directory', 'invitations', 'privileged', 'roles', 'policies'] as const
 export { UsersPage }

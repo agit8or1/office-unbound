@@ -36,8 +36,8 @@ export const NAV: NavGroup[] = [
     { label: 'Incidents', to: '/incidents', icon: 'bell', badge: 'incidents' },
   ] },
   { title: 'Administration', items: [
-    { label: 'Users & roles', to: '/users', icon: 'users', min: 'admin' },
-    { label: 'Customers', to: '/administration/customers', icon: 'users', min: 'admin' },
+    { label: 'Tenants', to: '/tenants', icon: 'users', match: ['/tenants', '/administration/customers'] },
+    { label: 'Platform admins', to: '/users', icon: 'shield', min: 'admin' },
     { label: 'Integrations', to: '/endpoints', icon: 'plug' },
     { label: 'Images', to: '/images', icon: 'book', min: 'admin' },
     { label: 'Audit log', to: '/audit', icon: 'file', min: 'approver' },

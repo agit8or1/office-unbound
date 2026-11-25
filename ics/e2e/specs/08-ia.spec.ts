@@ -9,7 +9,7 @@ test.beforeEach(({ browserName }, info) => { test.skip(info.project.name !== 'de
 
 // ADR label -> accepted labels in the console
 const ALIASES: Record<string, string[]> = {
-  Alerts: ['Incidents', 'Alerts'], Users: ['Users & roles', 'Users'], Audit: ['Audit log', 'Audit'],
+  Alerts: ['Incidents', 'Alerts'], Users: ['Platform admins', 'Users & roles', 'Users'], Audit: ['Audit log', 'Audit'],
 }
 
 test('navigation groups from ADR-0009 section 6 exist and every child is real or labelled Planned', async ({ page }, info) => {

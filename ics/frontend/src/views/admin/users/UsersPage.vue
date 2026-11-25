@@ -32,8 +32,8 @@ const refresh = () => { void users.reload(); void invites.reload() }
 </script>
 <template>
   <div class="page ux">
-    <div class="head"><h1>Users &amp; roles</h1><span class="muted small">Who can sign in, what they can do, and how access is granted</span></div>
-    <nav class="ux-tabs" aria-label="Users and roles sections">
+    <div class="head"><h1>Platform admins</h1><span class="muted small">Who can sign in to this console, what they can do, and how access is granted. A tenant's own people are under <a href="#/tenants">Tenants</a>.</span></div>
+    <nav class="ux-tabs" aria-label="Platform admin sections">
       <a v-for="t in TABS" :key="t.id" :href="'#/users/' + t.id" :aria-current="tab === t.id ? 'page' : undefined" @click.prevent="go('users', t.id)">
         {{ t.label }}<span v-if="t.id === 'invitations' && pendingInv" class="ux-n">{{ pendingInv }}</span></a>
     </nav>

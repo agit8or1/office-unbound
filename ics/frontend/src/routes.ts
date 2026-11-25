@@ -53,7 +53,11 @@ export const routes: RouteRecordRaw[] = [
   { path: '/monitoring/infrastructure', name: 'infra-health', component: () => import('./views/infra/InfraHealth.vue'), meta: { title: 'Infrastructure health', section: 'Monitoring' } },
   { path: '/utilization', name: 'utilization', component: () => import('./views/Utilization.vue'), meta: { title: 'Utilization', section: 'Monitoring' } },
   { path: '/incidents/:id?', name: 'incidents', component: () => import('./views/Incidents.vue'), meta: { title: 'Incidents', section: 'Monitoring' } },
-  { path: '/users/:rest(.*)*', name: 'users', component: () => import('./views/admin/users/UsersPage.vue'), meta: { title: 'Users & roles', section: 'Administration', min: 'viewer' } },
+  // ADR-0021: tenants (customers) and their settings; platform admins = the console's own accounts
+  { path: '/tenants', name: 'tenants', component: () => import('./views/tenants/TenantsPage.vue'), meta: { title: 'Tenants', section: 'Administration' } },
+  { path: '/tenants/:id/:tab?', name: 'tenant', component: () => import('./views/tenants/TenantPage.vue'), props: true,
+    meta: { title: 'Tenant', section: 'Administration', parent: { label: 'Tenants', to: '/tenants' } } },
+  { path: '/users/:rest(.*)*', name: 'users', component: () => import('./views/admin/users/UsersPage.vue'), meta: { title: 'Platform admins', section: 'Administration', min: 'viewer' } },
   { path: '/endpoints', name: 'endpoints', component: () => import('./views/Endpoints.vue'), meta: { title: 'Integrations', section: 'Administration' } },
   { path: '/inventory/:id?', name: 'inventory', component: () => import('./views/Inventory.vue'), meta: { title: 'Inventory snapshots', section: 'Administration' } },
   { path: '/settings/network', name: 'network-settings', component: () => import('./views/NetworkSettings.vue'), meta: { title: 'Network & domains', section: 'Administration', min: 'admin' } },
