@@ -798,7 +798,7 @@ pub fn parse_multistatus(xml: &str, base_path: &str) -> Result<Vec<DavEntry>, Fi
                     props.dir = true;
                 }
             }
-            Event::Text(t) => text.push_str(&t.xml_content().map_err(|e| FilesError::Protocol(format!("XML: {e}")))?),
+            Event::Text(t) => text.push_str(&t.xml_content(quick_xml::XmlVersion::default()).map_err(|e| FilesError::Protocol(format!("XML: {e}")))?),
             Event::GeneralRef(r) => {
                 // Entity and character references (&amp; &#x26; …) inside names.
                 let raw = String::from_utf8_lossy(r.as_ref()).into_owned();
@@ -878,7 +878,7 @@ fn parse_trash(xml: &str, base_path: &str) -> Vec<TrashItem> {
     while let Ok(ev) = reader.read_event() {
         match ev {
             Event::Start(_) => text.clear(),
-            Event::Text(t) => text.push_str(&t.xml_content().unwrap_or_default()),
+            Event::Text(t) => text.push_str(&t.xml_content(quick_xml::XmlVersion::default()).unwrap_or_default()),
             Event::GeneralRef(r) if r.as_ref() == b"amp" => text.push('&'),
             Event::End(e) => {
                 let t = std::mem::take(&mut text);
