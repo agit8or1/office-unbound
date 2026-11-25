@@ -117,7 +117,7 @@ function Count-SecretHits([string[]]$dirs) {
       $files++
       foreach ($pat in $patterns) {
         if (Select-String -Path $f.FullName -Pattern $pat -Quiet -ErrorAction SilentlyContinue) {
-          Write-Host "::error::secret-like pattern in $($f.FullName) (content not printed)"
+          Write-Host "secret-like pattern in $($f.FullName) (content not printed)"
           $hits++
         }
       }
