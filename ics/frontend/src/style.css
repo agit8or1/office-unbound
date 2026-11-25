@@ -157,6 +157,7 @@ tbody tr:last-child td { border-bottom: 0; }
 th { font-weight: 600; font-size: 12.5px; color: var(--muted); background: var(--surface2); white-space: nowrap; position: sticky; top: 0; z-index: 1; }
 td.num, th.num { text-align: right; }
 .dense th, .dense td { padding: 6px 12px; }
+.card.flush .dense th:first-child, .card.flush .dense td:first-child { padding-left: 16px; } /* line up with the card title */
 tbody tr:hover td { background: var(--surface2); }
 tr.sel td { background: var(--sel) !important; } tr.sel td:first-child { box-shadow: inset 3px 0 0 var(--teal); }
 tr.click { cursor: pointer; }

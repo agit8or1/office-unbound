@@ -75,6 +75,15 @@ async function toggleNav() {
   if (navOpen.value) { await nextTick(); sideNav.value?.querySelector<HTMLElement>('a.navitem')?.focus() }
 }
 function closeNav() { if (!navOpen.value) return; navOpen.value = false; menuBtn.value?.focus() }
+// the navigation scrolls on short screens: keep the current page's item in view (Health checks sat below the fold at 900 px)
+function revealActive() {
+  const nav = sideNav.value?.querySelector('nav'), item = nav?.querySelector<HTMLElement>('.navitem.active')
+  if (!nav || !item) return
+  const top = item.offsetTop - nav.offsetTop, bottom = top + item.offsetHeight
+  if (top < nav.scrollTop) nav.scrollTop = top - 8
+  else if (bottom > nav.scrollTop + nav.clientHeight) nav.scrollTop = bottom - nav.clientHeight + 8
+}
+watch([() => route.path, () => session.user, () => session.ready], async () => { await nextTick(); revealActive() })
 const groups = computed(() => NAV.map((g) => ({ ...g, items: g.items.filter((i) => (!i.min || hasRole(i.min)) && (!i.ifPath || hasPath(i.ifPath))) })).filter((g) => g.items.length))
 const count = (i: NavItem) => (i.badge ? badges.value[i.badge] : 0)
 
