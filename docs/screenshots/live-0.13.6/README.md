@@ -6,10 +6,14 @@ background, horizontal overflow for every shot (none overflows).
 
 - Portal: follows the browser (light `#f7f5f0`, dark `#0e151f`), desktop and phone.
 - Files: follows the browser (light `#ffffff`, dark `#1a2534`).
-- Webmail (mail, calendar, contacts): light in both. The package is 5.2-ou5 (pin in the job's `pkg.install_pinned`), but `doctest`
-  has a stored choice `grommunio/v1/main/dark_mode = light` (read in the page: `data-theme="light"`, settings model `light`), and a
-  stored choice wins over the new default. Follow-the-browser is not yet shown on a person without a stored choice.
+- Webmail (mail, calendar, contacts): package 5.2-ou5 (pin in the job's `pkg.install_pinned`). The first capture was light in both
+  because `doctest` had a stored choice `light` (a stored choice wins over the default). After setting doctest's own appearance to
+  System (the call Settings > Appearance makes, `Grommunio.core.DarkMode.setMode('system')`), webmail follows the browser: light
+  browser light, dark browser dark (`data-theme` unset, `dark-mode` class, canvas `#121212` under the navy skin). The desktop
+  mail/calendar/contacts shots are from after that change; the phone mail shots from before it. Visible gap: the dark folder tree is
+  a warmer grey than the navy panes.
 - Chat: signed in end to end (chat → Keycloak → MAS consent → Element home), Office Unbound light theme with the action teal tiles.
-  The public certificate does not cover chat/matrix/mas yet (issued before chat), so these two shots use a throwaway browser profile
-  that trusts the officeunbound8 deployment CA (verification on). The dark shot is a second session of the same person: Element asks to
+  These two shots were taken before the public certificate covered chat, in a throwaway browser profile that trusts the officeunbound8
+  deployment CA (verification on). Afterwards the certificate was issued again with chat, matrix and mas (Let's Encrypt, 2026-11-25):
+  chat, mas and app now verify with the system trust store. The dark shot is a second session of the same person: Element asks to
   confirm the identity (cross-signing) on its own stock background, which our theme does not replace.

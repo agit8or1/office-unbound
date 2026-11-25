@@ -49,10 +49,11 @@ What not to promise yet. Updated 2026-11-24 (0.13); each line says where it is t
   layouts, dialogs or settings pages ([design-system.md](../design/design-system.md)). Upstream wording and layout show through there.
 - **Light/dark is per app.** The portal's Appearance switch does not reach the apps; webmail, Files and chat each keep their own choice.
   Until a user chooses, Files and (from webmail 5.2-ou5) webmail follow the browser like the portal; chat always opens light, its dark
-  theme is under Settings, Appearance. Webmail following the browser is not yet seen live: the only test person has a stored choice.
-- **Chat's names are not on the public certificate of a deployment that got chat later** (officeunbound8): the Let's Encrypt certificate
-  covers the names it was issued for; chat, matrix and mas are served with the deployment certificate until the certificate is issued
-  again (gateway.certificates.issue, which adds the names), so browsers warn on chat there.
+  theme is under Settings, Appearance. Seen live on officeunbound8 (2026-11-25); a person who already chose
+  Light or Dark in webmail keeps that choice (choose System to follow the browser).
+- **Adding chat to a deployment with a public certificate needs the certificate issued again** (gateway.certificates.issue, staging then
+  production): until then chat, matrix and mas are served with the deployment certificate and browsers warn. The in-place change does not
+  do it by itself (officeunbound8, issued again by hand 2026-11-25).
 - **The dashboard shows only what it can read.** Inbox, unread counts, the next meeting and mail/calendar reminders need a mailbox data
   source that is not verified yet: those widgets offer working actions instead of data. Notifications in the bell are the Files ones only.
   No tasks or notes app exists, so none is shown.

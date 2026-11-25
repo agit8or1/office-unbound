@@ -1097,7 +1097,7 @@
             "docs/admin/known-limitations.md",
             "docs/screenshots/live-0.13.6"
           ],
-          "note": "Done in code and on officeunbound8 (in-place change 2026-11-25, job 9dbe8139): portal shell and dashboard, webmail/calendar/contacts skin, sign-in, chat themes, Files stage 2, field border token. Live screenshots: portal and Files follow the browser's light/dark; chat signs in and shows its light theme. Open: webmail follow-the-browser not yet shown live (test person has a stored choice); chat's names not on officeunbound8's public certificate."
+          "note": "Done in code and on officeunbound8 (in-place change 2026-11-25, job 9dbe8139): portal shell and dashboard, webmail/calendar/contacts skin, sign-in, chat themes, Files stage 2, field border token. Live screenshots (docs/screenshots/live-0.13.6): portal, Files and webmail (person on System) follow the browser's light/dark; chat signs in through Keycloak and MAS and shows its light theme; chat's names on the public certificate. Open polish: webmail's dark folder tree is a warmer grey than the navy panes; Element's identity-confirmation background is not themed."
         }
       ]
     },
