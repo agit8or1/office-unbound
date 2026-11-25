@@ -20,10 +20,10 @@
 
 <section aria-labelledby="h-g">
   <h2 id="h-g">Groups</h2>
-  <div class="tablewrap"><table>
+  <div class="tablewrap"><table class="rt">
     <caption class="sr">Groups and how many people are in them</caption>
     <thead><tr><th scope="col">Group</th><th scope="col">Gives access to</th><th scope="col">People</th></tr></thead>
-    <tbody>{% for g in groups %}<tr><th scope="row">{{ g.name }}</th><td>{{ g.label }}</td><td>{{ g.members }}</td></tr>{% endfor %}</tbody>
+    <tbody>{% for g in groups %}<tr><th scope="row">{{ g.name }}</th><td data-label="Gives access to">{{ g.label }}</td><td data-label="People">{{ g.members }}</td></tr>{% endfor %}</tbody>
   </table></div>
   <p class="hint">Creating your own groups is <span class="pill">Planned</span>. Groups that give administrator rights are managed by your service provider.</p>
 </section>

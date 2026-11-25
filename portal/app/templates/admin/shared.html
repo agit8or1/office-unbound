@@ -8,12 +8,12 @@
 <section class="card"><h2>Not available</h2><p>Your organisation has no mail server connected.</p></section>
 {% else %}
 {% if v.mailboxes %}
-<div class="tablewrap"><table class="people">
+<div class="tablewrap"><table class="people rt">
   <caption class="sr">Shared mailboxes</caption>
   <thead><tr><th scope="col">Name</th><th scope="col">Address</th><th scope="col">Full access</th><th scope="col">Send as</th><th scope="col">Send on behalf</th></tr></thead>
   <tbody>{% for m in v.mailboxes %}
-    <tr><th scope="row"><a href="/admin/shared/{{ m.name }}">{{ m.display_name }}</a></th><td>{{ m.mail }}</td>
-      <td>{{ m.grants.full_access | length }}</td><td>{{ m.grants.send_as | length }}</td><td>{{ m.grants.send_on_behalf | length }}</td></tr>
+    <tr><th scope="row"><a href="/admin/shared/{{ m.name }}">{{ m.display_name }}</a></th><td data-label="Address">{{ m.mail }}</td>
+      <td data-label="Full access">{{ m.grants.full_access | length }}</td><td data-label="Send as">{{ m.grants.send_as | length }}</td><td data-label="Send on behalf">{{ m.grants.send_on_behalf | length }}</td></tr>
   {% endfor %}</tbody>
 </table></div>
 {% else %}<p class="empty">No shared mailboxes yet.</p>{% endif %}

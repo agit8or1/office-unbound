@@ -14,19 +14,19 @@
 </section>
 {% endif %}
 
-<ul class="tiles stats">
-  <li class="tile"><span class="t">{{ me.users.get('active', 0) }}</span><span class="d">people with access</span></li>
-  <li class="tile"><span class="t">{{ me.users.get('disabled', 0) }}</span><span class="d">people switched off</span></li>
-  <li class="tile"><span class="t">{{ me.domain }}</span><span class="d">your mail domain</span></li>
+<ul class="stats" aria-label="Your organisation at a glance">
+  <li><a class="stat" href="/admin/users?show=active"><span class="t">{{ me.users.get('active', 0) }}</span><span class="d">people with access</span></a></li>
+  <li><a class="stat" href="/admin/users?show=disabled"><span class="t">{{ me.users.get('disabled', 0) }}</span><span class="d">people switched off</span></a></li>
+  <li class="dom"><a class="stat" href="/admin/domains"><span class="t">{{ me.domain }}</span><span class="d">your mail domain</span></a></li>
 </ul>
 
 <section aria-labelledby="h-start">
   <h2 id="h-start">What would you like to do?</h2>
-  <ul class="actions">
+  <ul class="actions cols2">
     <li><a class="act" href="/admin/users/new">{{ icon('contacts') }}<span><b>Invite someone new</b><small>Add a person, choose their apps, and get a one-time sign-up link</small></span></a></li>
     <li><a class="act" href="/admin/users">{{ icon('account') }}<span><b>Manage people</b><small>Turn access on or off, reset sign-in, change apps</small></span></a></li>
     <li><a class="act" href="/admin/domains">{{ icon('mail') }}<span><b>Check your mail domain</b><small>See whether your DNS is set up for sending and receiving</small></span></a></li>
-    <li><a class="act" href="/admin/branding">{{ icon('devices') }}<span><b>Make it yours</b><small>Name, colour and logo shown to your people</small></span></a></li>
+    <li><a class="act" href="/admin/branding">{{ icon('sliders') }}<span><b>Make it yours</b><small>Name, colour and logo shown to your people</small></span></a></li>
   </ul>
 </section>
 

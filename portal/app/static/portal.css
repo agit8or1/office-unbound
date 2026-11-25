@@ -171,11 +171,12 @@ input:focus-visible, select:focus-visible, textarea:focus-visible { outline-colo
 .skip:focus { left: 0; }
 .sr { position: absolute; width: 1px; height: 1px; overflow: hidden; clip: rect(0 0 0 0); white-space: nowrap; }
 h1, h2, h3 { line-height: 1.25; margin: 0 0 .6rem; letter-spacing: -.01em; color: var(--ink); font-weight: 600; }
-h1 { font: 400 clamp(1.75rem, 3.6vw, 2.25rem)/1.15 "Source Serif", "Iowan Old Style", Georgia, serif; letter-spacing: -.01em; }
+h1 { font: 600 clamp(1.375rem, 1.1rem + 1vw, 1.625rem)/1.2 var(--ou-font); letter-spacing: -.01em; }
+.hero h1 { font: 400 clamp(1.75rem, 3.6vw, 2.25rem)/1.15 "Source Serif", "Iowan Old Style", Georgia, serif; }
 h2 { font-size: 1rem; margin-top: 2rem; }
 h3 { font-size: .95rem; margin-top: 1.25rem; }
 code { font: .88em var(--ou-mono); background: var(--bg2); padding: .1em .35em; border-radius: 3px; overflow-wrap: anywhere; }
-.hash { font-size: .78rem; word-break: break-all; display: inline-block; }
+.hash { font-size: .78rem; word-break: break-all; display: inline-block; width: calc(32ch + .75em); max-width: 100%; }   /* a SHA-256 reads as two even lines of 32 */
 
 /* app shell: one bar for every app (charcoal/navy, stays dark in both themes). Menus are <details> (the portal runs no script). */
 .top { background: var(--ou-bar-bg); color: var(--ou-bar-text); position: sticky; top: 0; z-index: 20; padding-top: env(safe-area-inset-top, 0px);
@@ -285,7 +286,7 @@ main { padding-block: 1.25rem 3rem; }
 .apptiles { list-style: none; padding: 0; margin: 0 0 18px; display: grid; grid-template-columns: repeat(auto-fit, minmax(min(100%, 12.5rem), 1fr)); gap: 10px; }
 .apptiles li { display: flex; } .apptiles .apptile { flex: 1; }
 @media (max-width: 520px) { .apptiles { grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 8px; } .apptile .d { display: none; }
-  .apptile { min-height: 3.5rem; padding: 10px; column-gap: 10px; } .apptile .ic { width: 34px; height: 34px; padding: 7px; } }
+  .apptile { min-height: 3.5rem; padding: 10px; column-gap: 10px; grid-template-rows: auto; } .apptile .ic { width: 34px; height: 34px; padding: 7px; grid-row: auto; } }
 .apptile { display: grid; grid-template-columns: auto 1fr; grid-template-rows: auto auto; column-gap: 12px; align-items: center; padding: 12px 14px; min-height: 4.25rem;
   background: var(--surface); border: 1px solid var(--line); border-radius: 8px; text-decoration: none; color: var(--text); transition: border-color .12s, background .12s; }
 .apptile:hover { border-color: var(--line2); background: var(--ou-raised); }
@@ -293,11 +294,10 @@ main { padding-block: 1.25rem 3rem; }
 .apptile .t { font-weight: 600; color: var(--ink); font-size: 15px; } .apptile .d { color: var(--muted); font-size: 13px; }
 .apptile[data-app="mail"] .ic { color: var(--ou-app-mail); } .apptile[data-app="calendar"] .ic { color: var(--ou-app-calendar); }
 .apptile[data-app="contacts"] .ic { color: var(--ou-app-contacts); } .apptile[data-app="files"] .ic { color: var(--ou-app-files); } .apptile[data-app="chat"] .ic { color: var(--ou-app-chat); }
-.board { display: grid; grid-template-columns: repeat(12, minmax(0, 1fr)); gap: 14px; align-items: start; }
+.board { display: grid; grid-template-columns: repeat(12, minmax(0, 1fr)); gap: 14px; align-items: stretch; }
 .widget { grid-column: span 4; min-width: 0; background: var(--surface); border: 1px solid var(--line); border-radius: 8px; padding: 14px 16px 16px; box-shadow: var(--ou-shadow); }
 .board { grid-auto-flow: row dense; }
-.w-inbox, .w-cal, .w-create { align-self: stretch; }   /* the first row reads as one band of equal cards */
-.w-recent { grid-column: span 8; grid-row: span 2; } .w-shared, .w-fav { grid-column: span 4; }   /* recent on the left, favourites and shared stacked beside it */
+/* two bands of three equal cards: Inbox, This week, Quick create; Recent files, Favourites, Shared with me (equal heights per row) */
 .wh { display: flex; align-items: center; justify-content: space-between; gap: 8px; margin: -2px 0 10px; }
 .wh h2 { display: inline-flex; align-items: center; gap: 8px; margin: 0; font-size: 14.5px; }
 .wh h2 .ic { width: 18px; height: 18px; color: var(--muted); }
@@ -328,11 +328,12 @@ main { padding-block: 1.25rem 3rem; }
 .ficon .ic { width: 22px; height: 22px; display: block; }
 .fname { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-weight: 500; color: var(--ink); font-size: 14px; }
 .fmeta { color: var(--muted); font-size: 12.5px; white-space: nowrap; }
-.w-shared .frow { grid-template-columns: auto minmax(0, 1fr); } .w-shared .fmeta { grid-column: 2; margin-top: -4px; }
-@media (max-width: 1280px) { .widget { grid-column: span 6; } .w-recent { grid-column: span 12; grid-row: auto; } .w-shared, .w-fav { grid-column: span 6; } }
-@media (max-width: 760px) { .board { grid-template-columns: 1fr; } .widget, .w-recent, .w-shared, .w-fav { grid-column: auto; grid-row: auto; }
+.w-shared .frow { grid-template-columns: auto minmax(0, 1fr); row-gap: 2px; } .w-shared .fmeta { grid-column: 2; }
+@media (max-width: 1280px) { .widget { grid-column: span 6; } .w-create, .w-shared { grid-column: span 12; }
+  .w-create .qc { grid-template-columns: repeat(6, minmax(0, 1fr)); } }
+@media (max-width: 760px) { .board { grid-template-columns: 1fr; } .widget, .w-create, .w-shared { grid-column: auto; } .w-create .qc { grid-template-columns: repeat(3, minmax(0, 1fr)); }
   .frow { grid-template-columns: auto minmax(0, 1fr); } .fmeta { grid-column: 2; white-space: normal; margin-top: -4px; } }
-.bigsearch { display: flex; gap: 8px; margin: 0 0 14px; max-width: 44rem; } .bigsearch input { flex: 1; }
+.bigsearch { display: flex; gap: 8px; margin: 0 0 14px; max-width: 44rem; } .bigsearch input { flex: 1; min-width: 0; }
 .h1like { font-size: 1.5rem; }
 .empty { color: var(--muted); padding: 1rem 0; }
 .row { display: grid; grid-template-columns: auto 1fr auto; align-items: center; gap: .75rem; padding: .6rem 1rem; text-decoration: none; color: var(--text); min-height: 3rem; }
@@ -391,9 +392,17 @@ form.inline { margin-top: 1rem; }
 .crumb { color: var(--muted); font-size: .85rem; margin: 0 0 .35rem; }
 .muted { color: var(--muted); }
 .plain { list-style: none; padding: 0; margin: .5rem 0; display: grid; gap: .5rem; }
-.stats { gap: 0; border: 1px solid var(--line); border-radius: var(--radius); background: var(--surface); overflow: hidden; }
-.stats > li { border-inline-end: 1px solid var(--line); }
-.stats .tile { min-height: 5.5rem; border: 0; border-radius: 0; } .stats .tile .t { font-size: 1.5rem; overflow-wrap: anywhere; } .stats .tile:hover { box-shadow: none; background: var(--bg); }
+/* overview figures: one strip, two counts and the mail domain (wider cell, smaller type: a domain is an identifier, not a number) */
+.stats { list-style: none; padding: 0; margin: 1.25rem 0 0; display: grid; grid-template-columns: minmax(0, 1fr) minmax(0, 1fr) minmax(0, 2fr);
+  border: 1px solid var(--line); border-radius: var(--radius); background: var(--surface); overflow: hidden; }
+.stats > li + li { border-inline-start: 1px solid var(--line); }
+.stat { display: grid; gap: .1rem; align-content: center; height: 100%; min-height: 4.75rem; padding: .85rem 1.1rem; text-decoration: none; color: var(--text); }
+.stat:hover { background: var(--ou-raised); }
+.stat .t { font-size: 1.5rem; font-weight: 600; line-height: 1.2; color: var(--ink); font-variant-numeric: tabular-nums; }
+.stat .d { color: var(--muted); font-size: .85rem; }
+.stats .dom .t { font-size: 1.125rem; overflow-wrap: anywhere; }     /* breaks only when the domain is wider than the whole row */
+@media (max-width: 640px) { .stats { grid-template-columns: minmax(0, 1fr) minmax(0, 1fr); }
+  .stats .dom { grid-column: 1 / -1; border-inline-start: 0; border-top: 1px solid var(--line); } }
 .attention { border-color: var(--warn); border-inline-start: 3px solid var(--warn); }
 .pill.bad { background: var(--bad-bg); color: var(--bad); }
 .act.danger b { color: var(--bad); }
@@ -434,6 +443,7 @@ table.people td, table.people th { vertical-align: middle; }
 @media (max-width: 560px) { .kv { grid-template-columns: 1fr; gap: .1rem; } .kv dd { margin-bottom: .6rem; } }
 progress.usage { width: 9rem; max-width: 100%; height: .5rem; accent-color: var(--ou-teal); vertical-align: middle; display: block; }
 progress.usage.full { accent-color: var(--bad); }
+.usagecell { display: grid; gap: .25rem; }
 .notice.bad { background: var(--bad-bg); color: var(--bad); }
 
 /* chat bubble (base.html): bottom right on every page, the panel above it */
@@ -468,7 +478,7 @@ progress.usage.full { accent-color: var(--bad); }
 .appfilter { display: flex; flex-wrap: wrap; gap: 12px; align-items: end; margin: 12px 0; }
 .appfilter label { display: flex; flex-direction: column; gap: 4px; font-size: .875rem; color: var(--ou-muted); }
 .appfilter select { font: inherit; padding: 6px 8px; border: 1px solid var(--ou-line); border-radius: 4px; background: var(--ou-surface); color: var(--ou-text); }
-.appmatrix td, .appmatrix th { white-space: nowrap; }
+.appmatrix { font-size: .85rem; } .appmatrix th, .appmatrix td { padding-inline: .5rem; } .appmatrix tbody th { min-width: 7.5rem; } .appmatrix thead th { vertical-align: bottom; }   /* values wrap: the comparison fits its card instead of scrolling (was nowrap) */
 .appmatrix td[data-v="yes"], .appmatrix td[data-v="included"] { color: var(--ou-ok); }
 .appmatrix td[data-v="no"] { color: var(--ou-muted); }
 .appmatrix td[data-v="experimental"], .appmatrix td[data-v="not verified"] { color: var(--ou-warn); }
@@ -479,3 +489,53 @@ progress.usage.full { accent-color: var(--bad); }
 .apphead h3 { margin: 0; font-size: 1.05rem; }
 .appcard h4 { margin: 10px 0 4px; font-size: .9rem; }
 .appcard .ext small { display: block; color: var(--ou-muted); margin-top: 4px; }
+
+/* ---- UI audit 2026-11-25 (portal): long values, record-card tables, admin section menu, page rhythm ---------------------------------- */
+.sub { color: var(--muted); max-width: 72ch; margin: 0 0 1.25rem; }            /* page intro: one muted paragraph, short lines */
+main > h1, .pagehead h1 { margin-bottom: .35rem; }
+.attention + .stats { margin-top: .75rem; }
+.actions.cols2 { grid-template-columns: repeat(auto-fit, minmax(min(100%, 22rem), 1fr)); }
+td, .act small, .notice, .card p { overflow-wrap: break-word; }   /* long addresses, domains and URLs wrap instead of widening the page (break-word keeps table columns from collapsing) */
+.foot .dot { color: var(--line2); }
+@media (max-width: 640px) { .foot { flex-direction: column; gap: .15rem; } .foot .dot { display: none; } }
+
+/* admin navigation: a single tab row where it fits; below 900px a compact section menu (a <details>, the portal runs no script) */
+.subnav { flex-wrap: nowrap; overflow-x: auto; scrollbar-width: thin; }
+.subnav a { white-space: nowrap; flex: none; }
+.subnav-m { display: none; margin: 0 0 1rem; position: relative; }
+.subnav-m > summary { list-style: none; cursor: pointer; display: flex; align-items: center; gap: .5rem; min-height: 2.75rem; padding: 0 .9rem;
+  background: var(--surface); border: 1px solid var(--line); border-radius: var(--radius-sm); color: var(--ink); }
+.subnav-m > summary::-webkit-details-marker { display: none; }
+.subnav-m > summary .muted { font-size: .85rem; }
+.subnav-m > summary::after { content: ""; margin-inline-start: auto; width: .5rem; height: .5rem; border-right: 2px solid var(--muted); border-bottom: 2px solid var(--muted);
+  transform: rotate(45deg) translateY(-2px); }
+.subnav-m[open] > summary::after { transform: rotate(-135deg); }
+.subnav-m nav { position: absolute; inset-inline: 0; top: calc(100% + 4px); z-index: 15; display: grid; padding: 6px; background: var(--ou-raised);
+  border: 1px solid var(--line); border-radius: 8px; box-shadow: var(--ou-shadow-lg); }
+.subnav-m nav a { display: flex; align-items: center; min-height: 2.75rem; padding: 0 .75rem; border-radius: 5px; color: var(--ink); text-decoration: none; }
+.subnav-m nav a:hover { background: var(--ou-sel); }
+.subnav-m nav a[aria-current="page"] { background: var(--ou-sel); font-weight: 600; box-shadow: inset 3px 0 0 var(--ou-action); }
+@media (max-width: 900px) { .subnav { display: none; } .subnav-m { display: block; } }
+
+/* tables that become record cards on a phone (class "rt"; every data cell carries data-label). Nothing is hidden: each value keeps its label. */
+@media (max-width: 640px) {
+  .tablewrap:has(> table.rt) { overflow: visible; }
+  table.rt, table.rt > tbody, table.rt > tbody > tr, table.rt > tbody > tr > th, table.rt > tbody > tr > td { display: block; width: auto; }
+  table.rt > thead { position: absolute; width: 1px; height: 1px; overflow: hidden; clip: rect(0 0 0 0); white-space: nowrap; }
+  table.rt > tbody > tr { border: 1px solid var(--line); border-radius: var(--radius); background: var(--surface); padding: .65rem .9rem; }
+  table.rt > tbody > tr + tr { margin-top: .5rem; }
+  .card table.rt > tbody > tr { background: var(--bg); }
+  table.rt > tbody > tr > th, table.rt > tbody > tr > td { border: 0; padding: .2rem 0; white-space: normal; }
+  table.rt > tbody > tr > th { font-weight: 600; padding-bottom: .4rem; overflow-wrap: anywhere; }
+  /* label column + value column; positioned, so a cell with mixed text and elements stays one value */
+  table.rt > tbody > tr > td[data-label] { position: relative; padding-inline-start: calc(36% + .75rem); min-height: 1.9em; }
+  table.rt > tbody > tr > td[data-label]::before { content: attr(data-label); position: absolute; inset-inline-start: 0; top: .3rem; width: 36%;
+    color: var(--muted); font-size: .82rem; overflow-wrap: break-word; }
+  table.rt .row2 input { flex: 1 1 6rem; min-width: 0; }
+  /* the software comparison: many short values, so two per line with the label above each */
+  table.appmatrix.rt > tbody > tr { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); column-gap: .75rem; }
+  table.appmatrix.rt > tbody > tr > th { grid-column: 1 / -1; }
+  table.appmatrix.rt > tbody > tr > td[data-label] { padding-inline-start: 0; padding-block: .25rem; }
+  table.appmatrix.rt > tbody > tr > td[data-label]::before { position: static; display: block; width: auto; }
+  table.rt .hash { width: auto; }
+}
