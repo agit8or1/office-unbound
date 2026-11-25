@@ -33,6 +33,7 @@ _UPID = re.compile(r"^UPID:([A-Za-z0-9.-]+):[0-9A-Fa-f]{8}:[0-9A-Fa-f]{8,}:[0-9A
 _DEP_ID = re.compile(r"^[a-z0-9][a-z0-9_.+-]{0,60}$")
 _NAME = re.compile(r"^[A-Za-z0-9]([A-Za-z0-9-]{0,61}[A-Za-z0-9])?$")
 _SNAP = re.compile(r"^[A-Za-z][A-Za-z0-9_-]{0,39}$")
+_OWN_SNAP = re.compile(r"^ou-pre-change-\d{8}T\d{6}$")   # the executor's own pre-change snapshots: the only ones it may delete
 _DISK = re.compile(r"^(scsi|virtio|sata|ide)\d{1,2}$|^rootfs$")
 _NEWDISK = re.compile(r"^(scsi|virtio|sata)\d{1,2}$")
 _CIUSER = re.compile(r"^[a-z_][a-z0-9_-]{0,31}$")
@@ -1123,6 +1124,22 @@ class ProxmoxMutations(ProxmoxProvider):
         self._guest(ref)
         up = self._do("post", f"/nodes/{_seg(ref.node)}/{_KIND_PATH[ref.kind]}/{int(ref.vmid)}/snapshot", {"snapname": name})
         return self._task(ref.node, up, ref.vmid, "snapshot", ref.deployment_id)
+
+    def list_snapshots(self, ref: VmRef) -> list[dict]:
+        """The guest's snapshots (name, time), for deployment.snapshots.prune. The guest must be the deployment's own (live check)."""
+        require_job_execution()
+        self._guest(ref)
+        rows = self._get(f"/nodes/{_seg(ref.node)}/{_KIND_PATH[ref.kind]}/{int(ref.vmid)}/snapshot", self._w) or []
+        return [{"name": str(r.get("name")), "snaptime": r.get("snaptime")} for r in rows if r.get("name") and r.get("name") != "current"]
+
+    def delete_snapshot(self, ref: VmRef, name: str) -> TaskRef:
+        """Deletes ONE snapshot the ICS's change executor took (`ou-pre-change-<UTC time>`); any other name is refused."""
+        require_job_execution()
+        if not _OWN_SNAP.match(name):
+            raise ProviderError("invalid_request", "only the ICS's own ou-pre-change-<time> snapshots can be deleted")
+        self._guest(ref)
+        up = self._do("delete", f"/nodes/{_seg(ref.node)}/{_KIND_PATH[ref.kind]}/{int(ref.vmid)}/snapshot/{name}")
+        return self._task(ref.node, up, ref.vmid, "delsnapshot", ref.deployment_id)
 
     def rollback(self, ref: VmRef, name: str) -> TaskRef:
         require_job_execution()

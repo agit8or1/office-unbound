@@ -29,6 +29,7 @@ CATEGORY_OF = {
     "provider.cleanup": "delete_guest", "guest.remove": "delete_guest",
     # backup product (ADR-0010): a prune deletes history for good; a restore verification writes restored data (destructive-class)
     "backup.prune": "remove_storage",
+    "deployment.snapshots.prune": "remove_storage",   # deletes rollback points for good
 }
 # actions that change infrastructure (blocked for monitoring_only, gated by customer approval for customer-owned infra)
 # provider.provision.package and provider.credential.import are decided in classify(): they are monitoring-compatible unless the policy /

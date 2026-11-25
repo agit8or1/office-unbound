@@ -59,6 +59,7 @@ REFS: dict[str, list[tuple[str, str]]] = {
     "deployment.change": [("deployment_id", "deployment"), ("maintenance_window_id", "maintenance")],
     "deployment.create": [("spec.customer_id", "customer_ref")],
     "deployment.destroy": [("deployment_id", "deployment")],
+    "deployment.snapshots.prune": [("deployment_id", "deployment")],
     "gateway.certificates.issue": [("deployment", "deployment")],
     "directory.account.set": [("deployment", "deployment")],
     "directory.account.lock": [("deployment", "deployment")],

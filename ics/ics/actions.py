@@ -90,6 +90,7 @@ class ActionType(StrEnum):
     deployment_create = "deployment.create"
     deployment_change = "deployment.change"
     deployment_destroy = "deployment.destroy"
+    deployment_snapshots_prune = "deployment.snapshots.prune"
     check_delete = "check.delete"
     alert_channel_delete = "alert_channel.delete"
     node_decommission = "node.decommission"
@@ -436,6 +437,7 @@ CATALOG: dict[ActionType, dict] = {
     ActionType.deployment_create: {"model": deploy_ops.DeploymentCreate, "risk": "high", "secrets": ()},
     ActionType.deployment_change: {"model": deploy_ops.DeploymentChange, "risk": "normal", "secrets": ()},
     ActionType.deployment_destroy: {"model": deploy_ops.DeploymentDestroy, "risk": "high", "secrets": ()},
+    ActionType.deployment_snapshots_prune: {"model": deploy_ops.snapshots.SnapshotPrune, "risk": "normal", "secrets": ()},
     # removals (removal.py): audited, guarded at plan time AND at execution
     ActionType.check_delete: {"model": removal.CheckDelete, "risk": "normal", "secrets": ()},
     ActionType.alert_channel_delete: {"model": removal.ChannelDelete, "risk": removal.channel_risk, "secrets": ()},

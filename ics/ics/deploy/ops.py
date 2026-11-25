@@ -12,7 +12,7 @@ from pydantic import BaseModel, ConfigDict, Field, model_validator
 from sqlalchemy import text
 
 from .. import audit
-from . import configure, executor, state
+from . import configure, executor, snapshots, state
 from .lease import Lease, guard_env
 from .. import artifacts as artmod
 from .catalog import get_catalog as _raw_catalog
@@ -29,7 +29,7 @@ def get_catalog():
     """The reviewed catalog with its OCI images pointed at the configured artifact registry (OU_ARTIFACT_BASE, ADR-0015)."""
     return artmod.rewrite_catalog(_raw_catalog(), artmod.load_map())
 SLUG = r"^[a-z0-9][a-z0-9-]{1,30}$"
-ACTIONS = ("deployment.create", "deployment.change", "deployment.destroy")
+ACTIONS = ("deployment.create", "deployment.change", "deployment.destroy", "deployment.snapshots.prune")
 
 
 class DeploymentCreate(BaseModel):
@@ -180,6 +180,8 @@ def precheck(db, rt, action: str, p) -> dict:
         return _pre_create(db, p)
     if action == "deployment.change":
         return _pre_change(db, rt, p)
+    if action == snapshots.ACTION:
+        return snapshots.precheck(db, rt, p)
     return _pre_destroy(db, p)
 
 
@@ -512,6 +514,8 @@ def exec_destroy(rt, db, m: DeploymentDestroy, plan_row, known) -> dict:
     return {"deployment_id": dep.slug, "destroyed_vms": len(names)}
 
 
-MODELS = {"deployment.create": DeploymentCreate, "deployment.change": DeploymentChange, "deployment.destroy": DeploymentDestroy}
-EXECUTORS = {"deployment.create": exec_create, "deployment.change": exec_change, "deployment.destroy": exec_destroy}
+MODELS = {"deployment.create": DeploymentCreate, "deployment.change": DeploymentChange, "deployment.destroy": DeploymentDestroy,
+          snapshots.ACTION: snapshots.SnapshotPrune}
+EXECUTORS = {"deployment.create": exec_create, "deployment.change": exec_change, "deployment.destroy": exec_destroy,
+             snapshots.ACTION: snapshots.exec_prune}
 __all__ = ["MODELS", "EXECUTORS", "ACTIONS", "precheck", "set_env_factory", "uuid", "json"]
