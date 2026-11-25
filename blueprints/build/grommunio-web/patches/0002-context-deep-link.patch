@@ -4,7 +4,7 @@ Apply with: patch -p1 < this file
 ---
 --- a/client/grommunio/core/ContextURLAction.js
 +++ b/client/grommunio/core/ContextURLAction.js
-@@ -0,0 +1,43 @@
+@@ -0,0 +1,55 @@
 +/*
 + * SPDX-FileCopyrightText: Copyright 2026 Office Unbound contributors
 + * SPDX-License-Identifier: AGPL-3.0-or-later
@@ -41,9 +41,21 @@ Apply with: patch -p1 < this file
 +	handleContext: function(action, name)
 +	{
 +		var context = container.getContextByName(name);
-+		if (context && container.getCurrentContext() !== context) {
-+			container.switchContext(context);
++		if (!context || container.getCurrentContext() === context) {
++			return;
 +		}
++		// Open it with its folders, or its default folder, like a click on its main
++		// tab (Grommunio.core.ui.MainTab#selectContext). Switched without a folder,
++		// the calendar never loads its appointments and draws no day columns.
++		var model = context.getModel();
++		var folder;
++		if (model) {
++			folder = model.getFolders();
++			if (Ext.isEmpty(folder)) {
++				folder = model.getDefaultFolder();
++			}
++		}
++		container.switchContext(context, folder);
 +	}
 +});
 +
