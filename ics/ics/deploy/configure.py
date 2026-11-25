@@ -39,6 +39,7 @@ LOCAL_PORT = {"auth": ("identity", 8080), "cloud": ("files", 9200), "office": ("
               # team chat: one VM-local web front (Element Web's nginx) serves Element and routes the Matrix and MAS names (templates/chat/front.conf)
               "chat": ("chat", 8070), "matrix": ("chat", 8070), "mas": ("chat", 8070)}
 PORTAL_CLIENT, WEBMAIL_CLIENT, MATRIX_CLIENT = "ou-portal", "ou-webmail", "ou-matrix"
+DESKTOP_CLIENT = "ou-desktop"   # Office Unbound Desktop's public PKCE client (realm template; ADR-0022 section 5)
 SYNAPSE_UID, MAS_UID, ELEMENT_UID = "10020:10020", "10120:10120", "10030:10030"   # non-root users of the chat images (blueprints/build/collab, blueprints/build/oci/mas)
 # web names whose service has its own TLS front on another VM (the groupware's nginx: webmail, ActiveSync, EWS, MAPI, DAV, Autodiscover): the
 # gateway serves them with ITS certificate (the public one once issued) and proxies over verified HTTPS, like any other web name
@@ -688,8 +689,36 @@ def groupware_runbooks(ctx, vm: str) -> list[dict]:
                                              "bind_password": _sec(ctx, t, "ldap-bind-password"), "group": MAIL_GROUP,
                                              "mailboxes": [f"ou-admin@{domain}", *extra], "sso": sso,
                                              "brand": brand.grommunio_brand(portal_url(ctx.plan, t), fonts=brand.GW_FONTS_FEATURE in
-                                                                            agent_features(ctx, vm, "cfg.gromox"))}},
+                                                                            agent_features(ctx, vm, "cfg.gromox")),
+                                             # an older agent's closed schema refuses the parameter: it is sent only to agents that serve it
+                                             **({"client_document": client_document(ctx.plan, t)}
+                                                if CLIENT_DOC_FEATURE in agent_features(ctx, vm, "cfg.gromox") else {})}},
     ]
+
+
+CLIENT_DOC_FEATURE = "client_document"   # cfg.gromox feature of agents that serve /.well-known/office-unbound/client.json (ou_agent cfgspec.FEATURES)
+
+
+def client_document(plan: dict, tenant: str | None) -> dict:
+    """Office Unbound Desktop's discovery document for a scope (ADR-0022 section 5.1), served as a static file at
+    https://autodiscover.<domain>/.well-known/office-unbound/client.json by the groupware's nginx. Built from the plan alone: every URL is a
+    host name of the scope's own components, a service appears only when its component is in the plan (meetings only when deployed), and no
+    request data (Host header, query, user) ever reaches it, because it is written once per configure run and served as a file."""
+    s = scope(plan, tenant)
+    url = lambda label: f"https://{fq(plan, tenant, label)}/"   # noqa: E731
+    doc = {"version": 1, "name": s["domain"], "issuer": f"https://{fq(plan, tenant, 'auth')}/realms/{REALM}", "client_id": DESKTOP_CLIENT,
+           "auth": url("auth"), "files": url("cloud")}
+    if vm_of(plan, "portal", tenant):
+        doc["portal"] = url("portal")
+    if vm_of(plan, "office", tenant):
+        doc["office"] = url("office")
+    if vm_of(plan, "groupware", tenant):
+        doc["mail"] = f"https://{fq(plan, tenant, 'mail')}/web/"
+    if vm_of(plan, "chat", tenant):
+        doc["matrix"], doc["chat_web"] = url("matrix"), url("chat")
+    if vm_of(plan, "meetings", tenant):
+        doc["meet"] = url("meet")
+    return doc
 
 
 PORTAL_ICS_KEY = "portal-ics-key"   # deployment secret: the portal's credential for the ICS tenant-admin API (tenant_admin/deployment.py)

@@ -759,6 +759,16 @@ server {{
     try_files $uri =404;
   }}
   location @ou_brand_none {{ default_type text/css; return 200 ""; }}
+  # Office Unbound Desktop's discovery document (cfg.gromox `client_document`): a static file written from the ICS's plan, nothing of the
+  # request is used; absent (404) when the ICS sent none
+  location = /.well-known/office-unbound/client.json {{
+    root {brand_root};
+    default_type application/json;
+    add_header Cache-Control "no-cache" always;
+    add_header X-Content-Type-Options nosniff always;
+    add_header Content-Security-Policy "default-src 'none'; sandbox" always;
+    try_files /well-known/office-unbound/client.json =404;
+  }}
   location = / {{ return 301 "/web/"; }}
   location = /web {{ return 301 "/web/$is_args$args"; }}
   location /web/ {{
@@ -963,6 +973,21 @@ def _brand(b):
         os.unlink(GW_DASHBOARD)
 
 
+CLIENT_DOC = os.path.join(BRAND_ROOT, "well-known", "office-unbound", "client.json")
+
+
+def _client_document(doc):
+    """/.well-known/office-unbound/client.json on the mail and autodiscover names (world-readable: URLs and a public client id only)."""
+    if not doc:
+        if os.path.exists(CLIENT_DOC):
+            os.unlink(CLIENT_DOC)
+        return
+    os.makedirs(os.path.dirname(CLIENT_DOC), mode=0o755, exist_ok=True)
+    for q in (BRAND_ROOT, os.path.join(BRAND_ROOT, "well-known"), os.path.dirname(CLIENT_DOC)):
+        os.chmod(q, 0o755)
+    atomic_write(CLIENT_DOC, json.dumps(doc, indent=1, sort_keys=True) + "\n", 0o644)
+
+
 def _gx_files(p, host, pw, base):
     """The gromox configuration files cfg.gromox owns: name (under GX_ETC, 0640 root:gromoxcf) -> content."""
     return {
@@ -1115,6 +1140,7 @@ def gromox(p, x):
                 changed = True
     # --- the Office Unbound skin (/brand/brand.css + mark) and the webmail's Dashboard button target; without `brand` both are removed
     _brand(p.get("brand"))
+    _client_document(p.get("client_document"))
     # --- nginx: mail.<domain> + autodiscover on 443 (clients) and 8447 (the edge), TLS with the deployment certificate
     path, link = os.path.join(NGINX_AVAIL, GW_SITE), os.path.join(NGINX_ENABLED, GW_SITE)
     old = read(path)
