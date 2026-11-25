@@ -1,0 +1,46 @@
+# Building `opencloudcmd.exe` (OpenCloud Desktop sync engine) for Windows: investigation
+
+Status: **investigated, not built, not in any workflow.** Whether to build it is an owner decision.
+Facts below come from upstream's public repo and Actions runs (read 2026-11-25); the time figures are upstream's,
+not ours.
+
+## What upstream does
+
+- Repo `opencloud-eu/desktop`, licence GPL-2.0 (or later). Releases ship only Linux AppImages and macOS pkgs:
+  v4.0.0 (2026-09-03) and v5.0.0-rc.1 (2026-11-23) have **no Windows assets**.
+- Upstream CI (`.github/workflows/main.yml`) **does build Windows x64 on GitHub-hosted runners** using
+  **KDE Craft** (CraftMaster + upstream's own `.github/workflows/.craft.ps1` and `craft_override.ini`):
+  - tag v4.0.0 / branch `stable-4.0`: target `windows-cl-msvc2022-x86_64` on `windows-2022`;
+  - `main` (5.0 line): `windows-cl-msvc2026-x86_64` on `windows-2025-vs2026`, plus arm64.
+- Windows packaging: release builds make an MSIX that is signed through SignPath (upstream secrets). PR builds
+  run "Package for testing" with `[Packager]PackageType=PortablePackager`, a portable zip that holds
+  `opencloud.exe`, `opencloudcmd.exe` and the Qt 6 DLLs. Normal pushes upload no Windows binary
+  (the artifact is about 1 KB).
+- Measured on upstream's run 45663663783 (main, 2026-11-25, warm caches), Windows x64 job: about 17 min.
+  That was Craft unshelve plus prebuilt dependencies 4m37s, build 8m16s, tests 3m01s.
+
+## How we would do it (not done)
+
+A separate `desktop-opencloudcmd.yml` workflow, started by hand (`workflow_dispatch`):
+1. Check out `opencloud-eu/desktop` at the tag (`v4.0.0`, matching the brief), pinned by commit SHA.
+2. Run upstream's own recipe: CraftMaster, `.craft.ps1 --setup`, `--unshelve .craft.shelf`, `--install-deps`, build,
+   `--test`, then `--package --options "[Packager]PackageType=PortablePackager"`.
+3. Take `opencloudcmd.exe` and the DLLs it needs from the portable zip. Write sha256 and an SBOM for the Craft
+   image dir. Upload as a workflow artifact. The `windows` job of `desktop-windows.yml` would then bundle it.
+
+Estimate: **medium complexity, 1-2 days** to get green and stable. A cold run is about **30-50 min**, a warm one
+about 20 min; GitHub-hosted runners are free for this public repo.
+
+## Risks and open points for the owner
+
+- **Supply chain.** Craft downloads prebuilt Qt and other dependencies from KDE's binary cache and from upstream's
+  S3 craft-cache, then CraftMaster `main`, unpinned. Pinning means fixing a CraftMaster/blueprints commit and keeping
+  the shelf file. A from-source Qt build would take hours per run.
+- **Runner images.** v4.0.0 expects `windows-2022` with MSVC 2022. When that image is retired, use 5.x
+  (`windows-2025-vs2026`) or patch the recipe.
+- **Licences.** Shipping `opencloudcmd.exe` (GPL-2.0+) and Qt (LGPL-3.0, dynamically linked) next to our AGPL app
+  needs a written source offer: upstream tag + Craft blueprint revisions + our workflow. Qt DLLs must stay
+  replaceable. We need cargo-deny-like licence review for the Craft dependency set; no tool covers it yet.
+- **Signing.** Ours would be unsigned like the rest of the alpha. Upstream's SignPath signing is not available to us.
+- **Alternative.** Ask upstream whether they would attach the portable Windows zip to releases. That costs nothing
+  and avoids running our own build.
