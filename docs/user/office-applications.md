@@ -33,6 +33,7 @@ redistribute their installers.
 | LibreOffice | Yes | Yes (MPL-2.0) | Yes | Yes | Yes | Yes | No | Stable | Mature free desktop suite |
 | ONLYOFFICE Desktop Editors | Yes | Yes (AGPL-3.0) | Yes | Yes | Yes | Yes | Requires server | Stable | Microsoft Office-style workflow |
 | Collabora Office (desktop) | Depends on edition | Yes (MPL-2.0) | Yes | Yes | Yes | Yes | Requires server | Stable | Open-source office collaboration |
+| MailCraft (mail, calendar, contacts) | Yes | Yes (MIT or Apache-2.0) | Yes | Yes | Yes | Yes | No (its browser build needs JMAP) | Not verified | Outlook-style desktop mail |
 | ArtCraft WordCraft, GridCraft, DeckCraft | Yes | Yes (MIT or Apache-2.0) | Yes | Yes | Yes | Yes | Not verified | **Experimental** | Emerging experimental alternatives |
 
 Limitations worth knowing:
@@ -45,6 +46,8 @@ Limitations worth knowing:
   and will not substitute one for its own editor.
 - **Collabora:** *Collabora Online* is server software; Office Unbound already runs its own build for you. The free CODE edition is not
   recommended by Collabora for production. *Collabora Office* is the separate desktop suite.
+- **MailCraft:** a separate project (github.com/ZIDAN44/mailcraft), not one of ArtCraft's apps. Connect it with IMAP/SMTP and
+  CalDAV/CardDAV; not tested with Office Unbound; the publisher states no maturity level.
 - **ArtCraft:** in active development (alpha releases); features incomplete; file-format compatibility not evaluated by the project; not
   for business-critical documents; GridCraft does not run VBA macros. Installers existing does not mean production readiness.
 
@@ -100,4 +103,5 @@ isolation stay with the sync app and Files.
 - ONLYOFFICE Desktop Editors (AGPL-3.0, Windows/macOS/Linux): <https://www.onlyoffice.com/download-desktop>; source <https://github.com/ONLYOFFICE/DesktopEditors>
 - ONLYOFFICE Docs 9.4 (connection limit removed from Community Edition): <https://www.onlyoffice.com/blog/2026/05/onlyoffice-docs-9-4>
 - Collabora Office: <https://www.collaboraonline.com/collabora-office/>; CODE not for production: <https://www.collaboraonline.com/code/>
+- MailCraft (MIT or Apache-2.0; IMAP/POP+SMTP, JMAP, EWS/Graph, CalDAV/CardDAV): <https://github.com/ZIDAN44/mailcraft>, <https://mailcraft.dev/> (checked 2026-11-25).
 - ArtCraft apps (MIT or Apache-2.0, in development): <https://getartcraft.com/apps>. Note: `getartcraft.app` is a different site; link only `getartcraft.com`.

@@ -384,6 +384,19 @@ def test_devices_page_links_mailcraft(env):
     assert 'href="https://github.com/ZIDAN44/mailcraft"' in page and 'rel="noopener noreferrer"' in page
 
 
+def test_mailcraft_is_in_the_apps_comparison_as_its_own_project(env):
+    """Owner 2026-11-25: "devices#office-apps - missing mailcraft". Its own row and card (not under ArtCraft), facts from its README only."""
+    from app import office_apps
+    c, m, _ = env
+    _, q = login(c, m)
+    finish(c, q)
+    page = c.get("/devices").text
+    assert 'id="app-mailcraft"' in page and 'href="#app-mailcraft"' in page
+    mc = next(a for a in office_apps.APPS if a["id"] == "mailcraft")
+    assert mc["download"] == "https://mailcraft.dev/#download" and mc["matrix"]["status"] == "Not verified"
+    assert [a["id"] for a in office_apps.filtered("linux", "foss")].count("mailcraft") == 1
+
+
 def _app_list(name, ext="docx"):
     mime = {"docx": "application/vnd.openxmlformats-officedocument.wordprocessingml.document"}.get(ext, "application/x-" + ext)
     return {"mime-types": [{"mime_type": "text/plain", "ext": "txt", "app_providers": [{"name": "TextEditor"}]},
