@@ -1,0 +1,17 @@
+[workspace]
+resolver = "2"
+members = ["crates/ou-core", "crates/ou-agent"]
+# The Tauri GUI crate builds for Windows only (WebView2); Linux CI/dev runs the platform-neutral crates.
+default-members = ["crates/ou-core", "crates/ou-agent"]
+
+[workspace.package]
+version = "0.1.0-alpha.1"
+edition = "2021"
+license = "AGPL-3.0-only"
+rust-version = "1.85"
+
+[profile.release]
+lto = true
+codegen-units = 1
+strip = true
+panic = "abort"
