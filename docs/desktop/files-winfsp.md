@@ -17,8 +17,8 @@ covers it. The conditions:
    counts as "linked or distributed with proprietary software" under the WinFsp exception, or as a system component like the MSVC
    runtime and the WebView2 runtime itself, is not settled here. Options: (a) get confirmation from the WinFsp author (the exception text
    invites contact), (b) ship WinFsp as a separate optional download that is not inside our installer, or (c) treat the loader as a
-   system-library exception. Until this is decided, the release build must not embed the WinFsp MSI. Use option (b): the mapped-drive
-   setup downloads the pinned, verified MSI on demand.
+   system-library exception. **Default (accepted by the controller 2026-11-25): option (b)**: the release build does not embed the WinFsp MSI. The
+   mapped-drive setup downloads the pinned, verified MSI on demand. The owner may still ask the WinFsp author for a ruling (option a).
 
 ## 2. Notice texts (exact)
 

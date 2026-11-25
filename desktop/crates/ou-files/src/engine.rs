@@ -38,14 +38,14 @@ pub struct EngineConfig {
     /// Remote folders not to sync (selective sync), relative to the space root.
     pub unsynced_folders: Vec<String>,
     /// KB/s, 0 = unlimited. Upload limit is deliberately not passed: upstream cmd.cpp reads `--upload-limit` from the
-    /// `--max-sync-retries` option (bug, to report upstream), so passing it would set a wrong limit.
+    /// `--max-sync-retries` option (opencloud-eu/desktop#1295), so passing it would set a wrong limit.
     pub download_limit_kbps: u32,
     pub max_sync_retries: u32,
     /// Kill a run that exceeds this (hung network); the next cycle resumes (the engine keeps its journal).
     pub run_timeout: Duration,
 }
 
-/// Exclude list passed with `--exclude`. That option *replaces* the engine's default list (cmd.cpp), so the upstream defaults
+/// Exclude list passed with `--exclude`. That option *replaces* the engine's default list (cmd.cpp, opencloud-eu/desktop#1297), so the upstream defaults
 /// (src/resources/theme/universal/sync-exclude.lst, v4/v5) are repeated here, plus our control and partial files.
 /// `]` = "exclude and delete if needed" in upstream syntax; plain patterns keep the file.
 pub const EXCLUDES: &[&str] = &[
@@ -176,7 +176,7 @@ pub async fn run_engine(cfg: &EngineConfig, app_token: &str) -> Result<RunOutcom
                 l = a.next_line(), if !a_done => match l { Ok(Some(l)) => events.push(parse_line(&l)), _ => a_done = true },
                 l = b.next_line(), if !b_done => match l { Ok(Some(l)) => events.push(parse_line(&l)), _ => b_done = true },
             }
-            // Upstream cmd.cpp logs "Another sync is needed, but not done because restart count is exceeded" and then neither
+            // Upstream cmd.cpp (opencloud-eu/desktop#1296) logs "Another sync is needed, but not done because restart count is exceeded" and then neither
             // quits nor syncs again: the process would idle forever. The run itself completed, so stop it here.
             if events.last() == Some(&EngineEvent::AnotherSyncNeeded) {
                 let _ = child.start_kill();

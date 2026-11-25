@@ -29,7 +29,7 @@ commercial licence.
 | C. Small host process around `libsync` (fork of `cmd.cpp` into a long-running daemon) | Needed for Files On-Demand: `opencloudcmd` hard-codes `Vfs::Mode::Off` (cmd.cpp line 168). Same GPL engine, ~1 file of our own C++ (GPL-2.0-or-later). **Recommended for Phase 4**, behind the same driver interface. |
 | D. Re-implement sync in Rust over WebDAV | Years of edge cases the engine already handles (journal, rename detection, partial transfers, placeholders). Contradicts "reuse the engine". Rejected; `ou-files::webdav` exists for listings, the guard, the mapped-drive UI and file actions, not as a sync engine. |
 
-Facts found in the upstream source (all to report upstream where they are bugs):
+Facts found in the upstream source (bugs filed as opencloud-eu/desktop #1295 upload limit, #1296 hang, #1297 exclude list; bearer auth #1298):
 1. **`opencloudcmd` authenticates with HTTP Basic `user:token`** (`src/cmd/tokencredentials.cpp`), not with an OIDC bearer token. Our driver
    therefore mints a **per-run OpenCloud app token** from the OIDC session (`POST /auth-app/tokens?expiry=…&label=…`), passes it through the
    `OPENCLOUD_TOKEN` environment variable (never argv), and deletes it right after the run. Needs `PROXY_ENABLE_APP_AUTH=true` (on in
@@ -105,8 +105,8 @@ behaviour on the drive, offline write reporting; ACL/timestamp preservation; fil
 
 1. `opencloudcmd.exe` is built from upstream source in GitHub Actions (winci agent).
 2. Files On-Demand: our own host process around libsync with cfapi, Phase 4. Design: [files-on-demand-host.md](files-on-demand-host.md).
-3. App tokens stay for `opencloudcmd`. Bearer support is requested upstream (draft 4 in [upstream-issues.md](upstream-issues.md)).
+3. App tokens stay for `opencloudcmd`. Bearer support is requested upstream ([#1298](https://github.com/opencloud-eu/desktop/issues/1298)).
 4. WinFsp is bundled, with its notice in About and the docs: [files-winfsp.md](files-winfsp.md). An open risk on the WebView2 loader vs
    the WinFsp FLOSS exception is described there.
 5. Tenant admins may adjust the guard thresholds within hard limits: [files-guard-policy.md](files-guard-policy.md), `ou_files::policy`.
-6. The upstream bugs are filed only after the owner approves the wording (drafts in [upstream-issues.md](upstream-issues.md), not filed).
+6. The upstream bugs were filed 2026-11-25 after owner approval: #1295, #1296, #1297 (see [upstream-issues.md](upstream-issues.md)).

@@ -1,7 +1,11 @@
-# Upstream issues for opencloud-eu/desktop (drafts, NOT filed)
+# Upstream issues for opencloud-eu/desktop
 
-Status: drafts for owner approval (owner decision 2026-11-25: file only after the wording is approved). Target:
-https://github.com/opencloud-eu/desktop/issues. Each block below is the issue title plus a body ready to paste. All three bugs were
+Status: **filed 2026-11-25** (wording approved by the owner, filed by the coordinator):
+[#1295](https://github.com/opencloud-eu/desktop/issues/1295) upload limit,
+[#1296](https://github.com/opencloud-eu/desktop/issues/1296) hang after the restart count,
+[#1297](https://github.com/opencloud-eu/desktop/issues/1297) exclude list,
+[#1298](https://github.com/opencloud-eu/desktop/issues/1298) bearer-token feature request.
+Workarounds in `ou_files::engine` reference these numbers. The texts below are as filed. Each block below is the issue title plus a body ready to paste. All three bugs were
 **found by reading the source** of `src/cmd/cmd.cpp` (tag v4.0.0 and main at d1c23be, 2026-11-25); bugs 1–3 have not yet been reproduced
 at runtime, so the "Observed" lines describe what the code does, and the reproduction steps are what a maintainer can run. No private data:
 `cloud.example.com`, `alice`, `/tmp/oc-sync` and the space name are placeholders.
@@ -9,6 +13,8 @@ at runtime, so the "Observed" lines describe what the code does, and the reprodu
 ---
 
 ## 1. `opencloudcmd --upload-limit` uses the value of `--max-sync-retries`
+
+Filed: https://github.com/opencloud-eu/desktop/issues/1295
 
 **Version:** OpenCloud Desktop 4.0.0 (also on main, d1c23be), all platforms.
 
@@ -40,6 +46,8 @@ Run 2: the limit becomes 3 × 1000 = 3 KB/s.
 ---
 
 ## 2. `opencloudcmd` never exits after "Another sync is needed, but not done because restart count is exceeded"
+
+Filed: https://github.com/opencloud-eu/desktop/issues/1296
 
 **Version:** 4.0.0 (also on main), all platforms.
 
@@ -77,6 +85,8 @@ The event loop keeps running, so scripts and supervisors that wait for the proce
 
 ## 3. `opencloudcmd --exclude` drops the default exclude list
 
+Filed: https://github.com/opencloud-eu/desktop/issues/1297
+
 **Version:** 4.0.0 (also on main), all platforms.
 
 **Description**
@@ -110,6 +120,8 @@ so temporary and lock files get uploaded. The GUI client always loads the system
 ---
 
 ## 4. Feature request: OIDC bearer token authentication for `opencloudcmd`
+
+Filed: https://github.com/opencloud-eu/desktop/issues/1298
 
 **Version:** 4.0.0 (also on main).
 
