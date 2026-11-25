@@ -1,0 +1,50 @@
+# cargo-deny policy for Office Unbound Desktop (desktop/ workspace). Used by .github/workflows/desktop-windows.yml.
+# Run locally: cargo deny --manifest-path desktop/Cargo.toml --config desktop/ci/deny.toml check
+
+[graph]
+# The shipped product is Windows x64 only. Linux-only GUI dependencies (gtk/glib/zbus via Tauri) are not shipped and
+# are out of scope here; add "x86_64-unknown-linux-gnu" when a Linux client is built (roadmap only).
+targets = ["x86_64-pc-windows-msvc"]
+all-features = false
+
+[advisories]
+# Every RustSec advisory (vulnerability, unmaintained, unsound, yanked) fails unless listed here with a reason.
+yanked = "deny"
+ignore = []
+
+[licenses]
+# Permissive and weak-copyleft licences compatible with distributing the app under AGPL-3.0-only.
+allow = [
+  "AGPL-3.0-only",
+  "Apache-2.0",
+  "Apache-2.0 WITH LLVM-exception",
+  "MIT",
+  "MIT-0",
+  "BSD-2-Clause",
+  "BSD-3-Clause",
+  "ISC",
+  "Zlib",
+  "Unicode-3.0",
+  "CDLA-Permissive-2.0",
+  "MPL-2.0",
+  "BSL-1.0",
+  "0BSD",
+]
+confidence-threshold = 0.9
+unused-allowed-license = "allow"
+
+[licenses.private]
+# Workspace crates are not published; their licence (AGPL-3.0-only) is still checked above.
+ignore = false
+
+[bans]
+multiple-versions = "warn"
+# Workspace crates use path dependencies without a version; that only matters for crates.io publishing, which never happens.
+# Back to "deny" once every workspace crate sets publish = false (then allow-wildcard-paths applies).
+wildcards = "warn"
+allow-wildcard-paths = true
+
+[sources]
+unknown-registry = "deny"
+unknown-git = "deny"
+allow-registry = ["https://github.com/rust-lang/crates.io-index"]

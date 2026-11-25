@@ -1,0 +1,181 @@
+name: desktop-engine-windows
+
+# Builds the OpenCloud Desktop sync engine `opencloudcmd.exe` (GPL-2.0-or-later) for Windows x64 from pinned upstream
+# source with upstream's own KDE Craft recipe (opencloud-eu/desktop .github/workflows at the same tag). Owner-approved
+# 2026-11-25. Output is an UNSIGNED workflow artifact: the exe and the DLLs and plugins it loads, the corresponding source,
+# and SHA256SUMS. Never a release. No secrets, no signing.
+# Investigation and licence notes: docs/desktop/build-opencloudcmd.md
+
+on:
+  workflow_dispatch:
+  push:
+    branches: ["desktop-*"]
+    paths:
+      - ".github/workflows/desktop-engine-windows.yml"
+      - "desktop/ci/engine/**"
+
+permissions:
+  contents: read
+
+concurrency:
+  group: desktop-engine-windows-${{ github.ref }}
+  cancel-in-progress: true
+
+env:
+  OC_REPO: opencloud-eu/desktop
+  OC_TAG: v4.0.0
+  OC_COMMIT: 9f701e6db2e101cb3247d3331647a60266e83b0f
+  CRAFTMASTER_URL: https://invent.kde.org/kde/craftmaster.git
+  CRAFTMASTER_COMMIT: 8a19d8fcab223b8b27126d98a46ed824b5948665
+  CRAFT_TARGET: windows-cl-msvc2022-x86_64   # the ABI upstream builds v4.0.0 with
+  CRAFT_PACKAGE_SYMBOLS: "False"
+  SIGN_PACKAGE: "False"
+
+jobs:
+  engine:
+    name: opencloudcmd.exe (Craft, windows-2022)
+    # Craft at upstream's v4.0.0 revisions finds only Visual Studio 2022; windows-latest now ships VS 2026 (VS 18), which that
+    # Craft rejects ("Unable to locate Visual Studio"). windows-2022 is the image upstream built v4.0.0 on.
+    runs-on: windows-2022
+    timeout-minutes: 300
+    defaults:
+      run:
+        shell: pwsh
+    env:
+      CRAFT: ${{ github.workspace }}/ou/desktop/ci/engine/craft.ps1
+      OC_DIR: ${{ github.workspace }}/oc
+    steps:
+      - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # v4.2.2
+        with:
+          persist-credentials: false
+          path: ou
+
+      - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # v4.2.2
+        with:
+          repository: ${{ env.OC_REPO }}
+          ref: ${{ env.OC_COMMIT }}
+          path: oc
+          fetch-depth: 0
+          persist-credentials: false
+
+      - name: Verify the pinned source (tag -> commit)
+        working-directory: oc
+        run: |
+          $head = git rev-parse HEAD
+          $tag = git rev-list -n 1 "$env:OC_TAG"
+          Write-Host "HEAD $head, $env:OC_TAG -> $tag"
+          if ($head -ne $env:OC_COMMIT -or $tag -ne $env:OC_COMMIT) { throw "source is not $env:OC_TAG @ $env:OC_COMMIT" }
+          # Upstream's tag-build file names (no -HEAD-) and no beta flags.
+          Get-Content .craft.shelf | Select-String -Pattern "revision" | ForEach-Object { Write-Host $_ }
+
+      # Craft at upstream's v4.0.0 revisions predates Python 3.15 (the image default): use 3.12.
+      - uses: actions/setup-python@a26af69be951a213d495a4c3e4e4022e16d87065 # v5.6.0
+        id: py
+        with:
+          python-version: "3.12"
+
+      - name: Clone CraftMaster (pinned commit)
+        run: |
+          git clone --no-checkout "$env:CRAFTMASTER_URL" "$HOME/craft/CraftMaster/CraftMaster"
+          git -C "$HOME/craft/CraftMaster/CraftMaster" checkout --detach "$env:CRAFTMASTER_COMMIT"
+          git -C "$HOME/craft/CraftMaster/CraftMaster" log -1 --format="CraftMaster %H %cs"
+          "CRAFT_PYTHON=${{ steps.py.outputs.python-path }}" | Add-Content $env:GITHUB_ENV
+
+      # Downloads (source archives) and Craft's binary package cache. Keyed on the shelf, which pins craft-core,
+      # both blueprint repositories and every package version.
+      - uses: actions/cache@27d5ce7f107fe9357f9df03efb73ab90386fccae # v5.0.5
+        with:
+          path: |
+            ~/craft/CraftMaster/downloads
+            ~/craft/cache
+          key: craft-${{ env.CRAFT_TARGET }}-${{ env.OC_COMMIT }}-${{ hashFiles('oc/.craft.shelf', 'ou/desktop/ci/engine/craft-pin.ini') }}
+          restore-keys: craft-${{ env.CRAFT_TARGET }}-
+
+      - name: Craft setup and unshelve (upstream recipe, pinned revisions)
+        run: |
+          $sw = [Diagnostics.Stopwatch]::StartNew()
+          New-Item -Path ~/cache -ItemType Directory -ErrorAction SilentlyContinue | Out-Null
+          git config --global --add safe.directory '*'
+          # Shelf copy with the blueprint repositories pinned to the revisions the upstream shelf records.
+          $shelf = Get-Content oc/.craft.shelf -Raw
+          $kde = [regex]::Match($shelf, '\[craft/craft-blueprints-kde\][^\[]*?revision = (\w+)').Groups[1].Value
+          $ocb = [regex]::Match($shelf, '\[craft/craft-blueprints-opencloud\][^\[]*?revision = (\w+)').Groups[1].Value
+          if (-not $kde -or -not $ocb) { throw "blueprint revisions not found in the shelf" }
+          $shelf = $shelf.Replace("craft-blueprints-opencloud.git|main|", "craft-blueprints-opencloud.git||$ocb").Replace("craft-blueprints-kde.git|master|", "craft-blueprints-kde.git||$kde")
+          Set-Content -Path "$env:RUNNER_TEMP/pinned.shelf" -Value $shelf -NoNewline
+          Select-String -Path "$env:RUNNER_TEMP/pinned.shelf" -Pattern "blueprintrepositories|revision" | ForEach-Object { Write-Host $_.Line }
+          & $env:CRAFT --setup
+          & $env:CRAFT -c --unshelve "$env:RUNNER_TEMP/pinned.shelf"
+          & $env:CRAFT -c craft
+          & $env:CRAFT -c --set "srcDir=$env:GITHUB_WORKSPACE/oc" opencloud/opencloud-desktop
+          & $env:CRAFT -c --set "buildNumber=${{ github.run_number }}" opencloud/opencloud-desktop
+          Write-Host "setup+unshelve: $([int]$sw.Elapsed.TotalMinutes) min"
+
+      - name: Install dependencies (Craft binary cache where available, else from source)
+        run: |
+          $sw = [Diagnostics.Stopwatch]::StartNew()
+          & $env:CRAFT -c --install-deps opencloud/opencloud-desktop
+          Write-Host "deps: $([int]$sw.Elapsed.TotalMinutes) min"
+
+      - name: Build OpenCloud Desktop
+        run: |
+          $sw = [Diagnostics.Stopwatch]::StartNew()
+          & $env:CRAFT -c --no-cache opencloud/opencloud-desktop
+          Write-Host "build: $([int]$sw.Elapsed.TotalMinutes) min"
+
+      - name: Upstream tests
+        continue-on-error: true
+        run: |
+          & $env:CRAFT -c --no-cache --test opencloud/opencloud-desktop
+
+      - name: Portable package (upstream's PortablePackager)
+        run: |
+          & $env:CRAFT -c --no-cache --package --options "[Packager]PackageType=PortablePackager" opencloud/opencloud-desktop
+          Get-ChildItem "$HOME/craft/binaries" | Format-Table Name, Length
+
+      - name: Extract opencloudcmd.exe and its dependency closure
+        run: |
+          & "$env:GITHUB_WORKSPACE/ou/desktop/ci/engine/collect-engine.ps1" `
+            -PackageDir "$HOME/craft/binaries" -OutDir "$env:RUNNER_TEMP/engine/opencloudcmd" `
+            -Tag $env:OC_TAG -Commit $env:OC_COMMIT
+
+      - name: Corresponding source (GPL) and build manifest
+        run: |
+          & "$env:GITHUB_WORKSPACE/ou/desktop/ci/engine/collect-source.ps1" `
+            -OcDir "$env:GITHUB_WORKSPACE/oc" -CraftRoot "$HOME/craft" -OutDir "$env:RUNNER_TEMP/engine" `
+            -Tag $env:OC_TAG -Commit $env:OC_COMMIT -CraftMasterUrl $env:CRAFTMASTER_URL -CraftMasterCommit $env:CRAFTMASTER_COMMIT
+
+      - name: SHA256SUMS and summary
+        working-directory: ${{ runner.temp }}/engine
+        run: |
+          $files = Get-ChildItem -Recurse -File | Where-Object { $_.Name -ne "SHA256SUMS" } | Sort-Object FullName
+          $base = (Get-Location).Path
+          $lines = foreach ($f in $files) { "{0}  {1}" -f (Get-FileHash $f.FullName -Algorithm SHA256).Hash.ToLower(), $f.FullName.Substring($base.Length + 1).Replace('\', '/') }
+          Set-Content -Path SHA256SUMS -Value $lines
+          $exe = Get-Item opencloudcmd/opencloudcmd.exe
+          $dir = (Get-ChildItem opencloudcmd -Recurse -File | Measure-Object Length -Sum).Sum
+          $src = Get-ChildItem source -File | Measure-Object Length -Sum
+          $md = @("## opencloudcmd.exe $env:OC_TAG ($env:OC_COMMIT), unsigned",
+                  "", "| Item | Size |", "|---|---|",
+                  "| opencloudcmd.exe | $($exe.Length) bytes |",
+                  "| engine dir (exe + DLLs + plugins, $((Get-ChildItem opencloudcmd -Recurse -File).Count) files) | $dir bytes |",
+                  "| source/ ($($src.Count) files) | $($src.Sum) bytes |",
+                  "", '```', (Get-Content SHA256SUMS | Select-String -Pattern "opencloudcmd.exe|source/" | ForEach-Object { $_.Line }), '```')
+          Add-Content -Path $env:GITHUB_STEP_SUMMARY -Value $md
+          $md | Write-Host
+
+      - uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: opencloudcmd-windows-x64-${{ env.OC_TAG }}-${{ github.run_number }}
+          path: ${{ runner.temp }}/engine/
+          retention-days: 30
+          if-no-files-found: error
+
+      - name: Craft logs on failure
+        if: failure()
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: craft-logs-${{ github.run_number }}
+          path: ~/craft/logs/
+          retention-days: 7
+          if-no-files-found: ignore
