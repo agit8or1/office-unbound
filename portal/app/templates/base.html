@@ -1,7 +1,7 @@
 {%- from "_icons.html" import icon -%}
-{%- set apps = brand.apps -%}
-{%- set has_mail = apps is none or apps.get("mail", true) -%}
-{%- set has_files = apps is none or apps.get("files", true) -%}
+{%- set shell_apps = brand.apps -%}{#- not "apps": a top-level set here shadows the admin pages' own apps variable (their app labels rendered empty) -#}
+{%- set has_mail = shell_apps is none or shell_apps.get("mail", true) -%}
+{%- set has_files = shell_apps is none or shell_apps.get("files", true) -%}
 {%- set path = request.url.path -%}
 {#- the app shell: one navigation for every Office Unbound app. The links that leave the portal (mail., cloud., chat.) open in the same tab:
     every app carries the "Dashboard" control back here (blueprints/catalog/templates/brand). -#}
@@ -42,7 +42,7 @@
     <nav class="apps" aria-label="Apps">{{ applinks('al') }}</nav>
     <form class="gsearch" role="search" method="get" action="/search">
       <label class="sr" for="q">Search your files</label>
-      {{ icon('search') }}<input id="q" name="q" type="search" placeholder="Search files and folders" maxlength="80" value="{{ q or '' }}" autocomplete="off">
+      {{ icon('search') }}<input id="q" name="q" type="search" placeholder="Search files and folders" maxlength="80" value="{{ fileq or '' }}" autocomplete="off">
     </form>
     <details class="menu create">
       <summary class="newbtn-top">{{ icon('plus') }}<span>New</span></summary>
@@ -111,7 +111,7 @@
 </details>
 {% endif %}
 <footer class="foot">
-  <span>{{ brand.name }}</span><span aria-hidden="true">·</span><span>Your files and messages stay on your organisation's own servers.</span><span aria-hidden="true">·</span><a href="/about">Office Unbound portal v{{ version }}</a>
+  <span>{{ brand.name }}</span><span class="dot" aria-hidden="true">·</span><span>Your files and messages stay on your organisation's own servers.</span><span class="dot" aria-hidden="true">·</span><a href="/about">Office Unbound portal v{{ version }}</a>
 </footer>
 </body>
 </html>

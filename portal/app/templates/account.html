@@ -68,14 +68,14 @@
   <h2 id="h-sess">Where you are signed in</h2>
   {% if sessions %}
   <div class="tablewrap">
-  <table>
+  <table class="rt">
     <caption class="sr">Your most recent sign-ins</caption>
     <thead><tr><th scope="col">Device</th><th scope="col">Apps</th><th scope="col">Address</th><th scope="col">Last active</th></tr></thead>
     <tbody>
     {% for s in sessions %}
     <tr>
       <th scope="row">{{ s.browser }}{% if s.id == current_sid %} <span class="pill ok">This device</span>{% endif %}</th>
-      <td>{{ s.clients | join(', ') }}</td><td>{{ s.ip }}</td><td><time datetime="{{ s.last.isoformat() }}">{{ s.last | ago }}</time></td>
+      <td data-label="Apps">{{ s.clients | join(', ') }}</td><td data-label="Address">{{ s.ip }}</td><td data-label="Last active">{% if s.last %}<time datetime="{{ s.last.isoformat() }}">{{ s.last | ago }}</time>{% else %}<span class="muted">Unknown</span>{% endif %}</td>
     </tr>
     {% endfor %}
     </tbody>

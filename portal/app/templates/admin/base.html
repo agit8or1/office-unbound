@@ -2,17 +2,25 @@
 {% from "_icons.html" import icon %}
 {% block title %}{% block atitle %}Administration{% endblock %} · {{ brand.name }}{% endblock %}
 {% block main %}
+{%- set tabs = [("/admin", "Overview", ("overview",)), ("/admin/users", "People", ("users", "user", "new_user", "confirm")),
+                 ("/admin/groups", "Groups and apps", ("groups",)), ("/admin/addresses", "Addresses", ("addresses",)),
+                 ("/admin/shared", "Shared mailboxes", ("shared", "shared_detail")), ("/admin/storage", "Storage", ("storage",)),
+                 ("/admin/domains", "Domains", ("domains",)), ("/admin/branding", "Look and feel", ("branding",)),
+                 ("/admin/requests", "Activity", ("requests", "request"))] -%}
+{#- one navigation, two presentations: a tab row where it fits, a compact section menu on narrow screens (no script: a <details>) -#}
 <nav class="subnav" aria-label="Administration">
-  <a href="/admin" {% if section == 'overview' %}aria-current="page"{% endif %}>Overview</a>
-  <a href="/admin/users" {% if section in ('users', 'user', 'new_user', 'confirm') %}aria-current="page"{% endif %}>People</a>
-  <a href="/admin/groups" {% if section == 'groups' %}aria-current="page"{% endif %}>Groups and apps</a>
-  <a href="/admin/addresses" {% if section == 'addresses' %}aria-current="page"{% endif %}>Addresses</a>
-  <a href="/admin/shared" {% if section in ('shared', 'shared_detail') %}aria-current="page"{% endif %}>Shared mailboxes</a>
-  <a href="/admin/storage" {% if section == 'storage' %}aria-current="page"{% endif %}>Storage</a>
-  <a href="/admin/domains" {% if section == 'domains' %}aria-current="page"{% endif %}>Domains</a>
-  <a href="/admin/branding" {% if section == 'branding' %}aria-current="page"{% endif %}>Look and feel</a>
-  <a href="/admin/requests" {% if section in ('requests', 'request') %}aria-current="page"{% endif %}>Activity</a>
+  {%- for href, label, secs in tabs %}
+  <a href="{{ href }}" {% if section in secs %}aria-current="page"{% endif %}>{{ label }}</a>
+  {%- endfor %}
 </nav>
+<details class="subnav-m">
+  <summary><span class="muted">Administration</span><b>{% for href, label, secs in tabs if section in secs %}{{ label }}{% endfor %}</b></summary>
+  <nav aria-label="Administration">
+    {%- for href, label, secs in tabs %}
+    <a href="{{ href }}" {% if section in secs %}aria-current="page"{% endif %}>{{ label }}</a>
+    {%- endfor %}
+  </nav>
+</details>
 {% if flash == 'saved' %}<p class="notice ok" role="status">Saved.</p>
 {% elif flash == 'approved' %}<p class="notice ok" role="status">Approved. It will be carried out now.</p>
 {% elif flash == 'declined' %}<p class="notice" role="status">Declined. Nothing was changed.</p>

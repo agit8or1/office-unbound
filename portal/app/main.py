@@ -318,7 +318,7 @@ def create_app(cfg: Settings | None = None, transport: httpx.AsyncBaseTransport 
             except (services.ServiceError, httpx.HTTPError) as e:
                 log.warning("search failed: %s", e)
                 failed = True
-        return render(request, "search.html", {"q": term, "results": results, "failed": failed}, sess=s)
+        return render(request, "search.html", {"q": term, "fileq": term, "results": results, "failed": failed}, sess=s)
 
     @app.post("/prefs")
     async def save_prefs(request: Request) -> Response:

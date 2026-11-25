@@ -245,12 +245,26 @@ async def account_sessions(cfg: Settings, http: httpx.AsyncClient, token: str) -
     for s in r.json():
         out.append({
             "id": s.get("id"), "ip": s.get("ipAddress"), "browser": s.get("browser") or "unknown",
-            "started": datetime.fromtimestamp(s.get("started", 0), timezone.utc),
-            "last": datetime.fromtimestamp(s.get("lastAccess", 0), timezone.utc),
+            "started": _epoch(s.get("started")),
+            "last": _epoch(s.get("lastAccess")),
             "clients": sorted({c.get("clientName") or c.get("clientId") for c in s.get("clients", []) if c.get("clientId")}),
         })
-    out.sort(key=lambda s: s["last"], reverse=True)
+    out.sort(key=lambda s: s["last"] or _NEVER, reverse=True)
     return out
+
+
+_NEVER = datetime.min.replace(tzinfo=timezone.utc)
+
+
+def _epoch(v) -> datetime | None:
+    """Keycloak's session times are epoch seconds. A missing, zero or implausible value is unknown (shown as such), never 1 Jan 1970."""
+    try:
+        v = int(v or 0)
+    except (TypeError, ValueError):
+        return None
+    if v > 10**11:                     # milliseconds
+        v //= 1000
+    return datetime.fromtimestamp(v, timezone.utc) if v >= 946684800 else None   # before 2000: not a real sign-in time
 
 
 async def end_other_sessions(cfg: Settings, http: httpx.AsyncClient, token: str) -> None:
