@@ -76,11 +76,12 @@ jobs:
           retention-days: 1
           if-no-files-found: error
 
-      - name: cargo audit (RustSec advisories on desktop/Cargo.lock)
-        run: cargo audit --file desktop/Cargo.lock --deny warnings
+      # cargo audit cannot filter by target, so it also reports Linux-only GUI crates (gtk/glib/zbus) that are not shipped.
+      # Report only; the gate is cargo deny below, restricted to the Windows target.
+      - name: cargo audit (RustSec, whole lock file, report only)
+        run: cargo audit --file desktop/Cargo.lock || echo "::warning::cargo audit found advisories (whole lock incl. Linux-only crates); see cargo deny for the Windows gate"
 
-      - name: cargo deny (advisories, licences, bans, sources; Windows + Linux targets)
-        if: success() || failure()
+      - name: cargo deny (advisories, licences, bans, sources; Windows target) - the gate
         run: cargo deny --manifest-path desktop/Cargo.toml --config desktop/ci/deny.toml check
 
       - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4.4.0
@@ -164,6 +165,17 @@ jobs:
           if npm run | grep -q '^  test'; then npm test; fi
           npm run build
 
+      # tauri-build checks that every externalBin exists, so the agent sidecar must be staged before cargo test.
+      - name: Stage the ou-agent sidecar (release build)
+        if: steps.meta.outputs.gui_dir != ''
+        env:
+          GUI_DIR: ${{ steps.meta.outputs.gui_dir }}
+        run: |
+          set -euo pipefail
+          cargo build --release --locked -p ou-agent --manifest-path desktop/Cargo.toml
+          mkdir -p "$GUI_DIR/binaries"
+          cp desktop/target/release/ou-agent.exe "$GUI_DIR/binaries/ou-agent-x86_64-pc-windows-msvc.exe"
+
       - name: cargo test --workspace (Windows; ou-files unit tests only)
         working-directory: desktop
         run: |
@@ -201,10 +213,7 @@ jobs:
           set -euo pipefail
           grep -q '"installMode" *: *"currentUser"' "$GUI_DIR/tauri.conf.json" \
             || echo "::warning::tauri.conf.json does not set bundle.windows.nsis.installMode=currentUser"
-          T=x86_64-pc-windows-msvc
-          cargo build --release --locked -p ou-agent --manifest-path desktop/Cargo.toml
-          mkdir -p "$GUI_DIR/binaries" "$RUNNER_TEMP/out"
-          cp desktop/target/release/ou-agent.exe "$GUI_DIR/binaries/ou-agent-$T.exe"
+          mkdir -p "$RUNNER_TEMP/out"
           (cd "$GUI_DIR/.." && npx --no-install tauri build --bundles nsis -- --locked)
           ls -l desktop/target/release/bundle/nsis/
           setup=$(ls -1 desktop/target/release/bundle/nsis/*-setup.exe | head -n1)
