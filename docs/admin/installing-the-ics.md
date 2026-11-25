@@ -69,7 +69,7 @@ so a working installation needs at least three people: one requester and two app
 | `multi-tenant` | the multi-tenant installation mode and multi-tenant deployment plans | network isolation between customers is not verified on real Proxmox |
 | `remote-wipe` | `wipe_devices` on disabling a person | asks every ActiveSync device for a full wipe, which can erase a personal phone; tested only with a scripted client |
 
-An unknown name stops the ICS from starting (so a typo is not silently ignored). The setting is read at start; plans that were made while a feature was on are still checked again when they are created, not when they run.
+An unknown name stops the ICS from starting (so a typo is not silently ignored). The setting is read at start and checked when a plan is made.
 
 On the ICS host, for each person (prints a one-time token, valid 24 h, single use, stored hashed; hand it over out of band):
 ```
