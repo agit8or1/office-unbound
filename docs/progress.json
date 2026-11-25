@@ -1375,6 +1375,16 @@
             "docs/user/office-applications.md"
           ],
           "note": "Policies planned; the per-user preference and 'open in installed application' are under evaluation (security review of URI handlers first)."
+        },
+        {
+          "id": "P11.11",
+          "title": "Office Unbound Desktop, server side: the realm's public ou-desktop client (PKCE S256, loopback redirect) and the discovery document on autodiscover.<domain>",
+          "status": "implementing",
+          "evidence": [
+            "ics/tests/test_desktop_server.py",
+            "blueprints/catalog/templates/identity/realm.json"
+          ],
+          "note": "Owner decisions 2026-11-25 (ADR-0022 on branch desktop-windows). Branch desktop-server: realm template client reconciled in place by cfg.keycloak_realm (creates once, other clients untouched), cfg.gromox feature client_document writes /.well-known/office-unbound/client.json from the plan. Unit tests only; not deployed, not yet verified against a live Keycloak or a real groupware VM."
         }
       ]
     },
