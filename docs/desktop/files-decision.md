@@ -101,13 +101,12 @@ volume); reparse-tag detection (`FindFirstFileW` code is compiled only on Window
 cfapi placeholders/hydration/pinning and Explorer overlays; rclone + WinFsp mount, `O:` detection incl. persistent mappings, Office save
 behaviour on the drive, offline write reporting; ACL/timestamp preservation; file locking.
 
-## 8. Owner decisions
+## 8. Owner decisions (settled 2026-11-25: "go with your recommendations")
 
-1. Build `opencloudcmd.exe` (and later the cfapi host) from upstream source in GitHub Actions with KDE Craft (public repo: free minutes, ~1–2 h
-   cold, cached later), publish the exact source with each installer (GPL).
-2. Phase 4 Files On-Demand via option C (own small GPL host around libsync) vs bundling the full OpenCloud GUI client for VFS only.
-3. Keep `PROXY_ENABLE_APP_AUTH=true` on all deployments (the engine depends on app tokens) — or fund an upstream patch adding bearer auth
-   to `opencloudcmd` (then no app tokens).
-4. Bundle WinFsp's official installer (FLOSS exception: notice + link in the app's About screen and docs; nothing proprietary in the bundle).
-5. Guard defaults (200 items / 30 % deletes / 50 % modifications) and whether tenant admins may change them by policy.
-6. Report the upstream findings 2–4 to opencloud-eu/desktop (public issues).
+1. `opencloudcmd.exe` is built from upstream source in GitHub Actions (winci agent).
+2. Files On-Demand: our own host process around libsync with cfapi, Phase 4. Design: [files-on-demand-host.md](files-on-demand-host.md).
+3. App tokens stay for `opencloudcmd`. Bearer support is requested upstream (draft 4 in [upstream-issues.md](upstream-issues.md)).
+4. WinFsp is bundled, with its notice in About and the docs: [files-winfsp.md](files-winfsp.md). An open risk on the WebView2 loader vs
+   the WinFsp FLOSS exception is described there.
+5. Tenant admins may adjust the guard thresholds within hard limits: [files-guard-policy.md](files-guard-policy.md), `ou_files::policy`.
+6. The upstream bugs are filed only after the owner approves the wording (drafts in [upstream-issues.md](upstream-issues.md), not filed).

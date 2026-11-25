@@ -4,6 +4,7 @@
 //! - [`guard`]: data-safety pre-flight in front of every sync run (mass delete/overwrite hold, never delete on failure).
 //! - [`paths`]: Windows path and filename rules, link/junction classification, loop-free local scan.
 //! - [`engine`]: driver for the OpenCloud sync engine (`opencloudcmd`) as a supervised child process.
+//! - [`policy`]: guard thresholds as tenant/user policy, clamped to hard limits on the client.
 //! - [`mapped`]: rclone + WinFsp mapped drive (config, letter choice, loop checks, pending-write reporting).
 //!
 //! Decision record: docs/desktop/files-decision.md.
@@ -12,4 +13,5 @@ pub mod engine;
 pub mod guard;
 pub mod mapped;
 pub mod paths;
+pub mod policy;
 pub mod webdav;
