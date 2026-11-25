@@ -52,10 +52,13 @@ jobs:
       - name: Install cargo-audit, cargo-deny, cargo-cyclonedx (pinned, --locked)
         run: |
           set -euo pipefail
-          want() { command -v "$1" >/dev/null && "$1" --version | grep -q "$2"; }
-          want cargo-audit "$CARGO_AUDIT_VERSION" || cargo install --locked cargo-audit --version "$CARGO_AUDIT_VERSION"
-          want cargo-deny "$CARGO_DENY_VERSION" || cargo install --locked cargo-deny --version "$CARGO_DENY_VERSION"
-          want cargo-cyclonedx "$CARGO_CYCLONEDX_VERSION" || cargo install --locked cargo-cyclonedx --version "$CARGO_CYCLONEDX_VERSION"
+          # Only the binaries are cached, so check versions by running them (cargo <sub> --version).
+          want() { command -v "cargo-$1" >/dev/null && cargo "$1" --version | grep -qF "$2"; }
+          get() { want "$1" "$2" || cargo install --locked --force "cargo-$1" --version "$2"; }
+          get audit "$CARGO_AUDIT_VERSION"
+          get deny "$CARGO_DENY_VERSION"
+          get cyclonedx "$CARGO_CYCLONEDX_VERSION"
+          cargo audit --version; cargo deny --version; cargo cyclonedx --version
 
       - name: cargo audit (RustSec advisories on desktop/Cargo.lock)
         run: cargo audit --file desktop/Cargo.lock --deny warnings
@@ -147,7 +150,7 @@ jobs:
         run: |
           set -euo pipefail
           command -v cargo-tauri >/dev/null && cargo tauri --version | grep -q "$TAURI_CLI_VERSION" \
-            || cargo install --locked tauri-cli --version "$TAURI_CLI_VERSION"
+            || cargo install --locked --force tauri-cli --version "$TAURI_CLI_VERSION"
           grep -q '"installMode" *: *"currentUser"' tauri.conf.json \
             || echo "::warning::tauri.conf.json does not set bundle.windows.nsis.installMode=currentUser"
           cargo build --release --locked -p ou-agent --manifest-path "$GITHUB_WORKSPACE/desktop/Cargo.toml"
