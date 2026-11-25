@@ -101,7 +101,7 @@ jobs:
           $kde = [regex]::Match($shelf, '\[craft/craft-blueprints-kde\][^\[]*?revision = (\w+)').Groups[1].Value
           $ocb = [regex]::Match($shelf, '\[craft/craft-blueprints-opencloud\][^\[]*?revision = (\w+)').Groups[1].Value
           if (-not $kde -or -not $ocb) { throw "blueprint revisions not found in the shelf" }
-          $shelf = $shelf.Replace("craft-blueprints-opencloud.git|main|", "craft-blueprints-opencloud.git|main|$ocb").Replace("craft-blueprints-kde.git|master|", "craft-blueprints-kde.git|master|$kde")
+          $shelf = $shelf.Replace("craft-blueprints-opencloud.git|main|", "craft-blueprints-opencloud.git||$ocb").Replace("craft-blueprints-kde.git|master|", "craft-blueprints-kde.git||$kde")
           Set-Content -Path "$env:RUNNER_TEMP/pinned.shelf" -Value $shelf -NoNewline
           Select-String -Path "$env:RUNNER_TEMP/pinned.shelf" -Pattern "blueprintrepositories|revision" | ForEach-Object { Write-Host $_.Line }
           & $env:CRAFT --setup
