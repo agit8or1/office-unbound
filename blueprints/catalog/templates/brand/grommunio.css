@@ -169,10 +169,6 @@ body.grommunio-webclient.dark-mode {
    the suite. They are drawn at 20px inside the same button (background-size only: the button keeps the size ExtJS measured). */
 body.grommunio-webclient #grommunio-maintoolbar button.x-btn-text[class*="icon_large_"] { background-size: 20px 20px !important; }
 body.grommunio-webclient #grommunio-maintoolbar-newitem button.x-btn-text::before { -webkit-mask-size: 20px 20px; mask-size: 20px 20px; }
-/* the chosen calendar view (Day, Work week, Week, Month, List) and other pressed toolbar toggles: the selection colour with a teal rule */
-body.grommunio-webclient #grommunio-maintoolbar .x-btn-pressed button.x-btn-text {
-  background-color: var(--ou-sel) !important; box-shadow: inset 0 -2px 0 var(--ou-action); border-radius: var(--ou-radius-sm);
-}
 /* unread rows: upstream's unread border (setting "unread borders", on by default) in the action teal instead of the brand copper */
 body.grommunio-webclient.k-unreadborders .x-grid3-row.mail_unread > table { border-left-color: var(--ou-action) !important; }
 /* list column titles: sentence case like the rest of the suite, no tracking */
