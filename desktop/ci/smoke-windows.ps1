@@ -231,8 +231,15 @@ $exes = @(Get-ChildItem -Path $dir -Filter "*.exe" -File | ForEach-Object { $_.N
 Note "INFO" "installed executables: $($exes -join ', ')"
 foreach ($x in @(Get-ChildItem -Path $dir -Filter "*.exe" -File | Where-Object { $_.Name -ne "uninstall.exe" })) {
   $txt = [Text.Encoding]::ASCII.GetString([IO.File]::ReadAllBytes($x.FullName))
-  $leaks = @(@($env:USERPROFILE, "$env:GITHUB_WORKSPACE", ".cargo\registry") | Where-Object { $_ -and $txt.IndexOf($_, [StringComparison]::OrdinalIgnoreCase) -ge 0 })
-  Check ($leaks.Count -eq 0) "$($x.Name) embeds no build-machine paths (checked user profile, workspace, cargo registry)$(if ($leaks.Count) { ': found ' + ($leaks -join ', ') })"
+  $pats = @($env:USERPROFILE, $env:USERPROFILE.Replace('\', '/'), $env:GITHUB_WORKSPACE, "$env:GITHUB_WORKSPACE".Replace('\', '/'), $env:USERNAME) | Where-Object { $_ }
+  $leaks = @($pats | Where-Object { $txt.IndexOf($_, [StringComparison]::OrdinalIgnoreCase) -ge 0 })
+  $ctx = @()
+  foreach ($probe in @(".cargo\registry", ".cargo/registry")) {
+    $i = $txt.IndexOf($probe, [StringComparison]::OrdinalIgnoreCase)
+    if ($i -ge 0) { $ctx += ($txt.Substring([Math]::Max(0, $i - 40), [Math]::Min(100, $txt.Length - [Math]::Max(0, $i - 40))) -replace '[^\x20-\x7e]', '.') }
+  }
+  if ($ctx.Count) { Note "INFO" "$($x.Name): cargo-registry text without a machine prefix: $($ctx -join ' | ')" }
+  Check ($leaks.Count -eq 0) "$($x.Name) embeds no build-machine paths (user profile, workspace, user name)$(if ($leaks.Count) { ': found ' + ($leaks -join ', ') })"
 }
 $agent = Join-Path $dir "ou-agent.exe"
 Check (Test-Path $agent) "ou-agent.exe installed"
