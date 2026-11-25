@@ -10,6 +10,24 @@ isolated lab; nothing is production supported ([ROADMAP.md](ROADMAP.md)).
 
 ## [Unreleased]
 
+## [0.13.9] - 2026-11-25
+
+### Changed
+- Office Unbound Docs image **26.04.6-ou6**: the editor's script and style links carry the image version, so a browser fetches a new
+  image's code at once instead of keeping a cached copy for up to 128 days. Browsers had kept ou4's code after ou5 shipped, so the
+  "Welcome to Office Unbound Docs" tour still opened on every new document (owner report 2026-11-25). Same coolwsd build; image layer only;
+  dev-signed, scan pass (25 vulnerability ids, max CVSS 8.5, 3036 SBOM components) (`blueprints/build/collabora/oci/Containerfile`).
+- Node agent **0.10.3**: the mail server can serve Office Unbound Desktop's discovery document (below). The ICS sends it only to agents
+  that report the `client_document` feature.
+
+### Added
+- Office Unbound Desktop sign-in client **`ou-desktop`** in the deployment's realm: a public client (no secret) for the authorization code
+  flow with PKCE S256, loopback redirects only (RFC 8252); every other grant is off. New deployments import it with the realm, existing
+  ones get it through the in-place realm reconcile, which never touches other clients (ADR-0022, on branch `desktop-windows` until the desktop app merges).
+- Desktop discovery document `https://autodiscover.<domain>/.well-known/office-unbound/client.json`: the issuer, the `ou-desktop` client
+  and the deployment's service addresses, built from the plan only (no request data), so a user types only their email address. No new
+  DNS record is needed (`ics/tests/test_desktop_server.py`).
+
 ## [0.13.8] - 2026-11-25
 
 ### Added
@@ -768,6 +786,7 @@ editing, chat/meetings, telephony prototype, migration tooling and package pipel
 - `SECURITY.md` (private reporting) and `CONTRIBUTING.md` (DCO sign-off) added; AGPL-3.0 license. [SECURITY](SECURITY.md)
 
 [Unreleased]: https://github.com/agit8or1/office-unbound/compare/v0.4.7...HEAD
+[0.13.9]: https://github.com/agit8or1/office-unbound/compare/v0.13.8...v0.13.9
 [0.13.8]: https://github.com/agit8or1/office-unbound/compare/v0.13.7...v0.13.8
 [0.13.7]: https://github.com/agit8or1/office-unbound/compare/v0.13.6...v0.13.7
 [0.13.6]: https://github.com/agit8or1/office-unbound/compare/v0.13.5...v0.13.6

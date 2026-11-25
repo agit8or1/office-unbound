@@ -5,8 +5,22 @@
   "repository": "https://github.com/agit8or1/office-unbound",
   "updated": "2026-11-25",
   "stage": "alpha",
-  "current_version": "0.13.8",
+  "current_version": "0.13.9",
   "releases": [
+    {
+      "version": "0.13.9",
+      "date": "2026-11-25",
+      "status": "prepared",
+      "codename": "Meridian",
+      "channel": "alpha",
+      "highlights": [
+        "0.13.9: Office Unbound Docs ou6: a new Docs image reaches browsers at once (the welcome tour no longer reappears from a cached editor)",
+        "0.13.9: the deployment's realm has the Office Unbound Desktop sign-in client, and autodiscover.<domain> serves the desktop app's discovery document",
+        "0.13.9: node agent 0.10.3"
+      ],
+      "notes_url": "https://github.com/agit8or1/office-unbound/releases/tag/v0.13.9",
+      "changelog": "CHANGELOG.md#0139---2026-11-25"
+    },
     {
       "version": "0.13.8",
       "date": "2026-11-25",
