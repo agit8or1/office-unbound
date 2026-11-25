@@ -18,7 +18,9 @@ param(
 $ErrorActionPreference = "Stop"
 Set-StrictMode -Version Latest
 
-$Product = "Office Unbound Desktop"
+# Matches both the Tauri build ("Office Unbound") and the ou-agent-only fallback ("Office Unbound Desktop").
+$Product = "Office Unbound"
+$Identifier = "com.officeunbound.desktop"   # Tauri identifier: WebView2 and app data folders
 $DataRoot = Join-Path $env:LOCALAPPDATA "OfficeUnbound"
 $StartMenu = Join-Path $env:APPDATA "Microsoft\Windows\Start Menu\Programs"
 $script:Results = New-Object System.Collections.Generic.List[string]
@@ -95,6 +97,10 @@ function Uninstall-Silent($entry, [string]$label) {
   Check $gone "$label uninstall removed the program files and the registry entry ($dir)"
   $lnk = @(Get-ChildItem -Path $StartMenu -Recurse -Filter "*.lnk" -ErrorAction SilentlyContinue | Where-Object { $_.Name -like "*Office Unbound*" })
   Check ($lnk.Count -eq 0) "$label uninstall removed the Start-menu entries"
+  $run = Get-ItemProperty "HKCU:\Software\Microsoft\Windows\CurrentVersion\Run" -ErrorAction SilentlyContinue
+  $left = @()
+  if ($run) { $left = @($run.PSObject.Properties | Where-Object { $_.Name -notlike "PS*" -and "$($_.Value)" -like "*$dir*" } | ForEach-Object { $_.Name }) }
+  Check ($left.Count -eq 0) "$label no start-at-login entry left pointing into the removed program dir ($($left -join ', '))"
 }
 
 function Seed-UserData([string]$tag) {
@@ -114,6 +120,7 @@ function Count-SecretHits([string[]]$dirs) {
     foreach ($f in Get-ChildItem -Path $d -Recurse -File -ErrorAction SilentlyContinue) {
       if ($f.Extension -in @(".exe", ".dll", ".msi", ".pdb")) { continue }
       if ($f.Length -gt 10MB) { continue }
+      if ($f.FullName -like "*\EBWebView\*") { continue }   # WebView2 browser cache
       $files++
       foreach ($pat in $patterns) {
         if (Select-String -Path $f.FullName -Pattern $pat -Quiet -ErrorAction SilentlyContinue) {
@@ -234,6 +241,7 @@ Note "INFO" "files the agent wrote under the data root: $($logs -join ', ')"
 $gui = @(Get-ChildItem -Path $dir -Filter "*.exe" -File | Where-Object { $_.Name -notin @("ou-agent.exe", "uninstall.exe") })
 if ($gui.Count -gt 0) {
   foreach ($g in $gui) { Launch-Check $g.FullName $g.BaseName 15 }
+  Note "INFO" "ou-agent processes after the GUI ran: $(@(Get-AgentProcs).Count)"
   Note "INFO" "tray icon/menu cannot be verified headless; the process check above only proves the GUI process starts and stays up"
 } else {
   Note "SKIP" "no GUI executable in this build yet: tray and window cannot be tested"
@@ -241,7 +249,7 @@ if ($gui.Count -gt 0) {
 
 # --- 3. secrets ---
 $marker = Seed-UserData "uninstall"
-Scan-Secrets @($dir, $DataRoot)
+Scan-Secrets @($dir, $DataRoot, (Join-Path $env:APPDATA $Identifier), (Join-Path $env:LOCALAPPDATA $Identifier))
 
 # --- 4. uninstall (with the agent running) keeps user data ---
 $bg = Invoke-Exe $agent "" 5

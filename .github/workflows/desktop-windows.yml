@@ -25,7 +25,6 @@ env:
   CARGO_AUDIT_VERSION: "0.22.2"
   CARGO_DENY_VERSION: "0.20.2"
   CARGO_CYCLONEDX_VERSION: "0.5.10"
-  TAURI_CLI_VERSION: "2.12.6"
   CARGO_TERM_COLOR: never
   CARGO_INCREMENTAL: "0"
 
@@ -60,18 +59,13 @@ jobs:
           get cyclonedx "$CARGO_CYCLONEDX_VERSION"
           cargo audit --version; cargo deny --version; cargo cyclonedx --version
 
-      - name: cargo audit (RustSec advisories on desktop/Cargo.lock)
-        run: cargo audit --file desktop/Cargo.lock --deny warnings
-
-      - name: cargo deny (advisories, licences, bans, sources; Windows + Linux targets)
-        run: cargo deny --manifest-path desktop/Cargo.toml --config desktop/ci/deny.toml check
-
+      # SBOM first, so the installer artifact gets one even when an advisory fails the gate below.
       - name: SBOM (CycloneDX JSON, Windows target)
         run: |
           set -euo pipefail
           cargo cyclonedx --manifest-path desktop/Cargo.toml --format json --target x86_64-pc-windows-msvc
           mkdir -p "$RUNNER_TEMP/sbom"
-          find desktop -name '*.cdx.json' -not -path '*/target/*' -exec cp {} "$RUNNER_TEMP/sbom/" \;
+          find desktop -name '*.cdx.json' -not -path '*/target/*' -not -path '*/node_modules/*' -exec cp {} "$RUNNER_TEMP/sbom/" \;
           ls -l "$RUNNER_TEMP/sbom"
           test -n "$(ls -A "$RUNNER_TEMP/sbom")"
 
@@ -81,6 +75,25 @@ jobs:
           path: ${{ runner.temp }}/sbom/
           retention-days: 1
           if-no-files-found: error
+
+      - name: cargo audit (RustSec advisories on desktop/Cargo.lock)
+        run: cargo audit --file desktop/Cargo.lock --deny warnings
+
+      - name: cargo deny (advisories, licences, bans, sources; Windows + Linux targets)
+        if: success() || failure()
+        run: cargo deny --manifest-path desktop/Cargo.toml --config desktop/ci/deny.toml check
+
+      - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4.4.0
+        if: (success() || failure()) && hashFiles('desktop/app/package-lock.json') != ''
+        with:
+          node-version: "22"
+
+      - name: npm audit of the GUI frontend (fails on high or critical)
+        if: (success() || failure()) && hashFiles('desktop/app/package-lock.json') != ''
+        working-directory: desktop/app
+        run: |
+          npm audit --omit=dev || true
+          npm audit --audit-level=high
 
   windows:
     name: test, installer, smoke (windows-latest)
@@ -108,7 +121,7 @@ jobs:
           echo "version=$version" >> "$GITHUB_OUTPUT"
           echo "version4=$base.$GITHUB_RUN_NUMBER" >> "$GITHUB_OUTPUT"
           echo "short=${GITHUB_SHA::7}" >> "$GITHUB_OUTPUT"
-          conf=$(find desktop/crates -maxdepth 3 -name tauri.conf.json -not -path '*/target/*' | head -n1 || true)
+          conf=$(find desktop -maxdepth 4 -name tauri.conf.json -not -path '*/target/*' -not -path '*/node_modules/*' | head -n1 || true)
           if [ -n "$conf" ]; then
             echo "gui_dir=$(dirname "$conf")" >> "$GITHUB_OUTPUT"
             echo "Tauri GUI crate found: $conf"
@@ -129,10 +142,27 @@ jobs:
             ~/.cargo/registry/index
             ~/.cargo/registry/cache
             ~/.cargo/git/db
-            ~/.cargo/bin/cargo-tauri.exe
             desktop/target
           key: win-${{ env.RUST_TOOLCHAIN }}-${{ hashFiles('desktop/Cargo.lock') }}
           restore-keys: win-${{ env.RUST_TOOLCHAIN }}-
+
+      # The GUI crate embeds the built frontend (frontendDist) at compile time, so build it before any cargo test.
+      - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4.4.0
+        if: steps.meta.outputs.gui_dir != ''
+        with:
+          node-version: "22"
+          cache: npm
+          cache-dependency-path: desktop/app/package-lock.json
+
+      - name: Frontend (npm ci from the lock file, typecheck, unit tests, build)
+        if: steps.meta.outputs.gui_dir != ''
+        working-directory: ${{ steps.meta.outputs.gui_dir }}/..
+        run: |
+          set -euo pipefail
+          npm ci --ignore-scripts --no-audit --no-fund
+          if npm run | grep -q '^  typecheck'; then npm run typecheck; fi
+          if npm run | grep -q '^  test'; then npm test; fi
+          npm run build
 
       - name: cargo test --workspace (Windows; ou-files unit tests only)
         working-directory: desktop
@@ -160,26 +190,38 @@ jobs:
           if [ -f ../../crates/ou-files/Cargo.lock ]; then cp ../../crates/ou-files/Cargo.lock Cargo.lock; else cp ../../Cargo.lock Cargo.lock; fi
           CARGO_TARGET_DIR="$GITHUB_WORKSPACE/desktop/target" cargo test --test windows -- --nocapture --test-threads 1
 
-      # ---- Tauri path (once the lead's GUI crate exists) ----
-      - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4.4.0
+      # ---- Tauri path (GUI crate present): the app's own @tauri-apps/cli from package-lock.json ----
+      - name: Build the GUI + agent sidecar and the NSIS installer (per-user)
         if: steps.meta.outputs.gui_dir != ''
-        with:
-          node-version: "22"
-
-      - name: Build with the Tauri bundler (NSIS per-user + MSI)
-        if: steps.meta.outputs.gui_dir != ''
-        working-directory: ${{ steps.meta.outputs.gui_dir }}
+        env:
+          VERSION: ${{ steps.meta.outputs.version }}
+          SHORT: ${{ steps.meta.outputs.short }}
+          GUI_DIR: ${{ steps.meta.outputs.gui_dir }}
         run: |
           set -euo pipefail
-          command -v cargo-tauri >/dev/null && cargo tauri --version | grep -q "$TAURI_CLI_VERSION" \
-            || cargo install --locked --force tauri-cli --version "$TAURI_CLI_VERSION"
-          grep -q '"installMode" *: *"currentUser"' tauri.conf.json \
+          grep -q '"installMode" *: *"currentUser"' "$GUI_DIR/tauri.conf.json" \
             || echo "::warning::tauri.conf.json does not set bundle.windows.nsis.installMode=currentUser"
-          cargo build --release --locked -p ou-agent --manifest-path "$GITHUB_WORKSPACE/desktop/Cargo.toml"
-          cargo tauri build --bundles nsis,msi
-          mkdir -p "$RUNNER_TEMP/out"
-          cp "$GITHUB_WORKSPACE"/desktop/target/release/bundle/nsis/*.exe "$RUNNER_TEMP/out/"
-          cp "$GITHUB_WORKSPACE"/desktop/target/release/bundle/msi/*.msi "$RUNNER_TEMP/out/" || echo "::warning::no MSI produced"
+          T=x86_64-pc-windows-msvc
+          cargo build --release --locked -p ou-agent --manifest-path desktop/Cargo.toml
+          mkdir -p "$GUI_DIR/binaries" "$RUNNER_TEMP/out"
+          cp desktop/target/release/ou-agent.exe "$GUI_DIR/binaries/ou-agent-$T.exe"
+          (cd "$GUI_DIR/.." && npx --no-install tauri build --bundles nsis -- --locked)
+          ls -l desktop/target/release/bundle/nsis/
+          setup=$(ls -1 desktop/target/release/bundle/nsis/*-setup.exe | head -n1)
+          cp "$setup" "$RUNNER_TEMP/out/OfficeUnbound-${VERSION}-${SHORT}-x64-setup.exe"
+
+      - name: MSI (WiX; best effort, the Tauri MSI is per-machine and needs a numeric-only pre-release)
+        if: steps.meta.outputs.gui_dir != ''
+        continue-on-error: true
+        env:
+          VERSION: ${{ steps.meta.outputs.version }}
+          SHORT: ${{ steps.meta.outputs.short }}
+          GUI_DIR: ${{ steps.meta.outputs.gui_dir }}
+        run: |
+          set -euo pipefail
+          (cd "$GUI_DIR/.." && npx --no-install tauri build --bundles msi -- --locked)
+          msi=$(ls -1 desktop/target/release/bundle/msi/*.msi | head -n1)
+          cp "$msi" "$RUNNER_TEMP/out/OfficeUnbound-${VERSION}-${SHORT}-x64.msi"
 
       # ---- Fallback path: ou-agent packaged by desktop/ci/installer.nsi ----
       - name: Build ou-agent (release) and the NSIS installer
@@ -206,21 +248,28 @@ jobs:
             desktop/ci/installer.nsi
           ls -l "$RUNNER_TEMP/out"
 
-      - name: Previous installer artifact (for the upgrade test)
+      - name: Previous installer artifact of the same kind (for the upgrade test)
         id: prev
         continue-on-error: true
         env:
           GH_TOKEN: ${{ github.token }}
+          # Tauri installers are named OfficeUnbound-*, the ou-agent-only fallback ones OfficeUnboundDesktop-*.
+          KIND: ${{ steps.meta.outputs.gui_dir != '' && 'OfficeUnbound-' || 'OfficeUnboundDesktop-' }}
         run: |
           set -euo pipefail
-          id=$(gh run list -R "$GITHUB_REPOSITORY" --workflow desktop-windows.yml --status success -L 20 \
-                 --json databaseId --jq ".[] | select(.databaseId != $GITHUB_RUN_ID) | .databaseId" | head -n1)
-          if [ -z "$id" ]; then echo "no previous successful run"; exit 0; fi
-          gh run download "$id" -R "$GITHUB_REPOSITORY" --pattern 'ou-desktop-windows-*' -D "$RUNNER_TEMP/prev"
-          f=$(find "$RUNNER_TEMP/prev" -name '*-setup.exe' | head -n1)
-          echo "previous run $id: $f"
-          echo "installer=$f" >> "$GITHUB_OUTPUT"
-          echo "run_id=$id" >> "$GITHUB_OUTPUT"
+          ids=$(gh run list -R "$GITHUB_REPOSITORY" --workflow desktop-windows.yml --status success -L 20 \
+                  --json databaseId --jq ".[] | select(.databaseId != $GITHUB_RUN_ID) | .databaseId" | head -n 6)
+          for id in $ids; do
+            d="$RUNNER_TEMP/prev/$id"
+            gh run download "$id" -R "$GITHUB_REPOSITORY" --pattern 'ou-desktop-windows-*' -D "$d" || continue
+            f=$(find "$d" -name "${KIND}*-setup.exe" | head -n1)
+            if [ -n "$f" ]; then
+              echo "previous run $id: $f"
+              echo "installer=$f" >> "$GITHUB_OUTPUT"
+              exit 0
+            fi
+          done
+          echo "no previous successful run with a ${KIND}* installer"
 
       - name: Smoke test the installer on Windows
         shell: pwsh
@@ -245,6 +294,8 @@ jobs:
   bundle:
     name: installer + sha256 + SBOM artifact
     needs: [supply-chain, windows]
+    # Still bundle when only the advisory/licence gate failed: the run stays red, the artifact says so.
+    if: always() && needs.windows.result == 'success' && needs.supply-chain.result != 'cancelled'
     runs-on: ubuntu-24.04
     timeout-minutes: 10
     steps:
@@ -261,10 +312,12 @@ jobs:
         working-directory: dist
         run: |
           set -euo pipefail
-          find . -type f ! -name SHA256SUMS -printf '%P\n' | sort | xargs sha256sum > SHA256SUMS
+          echo "supply-chain gate: ${{ needs.supply-chain.result }} (run $GITHUB_SERVER_URL/$GITHUB_REPOSITORY/actions/runs/$GITHUB_RUN_ID)" > GATE.txt
+          find . -type f ! -name SHA256SUMS -printf '%P\n' | sort | xargs -d '\n' sha256sum > SHA256SUMS
           cat SHA256SUMS
           {
             echo "## Unsigned alpha installer"
+            echo "Supply-chain gate (cargo audit, cargo deny, npm audit): **${{ needs.supply-chain.result }}**"
             echo '```'
             cat SHA256SUMS
             echo '```'
