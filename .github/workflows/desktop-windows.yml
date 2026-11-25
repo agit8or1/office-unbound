@@ -134,9 +134,31 @@ jobs:
           key: win-${{ env.RUST_TOOLCHAIN }}-${{ hashFiles('desktop/Cargo.lock') }}
           restore-keys: win-${{ env.RUST_TOOLCHAIN }}-
 
-      - name: cargo test --workspace (Windows)
+      - name: cargo test --workspace (Windows; ou-files unit tests only)
         working-directory: desktop
-        run: cargo test --workspace --locked
+        run: |
+          set -euo pipefail
+          # ou-files' live tests need real credentials, which never go into CI: run its --lib tests only.
+          unset OU_FILES_LIVE_URL OU_FILES_TOKEN_CMD OU_FILES_ENGINE
+          if [ ! -d crates/ou-files ]; then
+            cargo test --workspace --locked
+          elif grep -q '^\[workspace\]' crates/ou-files/Cargo.toml; then
+            echo "ou-files is still a standalone workspace"
+            cargo test --workspace --locked --exclude ou-files
+            cargo test --manifest-path crates/ou-files/Cargo.toml --lib --locked
+          else
+            cargo test --workspace --locked --exclude ou-files
+            cargo test -p ou-files --lib --locked
+          fi
+
+      - name: ou-files Windows probe (real NTFS junctions, symlinks, name rules, drive letters)
+        if: hashFiles('desktop/crates/ou-files/Cargo.toml') != ''
+        working-directory: desktop/ci/winprobe
+        run: |
+          set -euo pipefail
+          # Seed the lock from the one ou-files is tested with, so the probe resolves the same versions.
+          if [ -f ../../crates/ou-files/Cargo.lock ]; then cp ../../crates/ou-files/Cargo.lock Cargo.lock; else cp ../../Cargo.lock Cargo.lock; fi
+          CARGO_TARGET_DIR="$GITHUB_WORKSPACE/desktop/target" cargo test --test windows -- --nocapture --test-threads 1
 
       # ---- Tauri path (once the lead's GUI crate exists) ----
       - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4.4.0
