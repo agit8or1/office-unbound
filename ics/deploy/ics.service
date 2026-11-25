@@ -47,6 +47,8 @@ SystemCallFilter=@system-service
 SystemCallFilter=~@privileged @resources
 SystemCallArchitectures=native
 ReadOnlyPaths=/opt/office-unbound /etc/office-unbound
+# the console's copy of Office Unbound Desktop for Windows (ics.desktop_sync; the only path the ICS writes outside the database)
+ReadWritePaths=-/var/lib/office-unbound/desktop
 InaccessiblePaths=-/etc/office-unbound/ics-migrate.env -/etc/office-unbound/ics-test.env -/etc/office-unbound/lab
 
 [Install]

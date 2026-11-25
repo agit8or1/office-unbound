@@ -49,7 +49,8 @@ def base_settings(tmp_path_factory):
                     signing_key_file=str(d / "signing.key"), incident_renotify_seconds=0, notify_max_attempts=2,
                     # the production floors (30 s backoff, 300 s window, 15/30 s check intervals) are exercised explicitly in tests/test_review_fixes.py
                     remediation_min_backoff_seconds=0, remediation_min_window_seconds=60, check_min_interval_seconds=5,
-                    check_min_interval_credentialed_seconds=5)
+                    check_min_interval_credentialed_seconds=5,
+                    desktop_sync_enabled=False)   # test workers never touch this host's artifact tree (tests/test_desktop_sync.py drives it)
 
 
 @pytest.fixture(scope="session")

@@ -4,7 +4,7 @@ import time
 
 from sqlalchemy import text
 
-from . import identity, monitor
+from . import desktop_sync, identity, monitor
 from .msp import events as msp_events
 from .credentials import expiry as cred_expiry
 from .tenancy import approvals as tapprovals
@@ -177,6 +177,17 @@ class Worker(threading.Thread):
                 log.exception("msp webhook loop error")
             self._stop_evt.wait(self.interval)
 
+    def _desktop_loop(self) -> None:
+        """Office Unbound Desktop for Windows: fill the console's copy from the published signed deb (desktop_sync). At start, then every
+        desktop_sync.SYNC_SECONDS; own thread, so hashing a large installer never delays jobs, checks or the heartbeat."""
+        while not self._stop_evt.is_set():
+            try:
+                if self.active():
+                    desktop_sync.tick(self.rt)
+            except Exception:  # noqa: BLE001
+                log.exception("desktop installer sync error")
+            self._stop_evt.wait(max(self.interval, 5.0))
+
     def run(self) -> None:
         self.threads["jobs"] = threading.current_thread()
         self.threads["heartbeat"] = threading.Thread(target=self._beat, daemon=True, name="ics-heartbeat")
@@ -185,6 +196,8 @@ class Worker(threading.Thread):
             self.threads["monitor"] = threading.Thread(target=self._monitor_loop, daemon=True, name="ics-monitor")
             self.threads["inventory"] = threading.Thread(target=self._inventory_loop, daemon=True, name="ics-inventory")
         self.threads["backup"] = threading.Thread(target=self._backup_loop, daemon=True, name="ics-backup")
+        if self.rt.settings.desktop_sync_enabled:
+            self.threads["desktop"] = threading.Thread(target=self._desktop_loop, daemon=True, name="ics-desktop-sync")
         self._children = [t for k, t in self.threads.items() if k != "jobs"]   # joined by stop()
         for t in self._children:
             t.start()

@@ -126,7 +126,9 @@ class Settings:
     witness_state_file: str | None = None        # on the promoting host: witness state; `ics-cli promote` revokes and waits T + margin before bumping the epoch
     witness_margin_seconds: float = 10.0         # clock-rate drift bound for the promotion proof
     standby_max_lag_seconds: int = 60            # /readyz replication check on a standby
-    desktop_windows_dir: str = "/var/lib/office-unbound/desktop/windows"   # ICS_DESKTOP_WINDOWS_DIR: contents of package ou-desktop-windows (installer + manifest.json)
+    desktop_windows_dir: str = "/var/lib/office-unbound/desktop/windows"   # ICS_DESKTOP_WINDOWS_DIR: contents of package ou-desktop-windows (a symlink kept by desktop_sync)
+    desktop_artifacts_etc: str = "/etc/office-unbound/artifacts"           # ICS_DESKTOP_ARTIFACTS_ETC: the publisher's server.json + keys/ (channel pins)
+    desktop_sync_enabled: bool = True                                       # ICS_DESKTOP_SYNC: the worker fills desktop_windows_dir from the signed deb
     trusted_proxy: str | None = None             # exact IP of a local reverse proxy whose X-Forwarded-For is honoured (e.g. 127.0.0.1); None = ignore XFF
 
     def __post_init__(self):
@@ -210,6 +212,8 @@ def load_settings() -> Settings:
             witness_margin_seconds=float(env.get("ICS_WITNESS_MARGIN_SECONDS", 10)),
             trusted_proxy=_trusted_proxy(env.get("ICS_TRUSTED_PROXY")),
             desktop_windows_dir=env.get("ICS_DESKTOP_WINDOWS_DIR") or "/var/lib/office-unbound/desktop/windows",
+            desktop_artifacts_etc=env.get("ICS_DESKTOP_ARTIFACTS_ETC") or "/etc/office-unbound/artifacts",
+            desktop_sync_enabled=b("ICS_DESKTOP_SYNC", True),
             job_timeout_seconds=int(env.get("ICS_JOB_TIMEOUT_SECONDS", 180)),
             guest_agent_dir=env.get("ICS_GUEST_AGENT_DIR") or None,
             guest_image_registries=_csv(env.get("ICS_GUEST_IMAGE_REGISTRIES")),

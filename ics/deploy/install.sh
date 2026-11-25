@@ -32,6 +32,8 @@ CAT_DST=/opt/office-unbound/blueprints/catalog
 install -d -m 0755 /opt/office-unbound/blueprints
 rsync -a --delete "$CAT_SRC"/ "$CAT_DST"/
 chown -R root:root /opt/office-unbound/blueprints; chmod -R go-w,a+rX /opt/office-unbound/blueprints
+# Office Unbound Desktop for Windows: the ICS fills this from the signed ou-desktop-windows deb (ics.desktop_sync, ReadWritePaths of ics.service)
+install -d -o ics -g ics -m 0755 /var/lib/office-unbound/desktop
 install -m 0644 "$DST/deploy/ics.service" "$DST/deploy/ics-migrate.service" "$DST/deploy/ics-bootstrap.service" /etc/systemd/system/
 # console access rules helper (Settings -> Network & domains -> Management access): root, one request per connection, group ics only
 install -m 0644 "$DST/deploy/ou-console-access.socket" "$DST/deploy/ou-console-access@.service" /etc/systemd/system/

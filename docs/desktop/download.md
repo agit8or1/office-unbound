@@ -18,7 +18,7 @@ artifact kind, no new trust path.
 | Where | Path | Who reads it |
 |---|---|---|
 | Portal VM (package) | `/usr/share/ou-desktop/windows/{manifest.json, OfficeUnbound-Desktop-<ver>-x64-setup.exe}` | `ou-portal` (`PORTAL_DESKTOP_DIR`, default this path; the unit's `ProtectSystem=strict` leaves `/usr` readable) |
-| ICS host (copy of the same package's contents) | `/var/lib/office-unbound/desktop/windows/` | `ics` (`ICS_DESKTOP_WINDOWS_DIR`, default this path) |
+| ICS host (extracted automatically from the same signed deb, see below) | `/var/lib/office-unbound/desktop/windows` (a symlink to `releases/<version>-<deb sha256[:12]>/`) | `ics` (`ICS_DESKTOP_WINDOWS_DIR`, default this path) |
 
 `manifest.json` (schema 1, at most 4 KiB): `{"schema":1, "product", "platform":"windows-x64", "version", "file", "sha256", "size",
 "unsigned", "stage"}`. Both servers (`portal/app/desktop_download.py`, `ics/ics/desktop_download.py`, identical code, enforced by a test)
@@ -63,27 +63,58 @@ the ICS host, from a clean checkout of the gated commit. Back up first (`ics/dep
    - {name: desktop-windows, kind: package, package: ou-desktop-windows, version: "<ver>", repo: ob-apt-dev}
    ```
    Add the pin only after step 3: a pin to an unpublished version makes `pkg.install_pinned` fail on every portal VM. Commit, bump the
-   release version and name (versioning rule), then update `ROADMAP.md`/`progress.json`.
-5. **Give the ICS its copy** from the same deb, so both UIs serve identical bytes:
-   ```sh
-   X=$(mktemp -d) && dpkg-deb -x /var/lib/office-unbound/pkgbuild/repo/pool/dev/ou-desktop-windows/ou-desktop-windows_<ver>_all.deb "$X"
-   sudo install -d -m 0755 /var/lib/office-unbound/desktop/windows
-   sudo install -m 0644 "$X"/usr/share/ou-desktop/windows/* /var/lib/office-unbound/desktop/windows/
-   ```
-   Remove the files of the previous version that the new manifest no longer names. Record the step in `docs/status/host-changes.md`.
-6. **Gate, then ship.** Run the full release gate on the commit (pytest with your own test env, vitest, typecheck, build,
+   release version and name (versioning rule), then update `ROADMAP.md`/`progress.json`. The ICS copy needs no manual step: once the ICS
+   runs a catalog with this pin, it extracts the package itself (next section). To do it at once after a publish, run
+   `sudo -u ics env ICS_ENV_FILE=/etc/office-unbound/ics.env /opt/office-unbound/ics/.venv/bin/python -m ics.desktop_sync`. It prints the
+   result as JSON and exits 0 on `extracted`, `current` or `no_pin`.
+5. **Gate, then ship.** Run the full release gate on the commit (pytest with your own test env, vitest, typecheck, build,
    static-drift 0, portal pytest, doc links). Deploy the ICS from a clean checkout. The portal code that serves the file ships in a new
    `ou-portal` build (PORTAL_VERSION bump, `portal-deb/build-deb.sh`, same step 3), pinned in the same `portal.yaml`.
-7. **Roll out in place** with an approved `deployment.change` of the tenant's deployment (never destroy and recreate). Because the plan
+6. **Roll out in place** with an approved `deployment.change` of the tenant's deployment (never destroy and recreate). Because the plan
    adds a new package to the portal VM, the change gets `agent.update:<vm>` with `allow` (the agent's allowlist grows; needs agent
    0.10.1 or later) and then `comp.upgrade:<vm>:portal` (`pkg.install_pinned`, about 5 s portal downtime).
-8. **Verify, with evidence.** Signed in on `https://app.<domain>/devices`, the card shows the version, size and sha256.
+7. **Verify, with evidence.** Signed in on `https://app.<domain>/devices`, the card shows the version, size and sha256.
    `curl -sI` with a session shows the headers listed above. Download the file and compare its sha256 with the manifest. In the console,
    open the tenant's Overview and use the same link. Close the GitHub issue with this evidence.
 
 Rollback: pin the previous `ou-desktop-windows` version (it stays in the dev pool, because step 3 does not prune), then `deployment.change`.
-Alternatively remove the pin: the package stays installed, because a change removes nothing from a VM, so delete the manifest to hide the
-card.
+The ICS follows the pin on its next pass and flips back (or uses the kept previous release). Removing the pin leaves the VMs' package
+installed, because a change removes nothing from a VM, and leaves the ICS copy as it is.
+
+## The ICS copy: extracted automatically (`ics/ics/desktop_sync.py`)
+
+Owner, 2026-11-25: "yes, have the ICS extract it automatically".
+
+**When it runs.** The worker leader runs it in its own thread at start, then every 5 minutes (`SYNC_SECONDS`). Only the active primary
+runs it, never a standby or a fenced controller. `ou-artifact-publish apt` publishes by flipping the `apt/current` symlink, and the next
+pass sees the changed `InRelease` (inode, mtime, size). An unchanged tree and pin cost two `stat` calls and never hash again. The CLI
+above runs the same pass at once. Why not a hook inside the root publisher: the publisher has no database or audit key, and running ICS
+code as root would widen it. Why not a typed action: there is nothing to choose, because the catalog pin fixes the version. Neither
+path has an API or parameters, so no caller decides what is read, run or written. `ICS_DESKTOP_SYNC=false` turns the worker pass off.
+
+**What it trusts.** It uses the guests' own path (ADR-0015):
+1. The version is the **catalog pin** of the portal component (`portal.yaml`), never "latest", and only from our `ob-apt-*` channels.
+   With no pin it does nothing, and the console says "Not available yet".
+2. `dists/<suite>/InRelease` of the **published** tree (`<data_dir>/apt/current`, from the publisher's `server.json`) must verify with
+   `gpgv` against the channel key pinned there (`channel_fprs`, `keys/ou-release-<suite>.pub.asc`). The key file must hash to that
+   fingerprint. The `InRelease` must be for that suite and not expired.
+3. `main/binary-amd64/Packages` must match the signed `InRelease` (size and sha256). Its stanza for exactly the pinned version names
+   the deb, with a safe `pool/<suite>/` path.
+4. The deb is copied while it is hashed, and must match that stanza's size and sha256. The copy is what gets parsed.
+5. Each `data.tar.xz|gz` member must be a directory or regular file: no symlink, hard link, device or fifo, no absolute path and no
+   `..`. Members are only allowed under `usr/share/ou-desktop/windows/` (extracted) and `usr/share/doc/ou-desktop-windows/` (ignored).
+   The payload must be exactly `manifest.json` plus the installer it names.
+6. The installer must hash to the manifest's sha256.
+
+**Replacement.** It extracts into `releases/.tmp-*`, renames that to `releases/<version>-<deb sha256[:12]>`, then flips the `windows`
+symlink with `os.replace`. The previous release stays until the flip succeeded, and one release is kept for rollback. A copy placed by
+hand earlier is kept as `releases/manual-*`. Any refusal leaves the current copy untouched. Audit: `desktop.installer.extracted`
+(version, sha256, size, package version, deb sha256, release, previous) on each flip, and `desktop.installer.refused` (reason) once per
+input.
+
+**Host.** `ics.service` gets `ReadWritePaths=-/var/lib/office-unbound/desktop`, the only path the ICS writes outside the database. The
+directory is created `ics:ics 0755` by `install.sh` and by the ou-ics package's tmpfiles. `gpgv` comes with Ubuntu's `gpgv` package,
+which is already on the ICS host.
 
 ## Open points
 
