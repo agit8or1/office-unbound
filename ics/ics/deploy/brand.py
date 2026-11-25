@@ -184,9 +184,40 @@ def element_themes() -> list[dict]:
                            "roomlist-separator-color": t["line"], "timeline-background-color": t["surface"],
                            "timeline-text-color": t["ink"], "timeline-text-secondary-color": t["muted"], "timeline-highlights-color": t["bg2"]},
                 "compound": {"--cpd-color-text-action-accent": t["action"], "--cpd-color-icon-accent-tertiary": t["action"],
-                             "--cpd-color-bg-accent-rest": t["action"], "--cpd-color-border-focused": t["action"]}}
+                             "--cpd-color-bg-accent-rest": t["action"], "--cpd-color-border-focused": t["focus"],
+                             # Compound's primary button is near-black (light) / near-white (dark): the suite's primary is the action
+                             # teal ("Create recovery key", "Use another device", dialogs), text in the action ink like the portal's
+                             "--cpd-color-bg-action-primary-rest": t["action"], "--cpd-color-bg-action-primary-hovered": t["action-hover"],
+                             "--cpd-color-bg-action-primary-pressed": t["action-hover"], "--cpd-color-text-on-solid-primary": t["action-ink"],
+                             # Compound's own neutral layers (near-black #101317 canvas in dark: black secondary buttons on the navy
+                             # card of "Confirm your digital identity") on the suite's: canvas = the surface, tints = the side tint and line
+                             "--cpd-color-bg-canvas-default": t["surface"], "--cpd-color-bg-subtle-secondary": t["bg2"],
+                             "--cpd-color-bg-subtle-primary": t["line"], "--cpd-color-border-interactive-secondary": t["line-2"]}}
     light, dark = tokens()
     return [theme(ELEMENT_THEME, light, False), theme(f"{ELEMENT_THEME} Dark", dark, True)]
+
+
+def _svg_data_uri(svg: str) -> str:
+    """base64: Element writes the background as `center/cover fixed url(<value>)` without quotes, so the value may hold no space,
+    quote or parenthesis (element-web 1.12.35 AuthPage)."""
+    return "data:image/svg+xml;base64," + base64.b64encode(svg.encode()).decode()
+
+
+def element_background_svg() -> str:
+    """The sign-in / identity-confirmation backdrop: the suite's app-bar navy (dark in both themes, so the light and the dark card both
+    sit on it), nothing else. Replaces Element's stock landscape photo (themes/element/img/backgrounds/lake.jpg)."""
+    light, _ = tokens()
+    return ('<svg xmlns="http://www.w3.org/2000/svg" width="1600" height="900" viewBox="0 0 1600 900" preserveAspectRatio="none">'
+            f'<rect width="1600" height="900" fill="{light["bar-bg"]}"/></svg>')
+
+
+def element_branding(portal: str | None) -> dict:
+    """config.json `branding` (element-web 1.12.35 docs/config.md): the backdrop of Element's auth pages (sign-in, "Confirm your digital
+    identity") in the suite's navy instead of the stock photo, the Office Unbound mark instead of Element's logo, and the footer links
+    (default: Element's blog, Mastodon and GitHub) replaced by the way back to the portal. Element always adds "Powered by Matrix"."""
+    return {"welcome_background_url": _svg_data_uri(element_background_svg()),
+            "auth_header_logo_url": _svg_data_uri(mark_svg()),
+            "auth_footer_links": [{"text": f"{PRODUCT} {HOME_LABEL}", "url": portal}] if portal else []}
 
 
 # ---------------------------------------------------------------- Keycloak

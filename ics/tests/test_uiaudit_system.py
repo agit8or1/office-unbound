@@ -1,9 +1,11 @@
 """UI audit 2026-11-25, shared visual system: the roles and scales added to the one token file (blueprints/catalog/templates/brand/ou-brand.css)
 are complete in both themes, readable where they are used, and the sign-in and account themes use them instead of ad-hoc colours."""
+import base64
+import json
 import re
 from pathlib import Path
 
-from ics.deploy import brand
+from ics.deploy import brand, configure
 
 ROOT = Path(__file__).resolve().parents[2]
 BRAND = ROOT / "blueprints/catalog/templates/brand"
@@ -76,3 +78,33 @@ def test_keycloak_skin_urls_change_with_the_content():
         assert files[f"ou/{t}/resources/{name}"] == files[f"ou/{t}/resources/ou.css"]
     msgs = files["ou/login/messages/messages_en.properties"]
     assert "doLogIn=Sign in\n" in msgs                                                       # sentence case, like the rest of the suite
+
+
+HOSTS = dict(CHAT_HOST="chat.e2e.example", MATRIX_HOST="matrix.e2e.example", MAS_HOST="mas.e2e.example", SERVER_NAME="e2e.example",
+             FRAME_ANCESTORS="https://chat.e2e.example")
+
+
+def test_chat_auth_pages_use_the_suite_backdrop_mark_and_footer_not_elements():
+    """Element's sign-in and "Confirm your digital identity" pages: the stock landscape photo, Element logo and Element's blog/Mastodon/
+    GitHub links replaced through config.json `branding` (the supported hook)."""
+    c = json.loads(configure.element_config(HOSTS, "https://app.e2e.example/"))
+    b = c["branding"]
+    bg = b["welcome_background_url"]
+    # Element writes it unquoted into `url(...)`: base64 only, no space, quote or parenthesis
+    assert bg.startswith("data:image/svg+xml;base64,") and not re.search(r"[\s'\"()]", bg)
+    svg = base64.b64decode(bg.split(",", 1)[1]).decode()
+    assert f'fill="{brand.tokens()[0]["bar-bg"]}"' in svg and "<image" not in svg and "href" not in svg   # token navy, nothing fetched
+    assert base64.b64decode(b["auth_header_logo_url"].split(",", 1)[1]).decode() == brand.mark_svg()
+    assert b["auth_footer_links"] == [{"text": "Office Unbound Dashboard", "url": "https://app.e2e.example/"}]
+    assert "element.io" not in json.dumps(c) and "github.com" not in json.dumps(c)
+    assert json.loads(configure.element_config(HOSTS))["branding"]["auth_footer_links"] == []   # no portal: an empty list hides Element's
+
+
+def test_chat_primary_buttons_and_layers_are_the_suites_and_readable():
+    for theme, t in zip(brand.element_themes(), brand.tokens()):
+        cpd = theme["compound"]
+        assert all(re.fullmatch(r"--cpd-[a-z0-9-]+", k) for k in cpd)                   # Element ignores anything else (its theme.ts)
+        assert cpd["--cpd-color-bg-action-primary-rest"] == t["action"] and cpd["--cpd-color-bg-canvas-default"] == t["surface"]
+        for fill in ("--cpd-color-bg-action-primary-rest", "--cpd-color-bg-action-primary-hovered"):
+            assert brand.contrast(cpd["--cpd-color-text-on-solid-primary"], cpd[fill]) >= 4.5, (theme["name"], fill)
+        assert brand.contrast(cpd["--cpd-color-border-focused"], t["surface"]) >= 3.0
