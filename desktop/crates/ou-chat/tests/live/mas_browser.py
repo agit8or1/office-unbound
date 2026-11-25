@@ -2,7 +2,9 @@
 """Stand-in for the system browser in the live chat test: follows a MAS authorization URL through MAS -> Keycloak sign-in ->
 MAS consent until the redirect reaches the 127.0.0.1 loopback listener of the Rust test.
 
-Usage: mas_browser.py <authorization-url>   (env OU_TEST_USER, OU_TEST_PASSWORD_FILE)
+Usage: mas_browser.py <authorization-url>   (env OU_TEST_DOMAIN, OU_TEST_USER, OU_TEST_PASSWORD_FILE)
+       mas_browser.py --end-sessions <client name>   signs in to MAS's account UI and ends that user's active OAuth 2.0
+       sessions of the named client (cleanup of test devices left behind by a failed run). Prints session ids only.
 Prints only step hosts/paths and status codes; never page bodies, query strings, cookies or the password.
 TLS is verified with the system trust store (requests default). Only https hosts under OU_TEST_DOMAIN and the loopback are visited.
 """
@@ -48,13 +50,46 @@ def allowed(url, domain):
 
 
 def main():
-    url = sys.argv[1]
     domain = os.environ["OU_TEST_DOMAIN"]
+    s = requests.Session()
+    s.headers["User-Agent"] = "OfficeUnboundDesktop-livetest"
+    if sys.argv[1] == "--end-sessions":
+        rc = browse(s, f"https://mas.{domain}/login", domain, stop_at_home=True)
+        if rc != 0:
+            return rc
+        return end_sessions(s, f"https://mas.{domain}/graphql", sys.argv[2])
+    return browse(s, sys.argv[1], domain)
+
+
+def end_sessions(s, gql, client_name):
+    q = """query { viewer { __typename ... on User { oauth2Sessions(first: 100, state: ACTIVE) {
+             edges { node { id client { clientName } } } } } } }"""
+    r = s.post(gql, json={"query": q}, timeout=30)
+    if r.status_code != 200 or "errors" in r.json():
+        print(f"graphql query failed: HTTP {r.status_code} {list(r.json().get('errors', [{}])[0].keys()) if r.ok else ''}", file=sys.stderr)
+        return 1
+    viewer = r.json()["data"]["viewer"]
+    if viewer.get("__typename") != "User":
+        print("not signed in to MAS", file=sys.stderr)
+        return 1
+    ids = [e["node"]["id"] for e in viewer["oauth2Sessions"]["edges"] if (e["node"]["client"] or {}).get("clientName") == client_name]
+    m = """mutation($id: ID!) { endOauth2Session(input: {oauth2SessionId: $id}) { status } }"""
+    all_ok = True
+    for i in ids:
+        r = s.post(gql, json={"query": m, "variables": {"id": i}}, timeout=30)
+        body = r.json() if r.ok else {}
+        status = ((body.get("data") or {}).get("endOauth2Session") or {}).get("status")
+        errs = [e.get("message", "")[:200] for e in body.get("errors", [])]
+        all_ok = all_ok and status == "ENDED"
+        print(f"end session {i}: HTTP {r.status_code} status={status} errors={errs}", file=sys.stderr)
+    print(f"{len(ids)} session(s) of {client_name!r} found", file=sys.stderr)
+    return 0 if all_ok else 1
+
+
+def browse(s, url, domain, stop_at_home=False):
     user = os.environ["OU_TEST_USER"]
     with open(os.environ["OU_TEST_PASSWORD_FILE"]) as f:
         password = f.read().strip()
-    s = requests.Session()
-    s.headers["User-Agent"] = "OfficeUnboundDesktop-livetest"
     method, data = "get", None
     for step in range(20):
         if not allowed(url, domain):
@@ -70,6 +105,8 @@ def main():
             continue
         if r.status_code != 200:
             return 1
+        if stop_at_home and p.hostname == f"mas.{domain}" and (p.path == "/" or p.path.startswith("/account")):
+            return 0  # signed in to the MAS account UI (cleanup mode)
         parser = Forms()
         parser.feed(r.text)
         pw_form = next((f for f in parser.forms if any(t == "password" for _, t, _ in f["inputs"])), None)

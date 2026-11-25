@@ -113,6 +113,17 @@ impl ChatClient {
         Ok(r.event_id.to_string())
     }
 
+    /// The attachment of a message, looked up by event id (the GUI only knows ids: media sources and file keys stay in the agent).
+    pub async fn attachment_of(&self, room_id: &str, event_id: &str) -> Result<AttachmentRef, ChatError> {
+        let room = self.room(room_id)?;
+        let id = matrix_sdk::ruma::EventId::parse(event_id).map_err(|_| ChatError::Refused("bad event id".into()))?;
+        let ev = room.event(&id, None).await.map_err(mx)?;
+        match crate::messages::to_message(&ev).map(|m| m.body) {
+            Some(crate::messages::Body::File { attachment }) => Ok(attachment),
+            _ => Err(ChatError::Refused("message has no attachment".into())),
+        }
+    }
+
     /// Downloads (and, for encrypted rooms, decrypts) an attachment.
     pub async fn download(&self, a: &AttachmentRef) -> Result<Vec<u8>, ChatError> {
         let source = a.source.clone().ok_or_else(|| ChatError::Refused("attachment has no source".into()))?;

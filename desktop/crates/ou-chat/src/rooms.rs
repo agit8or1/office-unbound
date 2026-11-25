@@ -98,14 +98,27 @@ impl ChatClient {
         self.room(room_id)?.set_is_favourite(on, None).await.map_err(mx)
     }
 
-    /// Leaves and forgets a room (it disappears from the list and the local store).
-    pub async fn leave_and_forget(&self, room_id: &str) -> Result<(), ChatError> {
+    /// Leaves a room. It moves to "left" after the next sync; call [`Self::forget`] after that sync.
+    pub async fn leave(&self, room_id: &str) -> Result<(), ChatError> {
         let room = self.room(room_id)?;
-        if room.state() != RoomState::Left {
-            room.leave().await.map_err(mx)?;
+        if room.state() == RoomState::Left {
+            return Ok(());
         }
-        let room = self.room(room_id)?;
-        room.forget().await.map_err(mx)
+        room.leave().await.map_err(mx)
+    }
+
+    /// Forgets a left room (removes it from the server's and the local room list).
+    /// Must run after the sync that delivered the leave: matrix-sdk 0.20 fails the next sync
+    /// (`CacheStateAlreadyExists`) when a room is forgotten before its leave was synced.
+    pub async fn forget(&self, room_id: &str) -> Result<(), ChatError> {
+        self.room(room_id)?.forget().await.map_err(mx)
+    }
+
+    /// Leave, sync, forget. For callers without a running sync loop (tests, one-shot tools).
+    pub async fn leave_and_forget(&self, room_id: &str) -> Result<(), ChatError> {
+        self.leave(room_id).await?;
+        self.sync_once(std::time::Duration::from_secs(0)).await?;
+        self.forget(room_id).await
     }
 }
 

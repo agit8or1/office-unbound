@@ -76,6 +76,8 @@ async fn live_sign_in_room_send_receive_attach_cleanup() {
     let Body::File { attachment } = &got_file.body else { panic!("{:?}", got_file.body) };
     assert!(attachment.encrypted, "attachment uploaded as ciphertext");
     let bytes = chat.download(attachment).await.expect("download + decrypt");
+    let by_id = chat.attachment_of(enc_room.as_str(), &e2).await.expect("attachment by event id");
+    assert_eq!(chat.download(&by_id).await.unwrap(), bytes);
     assert_eq!(bytes, b"[OU-TEST] small attachment");
     eprintln!("receive ok: text decrypted, attachment {} bytes decrypted", bytes.len());
 
