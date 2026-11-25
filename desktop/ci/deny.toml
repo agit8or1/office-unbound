@@ -1,5 +1,5 @@
 # cargo-deny policy for Office Unbound Desktop (desktop/ workspace). Used by .github/workflows/desktop-windows.yml.
-# Run locally: cargo deny --manifest-path desktop/Cargo.toml check --config desktop/ci/deny.toml
+# Run locally: cargo deny --manifest-path desktop/Cargo.toml --config desktop/ci/deny.toml check
 
 [graph]
 # The shipped product is Windows x64; Linux is checked too because CI and dev builds run there.
