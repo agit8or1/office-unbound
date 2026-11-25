@@ -152,7 +152,9 @@ jobs:
           echo "RUSTFLAGS=--remap-path-prefix=$ch=cargo --remap-path-prefix=$ws=src" >> "$GITHUB_ENV"
           echo "remapping $ch -> cargo, $ws -> src"
 
-      - uses: actions/cache@27d5ce7f107fe9357f9df03efb73ab90386fccae # v5.0.5
+      # restore + explicit save (below, also on failure): a red test must not throw away a 40-minute chat-stack build.
+      - uses: actions/cache/restore@27d5ce7f107fe9357f9df03efb73ab90386fccae # v5.0.5
+        id: cargo-cache
         with:
           path: |
             ~/.cargo/registry/index
@@ -333,6 +335,16 @@ jobs:
           path: ${{ runner.temp }}/out/
           retention-days: 1
           if-no-files-found: error
+
+      - uses: actions/cache/save@27d5ce7f107fe9357f9df03efb73ab90386fccae # v5.0.5
+        if: always() && steps.stage.outcome == 'success' && steps.cargo-cache.outputs.cache-hit != 'true'
+        with:
+          path: |
+            ~/.cargo/registry/index
+            ~/.cargo/registry/cache
+            ~/.cargo/git/db
+            desktop/target
+          key: win-remap-${{ env.RUST_TOOLCHAIN }}-${{ hashFiles('desktop/Cargo.lock') }}
 
   bundle:
     name: installer + sha256 + SBOM artifact
