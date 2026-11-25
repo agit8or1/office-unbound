@@ -3946,7 +3946,7 @@ dependencies = [
 
 [[package]]
 name = "office-unbound-desktop"
-version = "0.1.0-alpha.1"
+version = "0.1.0-alpha.2"
 dependencies = [
  "ou-agent",
  "ou-core",
@@ -4010,7 +4010,7 @@ dependencies = [
 
 [[package]]
 name = "ou-agent"
-version = "0.1.0-alpha.1"
+version = "0.1.0-alpha.2"
 dependencies = [
  "ou-chat",
  "ou-core",
@@ -4022,7 +4022,7 @@ dependencies = [
 
 [[package]]
 name = "ou-chat"
-version = "0.1.0-alpha.1"
+version = "0.1.0-alpha.2"
 dependencies = [
  "base64 0.23.1",
  "matrix-sdk",
@@ -4040,7 +4040,7 @@ dependencies = [
 
 [[package]]
 name = "ou-core"
-version = "0.1.0-alpha.1"
+version = "0.1.0-alpha.2"
 dependencies = [
  "axum",
  "base64 0.23.1",
@@ -4060,7 +4060,7 @@ dependencies = [
 
 [[package]]
 name = "ou-files"
-version = "0.1.0-alpha.1"
+version = "0.1.0-alpha.2"
 dependencies = [
  "base64 0.23.1",
  "ou-core",
