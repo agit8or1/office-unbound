@@ -103,7 +103,7 @@ def test_the_secret_is_stored_encrypted_and_reused(rt):
 
 def test_the_image_links_the_key_and_bakes_none():
     cf = (OCI / "Containerfile").read_text()
-    assert "ARG OU_VERSION=26.04.6-ou5" in cf
+    assert "ARG OU_VERSION=26.04.6-ou6" in cf   # the recipe of the next image; the catalog pin (below) moves when it is built
     assert "rm -f /etc/coolwsd/proof_key /etc/coolwsd/proof_key.pub" in cf and "ln -s /opt/ou-tls/proof_key /etc/coolwsd/proof_key" in cf
     assert cf.index("ln -s /opt/ou-tls/proof_key") < cf.index("chown -R cool:cool /opt/ou-docs /etc/coolwsd")
 
