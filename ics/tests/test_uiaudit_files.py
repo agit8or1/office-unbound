@@ -52,6 +52,12 @@ def test_the_search_controls_in_the_bar_use_the_bar_colours():
     for t in (light, dark):   # the field is --ou-bar-2 (the bar's search input rule)
         assert brand.contrast(t["bar-text"], t["bar-2"]) >= 4.5
         assert brand.contrast(t["bar-muted"], t["bar-2"]) >= 4.5
+    # the field's focus ring in the bar: the bar text (the action teal is < 3:1 on the light navy)
+    ring = next(d for s, d in _rules(CSS) if s.startswith("#oc-topbar .oc-search-input:focus"))
+    assert "outline-color: var(--ou-bar-text) !important" in ring
+    assert brand.contrast(light["action"], light["bar-bg"]) < 3
+    for t in (light, dark):
+        assert brand.contrast(t["bar-text"], t["bar-bg"]) >= 3 and brand.contrast(t["bar-text"], t["bar-2"]) >= 3
 
 
 def test_phones_show_the_mark_once():

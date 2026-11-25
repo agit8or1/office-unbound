@@ -25,6 +25,8 @@ body { font-family: var(--ou-font); }
 /* the search field's scope chip ("All files") and search button are surface buttons: their ink was the page's text colour, invisible on the
    navy field in the light theme */
 #oc-topbar #files-global-search-bar .oc-button { --oc-button-color: var(--ou-bar-muted); --oc-button-on-color: var(--ou-bar-text); }
+/* its focus ring in the bar's text colour, like the Dashboard control's: the fields' teal ring is under 3:1 on the light theme's navy */
+#oc-topbar .oc-search-input:focus, #oc-topbar .oc-search-input:focus-visible { outline-color: var(--ou-bar-text) !important; }
 #oc-topbar .oc-logo-image { border-radius: 4px; content: var(--ou-org-logo, normal); }
 #oc-topbar .oc-logo-wrapper .ou-home { margin-inline-start: .5rem; }
 /* phones: the Dashboard control is icon-only and carries the mark (or the organisation logo), so the upstream logo next to it would show
@@ -50,11 +52,11 @@ a[href^="https://docs.opencloud.eu"] { display: none !important; }
 .no-content-message { height: auto !important; min-height: min(45vh, 24rem); padding-block: 2rem; }
 .no-content-message .no-content-message-image { width: 72px; height: 72px; }
 .no-content-message .text-xl { font-size: 1.0625rem; line-height: 1.4; font-weight: 500; color: var(--ou-ink); }
-/* navigation: the item height of the portal's and webmail's lists (40px, was 45px); labels in medium weight, bold only for the current place */
+/* navigation: denser items (39px, were 45px); labels medium (were bold), semibold for the current place */
 #web-nav-sidebar .oc-sidebar-nav-item-link { padding-block: .625rem; }
 #web-nav-sidebar .oc-sidebar-nav-item-link .font-bold { font-weight: 500; }
 #web-nav-sidebar .oc-sidebar-nav-item-link.active .font-bold { font-weight: 600; }
-/* file list headings: one style for sortable and plain columns (Status, Tags and Actions were ink and bold, the rest muted) */
+/* file list headings: one style for sortable and plain columns (Status, Tags and Actions were ink, the sortable ones muted) */
 .oc-table .oc-table-header-cell { color: var(--ou-muted); font-weight: 500; }
 .oc-table .oc-table-header-cell .oc-button-sort { --oc-button-color: var(--ou-muted); font-weight: 500; }
 /* the rename pencil beside every name: shown on the row being pointed at, focused or selected (mouse), in the row menu on phones */
