@@ -11,6 +11,21 @@ Craft repo archives, shelf, recipe, installed-package list, SOURCES.md) and `SHA
 Facts below come from upstream's public repo and Actions runs (read 2026-11-25); the time figures are upstream's,
 not ours.
 
+## First green build (2026-11-25)
+
+Run https://github.com/agit8or1/office-unbound/actions/runs/45698384557 (windows-2022) took 17 min with a cold cache:
+6 min for unshelve, which brings Qt 6.11.1 and the other deps from KDE's binary cache; 7 min to build; 3 min for upstream's
+34 tests, all of which passed.
+- `opencloudcmd.exe --version` prints `opencloudcmd OpenCloud 4.0.0.4` for commit `9f701e6d...`. It ran from the
+  collected folder with PATH limited to the Windows system dirs.
+- Collected: 45 files, 102.8 MB. These are the exe; OpenCloudLibSync and the Qt 6 Core/Network/Gui/Qml/Quick/Widgets
+  DLLs that LibSync imports; ICU; OpenSSL 3; SQLite; the VC++ runtime; the TLS backends (schannel, openssl, certonly);
+  and networkinformation.
+- `source/` is 7.6 MB in 14 files: the desktop tree, craft-core, CraftMaster, both blueprint repos, the shelf and the recipe.
+- The artifact is 48.4 MB zipped. sha256 of `opencloudcmd.exe` is
+  `a55e3d6ead5c6c49841fa92e8e742cd03a3b39e861302e13f2c58a92b402051c` (full list in the artifact's `SHA256SUMS`).
+- Not proven yet: a real sync over HTTPS. That is the files agent's live test against the test stack, on a Windows host.
+
 ## What upstream does
 
 - Repo `opencloud-eu/desktop`, licence GPL-2.0 (or later). Releases ship only Linux AppImages and macOS pkgs:
