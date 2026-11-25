@@ -42,13 +42,47 @@ def _deployments(db, c) -> list:
                       {"s": c.slug, "i": str(c.id)}).all()
 
 
+def _worst(states: list[str]) -> str:
+    for s in ("critical", "warning", "unknown"):
+        if s in states:
+            return s
+    return "ok" if states else "unknown"
+
+
+def _vms(db, d, plan: dict | None) -> list[dict]:
+    """Per VM of the deployment: what it runs, its size, where it is (endpoint, Proxmox node, VM id, storage), its node agent and the
+    state of the health checks that run on it. Read-only; addresses are the LAN addresses the Nodes page shows."""
+    ep = db.execute(text("SELECT name FROM endpoints WHERE id = :i"), {"i": str(d.endpoint_id)}).scalar() if d.endpoint_id else None
+    res = {r.logical_name: (r.state, r.provider_ref or {}) for r in db.execute(text(
+        "SELECT logical_name, state, provider_ref FROM deployment_resources WHERE deployment_id = :d AND kind = 'vm'"), {"d": str(d.id)})}
+    checks = db.execute(text("SELECT name, state, last_run_at FROM checks WHERE deployment_id = :d AND enabled"), {"d": str(d.id)}).all()
+    out = []
+    for v in (plan or {}).get("vms", []):
+        st, ref = res.get(v["name"], (None, {}))
+        agent = None
+        if ref.get("agent_node_id"):
+            n = db.execute(text("SELECT name, address, status, agent_version, last_seen_at FROM nodes WHERE CAST(id AS text) = :i"),
+                           {"i": ref["agent_node_id"]}).first()
+            if n is not None:
+                agent = {"status": n.status, "version": n.agent_version, "address": n.address, "last_seen_at": _iso(n.last_seen_at)}
+        mine = [c for c in checks if c.name.startswith(v["name"] + "-")]
+        out.append({"name": v["name"], "role": v.get("logical"), "components": v.get("components") or [], "cores": v.get("cores"),
+                    "memory_mb": v.get("memory_mb"), "disk_gb": sum(int(x.get("size_gb") or 0) for x in v.get("disks") or []),
+                    "storage": sorted({x.get("storage") for x in v.get("disks") or [] if x.get("storage")}),
+                    "endpoint": ep, "node": ref.get("node") or v.get("node"), "vmid": ref.get("vmid"), "state": st or "planned",
+                    "agent": agent, "health": {"status": _worst([c.state for c in mine]), "checks": len(mine),
+                                                "failing": sorted(c.name for c in mine if c.state in ("critical", "warning"))}})
+    return out
+
+
 def _tenant(db, c, detail: bool = False) -> dict:
     from .deploy import appaccess
     deps = []
     for d in _deployments(db, c):
         plan = appaccess._applied_plan(db, d)
         comps = sorted({x for v in (plan or {}).get("vms", []) for x in (v.get("components") or [])})
-        deps.append({"slug": d.slug, "status": d.status, "domain": (plan or {}).get("input", {}).get("domain"), "components": comps})
+        deps.append({"slug": d.slug, "status": d.status, "domain": (plan or {}).get("input", {}).get("domain"), "components": comps,
+                     **({"vms": _vms(db, d, plan)} if detail else {})})
     out = {"id": str(c.id), "slug": c.slug, "name": c.name, "provisioning_mode": c.provisioning_mode, "msp_owned": c.msp_owned,
            "disabled": c.disabled_at is not None, "deployments": deps,
            "domains": sorted({x["domain"] for x in deps if x["domain"]})}

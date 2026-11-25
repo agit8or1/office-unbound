@@ -1,6 +1,6 @@
 <script setup lang="ts">
 // ADR-0021 §2: one tenant's settings. Step 1: Overview, Domains (with the DNS checker), Users (per deployment), Policy.
-import { computed } from 'vue'
+import { computed, watch } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
 import { hasRole, useLoad } from '../../store'
 import PageHeader from '../../ui/PageHeader.vue'
@@ -10,8 +10,8 @@ import EmptyState from '../../ui/EmptyState.vue'
 import StatusBadge from '../../ui/StatusBadge.vue'
 import ErrorBox from '../../components/ErrorBox.vue'
 import PeoplePanel from '../../components/PeoplePanel.vue'
-import { serviceLabel } from '../../wizards/deploy/sizing'
 import DnsCheck from './DnsCheck.vue'
+import DeploymentCard from './DeploymentCard.vue'
 import { MODE_LABEL, tenantsApi } from './tenants'
 
 const props = defineProps<{ id: string; tab?: string }>()
@@ -23,9 +23,8 @@ const tab = computed({
   set: (v: string) => { void router.replace({ path: `/tenants/${props.id}/${v}`, query: route.query }) },
 })
 const t = useLoad(() => tenantsApi.one(props.id))
+watch(() => props.id, () => { void t.reload() })   // another tenant opened from this page: load it
 const withDomain = computed(() => (t.data.value?.deployments ?? []).filter((d) => d.domain))
-const APP_OF: Record<string, string> = { groupware: 'mail', files: 'files', office: 'office', chat: 'chat', meetings: 'meetings', telephony: 'telephony' }
-const apps = (comps: string[]) => comps.map((c) => APP_OF[c]).filter(Boolean).map(serviceLabel).join(', ') || 'None'
 const isAdmin = computed(() => hasRole('admin'))
 </script>
 <template>
@@ -39,20 +38,10 @@ const isAdmin = computed(() => hasRole('admin'))
       <Tabs v-model="tab" :tabs="TABS" />
 
       <template v-if="tab === 'overview'">
-        <Card title="Deployments" flush>
-          <div v-if="t.data.value.deployments.length" class="tablewrap" tabindex="0" role="region" aria-label="Deployments">
-            <table class="dense">
-              <thead><tr><th scope="col">Deployment</th><th scope="col">Domain</th><th scope="col">Apps</th><th scope="col">Status</th></tr></thead>
-              <tbody><tr v-for="d in t.data.value.deployments" :key="d.slug">
-                <th scope="row"><router-link :to="`/deployments/${d.slug}`">{{ d.slug }}</router-link></th>
-                <td class="mono">{{ d.domain ?? '–' }}</td><td>{{ apps(d.components) }}</td><td><StatusBadge :s="d.status" /></td>
-              </tr></tbody>
-            </table>
-          </div>
-          <EmptyState v-else compact title="No deployments yet">
-            <router-link v-if="hasRole('operator')" class="btn" to="/deployments/new">New deployment</router-link>
-          </EmptyState>
-        </Card>
+        <DeploymentCard v-for="d in t.data.value.deployments" :key="d.slug" :tenant="t.data.value.id" :d="d" />
+        <EmptyState v-if="!t.data.value.deployments.length" title="No deployments yet">
+          <router-link v-if="hasRole('operator')" class="btn" to="/deployments/new">New deployment</router-link>
+        </EmptyState>
       </template>
 
       <template v-else-if="tab === 'domains'">

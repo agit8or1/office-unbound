@@ -1,7 +1,13 @@
 // ADR-0021: tenants (customers) as the console shows them. Read side only; changes stay typed actions.
 import { get } from '../../api'
 
-export interface TenantDeployment { slug: string; status: string; domain: string | null; components: string[] }
+export interface TenantVm {
+  name: string; role: string | null; components: string[]; cores: number | null; memory_mb: number | null; disk_gb: number; storage: string[]
+  endpoint: string | null; node: string | null; vmid: number | null; state: string
+  agent: { status: string; version: string | null; address: string; last_seen_at: string | null } | null
+  health: { status: string; checks: number; failing: string[] }
+}
+export interface TenantDeployment { slug: string; status: string; domain: string | null; components: string[]; vms?: TenantVm[] }
 export interface Tenant {
   id: string; slug: string; name: string; provisioning_mode: 'auto' | 'customer_approval' | 'monitoring_only'; msp_owned: boolean; disabled: boolean
   deployments: TenantDeployment[]; domains: string[]

@@ -10,6 +10,27 @@ isolated lab; nothing is production supported ([ROADMAP.md](ROADMAP.md)).
 
 ## [Unreleased]
 
+## [0.13.8] - 2026-11-25
+
+### Added
+- Administration > **Tenants** (ADR-0021 step 1, [ADR-0021](docs/adr/0021-platform-admins-and-tenants.md)): the organisations the installation serves,
+  each with a page (Overview, Domains, Users, Policy). Overview lists every deployment with its VMs: what each runs, where it runs (Proxmox
+  endpoint, node, VM id, storage), its size, its node agent and the state of its health checks, and the DNS records the deployment needs.
+  A single-tenant installation opens its one tenant directly. Scope-checked: an operator scoped to other tenants gets 404
+  (`ics/tests/test_tenants_api.py`, `ics/e2e/specs/08c-tenants.spec.ts`).
+- Tenant **DNS checker**: web names, MX, SPF, DMARC, autodiscover, the client-setup SRV records (`_autodiscover`, `_imaps`, `_submission`,
+  `_caldavs`, `_carddavs`, optional), CAA (must allow Let's Encrypt) and reverse DNS, for names from the deployment's plan only. It asks the
+  domain's own authoritative name servers (found from its NS records; reverse DNS stays on the host's resolver), so a change shows at once;
+  results are kept 24 h. Authorised in [authorized-endpoints.md](docs/status/authorized-endpoints.md) (owner, 2026-11-25).
+- `deployment.snapshots.prune`: deletes a deployment's own `ou-pre-change-<time>` snapshots taken before a cutoff (at least an hour ago),
+  through approval, a job and the audit log; any other snapshot name is refused by the provider (`ics/tests/test_snapshot_prune.py`).
+
+### Changed
+- "Users & roles" is now **Platform admins**: the people who run this console. A tenant's own people are under Tenants.
+- Tenant portal (0.5.4) Domains page: the five client-setup SRV records are checked and shown as optional; for a deployment the ICS created,
+  DKIM reads "Not available yet" instead of a red "Missing" with advice to ask for a key that does not exist (deployments do not sign mail
+  yet) (`ics/tests/test_tenant_admin.py`, `ics/tests/test_portal_admin_wiring.py`, `portal/tests/test_admin.py`).
+
 ## [0.13.7] - 2026-11-25
 
 ### Fixed
@@ -747,6 +768,7 @@ editing, chat/meetings, telephony prototype, migration tooling and package pipel
 - `SECURITY.md` (private reporting) and `CONTRIBUTING.md` (DCO sign-off) added; AGPL-3.0 license. [SECURITY](SECURITY.md)
 
 [Unreleased]: https://github.com/agit8or1/office-unbound/compare/v0.4.7...HEAD
+[0.13.8]: https://github.com/agit8or1/office-unbound/compare/v0.13.7...v0.13.8
 [0.13.7]: https://github.com/agit8or1/office-unbound/compare/v0.13.6...v0.13.7
 [0.13.6]: https://github.com/agit8or1/office-unbound/compare/v0.13.5...v0.13.6
 [0.13.5]: https://github.com/agit8or1/office-unbound/compare/v0.13.4...v0.13.5

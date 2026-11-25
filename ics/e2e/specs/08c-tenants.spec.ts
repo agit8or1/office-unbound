@@ -191,3 +191,44 @@ test('a viewer opens the tenant page; Users says Admins only', async ({ browser 
   expect(issues).toEqual([])
   await ctx.close()
 })
+
+test('overview: each deployment lists its VMs (location, size, agent, health) and its DNS records, without sideways scrolling', async ({ page }, info) => {
+  const issues = watch(page)
+  const { tenants } = await onlyTenant(page)
+  const real = await api(page, `tenants/${tenants[0].id}`)
+  const id = real.id as string
+  const vm = (name: string, comps: string[], vmid: number, health: string, failing: string[] = []) => ({
+    name, role: null, components: comps, cores: 4, memory_mb: 8192, disk_gb: 81, storage: ['local-lvm'], endpoint: 'lab', node: 'pve1', vmid,
+    state: 'present', agent: { status: 'online', version: '0.10.2', address: '10.0.0.' + vmid % 100, last_seen_at: new Date().toISOString() },
+    health: { status: health, checks: 3, failing } })
+  await page.route((u) => u.pathname === `/api/v1/tenants/${id}`, (r) => r.fulfill({ status: 200, contentType: 'application/json', body: JSON.stringify({
+    ...real, domains: ['acme.example.com'], deployments: [{ slug: 'e2e-vms', status: 'active', domain: 'acme.example.com', components: ['groupware', 'files'],
+      vms: [vm('e2e-vms-gateway', ['identity', 'edge', 'portal'], 137, 'ok'), vm('e2e-vms-files-with-a-rather-long-name', ['files', 'office', 'chat'], 136, 'ok'),
+            vm('e2e-vms-mail', ['groupware'], 138, 'critical', ['e2e-vms-mail-groupware-imaps-tls'])] }] }) }))
+  const dns: string[] = []
+  await page.route((u) => u.pathname === `/api/v1/tenants/${id}/dns`, (r) => { dns.push(r.request().url()); return r.fulfill({ status: 200, contentType: 'application/json',
+    body: JSON.stringify({ deployment: 'e2e-vms', domain: 'acme.example.com', available: true, checked_at: new Date().toISOString(), cached: false, summary: {}, note: 'n',
+      rows: [{ group: 'Mail', name: 'acme.example.com', type: 'MX', expected: '10 mail.acme.example.com', status: 'missing', found: [], why: 'w', how: '', required: true }] }) }) })
+  await gotoRoute(page, `tenants/${id}/overview`)
+  const card = page.locator('section.card', { hasText: 'Deployment e2e-vms' })
+  await expect(card.getByRole('region', { name: 'Virtual machines of e2e-vms' })).toBeVisible()
+  const rows = card.locator('tbody tr')
+  await expect(rows).toHaveCount(3)
+  await expect(rows.nth(0)).toContainText('pve1')
+  await expect(rows.nth(0)).toContainText('VM 137')
+  await expect(rows.nth(0)).toContainText('4 vCPU · 8 GB')
+  await expect(rows.nth(2)).toContainText('1 failing')
+  expect(dns, 'no DNS check before it is asked for').toEqual([])
+  await card.getByRole('button', { name: 'Show the DNS records this deployment needs' }).click()
+  await card.getByTestId('dns-check').click()
+  await expect(card.getByText('1 required record needs attention.')).toBeVisible()
+  expect(dns.length).toBe(1)
+  for (const w of WIDTHS) {
+    await page.setViewportSize({ width: w, height: 900 })
+    await page.waitForTimeout(150)
+    const sw = await page.evaluate(() => document.documentElement.scrollWidth - window.innerWidth)
+    expect.soft(sw, `no page-level horizontal scroll at ${w}px`).toBeLessThanOrEqual(0)
+  }
+  for (const i of issues) finding('console/network', 'tenants/<id>/overview', i, info)
+  expect(issues).toEqual([])
+})

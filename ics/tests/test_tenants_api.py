@@ -1,4 +1,6 @@
 """ADR-0021 step 1: tenants in the console (scope-checked) and the tenant DNS checker (read-only, plan-derived names only)."""
+import json
+
 import dns.resolver
 import pytest
 from sqlalchemy import text
@@ -223,3 +225,27 @@ def test_the_result_names_the_authoritative_servers_used(world, tenants, monkeyp
     assert "own name servers" in r["note"] and auth.asked
     n = len(auth.asked)
     assert c.get(f"{H}/tenants/{world['ca']}/dns", params={"deployment": "dep-a"}).json()["cached"] is True and len(auth.asked) == n
+
+
+def test_the_tenant_page_lists_each_deployments_vms_with_location_size_agent_and_health(rt, world, tenants):  # noqa: F811
+    with rt.session() as db:
+        did = db.execute(text("SELECT id FROM deployments WHERE slug = 'dep-a'")).scalar()
+        nid = db.execute(text("INSERT INTO nodes (name, address, port, tls_fingerprint_sha256, agent_pubkey, agent_key_fp, status, agent_version) "
+                              "VALUES ('acme1-mail', '10.0.0.9', 8443, :f, 'k', :f, 'online', '0.10.2') RETURNING id"), {"f": "cd" * 32}).scalar()
+        db.execute(text("INSERT INTO deployment_resources (deployment_id, kind, logical_name, state, provider_ref, desired) VALUES "
+                        "(:d, 'vm', 'mail', 'present', CAST(:r AS jsonb), '{}'::jsonb)"), {"d": str(did), "r": json.dumps({"node": "pve2", "vmid": 211, "agent_node_id": str(nid)})})
+        for n, st in (("mail-imaps", "critical"), ("mail-web", "ok")):
+            db.execute(text("INSERT INTO checks (name, kind, config, interval_seconds, deployment_id, state, created_by) VALUES (:n, 'tcp_tls', CAST(:c AS jsonb), 60, :d, :s, :u)"),
+                       {"n": n, "c": json.dumps({"host": "x"}), "d": str(did), "s": st, "u": world["users"]["all"]["id"]})
+        db.commit()
+    c, _ = world["sessions"]["all"]
+    d = c.get(f"{H}/tenants/{world['ca']}").json()["deployments"][0]
+    vms = {v["name"]: v for v in d["vms"]}
+    assert set(vms) == {"gw", "mail", "files"}
+    m = vms["mail"]
+    assert (m["node"], m["vmid"], m["state"], m["components"]) == ("pve2", 211, "present", ["groupware"])
+    assert m["agent"]["status"] == "online" and m["agent"]["version"] == "0.10.2" and m["agent"]["address"] == "10.0.0.9"
+    assert m["health"] == {"status": "critical", "checks": 2, "failing": ["mail-imaps"]}
+    assert vms["gw"]["state"] == "planned" and vms["gw"]["agent"] is None and vms["gw"]["health"]["status"] == "unknown"
+    lst = next(t for t in c.get(f"{H}/tenants").json()["tenants"] if t["id"] == world["ca"])
+    assert "vms" not in lst["deployments"][0]     # the list stays light

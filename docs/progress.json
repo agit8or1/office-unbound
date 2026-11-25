@@ -5,8 +5,22 @@
   "repository": "https://github.com/agit8or1/office-unbound",
   "updated": "2026-11-25",
   "stage": "alpha",
-  "current_version": "0.13.7",
+  "current_version": "0.13.8",
   "releases": [
+    {
+      "version": "0.13.8",
+      "date": "2026-11-25",
+      "status": "prepared",
+      "codename": "Meridian",
+      "channel": "alpha",
+      "highlights": [
+        "0.13.8: Administration > Tenants: each tenant's deployments with their VMs (where they run, size, node agent, health), domains and a DNS checker that asks the domain's own name servers (ADR-0021 step 1); Users & roles is now Platform admins",
+        "0.13.8: the tenant portal's DNS check covers the client-setup SRV records and no longer asks for a DKIM key the deployment does not have",
+        "0.13.8: deployment.snapshots.prune deletes a deployment's own pre-change snapshots older than a cutoff (approved, audited)"
+      ],
+      "notes_url": "https://github.com/agit8or1/office-unbound/releases/tag/v0.13.8",
+      "changelog": "CHANGELOG.md#0138---2026-11-25"
+    },
     {
       "version": "0.13.7",
       "date": "2026-11-25",
