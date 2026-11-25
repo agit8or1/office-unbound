@@ -7,15 +7,17 @@ Triggers: every push to a `desktop-*` branch, PRs touching `desktop/**`, manual 
 
 | Job | Runner | Steps |
 |---|---|---|
-| `supply-chain` | ubuntu-24.04 | `cargo audit` (RustSec, warnings fail), `cargo deny check` with `desktop/ci/deny.toml` (advisories, licence allowlist, bans, sources; Windows + Linux targets), CycloneDX SBOM for `x86_64-pc-windows-msvc` |
+| `supply-chain` | ubuntu-24.04 | `npm audit` of `desktop/app` (high/critical fail), `cargo audit` (RustSec, warnings fail), `cargo deny check` with `desktop/ci/deny.toml` (advisories, licence allowlist, bans, sources; Windows + Linux targets), CycloneDX SBOM for `x86_64-pc-windows-msvc` |
 | `windows` | windows-latest | pinned Rust toolchain, `cargo test --workspace --locked`, release build, installer, smoke test (`desktop/ci/smoke-windows.ps1`) |
 | (same job) | windows-latest | `ou-files` unit tests only (`--lib`; its live tests need credentials, which never go into CI) and `desktop/ci/winprobe`: junction, symlink and junction-loop classification, NTFS name round-trips against `name_problem()`, drive letters |
 | `bundle` | ubuntu-24.04 | one artifact `ou-desktop-windows-<version>-<sha7>`: installer, MSI if any, `sbom/*.cdx.json`, `smoke-report.md`, `SHA256SUMS` |
 
 Installer path:
 
-- **Tauri GUI crate present** (`desktop/crates/*/tauri.conf.json`): `cargo tauri build --bundles nsis,msi`. Set
-  `bundle.windows.nsis.installMode = "currentUser"` in `tauri.conf.json` (the job warns otherwise). The Tauri MSI is per-machine.
+- **Tauri GUI present** (`desktop/app/src-tauri/tauri.conf.json`): `npm ci` (lock file), typecheck, vitest, `vite build`,
+  `ou-agent` release build copied as the `externalBin` sidecar, then the app's own `@tauri-apps/cli`
+  `tauri build --bundles nsis` (per-user, `installMode = currentUser`). MSI is tried separately, best effort: the
+  Tauri/WiX MSI is per-machine and rejects a non-numeric pre-release such as `-alpha.1`.
 - **No GUI crate yet**: `ou-agent.exe` packaged by `desktop/ci/installer.nsi` (NSIS, `RequestExecutionLevel user`).
 
 Per-user layout: program `%LOCALAPPDATA%\Programs\Office Unbound Desktop` (removed on uninstall), user data
