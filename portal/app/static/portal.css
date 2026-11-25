@@ -57,6 +57,46 @@
   --ou-bar-h: 46px;
   --ou-font: "Plex Sans", "Segoe UI", system-ui, -apple-system, sans-serif;
   --ou-mono: "Plex Mono", ui-monospace, "SFMono-Regular", Menlo, Consolas, monospace;
+  /* UI audit 2026-11-25: roles every app needs and had to invent (docs/design/design-system.md "Tokens"). Colours: */
+  --ou-focus: #2d6a68;
+  --ou-link: #2d6a68;
+  --ou-action-hover: #245654;
+  --ou-accent-hover: #923d1a;
+  --ou-info: #3e5878;
+  --ou-info-bg: #e2e8f0;
+  --ou-scrim: rgba(20,36,58,.45);
+  /* type scale (px; 12 is the smallest text anywhere), line heights */
+  --ou-fs-xs: 12px;
+  --ou-fs-sm: 13px;
+  --ou-fs-md: 14px;
+  --ou-fs-lg: 16px;
+  --ou-fs-xl: 20px;
+  --ou-fs-2xl: 24px;
+  --ou-lh: 1.5;
+  --ou-lh-tight: 1.25;
+  /* spacing scale (4px steps) and component sizes */
+  --ou-sp-1: 4px;
+  --ou-sp-2: 8px;
+  --ou-sp-3: 12px;
+  --ou-sp-4: 16px;
+  --ou-sp-5: 20px;
+  --ou-sp-6: 24px;
+  --ou-sp-8: 32px;
+  --ou-sp-12: 48px;
+  --ou-control-h: 36px;
+  --ou-control-h-sm: 30px;
+  --ou-nav-item-h: 32px;
+  --ou-toolbar-h: 44px;
+  --ou-row-h: 40px;
+  --ou-row-h-dense: 32px;
+  --ou-icon-sm: 16px;
+  --ou-icon: 18px;
+  --ou-icon-lg: 20px;
+  --ou-radius-lg: 6px;
+  --ou-radius-pill: 999px;
+  --ou-focus-w: 2px;
+  --ou-focus-offset: 2px;
+  --ou-dialog-w: 560px;
 }
 @media (prefers-color-scheme: dark) {
   :root:not([data-theme="light"]) {
@@ -100,6 +140,13 @@
     --ou-app-chat: #86b4d4;
     --ou-shadow: 0 1px 2px rgba(0,0,0,.45);
     --ou-shadow-lg: 0 10px 28px rgba(0,0,0,.55);
+    --ou-focus: #6cb8b2;
+    --ou-link: #6cb8b2;
+    --ou-action-hover: #86c7c1;
+    --ou-accent-hover: #f0a982;
+    --ou-info: #9fb8d6;
+    --ou-info-bg: #22344c;
+    --ou-scrim: rgba(0,0,0,.6);
   }
 }
 /* an explicit choice (portal Appearance: data-theme on <html>) wins over the system setting, both ways */
@@ -144,6 +191,13 @@
   --ou-app-chat: #86b4d4;
   --ou-shadow: 0 1px 2px rgba(0,0,0,.45);
   --ou-shadow-lg: 0 10px 28px rgba(0,0,0,.55);
+  --ou-focus: #6cb8b2;
+  --ou-link: #6cb8b2;
+  --ou-action-hover: #86c7c1;
+  --ou-accent-hover: #f0a982;
+  --ou-info: #9fb8d6;
+  --ou-info-bg: #22344c;
+  --ou-scrim: rgba(0,0,0,.6);
 }
 /* portal names: aliases of the shared tokens (/branding.css redefines --accent/--accent-ink/--accent-soft for the organisation accent) */
 :root {
