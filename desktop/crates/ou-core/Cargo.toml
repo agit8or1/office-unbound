@@ -19,6 +19,7 @@ tokio = { version = "1.54.1", features = ["net", "io-util", "time", "macros", "r
 url = "2.5.9"
 
 axum = { version = "0.8.9", optional = true }
+unicode-normalization = "0.1.26"
 
 [target."cfg(windows)".dependencies]
 windows-sys = { version = "0.61.2", features = ["Win32_Security_Credentials", "Win32_Foundation"] }
@@ -27,6 +28,8 @@ windows-sys = { version = "0.61.2", features = ["Win32_Security_Credentials", "W
 ou-core = { path = ".", features = ["test-support"] }
 axum = "0.8.9"
 tokio = { version = "1.54.1", features = ["full"] }
+serde_json = "1.0.154"
+base64 = "0.23.1"
 
 [features]
 # Enables http:// to loopback for mock servers. Only dev-dependencies turn it on; release builds never do.

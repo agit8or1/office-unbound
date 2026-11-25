@@ -1,0 +1,7 @@
+{
+  "$schema": "../gen/schemas/desktop-schema.json",
+  "identifier": "main",
+  "description": "The main window may only call the app's own typed commands and basic window/event APIs; no shell, fs or http plugin is installed.",
+  "windows": ["main"],
+  "permissions": ["core:event:default", "core:window:allow-hide", "core:window:allow-show", "core:window:allow-set-focus"]
+}

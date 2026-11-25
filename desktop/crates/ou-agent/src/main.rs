@@ -2,6 +2,7 @@
 //!   ou-agent            run (exits at once if an agent of this user is already running)
 //!   ou-agent --status   print the running agent's status as JSON
 //!   ou-agent --quit     ask the running agent to exit
+//!   ou-agent token --account <id>   print a fresh access token for that account (rclone bearer_token_command); same user only
 //!   ou-agent --version
 #![cfg_attr(windows, windows_subsystem = "windows")]
 
@@ -34,6 +35,7 @@ fn main() {
                     }
                 }
             }
+            "token" => token(&root).await,
             "" | "--background" => run(root).await,
             _ => {
                 eprintln!("usage: ou-agent [--status|--quit|--version]");
@@ -42,6 +44,36 @@ fn main() {
         }
     });
     std::process::exit(code);
+}
+
+/// `ou-agent token --account <id>`: stdout gets the token only (no newline), nothing is logged; errors go to stderr without it.
+async fn token(root: &std::path::Path) -> i32 {
+    let args: Vec<String> = std::env::args().collect();
+    let id = match (args.get(2).map(String::as_str), args.get(3)) {
+        (Some("--account"), Some(id)) if ou_core::ipc::valid_id(id) => id.clone(),
+        _ => {
+            eprintln!("usage: ou-agent token --account <account-id>");
+            return 2;
+        }
+    };
+    match ou_agent::client::request(root, &Request::AccessToken { account_id: id }).await {
+        Ok(ou_core::ipc::Response::AccessToken { token }) => {
+            use std::io::Write;
+            let mut out = std::io::stdout().lock();
+            let _ = out.write_all(token.0.as_bytes());
+            let _ = out.flush();
+            0
+        }
+        Ok(ou_core::ipc::Response::Error { message }) => {
+            eprintln!("{message}");
+            4
+        }
+        Ok(_) => 4,
+        Err(e) => {
+            eprintln!("{e}");
+            3
+        }
+    }
 }
 
 async fn run(root: std::path::PathBuf) -> i32 {

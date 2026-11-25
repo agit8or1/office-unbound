@@ -4,6 +4,8 @@
 use std::collections::HashMap;
 use std::path::Path;
 
+use unicode_normalization::UnicodeNormalization;
+
 pub const MARKER: &str = ".ou-sync-root";
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -95,7 +97,8 @@ pub fn check_deletes(policy: &DeletePolicy, known: usize, local_deletes: usize, 
 
 const RESERVED: &[&str] = &[
     "CON", "PRN", "AUX", "NUL", "COM1", "COM2", "COM3", "COM4", "COM5", "COM6", "COM7", "COM8", "COM9", "LPT1", "LPT2", "LPT3",
-    "LPT4", "LPT5", "LPT6", "LPT7", "LPT8", "LPT9",
+    "LPT4", "LPT5", "LPT6", "LPT7", "LPT8", "LPT9", "COM0", "LPT0", "COM\u{b9}", "COM\u{b2}", "COM\u{b3}", "LPT\u{b9}", "LPT\u{b2}",
+    "LPT\u{b3}", "CONIN$", "CONOUT$", "CLOCK$",
 ];
 
 /// Why a remote name cannot be created as-is on NTFS/Windows (the engine then skips it and reports it; never renames silently).
@@ -123,7 +126,9 @@ pub fn windows_name_problem(name: &str) -> Option<&'static str> {
 pub fn case_collisions<'a>(names: impl IntoIterator<Item = &'a str>) -> Vec<Vec<String>> {
     let mut m: HashMap<String, Vec<String>> = HashMap::new();
     for n in names {
-        m.entry(n.to_lowercase()).or_default().push(n.to_string());
+        // NFC first, so "é" (U+00E9) and "e" + U+0301 collide as they do for users; then case-fold.
+        let key: String = n.nfc().collect::<String>().to_lowercase();
+        m.entry(key).or_default().push(n.to_string());
     }
     let mut v: Vec<Vec<String>> = m.into_values().filter(|g| g.len() > 1).collect();
     v.iter_mut().for_each(|g| g.sort());
@@ -179,12 +184,16 @@ mod tests {
         assert!(windows_name_problem("trailing ").is_some());
         assert!(windows_name_problem(&"x".repeat(256)).is_some());
         assert!(windows_name_problem("tab\there").is_some());
+        for n in ["CONIN$", "conout$.txt", "COM0", "lpt0.log", "COM\u{b9}", "LPT\u{b3}.txt", "CLOCK$"] {
+            assert!(windows_name_problem(n).is_some(), "{n}");
+        }
     }
 
     #[test]
     fn collisions_and_paths() {
         let c = case_collisions(["Report.docx", "report.DOCX", "other.txt", "Ä.txt", "ä.txt"]);
         assert_eq!(c.len(), 2);
+        assert_eq!(case_collisions(["caf\u{e9}.txt", "cafe\u{301}.txt"]).len(), 1, "NFC and NFD forms collide");
         assert!(exceeds_max_path(Path::new("C:\\Users\\u\\Office Unbound"), &"d/".repeat(120)));
         assert!(!exceeds_max_path(Path::new("C:\\Users\\u\\Office Unbound"), "Documents/a.docx"));
         assert!(roots_overlap(Path::new("C:\\Users\\u\\OU"), Path::new("c:/users/u/ou/sub")));

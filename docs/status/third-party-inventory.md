@@ -157,6 +157,26 @@ Added 2026-11-15. Components that make up the Office Unbound package build. Vers
 | admin-api Python dependencies (hash-locked, `blueprints/build/admin-api/debian/requirements.lock`, 50 packages) | PyPI | see lock file | Per package (BSD/MIT/Apache-2.0/MPL-2.0/LGPL; read from the SBOM, not file-scanned) | Vendor wheels, `pip install --require-hashes --target` | None | None | Permitted; shipped inside `ou-admin-api` | PyPI | None | Upstream; OU-UNASSIGNED | PASS-with-obligations (per-package licence scan of the wheels still to do) |
 | Debian 12 build dependencies (gcc, cmake, libfmt, libmariadb, ... recorded per build in `out/<component>/artifacts/build-env.txt`) | deb.debian.org (bookworm, -updates, -security) | per build | Per package (DFSG-free) | Distro packages in the builder | None | None | Not shipped except via shared-library runtime dependencies resolved from Debian | Debian | None | Debian; OU-UNASSIGNED | PASS |
 
+## 9. Office Unbound Desktop (Windows app, `desktop/`, branch desktop-windows; ADR-0022)
+
+Licences as declared in each crate's/package's manifest (`cargo metadata` for the x86_64 Windows target, 2026-11-25): 292 crates in the
+shipped binaries, all permissive or weak-copyleft (MIT/Apache-2.0 dual 171, MIT 58, Unicode-3.0 18, Unlicense/MIT 14, MPL-2.0 5
+(file-level copyleft, compatible), BSD-3-Clause, ISC, Zlib, 0BSD/CC0 alternatives); **no GPL/AGPL crate is linked**. Re-run before release.
+
+| Component | Repository | Pinned version | License (as found in source) | Build method | Runtime/user/connection restrictions | Branding obligations | Commercial use / redistribution | Update source | Fork/patch status | Maintenance owner | Gate |
+|---|---|---|---|---|---|---|---|---|---|---|---|
+| tauri (+ wry, tao, webview2-com) | crates.io | 2.12.7 (wry 0.57.4, tao 0.37.3, webview2-com 0.39.1) | Apache-2.0 OR MIT (tao Apache-2.0; webview2-com MIT) | Cargo.lock | None | None | Permitted | crates.io | None | OU-UNASSIGNED | PASS |
+| tauri-plugin-autostart, tauri-plugin-single-instance | crates.io | 2.7.0, 2.5.5 | Apache-2.0 OR MIT | Cargo.lock | None | None | Permitted | crates.io | None | OU-UNASSIGNED | PASS |
+| tokio, reqwest, rustls, rustls-platform-verifier | crates.io | 1.54.1, 0.13.5, 0.23.46, 0.7.1 | MIT; MIT OR Apache-2.0; Apache-2.0 OR ISC OR MIT; MIT OR Apache-2.0 | Cargo.lock | None | None | Permitted | crates.io | None | OU-UNASSIGNED | PASS |
+| ring | crates.io | 0.17.14 | Apache-2.0 AND ISC | Cargo.lock (C/asm built with mingw-w64 or MSVC) | None | None | Permitted | crates.io | None | OU-UNASSIGNED | PASS |
+| windows-sys | crates.io | 0.61.2 | MIT OR Apache-2.0 | Cargo.lock | None | None | Permitted | crates.io | None | OU-UNASSIGNED | PASS |
+| Vue 3, @tauri-apps/api (bundled UI) | npm | 3.5.46, 2.12.5 | MIT; Apache-2.0 OR MIT | package-lock.json | None | None | Permitted | npm | None | OU-UNASSIGNED | PASS |
+| IBM Plex Sans/Mono (bundled) | repo `blueprints/catalog/templates/brand/fonts` | as in repo | SIL OFL 1.1 (OFL.txt shipped) | copied | None | Reserved font name | Permitted | repo | None | OU-UNASSIGNED | PASS |
+| Microsoft Edge WebView2 Runtime | Microsoft | Evergreen (system) | Microsoft software licence (free redistribution) | not bundled; bootstrapper runs only if missing | None | None | Permitted | Windows Update / Microsoft | None | Microsoft | PASS (system component) |
+| NSIS (installer stub + makensis) | archive.ubuntu.com `nsis` | 3.09-4ubuntu1 | zlib/libpng (+ bzip2 for stubs) | build tool | None | None | Permitted | Ubuntu archive | None | OU-UNASSIGNED | PASS |
+| mingw-w64 runtime / GCC runtime (dev cross-builds only) | archive.ubuntu.com | 13.2.0 / 11.0.1 | ZPL 2.1 + MIT-style; libgcc with GCC Runtime Library Exception | build tool, static runtime | None | None | Permitted | Ubuntu archive | None | OU-UNASSIGNED | PASS |
+| axum (tests only, not shipped) | crates.io | 0.8.9 | MIT | dev-dependency | None | None | Permitted | crates.io | None | OU-UNASSIGNED | PASS |
+
 ## Not yet inventoried
 
 - **ICS transitive Python packages** (installed in `ics/.venv`, licences not read): starlette 0.41.3, pydantic-core 2.27.2, argon2-cffi-bindings 26.2.0, cffi 2.1.1, pycparser 3.12, psycopg-binary 3.2.3 (bundles libpq), greenlet 3.5.6, Mako 1.4.3, MarkupSafe 3.0.4, anyio 4.16.0, h11 0.16.0, httpcore 1.0.9, idna 3.20, certifi 2026.10.23, click 8.5.1, annotated-types 0.8.0, typing_extensions 4.16.0, packaging 26.3, pluggy 1.7.0, iniconfig 2.3.1, pip 24.0.

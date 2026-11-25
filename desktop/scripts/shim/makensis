@@ -1,0 +1,4 @@
+#!/bin/sh
+# makensis from the user-space NSIS (Ubuntu package extracted, see xwin-env.sh) needs NSISDIR; tauri-cli may not pass it on.
+R="${MINGW_ROOT:-$HOME/.local/opt/xroot/usr}"
+NSISDIR="$R/share/nsis" exec "$R/bin/makensis" "$@"

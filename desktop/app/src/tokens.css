@@ -1,0 +1,50 @@
+/* Office Unbound Desktop. Tokens copied from the ICS console design system (ics/frontend/src/style.css, itself equal to
+   blueprints/catalog/templates/brand/ou-brand.css); keep them in sync. Fonts: IBM Plex, SIL OFL 1.1 (src/assets/fonts/OFL.txt). */
+@font-face { font-family: "Plex Sans"; src: url("./assets/fonts/ibm-plex-sans-latin-400-normal.woff2") format("woff2"); font-weight: 400; font-style: normal; font-display: swap; }
+@font-face { font-family: "Plex Sans"; src: url("./assets/fonts/ibm-plex-sans-latin-400-italic.woff2") format("woff2"); font-weight: 400; font-style: italic; font-display: swap; }
+@font-face { font-family: "Plex Sans"; src: url("./assets/fonts/ibm-plex-sans-latin-500-normal.woff2") format("woff2"); font-weight: 500; font-style: normal; font-display: swap; }
+@font-face { font-family: "Plex Sans"; src: url("./assets/fonts/ibm-plex-sans-latin-600-normal.woff2") format("woff2"); font-weight: 600 700; font-style: normal; font-display: swap; }
+@font-face { font-family: "Plex Mono"; src: url("./assets/fonts/ibm-plex-mono-latin-400-normal.woff2") format("woff2"); font-weight: 400; font-style: normal; font-display: swap; }
+@font-face { font-family: "Plex Mono"; src: url("./assets/fonts/ibm-plex-mono-latin-500-normal.woff2") format("woff2"); font-weight: 500 700; font-style: normal; font-display: swap; }
+:root {
+  color-scheme: light;
+  --bg: #f7f5f0; --surface: #ffffff; --surface2: #f4f2ed; --sunken: #efebe3; --ink: #18212d; --text: #2e3540; --muted: #5c6470; --faint: #5f6570;
+  --line: #ddd8cd; --line-strong: #b9b2a4; --sel: #e4ebf2; --field: #90856f;
+  --accent: #a9481f; --accent-hover: #923d1a; --accent-text: #ffffff; --accent-soft: #f6e3d8; --link: #2d6a68; --focus: #2d6a68;
+  --teal: #2d6a68; --teal-soft: #dce8e6;
+  --ok: #2f6e47; --ok-bg: #e0eee4; --warn: #8a5a0e; --warn-bg: #f5e9d2; --bad: #a3362a; --bad-bg: #f6deda; --info: #3e5878; --info-bg: #e2e8f0; --idle: #5c6470; --idle-bg: #efebe3;
+  --nav: #f4f2ed; --nav-2: #ebe7df; --nav-text: #2e3540; --nav-muted: #5c6470; --nav-line: #ddd8cd; --nav-accent: #2d6a68; --nav-sel: #dce8e6;
+  --bar: #111d22; --bar-2: #1d2c33; --bar-line: #3a4e55; --bar-text: #e7ecf2; --bar-muted: #9daabb; --bar-edge: #2d6a68;
+  --c1: #2d6a68; --c2: #b4501f; --c3: #8a5a0e; --c4: #3e5878; --c5: #2b6cb0;
+  --shadow: 0 1px 2px rgba(20,36,58,.06); --shadow-lg: 0 8px 24px rgba(17,29,34,.18);
+  --radius: 4px; --radius-sm: 3px;
+  --sans: "Plex Sans", "Segoe UI", system-ui, -apple-system, sans-serif;
+  --mono: "Plex Mono", ui-monospace, "SFMono-Regular", Menlo, Consolas, monospace;
+}
+@media (prefers-color-scheme: dark) {
+  :root:not([data-theme="light"]) {
+    color-scheme: dark;
+    --bg: #0e151f; --surface: #1a2534; --surface2: #121a26; --sunken: #132034; --ink: #f2f5f9; --text: #d3dbe5; --muted: #9aa8b9; --faint: #8e9bad;
+    --line: #2a384b; --line-strong: #3b4b61; --sel: #1f3d4a; --field: #607a9d;
+    --accent: #ec9a70; --accent-hover: #f0a982; --accent-text: #0e151f; --accent-soft: #3b2a22; --link: #7fc3be; --focus: #7fc3be;
+    --teal: #6cb8b2; --teal-soft: #173537;
+    --ok: #7cc191; --ok-bg: #1d3528; --warn: #e2b567; --warn-bg: #3a2f1a; --bad: #ee8f80; --bad-bg: #432421; --info: #9fb8d6; --info-bg: #22344c; --idle: #9daabb; --idle-bg: #22344c;
+    --nav: #132034; --nav-2: #1e2e44; --nav-text: #d6dde6; --nav-muted: #9daabb; --nav-line: #26364c; --nav-accent: #7fc3be; --nav-sel: #1c3a3d;
+    --bar: #0b1420; --bar-2: #1b2a3e; --bar-line: #2b3d55;
+    --c1: #66b0ab; --c2: #e8956c; --c3: #e2b567; --c4: #9fb8d6; --c5: #7fb0e0;
+    --shadow: 0 1px 2px rgba(0,0,0,.4); --shadow-lg: 0 8px 24px rgba(0,0,0,.5);
+  }
+}
+:root[data-theme="dark"] {
+  color-scheme: dark;
+  --bg: #0e151f; --surface: #1a2534; --surface2: #121a26; --sunken: #132034; --ink: #f2f5f9; --text: #d3dbe5; --muted: #9aa8b9; --faint: #8e9bad;
+  --line: #2a384b; --line-strong: #3b4b61; --sel: #1f3d4a; --field: #607a9d;
+  --accent: #ec9a70; --accent-hover: #f0a982; --accent-text: #0e151f; --accent-soft: #3b2a22; --link: #7fc3be; --focus: #7fc3be;
+  --teal: #6cb8b2; --teal-soft: #173537;
+  --ok: #7cc191; --ok-bg: #1d3528; --warn: #e2b567; --warn-bg: #3a2f1a; --bad: #ee8f80; --bad-bg: #432421; --info: #9fb8d6; --info-bg: #22344c; --idle: #9daabb; --idle-bg: #22344c;
+  --nav: #132034; --nav-2: #1e2e44; --nav-text: #d6dde6; --nav-muted: #9daabb; --nav-line: #26364c; --nav-accent: #7fc3be; --nav-sel: #1c3a3d;
+  --bar: #0b1420; --bar-2: #1b2a3e; --bar-line: #2b3d55;
+  --c1: #66b0ab; --c2: #e8956c; --c3: #e2b567; --c4: #9fb8d6; --c5: #7fb0e0;
+  --shadow: 0 1px 2px rgba(0,0,0,.4); --shadow-lg: 0 8px 24px rgba(0,0,0,.5);
+}
+

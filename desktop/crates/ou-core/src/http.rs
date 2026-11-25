@@ -14,8 +14,9 @@ pub enum HttpError {
     Build(String),
 }
 
-fn install_crypto_provider() {
-    // Idempotent: a second install returns Err, which is fine.
+/// Installs the ring crypto provider for rustls (idempotent). Feature crates building their own clients call `builder()` instead.
+pub fn install_crypto_provider() {
+    // A second install returns Err, which is fine.
     let _ = rustls::crypto::ring::default_provider().install_default();
 }
 
@@ -23,17 +24,25 @@ pub fn user_agent() -> String {
     format!("OfficeUnboundDesktop/{}", crate::VERSION)
 }
 
-/// Production client: HTTPS only, verified TLS, bounded redirects and timeouts, no cookies.
-pub fn client() -> Result<reqwest::Client, HttpError> {
+/// The shared builder: HTTPS only, verified TLS (OS trust store), bounded redirects, connect timeout, no cookies. Callers may add
+/// timeouts or headers; they must not add TLS overrides (there is no API for that in this crate on purpose).
+pub fn builder() -> reqwest::ClientBuilder {
     install_crypto_provider();
     reqwest::Client::builder()
         .https_only(true)
         .user_agent(user_agent())
         .connect_timeout(Duration::from_secs(10))
-        .timeout(Duration::from_secs(30))
         .redirect(reqwest::redirect::Policy::limited(5))
-        .build()
-        .map_err(|e| HttpError::Build(e.to_string()))
+}
+
+/// API client: 30 s total timeout per request.
+pub fn client() -> Result<reqwest::Client, HttpError> {
+    builder().timeout(Duration::from_secs(30)).build().map_err(|e| HttpError::Build(e.to_string()))
+}
+
+/// Transfer client for large uploads/downloads: no total timeout, only an idle (read) timeout of 60 s.
+pub fn transfer_client() -> Result<reqwest::Client, HttpError> {
+    builder().read_timeout(Duration::from_secs(60)).build().map_err(|e| HttpError::Build(e.to_string()))
 }
 
 /// Test client: like `client()` but also allows http:// to loopback (mock servers). Test builds only.
@@ -88,7 +97,8 @@ mod tests {
     }
 
     #[test]
-    fn production_client_builds() {
+    fn production_clients_build() {
         client().unwrap();
+        transfer_client().unwrap();
     }
 }

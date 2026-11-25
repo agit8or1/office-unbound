@@ -1,0 +1,9 @@
+#!/bin/sh
+# Shim used only while bundling the *Windows* installer on a Linux host: tauri-cli asks pkg-config for the Linux
+# appindicator library path (needed for Linux AppImages only) whenever the tray feature is on. The answer is unused for Windows.
+case "$*" in
+  *--variable=libdir*) echo /usr/lib/x86_64-linux-gnu ;;
+  *--libs-only-L*) echo -L/usr/lib/x86_64-linux-gnu ;;
+  *) echo "" ;;
+esac
+exit 0

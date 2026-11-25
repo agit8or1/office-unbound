@@ -40,7 +40,7 @@ async fn authorize(State(s): State<S>, Query(q): Query<HashMap<String, String>>)
     assert_eq!(q.get("code_challenge_method").map(String::as_str), Some("S256"));
     assert_eq!(q.get("response_type").map(String::as_str), Some("code"));
     let redirect = q["redirect_uri"].clone();
-    assert!(redirect.starts_with("http://127.0.0.1:") && redirect.ends_with('/'), "RFC 8252 loopback redirect: {redirect}");
+    assert!(redirect.starts_with("http://127.0.0.1:") && !redirect[17..].contains('/'), "RFC 8252 loopback redirect without path: {redirect}");
     let state = if st.wrong_state { "forged".to_string() } else { q["state"].clone() };
     let loc = if st.deny {
         format!("{redirect}?error=access_denied&state={state}")

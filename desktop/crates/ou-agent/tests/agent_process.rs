@@ -111,6 +111,13 @@ async fn agent_lifecycle_against_mock_idp() {
     assert!(matches!(req(&home, Request::OpenService { account_id: account_id.clone(), service: Service::Chat }).await, Response::Error { .. }));
     assert!(matches!(req(&home, Request::SignOut { account_id: "../../x".into() }).await, Response::Error { .. }), "bad id");
 
+    // `ou-agent token --account <id>` (rclone bearer_token_command): token on stdout only, nothing else.
+    let out = Command::new(env!("CARGO_BIN_EXE_ou-agent")).env("OU_DESKTOP_HOME", &home).args(["token", "--account", &account_id]).output().unwrap();
+    assert!(out.status.success());
+    assert_eq!(String::from_utf8(out.stdout).unwrap(), "at-1");
+    let bad = Command::new(env!("CARGO_BIN_EXE_ou-agent")).env("OU_DESKTOP_HOME", &home).args(["token", "--account", "../x"]).output().unwrap();
+    assert!(!bad.status.success() && bad.stdout.is_empty());
+
     // Nothing secret on disk outside the (here: in-memory) credential store.
     for f in walk(&home) {
         let s = String::from_utf8_lossy(&std::fs::read(&f).unwrap()).to_string();

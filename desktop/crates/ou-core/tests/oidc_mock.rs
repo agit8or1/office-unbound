@@ -67,7 +67,7 @@ async fn listener_ignores_probes_and_times_out() {
     let base = s.lock().unwrap().base.clone();
     let meta = ProviderMetadata::discover(&http, &base).await.unwrap();
     let req = oidc::AuthRequest::new(&meta, &client(), None).await.unwrap();
-    let probe = format!("{}favicon.ico", req.redirect_uri);
+    let probe = format!("{}/favicon.ico", req.redirect_uri);
     let h2 = http.clone();
     tokio::spawn(async move {
         let r = h2.get(probe).send().await.unwrap();

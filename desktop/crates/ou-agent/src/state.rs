@@ -69,6 +69,8 @@ fn status_of(a: &Account, l: Option<&Live>) -> AccountStatus {
         detail: l.and_then(|l| l.detail.clone()),
         services,
         files_url: a.deployment.files_url.clone(),
+        held: None,
+        drive: None,
     }
 }
 
@@ -184,6 +186,8 @@ impl Agent {
                 detail: Some("finish signing in in your browser".into()),
                 services: vec![],
                 files_url: String::new(),
+                held: None,
+                drive: None,
             });
         }
         Response::Status { accounts, paused: *self.paused.lock().await, agent: ou_core::VERSION.into() }
@@ -314,6 +318,21 @@ impl Agent {
         Response::Ok
     }
 
+    /// Never logged. Scoped to the account's files origin (the mapped drive's only server).
+    async fn access_token(&self, id: &str) -> Response {
+        let Some(a) = self.account(id).await else { return Response::Error { message: "unknown account".into() } };
+        let session = self.live.lock().await.get(&a.id).map(|l| l.session.clone());
+        let Some(session) = session else { return Response::Error { message: "signed out".into() } };
+        let files = match url::Url::parse(&a.deployment.files_url) {
+            Ok(u) => u,
+            Err(_) => return Response::Error { message: "invalid files URL".into() },
+        };
+        match session.access_token(&files).await {
+            Ok(t) => Response::AccessToken { token: ou_core::ipc::SecretString(t) },
+            Err(e) => Response::Error { message: e.to_string() },
+        }
+    }
+
     async fn open_service(&self, id: &str, s: Service) -> Response {
         let Some(a) = self.account(id).await else { return Response::Error { message: "unknown account".into() } };
         let Some(u) = service_url(&a, s) else { return Response::Error { message: "this service is not available".into() } };
@@ -351,6 +370,10 @@ impl Agent {
             Request::SetPaused { paused } => {
                 *self.paused.lock().await = paused;
                 Response::Ok
+            }
+            Request::AccessToken { account_id } => self.access_token(&account_id).await,
+            Request::ApprovePlan { .. } | Request::RejectPlan { .. } => {
+                Response::Error { message: "file sync is not enabled in this build".into() }
             }
             Request::Shutdown {} => {
                 self.shutdown.notify_one();

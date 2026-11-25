@@ -149,7 +149,9 @@ impl AuthRequest {
     pub async fn new(meta: &ProviderMetadata, client: &ClientConfig, login_hint: Option<&str>) -> Result<Self, OidcError> {
         let listener = TcpListener::bind("127.0.0.1:0").await.map_err(|e| OidcError::Listener(e.to_string()))?;
         let port = listener.local_addr().map_err(|e| OidcError::Listener(e.to_string()))?.port();
-        let redirect_uri = format!("http://127.0.0.1:{port}/");
+        // No path: the catalog client registers `http://127.0.0.1` and Keycloak ignores only the port for loopback (verified live,
+        // 2026-11-25: a trailing "/" is refused with "Invalid parameter: redirect_uri").
+        let redirect_uri = format!("http://127.0.0.1:{port}");
         let pkce = Pkce::new();
         let state = random_token(24);
         let nonce = random_token(24);
