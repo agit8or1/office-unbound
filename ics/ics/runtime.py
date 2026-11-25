@@ -13,6 +13,8 @@ class Runtime:
 
     def __init__(self, settings: Settings | None = None):
         self.settings = settings or load_settings()
+        from . import experimental
+        experimental.configure(getattr(self.settings, "experimental", ()))   # every process (API, worker, CLI) gates the same way
         self.engine = create_engine(self.settings.database_url, pool_pre_ping=True, pool_size=10)
         self.sessionmaker = sessionmaker(self.engine, expire_on_commit=False)
         self.vault = Vault.from_file(self.settings.vault_key_file)

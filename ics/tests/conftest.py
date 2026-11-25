@@ -43,7 +43,8 @@ def base_settings(tmp_path_factory):
     for n in ("vault.key", "audit.key", "signing.key"):
         (d / n).write_bytes(os.urandom(32))
         (d / n).chmod(0o600)
-    return Settings(database_url=env["ICS_TEST_DATABASE_URL"], vault_key_file=str(d / "vault.key"),
+    from ics import experimental   # the suite exercises every experimental feature; test_experimental.py covers the gating (off by default)
+    return Settings(database_url=env["ICS_TEST_DATABASE_URL"], vault_key_file=str(d / "vault.key"), experimental=frozenset(experimental.FEATURES),
                     audit_key_file=str(d / "audit.key"), worker_enabled=False, allow_loopback_endpoints=True,
                     signing_key_file=str(d / "signing.key"), incident_renotify_seconds=0, notify_max_attempts=2,
                     # the production floors (30 s backoff, 300 s window, 15/30 s check intervals) are exercised explicitly in tests/test_review_fixes.py
@@ -213,3 +214,13 @@ def _no_gpg_agents_left_behind(tmp_path_factory):
             except (OSError, ValueError):
                 pass
 
+
+
+@pytest.fixture(autouse=True)
+def _experimental_features_on():
+    """The suite exercises meetings, telephony, multi-tenant plans and remote wipe as machinery; the gating itself (all off by default,
+    refused with the reason) is tested in test_experimental.py, which turns them off explicitly."""
+    from ics import experimental
+    experimental.configure(experimental.FEATURES)
+    yield
+    experimental.configure(())

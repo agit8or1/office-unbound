@@ -38,7 +38,7 @@ What not to promise yet. Updated 2026-11-24 (0.13); each line says where it is t
   yet: an administrator creates a one-time link.
 - **Chat** (0.11.0) is deployed by the ICS when the layout includes it; its media and configuration are not backed up yet, Matrix ids are
   `@user:matrix.<domain>`, federation is off, no mobile app is tested.
-- **Not deployed by the ICS:** meetings and telephony (lab prototypes only), anti-spam and antivirus (rspamd, ClamAV: **Planned**),
+- **Not deployed by the ICS:** meetings and telephony (lab prototypes only; since 0.14 refused in plans unless the host owner turns them on with `ICS_EXPERIMENTAL`, [installing-the-ics.md](installing-the-ics.md)), anti-spam and antivirus (rspamd, ClamAV: **Planned**),
   mail archiving (**Planned**).
 - **Internet mail** (MX delivery in and out, SPF/DKIM/DMARC) is not verified end to end. On a deployment, webmail, ActiveSync and
   CalDAV/CardDAV answer and pass their health checks ([groupware-deploy-results.md](../status/groupware-deploy-results.md)).
@@ -77,7 +77,7 @@ What not to promise yet. Updated 2026-11-24 (0.13); each line says where it is t
   ([ics-recovery-and-standby.md](ics-recovery-and-standby.md)).
 - Pushover and SMS alert channels cannot be enabled (ADR-0007); the webhook channel is tested locally only.
 - No mailbox purge or export action; revocation gaps are listed in [users-and-access.md](users-and-access.md).
-- **ActiveSync remote wipe is not device management.** `idm.user.disable` with `wipe_devices` asks **every** ActiveSync device of the user for a
+- **ActiveSync remote wipe is experimental and off** (since 0.14: refused unless `ICS_EXPERIMENTAL=remote-wipe`). **It is not device management.** `idm.user.disable` with `wipe_devices` asks **every** ActiveSync device of the user for a
   full remote wipe; depending on the phone's mail app that can erase the whole phone, including a personally owned one. It was tested only with a
   scripted client (no real phone), the device's acknowledgement is not proof of erasure, an offline device never receives it, and in
   `single_admin` mode the administrator approves it alone. Use it only on company-owned devices you intend to erase

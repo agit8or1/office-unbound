@@ -277,6 +277,8 @@ class Component(_M):
     title: str = Field(max_length=100)
     description: str = Field(max_length=500)
     placement: Literal["normal", "every_vm"] = "normal"
+    maturity: Literal["supported", "experimental"] = Field(default="supported", description="experimental: planned only when the host owner "
+                                                           "opted in (ICS_EXPERIMENTAL=<name>, experimental.py); never a default")
     alongside: str | None = Field(default=None, pattern=NAME, description="placed automatically on every VM that runs this component (e.g. the portal with identity)")
     artifacts: list[Artifact] = Field(min_length=1)
     resources: Resources

@@ -18,6 +18,7 @@ from typing import Any, Literal
 from pydantic import BaseModel, ConfigDict, Field, field_validator
 
 from .netmodel import NetworkModel, resolve as resolve_network
+from .. import experimental
 from ..artifacts import REPO_SUITE, SENTINEL_REGISTRY, ArtifactMap, placeholder_images
 from .catalog import Catalog, Component, Profile, VmLayout, get_catalog
 from . import brand
@@ -245,7 +246,11 @@ def vm_description(slug: str, components: list[str], tenant: str | None = None) 
 
 def _expand(inp: PlanInput, prof: Profile, cat: Catalog, errors: list[dict]) -> tuple[list[_Vm], set[str]]:
     layout = _layout(inp, prof, errors)
-    enabled_opt = {o for o in prof.optional_components if inp.optional.get(o, o in prof.default_optional)}
+    def _exp(c: str) -> bool:
+        return c in cat.components and cat.components[c].maturity == "experimental"
+    # an experimental component is never on by default; asked for explicitly it needs the host owner's opt-in (experimental.py)
+    enabled_opt = {o for o in prof.optional_components
+                   if inp.optional.get(o, o in prof.default_optional and (not _exp(o) or experimental.enabled(o)))}
     for o in inp.optional:
         if o not in prof.optional_components:
             errors.append(_err("unknown_optional", f"{o!r} is not an optional component of profile {prof.name!r}"))
@@ -255,8 +260,14 @@ def _expand(inp: PlanInput, prof: Profile, cat: Catalog, errors: list[dict]) -> 
     vms: list[_Vm] = []
     used: set[str] = set()
     tenants = _tenant_ids(inp, prof)
+    refused: set[str] = set()
     for lay in layout:
         comps = [c for c in lay.components if c not in disabled]
+        for c in comps:
+            if _exp(c) and not experimental.enabled(c) and c not in refused:
+                refused.add(c)
+                errors.append(_err("component_experimental", f"{cat.components[c].title}: " + experimental.FEATURES.get(c, "experimental component")
+                                   + f". It is off on this installation (the host owner can enable it with ICS_EXPERIMENTAL={c})", component=c))
         for c in comps:
             if c not in cat.components:
                 errors.append(_err("unknown_component", f"layout {lay.name!r}: unknown component {c!r}"))
@@ -860,6 +871,9 @@ def generate_plan(inp: PlanInput, cap: Capacity, cat: Catalog | None = None, exi
                                                   "from other guests on that bridge (firewall rules in the plan still apply inside the VMs)"))
     if osimg is not None and osimg.id != "ubuntu-24.04":
         warnings.append(_err("os_image_unvalidated", f"component packages were validated on Ubuntu 24.04 (noble); {osimg.id} is not validated"))
+    if tenancy_of(inp, prof) == "multi" and not experimental.enabled("multi-tenant"):
+        errors.append(_err("tenancy_experimental", experimental.FEATURES["multi-tenant"]
+                           + ". It is off on this installation (the host owner can enable it with ICS_EXPERIMENTAL=multi-tenant)"))
     if prof.maturity == "experimental":
         warnings.append(_err("profile_experimental", f"profile {prof.name!r} is experimental: layout is generated but has not been validated on a lab or customer run"))
     if prof.ha:

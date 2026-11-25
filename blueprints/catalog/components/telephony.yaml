@@ -2,6 +2,7 @@ name: telephony
 version: 1.0.0
 title: Telephony (Asterisk PBX + softphone)
 description: Internal phone system. Asterisk 22 with extensions generated from the directory, voicemail-to-email and a browser softphone. No outside phone line (PSTN trunk is off).
+maturity: experimental   # lab prototype; planned only with ICS_EXPERIMENTAL=telephony (PUBLIC-ALPHA-READINESS PA-31)
 artifacts:
   # dev release channel and dev-signed images (owner decision for the beta); served by the ICS artifact service (ADR-0015)
   - {name: asterisk, kind: package, package: ou-asterisk, version: "22.12.0-ou1", repo: ob-apt-dev}

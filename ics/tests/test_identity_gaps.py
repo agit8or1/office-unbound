@@ -214,3 +214,17 @@ def test_wipe_happens_before_the_canary_credential_replaces_the_password(env, rt
                                                 "rotate_credentials": True}))
     assert job["status"] == "succeeded", job.get("error")
     assert world.pw_at_wipe == "users-own-password" and world.passwords["alice"] != "users-own-password"
+
+
+def test_wipe_devices_is_refused_when_the_plan_is_made_unless_the_host_owner_opted_in(env, rt, world):
+    """PA-30: the full-device wipe of every phone is experimental; with ICS_EXPERIMENTAL unset the plan is refused (422) with the reason."""
+    from ics import experimental
+    add_stack(rt)
+    create_user(env)
+    experimental.configure(())
+    try:
+        r = env.plan("idm.user.disable", {"stack": "acme", "uid": "alice", "wipe_devices": True}, approvers=[], expect=422)
+        assert "ICS_EXPERIMENTAL=remote-wipe" in r.text
+        assert env.plan("idm.user.disable", {"stack": "acme", "uid": "alice"}, approvers=[])["risk"] == "normal"   # a plain disable is unaffected
+    finally:
+        experimental.configure(experimental.FEATURES)

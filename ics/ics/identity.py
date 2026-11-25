@@ -998,6 +998,9 @@ def precheck(db, rt: Runtime, action: str, p) -> dict:
         _user_row(db, row.id, p.uid, ("active", "disabled"))
     if action == "idm.user.disable":
         _user_row(db, row.id, p.uid, ("active",))
+        if p.wipe_devices:
+            from . import experimental
+            experimental.require("remote-wipe")   # PA-30: a full-device wipe of every phone is off unless the host owner opted in
         if p.wipe_devices and not cfg.get("gromox_node_id"):
             raise ValueError("wipe_devices needs a Gromox node in the stack")
     elif action == "idm.user.enable":

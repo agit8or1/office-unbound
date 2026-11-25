@@ -52,6 +52,7 @@ class Settings:
     login_ip_max_failures: int = 100     # coarse per-IP spray limit (all usernames)
     heartbeat_max_age_seconds: int = 30
     required_approvals_high: int = 2
+    experimental: frozenset = frozenset()        # ICS_EXPERIMENTAL: opted-in experimental features (experimental.py); empty = all off
     approval_mode: str = "two_person"            # ICS_APPROVAL_MODE: "two_person" (default) | "single_admin" (ADR-0017: an only-admin install; an admin
                                                  # approves their own plans, every plan needs exactly one approval; still plan -> explicit approval -> job, audited)
     plan_expiry_seconds: int = 7 * 24 * 3600
@@ -155,6 +156,9 @@ def _trusted_proxy(v: str | None) -> str | None:
     return str(ip)
 
 
+from . import experimental as _experimental  # noqa: E402
+
+
 def _csv(v: str | None) -> tuple[str, ...]:
     return tuple(x.strip() for x in (v or "").split(",") if x.strip())
 
@@ -224,6 +228,7 @@ def load_settings() -> Settings:
             guest_bootstrap_ttl_seconds=int(env.get("ICS_GUEST_BOOTSTRAP_TTL_SECONDS", 1800)),
             backup_scheduler_enabled=b("ICS_BACKUP_SCHEDULER_ENABLED", True),
             approval_mode=env.get("ICS_APPROVAL_MODE", "two_person").strip().lower(),
+            experimental=_experimental.parse(env.get("ICS_EXPERIMENTAL")),
         )
         return s
     except KeyError as e:  # pragma: no cover

@@ -2,6 +2,7 @@ name: meetings
 version: 1.0.0
 title: Video meetings (Jitsi Meet + Office Unbound token service)
 description: Video meetings. Jitsi Meet (web, Prosody, Jicofo, videobridge) where only people with a signed-in token can open a room, issued by the Office Unbound token service after Keycloak sign-in.
+maturity: experimental   # lab prototype; planned only with ICS_EXPERIMENTAL=meetings (PUBLIC-ALPHA-READINESS PA-31)
 artifacts:
   # Jitsi parts built from the signed Jitsi stable debs (chain pinned in blueprints/build/oci/jitsi/01-fetch-verify.sh), prosody from the Ubuntu archive.
   - {name: jitsi-web, kind: oci, image: registry.ou.invalid/ou/jitsi-web, digest: "sha256:5dc54c4abd4b823af183f87dc899632cdd1f6c7cab76760cbbae9923af181dea", version: "1.0.9442"}

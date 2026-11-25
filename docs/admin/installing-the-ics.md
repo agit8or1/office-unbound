@@ -60,6 +60,17 @@ so a working installation needs at least three people: one requester and two app
 
 **Only one administrator?** Set `ICS_APPROVAL_MODE=single_admin` in `/etc/office-unbound/ics.env` and restart `ics`. An *admin* then reviews and approves their own plans, and every plan needs one approval. Nothing else changes: every change is still a plan bound to a hash, needs an explicit approval, runs as a job and is recorded in the audit log. Approver and operator accounts still need someone else. Remove the setting (default `two_person`) when a second approver joins. See [ADR-0017](../adr/0017-single-admin-approval-mode.md).
 
+**Experimental features are off.** These are refused with the reason until the host owner lists them in `ICS_EXPERIMENTAL` (comma list) in `/etc/office-unbound/ics.env` and restarts `ics`:
+
+| Name | What it turns on | Why it is experimental |
+|---|---|---|
+| `meetings` | the video meetings component (Jitsi) in deployment plans | lab prototype, not verified on a deployment |
+| `telephony` | the telephony component (Asterisk) in deployment plans | lab prototype, not verified on a deployment |
+| `multi-tenant` | the multi-tenant installation mode and multi-tenant deployment plans | network isolation between customers is not verified on real Proxmox |
+| `remote-wipe` | `wipe_devices` on disabling a person | asks every ActiveSync device for a full wipe, which can erase a personal phone; tested only with a scripted client |
+
+An unknown name stops the ICS from starting (so a typo is not silently ignored). The setting is read at start; plans that were made while a feature was on are still checked again when they are created, not when they run.
+
 On the ICS host, for each person (prints a one-time token, valid 24 h, single use, stored hashed; hand it over out of band):
 ```
 cd /opt/office-unbound/ics && sudo -u ics .venv/bin/python -m ics.cli create-admin --username bob --role approver

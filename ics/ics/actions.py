@@ -23,7 +23,7 @@ from . import imageimport
 from . import console_access, netsettings
 from . import gateway as gateway_ops
 from .deploy import accounts as deploy_accounts
-from . import tenancy_mode
+from . import experimental, tenancy_mode
 from .provisioning import operate as guest_operate
 from .provisioning import leftovers as guest_leftovers
 from . import agentclient, alerts, audit, auth, checks as checkmod, endpoint_actions, identity, mailadmin, monitor, removal
@@ -1125,7 +1125,7 @@ def reap_expired(rt: Runtime) -> int:
 
 
 _SAFE_ERRORS = (cred_service.CredentialUnavailable, ProviderError, ProxmoxError, VaultError, PlanIntegrityError, JobTimeout, AgentError, IdentityError, DeployError, backup_ops.BackupError,
-                console_access.ApplyError, gateway_ops.GatewayError, tenancy_mode.ModeLocked)   # the access helper's own message (nginx -t output; no parameter values beyond address ranges)
+                console_access.ApplyError, gateway_ops.GatewayError, tenancy_mode.ModeLocked, experimental.NotEnabled)   # the access helper's own message (nginx -t output; no parameter values beyond address ranges)
 
 
 def _error_dict(e: BaseException, known: list[str]) -> dict:

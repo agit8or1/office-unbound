@@ -11,7 +11,7 @@ import json
 from typing import Literal
 
 from fastapi import Depends
-from pydantic import BaseModel, ConfigDict
+from pydantic import BaseModel, ConfigDict, field_validator
 from sqlalchemy import text
 from sqlalchemy.orm import Session
 
@@ -21,6 +21,14 @@ KEY = "system.tenancy"
 class TenancyMode(BaseModel):
     model_config = ConfigDict(extra="forbid")
     mode: Literal["single", "multi"]
+
+    @field_validator("mode")
+    @classmethod
+    def _multi_is_experimental(cls, v):
+        if v == "multi":
+            from . import experimental
+            experimental.require("multi-tenant")   # refused when the plan is made, before any approval (PA-20)
+        return v
 
 
 class ModeLocked(Exception):
@@ -38,6 +46,9 @@ def live_deployments(db) -> int:
 
 def exec_set(rt, db, m: TenancyMode, plan, known) -> dict:
     from . import audit
+    if m.mode == "multi":
+        from . import experimental
+        experimental.require("multi-tenant")   # PA-20: refused with the reason; the plan fails, nothing is written
     old = get(db)
     n = live_deployments(db)
     if old is not None and old != m.mode and n:
