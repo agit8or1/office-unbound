@@ -117,6 +117,15 @@ Users section.
 ## Delivery
 1. **Names and navigation** (low risk, usability): rename the pages; Tenants list; tenant page with Overview, Domains, Users (read),
    Policy; redirects.
+   *Progress 2026-11-25 (branch `ui-redesign`, 074324c + c43ea64; not yet gated or deployed):* `GET /api/v1/tenants`, `/tenants/{id}`,
+   `/tenants/{id}/dns` (`ics/ics/tenants_api.py`) and the console pages `/tenants`, `/tenants/<id>/<tab>` exist; "Users & roles" is
+   "Platform admins". Executed: `ics/tests/test_tenants_api.py` 6 passed, vitest 218 passed, vue-tsc clean. The DNS checker was run read-only
+   against officeunbound8's real zone. Differences from section 2a found while building it:
+   - the deployments do not sign mail with DKIM yet, so the DKIM row reads "Not available" instead of comparing a key;
+   - queries use the ICS host's resolver (as Network & domains does); querying the authoritative servers directly is still to do;
+   - an A record to the public address is accepted in place of a CNAME;
+   - `/administration/customers` stays as the policy editor (linked from the Policy tab) until step 2 moves its writes, so it is not a
+     redirect yet.
 2. **Tenant settings writes** through `ConsoleTenantCtx` (users, groups, aliases, shared, quotas, apps, branding), with the tests above.
 3. **Switch** (top-bar picker, banner, switch audit events), plus the People panel → tenant Users link.
 
