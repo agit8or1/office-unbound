@@ -109,9 +109,28 @@ body.grommunio-webclient .x-grid-empty, body.grommunio-webclient .grommunio-prev
 /* the gaps between panes show the canvas, so list, reading pane and folders read as separate surfaces */
 body.grommunio-webclient .x-layout-split, body.grommunio-webclient .x-border-layout-ct { background-color: var(--ou-bg); }
 body.grommunio-webclient .grommunio-previewpanel { border-left: 1px solid var(--ou-line); }
-/* calendar: today stands out in the grid, the date picker and the day headers */
-body.grommunio-webclient .grommunio-calendar-container-body .k-html-body-background .k-today { background-color: color-mix(in srgb, var(--ou-action) 7%, var(--ou-surface)) !important; }
-body.grommunio-webclient .grommunio-calendar-container-header .k-html-header-background .k-today .k-cal-header-title { color: var(--ou-action) !important; font-weight: 600; }
+/* calendar (UI audit 2026-11-25): today and the selected calendar in the action teal, like selection everywhere in the suite. The calendar
+   draws today's header, the rules around today's column and the selected calendar's tab stroke in its own --theme-primary-color (the
+   brand copper through --brand-primary), so the property is redefined for the calendar panel only. The 0.13 rules painted today's title
+   teal on that copper header (unreadable) and gave today's cells an opaque background, which hid the working-hours shading and, under
+   upstream dark mode's invert filter on the grid cells (darkmode.css), turned into a light grey column. */
+body.grommunio-webclient #grommunio-mainpanel-contentpanel-calendar { --theme-primary-color: var(--ou-action); }
+body.grommunio-webclient .grommunio-calendar-container-header .k-html-header-background .k-today .k-cal-header-title,
+body.grommunio-webclient .grommunio-calendar-boxview .grommunio-calendar-container-body .k-html-body-background .k-today .k-header {
+  background: var(--ou-action) !important; color: var(--ou-action-ink) !important; text-shadow: none !important; font-weight: 600;
+}
+/* today's column: a translucent wash over the calendar's own cell colours (working hours stay distinguishable) */
+body.grommunio-webclient .grommunio-calendar-container-body .k-html-body-background > div.k-today[class*="k-line-"] {
+  box-shadow: inset 0 0 0 100vmax color-mix(in srgb, var(--ou-action) 9%, transparent);
+}
+/* dark: upstream inverts every grid cell (filter: invert(.85) hue-rotate(180deg)), so colours inside a cell are given as what the filter
+   turns into the dark action teal #6cb8b2: #005e56 (checked against the token by test_uiaudit_groupware.py). Replaces upstream's
+   pre-inverted green rules of today's column. */
+body.grommunio-webclient.dark-mode .grommunio-calendar-container-body .k-html-body-background > div[class*="k-line-"].k-active-border { border-right-color: #005e56 !important; }
+body.grommunio-webclient.dark-mode .grommunio-calendar-container-body .k-html-body-background > div[class*="k-line-"].k-today.k-day-0 { border-left-color: #005e56 !important; }
+body.grommunio-webclient.dark-mode .grommunio-calendar-container-body .k-html-body-background > div.k-today[class*="k-line-"] {
+  box-shadow: inset 0 0 0 100vmax rgba(0, 94, 86, .16);
+}
 body.grommunio-webclient .x-date-picker .x-date-inner td.x-date-today a { background: var(--ou-action) !important; color: var(--ou-action-ink) !important; border-radius: 4px; }
 body.grommunio-webclient .x-date-picker .x-date-inner td.x-date-selected:not(.x-date-today) a { background: var(--ou-sel) !important; color: var(--ou-ink) !important; }
 body.grommunio-webclient .x-date-picker .x-date-inner td.x-date-today a *, body.grommunio-webclient .x-date-picker .x-date-inner td.x-date-today .x-date-date { color: var(--ou-action-ink) !important; }
@@ -128,3 +147,39 @@ body.grommunio-webclient .k-search-container {
   box-shadow: inset 0 0 0 1px var(--ou-field); border-radius: var(--ou-radius-sm); background: var(--ou-surface);
 }
 body.grommunio-webclient .k-search-container:focus-within { box-shadow: inset 0 0 0 2px var(--ou-action); }
+/* dark mode surfaces (UI audit 2026-11-25): upstream dark mode (darkmode.css) draws its own neutral greys from --dm-* properties (the month
+   grid, calendar headers, menus, dialogs: #121212 / #1e1e1e / #2a2a2e beside the suite's navy layers). Its rules read the properties, so
+   they are pointed at the shared dark tokens; the day/week grid keeps upstream's inverted calendar colours (its cells are inline-styled). */
+body.grommunio-webclient.dark-mode {
+  --dm-bg: var(--ou-bg);
+  --dm-bg-paper: var(--ou-surface);
+  --dm-bg-elevated: var(--ou-raised);
+  --dm-bg-input: var(--ou-bg2);
+  --dm-fg: var(--ou-text);
+  --dm-fg-secondary: var(--ou-muted);
+  --dm-fg-muted: var(--ou-muted);
+  --dm-fg-inverse: var(--ou-surface);
+  --dm-hover: var(--ou-raised);
+  --dm-selected: var(--ou-sel);
+  --dm-border: var(--ou-line);
+  --dm-border-strong: var(--ou-line-2);
+  --dm-focus: color-mix(in srgb, var(--ou-action) 30%, var(--ou-surface));
+}
+/* toolbar icons (UI audit): upstream's "large" toolbar images are 32px drawings centred in 36px buttons, heavier than every other icon in
+   the suite. They are drawn at 20px inside the same button (background-size only: the button keeps the size ExtJS measured). */
+body.grommunio-webclient #grommunio-maintoolbar button.x-btn-text[class*="icon_large_"] { background-size: 20px 20px !important; }
+body.grommunio-webclient #grommunio-maintoolbar-newitem button.x-btn-text::before { -webkit-mask-size: 20px 20px; mask-size: 20px 20px; }
+/* the chosen calendar view (Day, Work week, Week, Month, List) and other pressed toolbar toggles: the selection colour with a teal rule */
+body.grommunio-webclient #grommunio-maintoolbar .x-btn-pressed button.x-btn-text {
+  background-color: var(--ou-sel) !important; box-shadow: inset 0 -2px 0 var(--ou-action); border-radius: var(--ou-radius-sm);
+}
+/* unread rows: upstream's unread border (setting "unread borders", on by default) in the action teal instead of the brand copper */
+body.grommunio-webclient.k-unreadborders .x-grid3-row.mail_unread > table { border-left-color: var(--ou-action) !important; }
+/* list column titles: sentence case like the rest of the suite, no tracking */
+body.grommunio-webclient .x-grid3-hd-row .x-grid3-hd-inner, body.grommunio-webclient .x-grid3-hd-row .grommunio-x-grid3-hd-title { text-transform: none; letter-spacing: 0; }
+/* empty states: the folder drawing at 48px instead of 96px (the drawing only; its box is unchanged), the reading pane's "nothing selected"
+   drawing at 48px, so an empty folder no longer shows two large drawings side by side */
+body.grommunio-webclient .x-grid-empty .emptytext::before, body.grommunio-webclient #note-iconview .emptytext::before {
+  -webkit-mask-size: 48px 48px; mask-size: 48px 48px; background-color: var(--ou-line-2);
+}
+body.grommunio-webclient .grommunio-context-mainpanel > .x-panel-bwrap > .x-panel-body { background-size: 48px auto !important; }
