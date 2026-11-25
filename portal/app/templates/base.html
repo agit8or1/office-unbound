@@ -42,7 +42,7 @@
     <nav class="apps" aria-label="Apps">{{ applinks('al') }}</nav>
     <form class="gsearch" role="search" method="get" action="/search">
       <label class="sr" for="q">Search your files</label>
-      {{ icon('search') }}<input id="q" name="q" type="search" placeholder="Search files and folders" maxlength="80" value="{{ q or '' }}" autocomplete="off">
+      {{ icon('search') }}<input id="q" name="q" type="search" placeholder="Search files and folders" maxlength="80" value="{{ fileq or '' }}" autocomplete="off">
     </form>
     <details class="menu create">
       <summary class="newbtn-top">{{ icon('plus') }}<span>New</span></summary>
@@ -111,7 +111,7 @@
 </details>
 {% endif %}
 <footer class="foot">
-  <span>{{ brand.name }}</span><span aria-hidden="true">·</span><span>Your files and messages stay on your organisation's own servers.</span><span aria-hidden="true">·</span><a href="/about">Office Unbound portal v{{ version }}</a>
+  <span>{{ brand.name }}</span><span class="dot" aria-hidden="true">·</span><span>Your files and messages stay on your organisation's own servers.</span><span class="dot" aria-hidden="true">·</span><a href="/about">Office Unbound portal v{{ version }}</a>
 </footer>
 </body>
 </html>

@@ -24,15 +24,15 @@
   <h2 id="h-manual">Manual settings</h2>
   <p class="hint">For any other app. User name is always your full e-mail address{% if email %} (<b>{{ email }}</b>){% endif %}; the password is the one you use to sign in here.</p>
   <div class="tablewrap">
-  <table>
+  <table class="rt">
     <caption class="sr">Server settings</caption>
     <thead><tr><th scope="col">Service</th><th scope="col">Server</th><th scope="col">Port</th><th scope="col">Security</th></tr></thead>
     <tbody>
-      <tr><th scope="row">Incoming mail (IMAP)</th><td>{{ cfg.imap_host }}</td><td>{{ cfg.imap_port }}</td><td>SSL/TLS</td></tr>
-      <tr><th scope="row">Outgoing mail (SMTP)</th><td>{{ cfg.smtp_host }}</td><td>{{ cfg.smtp_port }}</td><td>{{ 'SSL/TLS' if cfg.smtp_port == 465 else 'STARTTLS' }}</td></tr>
-      <tr><th scope="row">Calendar (CalDAV)</th><td>https://{{ cfg.dav_host }}{{ cfg.dav_base }}/</td><td>443</td><td>SSL/TLS</td></tr>
-      <tr><th scope="row">Contacts (CardDAV)</th><td>https://{{ cfg.dav_host }}{{ cfg.dav_base }}/</td><td>443</td><td>SSL/TLS</td></tr>
-      <tr><th scope="row">Files (WebDAV)</th><td>{{ cfg.files_url }}/remote.php/dav/files/{{ user.username }}/</td><td>443</td><td>SSL/TLS</td></tr>
+      <tr><th scope="row">Incoming mail (IMAP)</th><td data-label="Server">{{ cfg.imap_host }}</td><td data-label="Port">{{ cfg.imap_port }}</td><td data-label="Security">SSL/TLS</td></tr>
+      <tr><th scope="row">Outgoing mail (SMTP)</th><td data-label="Server">{{ cfg.smtp_host }}</td><td data-label="Port">{{ cfg.smtp_port }}</td><td data-label="Security">{{ 'SSL/TLS' if cfg.smtp_port == 465 else 'STARTTLS' }}</td></tr>
+      <tr><th scope="row">Calendar (CalDAV)</th><td data-label="Server">https://{{ cfg.dav_host }}{{ cfg.dav_base }}/</td><td data-label="Port">443</td><td data-label="Security">SSL/TLS</td></tr>
+      <tr><th scope="row">Contacts (CardDAV)</th><td data-label="Server">https://{{ cfg.dav_host }}{{ cfg.dav_base }}/</td><td data-label="Port">443</td><td data-label="Security">SSL/TLS</td></tr>
+      <tr><th scope="row">Files (WebDAV)</th><td data-label="Server">{{ cfg.files_url }}/remote.php/dav/files/{{ user.username }}/</td><td data-label="Port">443</td><td data-label="Security">SSL/TLS</td></tr>
     </tbody>
   </table>
   </div>
@@ -49,12 +49,12 @@
   </form>
 
   <div class="tablewrap">
-  <table class="appmatrix">
+  <table class="appmatrix rt">
     <caption class="sr">Office applications compared</caption>
     <thead><tr><th scope="col">Application</th>{% for k, label in office.cols %}<th scope="col">{{ label }}</th>{% endfor %}</tr></thead>
     <tbody>
     {% for a in office.apps %}
-    <tr><th scope="row"><a href="#app-{{ a.id }}">{{ a.name }}</a></th>{% for k, label in office.cols %}<td data-v="{{ a.matrix[k] | lower }}">{{ a.matrix[k] }}</td>{% endfor %}</tr>
+    <tr><th scope="row"><a href="#app-{{ a.id }}">{{ a.name }}</a></th>{% for k, label in office.cols %}<td data-label="{{ label }}" data-v="{{ a.matrix[k] | lower }}">{{ a.matrix[k] }}</td>{% endfor %}</tr>
     {% endfor %}
     </tbody>
   </table>
@@ -77,7 +77,7 @@
         <h4>Limitations</h4><ul>{% for l in a.limits %}<li>{{ l }}</li>{% endfor %}</ul>
       </details>
       {% if a.id == 'builtin' %}
-      <p><a class="btn primary" href="/#h-new">Start a document</a></p>
+      <p><a class="btn primary" href="/#h-create">Start a document</a></p>
       {% else %}
       <p class="ext"><a href="{{ a.download }}" target="_blank" rel="noopener noreferrer">Download from {{ a.publisher.split(' (')[0] }}</a>
         <span aria-hidden="true">·</span> <a href="{{ a.website }}" target="_blank" rel="noopener noreferrer">Website</a>
