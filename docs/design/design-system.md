@@ -108,6 +108,29 @@ Field borders (all apps): `--ou-field` (light `#90856f`, dark `#607a9d`) is at l
 the sign-in fields, Files and the webmail search. Evidence: `docs/screenshots/files-v5/` (`before-*` = the deployed skin and palette; `after-*` = the 0.13
 palette and this block added in the browser only, the deployment unchanged).
 
+## Files UI audit (2026-11-25, OpenCloud Web 8.2.2)
+
+Hooks, read from the deployed web build: `theme.json` `designTokens` carries **colours (`roles` -> `--oc-role-*`) and `fontFamily` only**
+(web-runtime design-system install); spacing, sizes, empty states, list density and the view mode have no theme option, so they are in
+`opencloud.css`. OpenCloud lays out with CSS (Vue + Tailwind, nothing measured in script), so a small, scoped "Files UI audit" block may set
+spacing and sizes; it sits before the colour-only stage-2 block (`test_uiaudit_files.py` limits its selectors and properties). No token
+value changed.
+
+| Area | Rule |
+|---|---|
+| Top bar | `#oc-topbar` redefines `--color-role-chrome`/`--color-role-on-chrome` as well as `--oc-role-*`: the Tailwind utilities read the `--color-role-*` copies that `:root` resolved once, so the phone search bar was paper under light text (Cancel invisible) |
+| Search | scope chip ("All files") in `--ou-bar-text`, search button `--ou-bar-muted` on the `--ou-bar-2` field (both >= 4.5:1); the chip was ink on navy (invisible in light); the field's focus ring in `--ou-bar-text` (the fields' teal ring is under 3:1 on the light navy) |
+| Phones (<= 640px) | the upstream logo is hidden: the icon-only Dashboard control already shows the mark (or the organisation logo); the inline rename pencil is hidden (Rename stays in the row menu), which gives names 28px more |
+| Navigation | 39px items (were 45px); labels medium (500, were bold 700), the current place semibold (600) with the stage-2 selection bar |
+| Empty states | the illustration 72px (was 120px), the block `min-height: min(45vh, 24rem)` instead of a 65vh centre; title 17px medium in ink, hint muted |
+| File list | all column headings muted (Status, Tags, Actions were ink, the sortable ones muted); rename pencil on row hover, keyboard focus or selection for mouse users |
+| Thumbnails | a `--ou-line` hairline on previews (text files render as white pages, glaring squares in dark) |
+
+Kept upstream (no supported hook, or not a defect): the default view per folder (tiles/list from the URL `view-mode`), the column set per
+width (OpenCloud's own breakpoints), middle truncation of long names with the full name as tooltip, the 120px illustrations' artwork and
+the space reserved above the list for the batch-action bar. Evidence: `docs/screenshots/uiaudit-files/` (`before-*` = the deployed skin;
+`after-*` = the generated `ou.css` of this branch injected in the browser only, the deployment unchanged).
+
 ## Sign-in page (Keycloak theme)
 
 The fields sit on the suite's raised surface with the shared line colour; focus underline in the action teal (PatternFly's dark grey
