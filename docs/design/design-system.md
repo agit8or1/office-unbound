@@ -143,3 +143,33 @@ widened the `.stack` grid), fixed with `grid-template-columns: minmax(0, 1fr)`.
 Apps (officeunbound8, signed in as the `doctest` user, 1600x900): `docs/screenshots/apps-v5/` (`before-*` = the deployed skin;
 `after-*` = the stage-2 `brand.css` added in the browser only, the deployment unchanged; dark = the webmail's own `dark-mode`
 class, as when the user picks Dark in its settings).
+
+## Console (ICS) — UI audit 2026-11-25
+
+The console keeps its own concept (graphite top bar, paper navigation, copper primary buttons) on the shared tokens; its copy
+of the shared values is checked by `ics/tests/test_brand.py`, the form-field border `--field` (= `--ou-field`, 3:1 on every
+console surface) by `ics/tests/test_console_tokens.py`. Built assets in `ics/ics/static` are rebuilt from the source in the
+same branch (static drift 0).
+
+| Element | Rule |
+|---|---|
+| Page title / card title / section label | 19 px 600 ink / 14 px 600 ink / 12.5 px 600 muted, sentence case (no uppercase tracking anywhere: nav groups, table heads, sub-heads) |
+| Body / secondary / metadata | 14 px / 12.5 px muted; Plex Mono 12.5 px only for identifiers, versions, hashes and config |
+| Cards | 16 px padding everywhere (flush cards: 16 px header inset = table cell inset), radius 4 px, 1 px line, no shadow |
+| KPI strip | one bordered strip, hairlines between cells; label 12.5 px with a 16 px icon, value 22 px (20 px on phones), sub 12.5 px; 4 columns, 2 below 1100 px. Tone only on the value (and its icon): red = a real problem (critical health, nodes down, critical incidents), amber = needs attention (approvals waiting), everything healthy or idle stays ink |
+| Status badges | 20 px pill, tone colour on its tint, sentence case (first letter only, the text itself is unchanged) |
+| Tables | 12.5 px sentence-case heads on the side layer, 10/16 px cells, top-aligned rows, the identifier column does not wrap; wide tables scroll inside their card (focusable region) |
+| Selection | navigation and table rows: `--sel`/`--nav-sel` with a 3 px teal bar; tabs and wizard steps: teal underline |
+| Incidents | neutral row with a 3 px severity bar and the severity badge; no red/amber background blocks; "all clear" is a line of text with a green check |
+| Empty states | 40 px neutral icon (no copper tile), title, one sentence, the next action; compact variant is a quiet single line inside a card |
+| Wizards (kit) | same radii, 36 px buttons, 38 px fields with the `--field` border and the teal focus ring as the rest of the console; current step and chosen option in teal, the primary action copper |
+| Charts | 210 px plot (130 px on phones), y axis 0/50/100 %, four x ticks; a 24 h axis shows weekday + hour; donut categories use teal, slate, copper, blue (never the warning amber) |
+
+Responsive shell: 280 px navigation rail, 240 px from 861 to 1280 px, off-canvas below 861 px (menu button only there;
+the closed drawer is `visibility: hidden` so Tab skips it; opening moves focus into it, Escape closes it and returns focus).
+Phone breadcrumbs show the parent and the page. Overview order: status strip, active incidents, onboarding (first run),
+apps, utilization + distribution, health matrix + deployment activity (no audit log on the overview).
+
+Evidence: `docs/screenshots/uiaudit-console/` (`before-*` = 8cea4b7, `after-*` = this branch; real console against the e2e
+backend and seed; pages marked `infra` answer `/api/v1/infra/*` in the browser with a fixed test fixture so populated
+layouts can be seen; no product data is invented).
