@@ -222,3 +222,13 @@ Brief section 15 lists 15 tests; this phase covers the ones below. Everything el
 | 14 | org isolation | origin allowlist + secret prefixes tested | two real deployments |
 | - | Credential Manager backend | contract test exists (`cfg(windows)`) | execute on Windows (CI job) |
 | - | named pipe DACL | code compiles for Windows | connect as another user must fail (Windows) |
+
+## 13. Owner decisions needed
+1. **Dedicated OIDC client `ou-desktop`** (section 5.3): add to the catalog realm and register on existing deployments through a typed
+   action (not done: a live realm change). Until then the app uses the existing `OpenCloudDesktop` client.
+2. **Client document route** on `autodiscover.<domain>` (section 5.1, catalog change in groupware's web server). No DNS record needed.
+3. **Build infrastructure:** the dev installer is cross-built on Linux (GNU ABI). A free GitHub Actions `windows-latest` job (public repo)
+   should produce the MSVC release build and run the Windows-only tests (Credential Manager, named pipe); the winci branch owns it.
+4. **Signing:** ship unsigned alpha installers with the SmartScreen warning (zero cost), or approve a certificate later.
+5. **WebView2 on Windows 10:** keep the download bootstrapper (needs internet at install) or ship the offline runtime (+~150 MB).
+6. Matrix client registration with MAS: dynamic registration per install vs a static catalog client (section 5.4).
