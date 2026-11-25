@@ -80,7 +80,7 @@ const counts = computed(() => {
           <div class="scroll short" tabindex="0" role="region" aria-label="Scrollable table">
             <table v-if="results.data.value?.length">
               <thead><tr><th>Time</th><th>Result</th><th class="num">ms</th><th>Message</th></tr></thead>
-              <tbody><tr v-for="r in results.data.value" :key="r.id"><td class="nowrap">{{ fmtTime(r.at) }}</td><td><Status :s="r.status" /></td><td class="num">{{ r.latency_ms ?? '-' }}</td><td class="wrap"><TechText :text="r.message" /></td></tr></tbody>
+              <tbody><tr v-for="r in results.data.value" :key="r.id"><td>{{ fmtTime(r.at) }}</td><td><Status :s="r.status" /></td><td class="num">{{ r.latency_ms ?? '-' }}</td><td class="wrap msg-sm"><TechText :text="r.message" /></td></tr></tbody>
             </table>
             <p v-else class="muted">No results yet.</p>
           </div>
