@@ -652,6 +652,8 @@ def create_app(settings: Settings | None = None, runtime: Runtime | None = None)
     pve_session_api.mount(app)
     tenancy_public.mount(app)
     tenant_api.mount(app)
+    from . import tenants_api
+    tenants_api.mount(app)   # ADR-0021: tenants in the console, DNS checker
 
     if STATIC_DIR.is_dir():
         @app.get("/", include_in_schema=False)
