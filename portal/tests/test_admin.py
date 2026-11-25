@@ -89,7 +89,9 @@ class IcsMock(Mock):
         if k == "/domains":
             d = {"domains": [{"name": "example.test", "primary": True}], "managed_by": "Your service provider adds or removes domains."}
             if "check" in r.url.params:
-                d["dns"] = {"example.test": [{"key": "spf", "title": "Sender policy (SPF)", "name": "example.test", "type": "TXT", "expected": "v=spf1 mx -all", "found": [], "status": "missing", "how": "Add one TXT record."}]}
+                d["dns"] = {"example.test": [{"key": "spf", "title": "Sender policy (SPF)", "name": "example.test", "type": "TXT", "expected": "v=spf1 mx -all", "found": [], "status": "missing", "how": "Add one TXT record."},
+                                                   {"key": "srv_imaps", "title": "Incoming mail setup (IMAP SRV)", "name": "_imaps._tcp.example.test", "type": "SRV",
+                                                    "expected": "0 1 993 mail.example.test", "found": [], "status": "missing", "how": "Optional.", "optional": True}]}
             return httpx.Response(200, json=d)
         if k == "/aliases":
             return httpx.Response(200, json={"domains": ["example.test", "alt.test"], "max_aliases": 20, "users": [
@@ -161,7 +163,7 @@ def test_admin_pages_render_and_forward_both_proofs(env):
     signin(c, m)
     assert ">Organisation admin<" in c.get("/").text
     for path, needle in (("/admin", "Acme Brothers Ltd"), ("/admin/users", "Anna Meyer"), ("/admin/users/anna", "Anna Meyer"), ("/admin/users/new", "Invite someone"),
-                         ("/admin/groups", "Groups"), ("/admin/domains", "Check my DNS now"), ("/admin/domains?check=1", "Missing"), ("/admin/branding", "Look and feel"),
+                         ("/admin/groups", "Groups"), ("/admin/domains", "Check my DNS now"), ("/admin/domains?check=1", "Missing"), ("/admin/domains?check=1", "Optional, not set"), ("/admin/branding", "Look and feel"),
                          ("/admin/requests", "Delete Olga"), ("/admin/requests/11111111-1111-1111-1111-111111111111", "Done")):
         r = c.get(path)
         assert r.status_code == 200 and needle in r.text, (path, r.status_code)

@@ -117,14 +117,15 @@ def check_domain(domain: str, mail_host: str | None, dkim_selector: str, resolve
     spf_want = "v=spf1 mx -all"
     rows = []
 
-    def row(key, title, name, rtype, want, how, test):
+    def row(key, title, name, rtype, want, how, test, optional=False):
+        base = {"key": key, "title": title, "name": name, "type": rtype, "expected": want, "how": how, "optional": optional}
         try:
             found = resolver(name, rtype)
         except DnsError:
-            rows.append({"key": key, "title": title, "name": name, "type": rtype, "expected": want, "found": [], "status": "unknown", "how": how})
+            rows.append({**base, "found": [], "status": "unknown"})
             return
         st = "missing" if not found else ("ok" if test(found) else "differs")
-        rows.append({"key": key, "title": title, "name": name, "type": rtype, "expected": want, "found": found, "status": st, "how": how})
+        rows.append({**base, "found": found, "status": st})
 
     row("mx", "Incoming mail (MX)", domain, "MX", f"10 {mail_host}" if mail_host else "your mail server", "Add an MX record so mail for your domain is delivered to your mail server.",
         lambda f: (not mail_host) or mail_host in f)
@@ -138,4 +139,17 @@ def check_domain(domain: str, mail_host: str | None, dkim_selector: str, resolve
         lambda f: any(x.lower().startswith("v=dmarc1") for x in f))
     row("autodiscover", "Automatic mail setup (autodiscover)", f"autodiscover.{domain}", "CNAME", mail_host or "your mail server",
         "Add a CNAME so Outlook and phones can find the right server by themselves.", lambda f: (not mail_host) or mail_host in f)
+    for key, title, svc, port, what in SRV_RECORDS:
+        row(key, title, f"{svc}.{domain}", "SRV", f"0 1 {port} {mail_host or 'your mail server'}",
+            f"Optional. Lets {what} find the server from just an e-mail address. Priority 0, weight 1, port {port}.",
+            lambda f, port=port: any(x.rsplit(":", 1)[-1] == str(port) and ((not mail_host) or x.rsplit(":", 1)[0] == mail_host) for x in f),
+            optional=True)
     return rows
+
+
+# client-setup SRV records (RFC 6186 mail, RFC 6764 calendar/contacts, Microsoft's autodiscover SRV); recommended, never required
+SRV_RECORDS = (("srv_autodiscover", "Outlook setup (autodiscover SRV)", "_autodiscover._tcp", 443, "Outlook"),
+               ("srv_imaps", "Incoming mail setup (IMAP SRV)", "_imaps._tcp", 993, "mail apps"),
+               ("srv_submission", "Outgoing mail setup (SMTP SRV)", "_submission._tcp", 587, "mail apps"),
+               ("srv_caldavs", "Calendar setup (CalDAV SRV)", "_caldavs._tcp", 443, "calendar apps"),
+               ("srv_carddavs", "Contacts setup (CardDAV SRV)", "_carddavs._tcp", 443, "contacts apps"))

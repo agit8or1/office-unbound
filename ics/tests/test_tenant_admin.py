@@ -354,7 +354,28 @@ def test_domains_and_dns_guidance(tn, monkeypatch):
     r = tn["client"].get(f"{T}/domains?check=true", headers=tn["acme"].hdr()).json()
     st = {x["key"]: x["status"] for x in r["dns"]["acme.test"]}
     assert r["domains"][0]["name"] == "acme.test"
-    assert st == {"mx": "ok", "spf": "differs", "dkim": "unknown", "dmarc": "ok", "autodiscover": "differs"}
+    assert st == {"mx": "ok", "spf": "differs", "dkim": "unknown", "dmarc": "ok", "autodiscover": "differs", "srv_autodiscover": "missing",
+                  "srv_imaps": "missing", "srv_submission": "missing", "srv_caldavs": "missing", "srv_carddavs": "missing"}
+
+
+def test_the_client_setup_srv_records_are_checked_and_optional():
+    zone = {("_imaps._tcp.acme.test", "SRV"): ["mail.example.test:993"], ("_submission._tcp.acme.test", "SRV"): ["mail.example.test:25"],
+            ("_caldavs._tcp.acme.test", "SRV"): ["other.test:443"]}
+    rows = {r["key"]: r for r in dnscheck.check_domain("acme.test", "mail.example.test", "default", resolver=lambda n, t: zone.get((n, t), []))}
+    assert rows["srv_imaps"]["status"] == "ok" and rows["srv_imaps"]["optional"] and rows["srv_imaps"]["expected"] == "0 1 993 mail.example.test"
+    assert rows["srv_submission"]["status"] == "differs"          # wrong port
+    assert rows["srv_caldavs"]["status"] == "differs"             # wrong host
+    assert rows["srv_carddavs"]["status"] == "missing" and rows["srv_carddavs"]["name"] == "_carddavs._tcp.acme.test"
+    assert not rows["mx"]["optional"]
+
+
+def test_the_srv_wire_format_parses_target_and_port():
+    import struct
+    q = b"\x12\x34\x81\x80" + struct.pack(">HHHH", 1, 1, 0, 0) + b"\x06_imaps\x04_tcp\x04acme\x04test\x00" + struct.pack(">HH", 33, 1)
+    target = b"\x04mail\x04acme\x04test\x00"
+    rd = struct.pack(">HHH", 0, 1, 993) + target
+    msg = q + b"\xc0\x0c" + struct.pack(">HHIH", 33, 1, 300, len(rd)) + rd
+    assert dnscheck._parse(msg, 33)[1] == ["mail.acme.test:993"]
 
 
 def test_jwt_and_dns_wire_helpers():

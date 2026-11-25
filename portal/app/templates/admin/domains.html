@@ -15,7 +15,7 @@
     {% for r in recs %}
       <li class="dnsrow {{ r.status }}">
         <div class="dnshead"><b>{{ r.title }}</b>
-          {% if r.status == 'ok' %}<span class="pill ok">Looks right</span>{% elif r.status == 'unknown' %}<span class="pill warn">Could not check</span>{% elif r.status == 'differs' %}<span class="pill warn">Different from expected</span>{% else %}<span class="pill bad">Missing</span>{% endif %}</div>
+          {% if r.status == 'ok' %}<span class="pill ok">Looks right</span>{% elif r.status == 'unknown' %}<span class="pill warn">Could not check</span>{% elif r.status == 'differs' %}<span class="pill warn">Different from expected</span>{% elif r.optional %}<span class="pill">Optional, not set</span>{% else %}<span class="pill bad">Missing</span>{% endif %}</div>
         <p class="muted">{{ r.how }}</p>
         <dl class="kv small"><dt>Type and name</dt><dd><code>{{ r.type }}</code> <code>{{ r.name }}</code></dd>
           <dt>Should be</dt><dd><code>{{ r.expected }}</code></dd>
