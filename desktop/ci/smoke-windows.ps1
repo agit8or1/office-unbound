@@ -37,8 +37,9 @@ function Get-UninstallEntry {
              "HKLM:\Software\Microsoft\Windows\CurrentVersion\Uninstall")
   foreach ($r in $roots) {
     if (-not (Test-Path $r)) { continue }
-    foreach ($k in Get-ChildItem $r) {
-      $p = Get-ItemProperty $k.PSPath
+    foreach ($k in @(Get-ChildItem $r -ErrorAction SilentlyContinue)) {
+      $p = Get-ItemProperty $k.PSPath -ErrorAction SilentlyContinue
+      if ($null -eq $p) { continue }
       if (($p.PSObject.Properties.Name -contains "DisplayName") -and ($p.DisplayName -like "$Product*")) {
         return [pscustomobject]@{ Hive = $r; Key = $k.PSPath; Props = $p }
       }
@@ -143,6 +144,11 @@ function Launch-Check([string]$exe, [string]$label, [int]$seconds) {
   }
 }
 
+trap {
+  Write-Host "::error::smoke test aborted: $($_.Exception.Message) at $($_.InvocationInfo.PositionMessage)"
+  exit 2
+}
+
 Write-Host "== OS: $((Get-CimInstance Win32_OperatingSystem).Caption) $([Environment]::OSVersion.Version) user=$env:USERNAME"
 $Installer = (Resolve-Path $Installer).Path
 Note "INFO" "installer $(Split-Path -Leaf $Installer), $((Get-Item $Installer).Length) bytes, sha256 $((Get-FileHash $Installer -Algorithm SHA256).Hash.ToLower())"
@@ -194,7 +200,7 @@ if ($Previous -and (Test-Path $Previous)) {
   $new = Install-Silent $Installer "upgrade"
   $newBuild = if ($new.Props.PSObject.Properties.Name -contains "BuildId") { $new.Props.BuildId } else { "" }
   Note "INFO" "upgrade: $($old.Props.DisplayVersion) ($oldBuild) -> $($new.Props.DisplayVersion) ($newBuild)"
-  $entries = @(Get-ChildItem "HKCU:\Software\Microsoft\Windows\CurrentVersion\Uninstall" | Where-Object { (Get-ItemProperty $_.PSPath).PSObject.Properties.Name -contains "DisplayName" -and (Get-ItemProperty $_.PSPath).DisplayName -like "$Product*" })
+  $entries = @(Get-ChildItem "HKCU:\Software\Microsoft\Windows\CurrentVersion\Uninstall" | ForEach-Object { Get-ItemProperty $_.PSPath -ErrorAction SilentlyContinue } | Where-Object { $_ -and ($_.PSObject.Properties.Name -contains "DisplayName") -and $_.DisplayName -like "$Product*" })
   Check ($entries.Count -eq 1) "exactly one installed entry after the upgrade (found $($entries.Count))"
   if ($oldBuild -and $newBuild) { Check ($newBuild -ne $oldBuild -or $oldBuild -eq $env:GITHUB_SHA) "upgrade replaced the build id" }
   Check (Test-Path $marker) "user data kept across the upgrade"
