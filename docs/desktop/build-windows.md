@@ -9,6 +9,7 @@ Triggers: every push to a `desktop-*` branch, PRs touching `desktop/**`, manual 
 |---|---|---|
 | `supply-chain` | ubuntu-24.04 | `cargo audit` (RustSec, warnings fail), `cargo deny check` with `desktop/ci/deny.toml` (advisories, licence allowlist, bans, sources; Windows + Linux targets), CycloneDX SBOM for `x86_64-pc-windows-msvc` |
 | `windows` | windows-latest | pinned Rust toolchain, `cargo test --workspace --locked`, release build, installer, smoke test (`desktop/ci/smoke-windows.ps1`) |
+| (same job) | windows-latest | `ou-files` unit tests only (`--lib`; its live tests need credentials, which never go into CI) and `desktop/ci/winprobe`: junction, symlink and junction-loop classification, NTFS name round-trips against `name_problem()`, drive letters |
 | `bundle` | ubuntu-24.04 | one artifact `ou-desktop-windows-<version>-<sha7>`: installer, MSI if any, `sbom/*.cdx.json`, `smoke-report.md`, `SHA256SUMS` |
 
 Installer path:
@@ -41,6 +42,9 @@ Proven on real Windows each run (see `smoke-report.md` and the job summary): wor
 entries and HKCU uninstall entry, the installed agent starts, no token/password-like strings in plain files under
 the install dir and the data root, silent uninstall removes the program and keeps user data, upgrade from the
 previous successful run's installer keeps user data and leaves a single install entry.
+
+Agent checks: `--version`, background start, second start is a no-op (single instance), `--status` over the per-user
+IPC endpoint, idle CPU and RAM over 20 s, `--quit`, and the uninstaller and upgrade stopping a running agent.
 
 Not provable on a headless runner (needs the owner's Windows 10/11 workstation): tray icon and menu, toasts,
 interactive Keycloak sign-in and MFA, SmartScreen behaviour, start at login and after reboot, Explorer

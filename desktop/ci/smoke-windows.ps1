@@ -259,7 +259,8 @@ if ($Previous -and (Test-Path $Previous)) {
   $bg = Invoke-Exe (Join-Path (Get-InstallDir $old) "ou-agent.exe") "" 5
   Note "INFO" "previous agent started before the upgrade: running=$(-not $bg.Exited)"
   $new = Install-Silent $Installer "upgrade"
-  Check (@(Get-AgentProcs).Count -eq 0) "upgrade stopped the running previous agent"
+  if (-not $bg.Exited) { Check (@(Get-AgentProcs).Count -eq 0) "upgrade stopped the running previous agent" }
+  else { Note "SKIP" "previous build's agent does not stay running (code $($bg.Code)): stop-on-upgrade not exercised" }
   $newBuild = if ($new.Props.PSObject.Properties.Name -contains "BuildId") { $new.Props.BuildId } else { "" }
   Note "INFO" "upgrade: $($old.Props.DisplayVersion) ($oldBuild) -> $($new.Props.DisplayVersion) ($newBuild)"
   $entries = @(Get-ChildItem "HKCU:\Software\Microsoft\Windows\CurrentVersion\Uninstall" | ForEach-Object { Get-ItemProperty $_.PSPath -ErrorAction SilentlyContinue } | Where-Object { $_ -and ($_.PSObject.Properties.Name -contains "DisplayName") -and $_.DisplayName -like "$Product*" })
