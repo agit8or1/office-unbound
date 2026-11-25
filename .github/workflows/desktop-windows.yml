@@ -61,7 +61,7 @@ jobs:
         run: cargo audit --file desktop/Cargo.lock --deny warnings
 
       - name: cargo deny (advisories, licences, bans, sources; Windows + Linux targets)
-        run: cargo deny --manifest-path desktop/Cargo.toml check --config desktop/ci/deny.toml
+        run: cargo deny --manifest-path desktop/Cargo.toml --config desktop/ci/deny.toml check
 
       - name: SBOM (CycloneDX JSON, Windows target)
         run: |
