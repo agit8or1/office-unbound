@@ -1,8 +1,9 @@
 [workspace]
 resolver = "2"
-members = ["crates/ou-core", "crates/ou-agent"]
+# Feature modules (ou-files, ou-chat, ...) join automatically under crates/; the GUI crate is added once it exists.
+members = ["crates/*"]
 # The Tauri GUI crate builds for Windows only (WebView2); Linux CI/dev runs the platform-neutral crates.
-default-members = ["crates/ou-core", "crates/ou-agent"]
+default-members = ["crates/*"]
 
 [workspace.package]
 version = "0.1.0-alpha.1"

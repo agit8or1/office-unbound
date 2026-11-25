@@ -200,3 +200,36 @@ async fn issuer_mismatch_in_metadata_is_refused() {
     s.lock().unwrap().base = "http://127.0.0.1:1".into(); // metadata now claims another issuer
     assert!(matches!(ProviderMetadata::discover(&http, &base).await, Err(OidcError::Metadata(_))));
 }
+
+#[tokio::test]
+async fn session_token_provider_contract() {
+    use ou_core::secrets::{AccountSecrets, MemoryStore, SecretStore};
+    use ou_core::session::{Session, TokenError, TokenProvider, KEYCLOAK_SECRET};
+    use ou_core::urlpolicy::OriginSet;
+    let s = start().await;
+    let http = ou_core::http::test_client();
+    let base = s.lock().unwrap().base.clone();
+    let meta = ProviderMetadata::discover(&http, &base).await.unwrap();
+    let (mut t, _) = oidc::sign_in(&http, &meta, &client(), None, Duration::from_secs(10), browser(http.clone())).await.unwrap();
+    let store: Arc<dyn SecretStore> = Arc::new(MemoryStore::new());
+    let mut origins = OriginSet::new();
+    let files = url::Url::parse(&format!("{base}/remote.php/dav/files/doc/")).unwrap();
+    origins.add(&files);
+    let sess = Session::new("aa01", KEYCLOAK_SECRET, "ou-desktop", meta, origins, http.clone(), store.clone());
+    t.expires_at = 0; // force a refresh on first use
+    let rt0 = t.refresh_token.clone().unwrap();
+    sess.adopt(t).await.unwrap();
+
+    let foreign = url::Url::parse("https://cloud.other-tenant.example/").unwrap();
+    assert!(matches!(sess.access_token(&foreign).await, Err(TokenError::ForeignOrigin)));
+    assert_eq!(sess.access_token(&files).await.unwrap(), "at-2", "refreshed");
+    let stored = String::from_utf8(AccountSecrets::new(store.as_ref(), "aa01").unwrap().get(KEYCLOAK_SECRET).unwrap().unwrap()).unwrap();
+    assert_ne!(stored, rt0, "rotated refresh token persisted");
+    assert_eq!(sess.access_token(&files).await.unwrap(), "at-2", "cached, no new refresh");
+
+    // Server-side revocation (admin disables the device): next refresh fails -> SignedOut, dead token forgotten.
+    s.lock().unwrap().refresh.insert(stored.clone(), false);
+    let sess2 = Session::new("aa01", KEYCLOAK_SECRET, "ou-desktop", sess.metadata().clone(), sess.origins().clone(), http.clone(), store.clone());
+    assert!(matches!(sess2.access_token(&files).await, Err(TokenError::SignedOut)));
+    assert!(!sess2.has_refresh_token());
+}

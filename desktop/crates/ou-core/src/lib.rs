@@ -11,6 +11,7 @@ pub mod oidc;
 pub mod redact;
 pub mod safety;
 pub mod secrets;
+pub mod session;
 pub mod urlpolicy;
 
 /// Product version reported to the agent/GUI and in diagnostics.
