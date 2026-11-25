@@ -9,7 +9,7 @@ default-members = ["crates/*"]
 version = "0.1.0-alpha.1"
 edition = "2021"
 license = "AGPL-3.0-only"
-rust-version = "1.85"
+rust-version = "1.96"
 
 [profile.release]
 lto = true

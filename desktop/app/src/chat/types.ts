@@ -1,5 +1,5 @@
-// Chat payloads the agent sends to the GUI (mirror of the Serialize types in desktop/crates/ou-chat). Type contract only:
-// no UI framework is chosen yet, and this file is not compiled or tested. Tokens never appear in these types.
+// Chat payloads the agent sends to the GUI (mirror of the Serialize types in desktop/crates/ou-chat; carried as JSON values in
+// ou_core::ipc Response::ChatRooms/ChatHistory/ChatSearch and Event::ChatNotification). Tokens never appear in these types.
 
 export interface RoomSummary {
   room_id: string;

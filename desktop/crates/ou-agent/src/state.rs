@@ -38,6 +38,9 @@ pub struct Agent {
     pending: Mutex<HashMap<String, (Deployment, Instant)>>,
     signing_in: Mutex<Option<String>>,
     paused: Mutex<bool>,
+    pub events: Arc<crate::events::Events>,
+    #[cfg(feature = "chat")]
+    chat: Arc<crate::chat::ChatHub>,
     pub shutdown: tokio::sync::Notify,
 }
 
@@ -71,6 +74,7 @@ fn status_of(a: &Account, l: Option<&Live>) -> AccountStatus {
         files_url: a.deployment.files_url.clone(),
         held: None,
         drive: None,
+        chat: None,
     }
 }
 
@@ -98,6 +102,9 @@ impl Agent {
             pending: Mutex::new(HashMap::new()),
             signing_in: Mutex::new(None),
             paused: Mutex::new(false),
+            events: Arc::new(crate::events::Events::default()),
+            #[cfg(feature = "chat")]
+            chat: Arc::new(crate::chat::ChatHub::default()),
             shutdown: tokio::sync::Notify::new(),
         }))
     }
@@ -107,6 +114,11 @@ impl Agent {
         let accounts = self.registry.lock().await.accounts.clone();
         for a in accounts {
             let me = self.clone();
+            #[cfg(feature = "chat")]
+            {
+                let (hub, root, store, ev, a2) = (self.chat.clone(), self.root.clone(), self.store.clone(), self.events.clone(), a.clone());
+                tokio::spawn(async move { hub.restore(&a2, &root, store, ev).await });
+            }
             tokio::spawn(async move { me.check_account(&a).await });
         }
     }
@@ -176,6 +188,12 @@ impl Agent {
         let live = self.live.lock().await;
         let signing = self.signing_in.lock().await.clone();
         let mut accounts: Vec<AccountStatus> = reg.accounts.iter().map(|a| status_of(a, live.get(&a.id))).collect();
+        #[cfg(feature = "chat")]
+        for st in accounts.iter_mut() {
+            if reg.get(&st.id).map(|a| a.deployment.matrix_url.is_some() && a.modules.chat).unwrap_or(false) {
+                st.chat = Some(self.chat.state(&st.id).await.unwrap_or(SessionState::SignedOut));
+            }
+        }
         if let Some(name) = signing {
             accounts.push(AccountStatus {
                 id: String::new(),
@@ -188,6 +206,7 @@ impl Agent {
                 files_url: String::new(),
                 held: None,
                 drive: None,
+                chat: None,
             });
         }
         Response::Status { accounts, paused: *self.paused.lock().await, agent: ou_core::VERSION.into() }
@@ -349,6 +368,46 @@ impl Agent {
         }
     }
 
+    #[cfg(not(feature = "chat"))]
+    async fn chat_request(&self, _req: Request) -> Response {
+        Response::Error { message: "chat is not available in this build".into() }
+    }
+
+    #[cfg(feature = "chat")]
+    async fn chat_request(self: &Arc<Self>, req: Request) -> Response {
+        let id = match &req {
+            Request::ChatSignIn { account_id }
+            | Request::ChatSignOut { account_id }
+            | Request::ChatRooms { account_id }
+            | Request::ChatHistory { account_id, .. }
+            | Request::ChatSend { account_id, .. }
+            | Request::ChatSendFile { account_id, .. }
+            | Request::ChatDownload { account_id, .. }
+            | Request::ChatSearch { account_id, .. }
+            | Request::ChatMarkRead { account_id, .. }
+            | Request::ChatStartMeeting { account_id, .. } => account_id.clone(),
+            _ => return Response::Error { message: "not a chat request".into() },
+        };
+        let Some(a) = self.account(&id).await else { return Response::Error { message: "unknown account".into() } };
+        if !a.modules.chat {
+            return Response::Error { message: "chat is turned off for this account".into() };
+        }
+        let hub = &self.chat;
+        match req {
+            Request::ChatSignIn { .. } => hub.sign_in(a, self.root.clone(), self.store.clone(), self.events.clone()).await,
+            Request::ChatSignOut { .. } => hub.sign_out(&a.id).await,
+            Request::ChatRooms { .. } => hub.rooms(&a.id).await,
+            Request::ChatHistory { room_id, limit, .. } => hub.history(&a.id, &room_id, limit).await,
+            Request::ChatSend { room_id, body, .. } => hub.send(&a.id, &room_id, &body).await,
+            Request::ChatSendFile { room_id, path, .. } => hub.send_file(&a.id, &room_id, &path).await,
+            Request::ChatDownload { room_id, event_id, .. } => hub.download(&a.id, &room_id, &event_id).await,
+            Request::ChatSearch { query, .. } => hub.search(&a.id, &query).await,
+            Request::ChatMarkRead { room_id, event_id, .. } => hub.mark_read(&a.id, &room_id, &event_id).await,
+            Request::ChatStartMeeting { room_id, .. } => hub.start_meeting(&a, &room_id).await,
+            _ => Response::Error { message: "not a chat request".into() },
+        }
+    }
+
     pub async fn handle(self: &Arc<Self>, req: Request) -> Response {
         match req {
             Request::Hello { protocol, .. } => {
@@ -375,6 +434,20 @@ impl Agent {
             Request::ApprovePlan { .. } | Request::RejectPlan { .. } => {
                 Response::Error { message: "file sync is not enabled in this build".into() }
             }
+            Request::PollEvents { since, wait_ms } => {
+                let (next, events) = self.events.poll(since, wait_ms).await;
+                Response::Events { next, events }
+            }
+            Request::ChatSignIn { .. }
+            | Request::ChatSignOut { .. }
+            | Request::ChatRooms { .. }
+            | Request::ChatHistory { .. }
+            | Request::ChatSend { .. }
+            | Request::ChatSendFile { .. }
+            | Request::ChatDownload { .. }
+            | Request::ChatSearch { .. }
+            | Request::ChatMarkRead { .. }
+            | Request::ChatStartMeeting { .. } => self.chat_request(req).await,
             Request::Shutdown {} => {
                 self.shutdown.notify_one();
                 Response::Ok

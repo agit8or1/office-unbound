@@ -4,8 +4,7 @@ description = "Office Unbound Desktop: Teams-like chat on Matrix (matrix-rust-sd
 version.workspace = true
 edition.workspace = true
 license.workspace = true
-# matrix-sdk 0.20 needs Rust 1.96 (the workspace minimum is 1.85 for the other crates).
-rust-version = "1.96"
+rust-version.workspace = true
 
 [dependencies]
 ou-core = { path = "../ou-core" }

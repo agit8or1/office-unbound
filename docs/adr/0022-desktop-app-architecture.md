@@ -70,7 +70,7 @@ flowchart LR
 | `desktop/crates/ou-agent` | lead | background process | lib: `client::request(root, &Request)`, `endpoint`, `state::Agent`; bin `ou-agent [--status\|--quit\|--version]` |
 | `desktop/app` (+ `src-tauri`) | lead | GUI, tray, settings, first run | Tauri commands `agent(req)` (all requests except `Shutdown`), `app_info`, `set_autostart` |
 | `desktop/crates/ou-files` | files (`desktop-files`, merged) | Phase 2/4: supervised `opencloudcmd` runs (per-run app token in the environment, deleted afterwards), guard (`Hold` bound to a plan id), WebDAV/TUS client, rclone+WinFsp mapped drive; decisions in [files-decision.md](../desktop/files-decision.md) | consumes `TokenProvider`, `http::transfer_client()`, `Account.sync_root`, `safety`; IPC `ApprovePlan`/`RejectPlan`, `AccountStatus.held`/`.drive`; `ou-agent token --account <id>` for rclone's `bearer_token_command` |
-| `desktop/crates/ou-chat` | chat (`desktop-chat`) | Phase 3: Matrix via MAS | builds a second `Session` (secret name `refresh-matrix`, MAS issuer from `/_matrix/client/v1/auth_metadata`) |
+| `desktop/crates/ou-chat` | chat (`desktop-chat`) | Phase 3: Matrix via MAS | native matrix-rust-sdk 0.20; matrix-sdk owns the MAS tokens (dynamic registration, MAS issuer from `/_matrix/client/v1/auth_metadata`), persisted through `SecretStore`; uses `ou_core::oidc::Loopback("/callback")`; IPC `Chat*` requests + `PollEvents` |
 | `.github/workflows/desktop-*.yml` | winci (`desktop-winci`) | windows-latest build + tests, installer artifact | runs `cargo test` (incl. the Credential Manager contract test) and the bundle on real Windows |
 | portal/console download routes | download (`desktop-download`) | installer delivery from the deployment's own UI via the ICS artifact service | consumes the installer + SHA-256 produced by the build |
 
@@ -133,8 +133,10 @@ action, which does not exist yet):
 ```
 
 ### 5.4 Matrix (owned by `ou-chat`)
-Synapse delegates auth to MAS (verified). The chat module runs the same PKCE flow against the MAS issuer; MAS forwards to Keycloak,
-whose browser session makes it silent. Two sessions, revoked separately; disabling a user in Keycloak ends both at their next refresh
+Synapse delegates auth to MAS (verified). ou-chat uses matrix-rust-sdk 0.20, which runs the PKCE flow against the MAS issuer and
+owns the MAS tokens (refresh during sync, soft logout); each rotation is persisted through `SecretStore` under the account prefix, not
+through an `ou_core::session::Session`. The redirect uses ou-core's shared `oidc::Loopback` on `/callback`. MAS forwards to Keycloak,
+whose browser session makes it silent (verified live by the chat agent, see `docs/desktop/chat-architecture.md`). Two sessions, revoked separately; disabling a user in Keycloak ends both at their next refresh
 (MAS upstream session) - to be measured. MAS needs a client: dynamic registration (MSC2966, how Element X does it) creates server state
 per install, a static MAS client in the catalog does not; choice belongs to the chat module and the owner. End-to-end encryption keys
 stay in the Matrix SDK store, encrypted with a key held in Credential Manager.

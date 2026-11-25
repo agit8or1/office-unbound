@@ -149,3 +149,62 @@ describe('signed-in shell', () => {
     expect(el.textContent).toContain('not available')
   })
 })
+
+describe('chat', () => {
+  function chatFake(chat: AccountStatus['chat']) {
+    const sent: Request[] = []
+    const api: Backend = {
+      async agent(req: Request): Promise<Response> {
+        sent.push(req)
+        switch (req.type) {
+          case 'status': return { type: 'status', accounts: [{ ...acct('signed_in'), chat }], paused: false, agent: 'x' }
+          case 'chat_rooms': return { type: 'chat_rooms', badge: 2, rooms: [{ room_id: '!r1:m.example', name: 'Team', is_direct: false,
+            encrypted: true, favourite: false, low_priority: false, notifications: 2, highlights: 0, unread_messages: 2, invited: false }] }
+          case 'chat_history': return { type: 'chat_history', messages: [
+            { event_id: '$e1', sender: '@ann:m.example', ts_ms: 1, encrypted: true, body: { kind: 'text', body: 'hello' } },
+            { event_id: '$e2', sender: '@bob:m.example', ts_ms: 2, encrypted: true, body: { kind: 'undecryptable' } }] }
+          case 'chat_send': return { type: 'chat_sent', event_id: '$e3' }
+          case 'poll_events': await new Promise((r) => setTimeout(r, 50)); return { type: 'events', next: 0, events: [] }
+          default: return { type: 'ok' }
+        }
+      },
+      appInfo: async () => ({ version: 'x', data_dir: 'x', log_file: 'x', autostart: false }),
+      setAutostart: async (e) => e,
+    }
+    return { api, sent }
+  }
+
+  it('lists rooms, opens history, marks read and sends', async () => {
+    const f = chatFake('signed_in')
+    const { el, app } = mount(f.api)
+    await flush()
+    click(el, 'Chat')
+    await flush()
+    expect(el.textContent).toContain('Team')
+    click(el, 'Team')
+    await flush()
+    expect(el.textContent).toContain('hello')
+    expect(el.textContent).toContain('could not be decrypted')
+    expect(f.sent).toContainEqual({ type: 'chat_mark_read', account_id: 'aa11', room_id: '!r1:m.example', event_id: '$e2' })
+    const i = el.querySelector('input#msg') as HTMLInputElement
+    i.value = 'hi all'
+    i.dispatchEvent(new Event('input'))
+    await flush()
+    ;(i.form as HTMLFormElement).dispatchEvent(new Event('submit'))
+    await flush()
+    expect(f.sent).toContainEqual({ type: 'chat_send', account_id: 'aa11', room_id: '!r1:m.example', body: 'hi all' })
+    app.unmount()
+  })
+
+  it('offers chat sign-in when signed out', async () => {
+    const f = chatFake('signed_out')
+    const { el, app } = mount(f.api)
+    await flush()
+    click(el, 'Chat')
+    await flush()
+    click(el, 'Sign in to chat')
+    await flush()
+    expect(f.sent).toContainEqual({ type: 'chat_sign_in', account_id: 'aa11' })
+    app.unmount()
+  })
+})

@@ -136,7 +136,78 @@ pub struct AuthRequest {
     pub state: String,
     pub nonce: String,
     pub pkce: Pkce,
+    loopback: Loopback,
+}
+
+/// One-shot RFC 8252 loopback listener on `127.0.0.1:<ephemeral><path>`, shared by the Keycloak sign-in (path "", because the
+/// catalog client registers `http://127.0.0.1` and Keycloak ignores only the port) and ou-chat's MAS sign-in (`/callback`).
+/// Only `GET <path>?...` carrying the expected `state` completes; anything else (favicon, probes, forged state from a local page)
+/// gets 404/400 and the wait continues, so a stray request can neither finish nor abort the sign-in. Requests capped at 8 KiB.
+pub struct Loopback {
     listener: TcpListener,
+    port: u16,
+    path: String,
+}
+
+impl Loopback {
+    /// `path` is "" or starts with "/" (e.g. "/callback").
+    pub async fn bind(path: &str) -> Result<Self, OidcError> {
+        if !(path.is_empty() || (path.starts_with('/') && path.len() < 64 && path.chars().all(|c| c.is_ascii_alphanumeric() || "/-_".contains(c)))) {
+            return Err(OidcError::Listener("invalid redirect path".into()));
+        }
+        let listener = TcpListener::bind("127.0.0.1:0").await.map_err(|e| OidcError::Listener(e.to_string()))?;
+        let port = listener.local_addr().map_err(|e| OidcError::Listener(e.to_string()))?.port();
+        Ok(Self { listener, port, path: path.to_string() })
+    }
+
+    pub fn redirect_uri(&self) -> String {
+        format!("http://127.0.0.1:{}{}", self.port, self.path)
+    }
+
+    /// Waits for the redirect and returns its raw query string (`code=...&state=...` or `error=...&state=...`).
+    pub async fn wait_query(&self, state: &str, timeout: Duration) -> Result<String, OidcError> {
+        let want_path = if self.path.is_empty() { "/" } else { self.path.as_str() };
+        let deadline = tokio::time::Instant::now() + timeout;
+        loop {
+            let accept = tokio::time::timeout_at(deadline, self.listener.accept()).await.map_err(|_| OidcError::Timeout)?;
+            let (mut sock, _) = accept.map_err(|e| OidcError::Listener(e.to_string()))?;
+            let mut buf = vec![0u8; 8192];
+            let mut n = 0;
+            while n < buf.len() {
+                match tokio::time::timeout(Duration::from_secs(5), sock.read(&mut buf[n..])).await {
+                    Ok(Ok(k)) if k > 0 => {
+                        n += k;
+                        if buf[..n].windows(4).any(|w| w == b"\r\n\r\n") {
+                            break;
+                        }
+                    }
+                    _ => break,
+                }
+            }
+            let head = String::from_utf8_lossy(&buf[..n]).to_string();
+            let target = head.lines().next().and_then(|l| {
+                let mut p = l.split(' ');
+                match (p.next(), p.next()) {
+                    (Some("GET"), Some(t)) => Some(t.to_string()),
+                    _ => None,
+                }
+            });
+            let parsed = target.and_then(|t| Url::parse(&format!("http://127.0.0.1{t}")).ok());
+            let Some(u) = parsed.filter(|u| u.path() == want_path && u.query().is_some()) else {
+                let _ = respond(&mut sock, 404, "Not found").await;
+                continue;
+            };
+            let got = u.query_pairs().find(|(k, _)| k == "state").map(|(_, v)| v.into_owned()).unwrap_or_default();
+            if !ct_eq(got.as_bytes(), state.as_bytes()) {
+                let _ = respond(&mut sock, 400, "This sign-in response does not belong to Office Unbound Desktop.").await;
+                continue;
+            }
+            let failed = u.query_pairs().any(|(k, _)| k == "error");
+            let msg = if failed { "Sign-in was not completed. You can close this window." } else { "Signed in to Office Unbound Desktop. You can close this window." };
+            let _ = respond(&mut sock, 200, msg).await;
+            return Ok(u.query().unwrap_or_default().to_string());
+        }
+    }
 }
 
 pub struct ClientConfig {
@@ -147,11 +218,10 @@ pub struct ClientConfig {
 impl AuthRequest {
     /// Binds the loopback listener (127.0.0.1, ephemeral port) and builds the authorization URL.
     pub async fn new(meta: &ProviderMetadata, client: &ClientConfig, login_hint: Option<&str>) -> Result<Self, OidcError> {
-        let listener = TcpListener::bind("127.0.0.1:0").await.map_err(|e| OidcError::Listener(e.to_string()))?;
-        let port = listener.local_addr().map_err(|e| OidcError::Listener(e.to_string()))?.port();
         // No path: the catalog client registers `http://127.0.0.1` and Keycloak ignores only the port for loopback (verified live,
         // 2026-11-25: a trailing "/" is refused with "Invalid parameter: redirect_uri").
-        let redirect_uri = format!("http://127.0.0.1:{port}");
+        let loopback = Loopback::bind("").await?;
+        let redirect_uri = loopback.redirect_uri();
         let pkce = Pkce::new();
         let state = random_token(24);
         let nonce = random_token(24);
@@ -170,70 +240,19 @@ impl AuthRequest {
                 q.append_pair("login_hint", h);
             }
         }
-        Ok(Self { url, redirect_uri, state, nonce, pkce, listener })
+        Ok(Self { url, redirect_uri, state, nonce, pkce, loopback })
     }
 
-    /// Waits for the browser redirect. Only `GET /?...` with our `state` completes; other paths (favicon, probes) get 404 and
-    /// the wait continues. Requests are capped at 8 KiB.
+    /// Waits for the browser redirect (see `Loopback`) and returns the authorization code.
     pub async fn wait_for_code(&self, timeout: Duration) -> Result<String, OidcError> {
-        let deadline = tokio::time::Instant::now() + timeout;
-        loop {
-            let accept = tokio::time::timeout_at(deadline, self.listener.accept()).await.map_err(|_| OidcError::Timeout)?;
-            let (mut sock, _) = accept.map_err(|e| OidcError::Listener(e.to_string()))?;
-            let mut buf = vec![0u8; 8192];
-            let mut n = 0;
-            loop {
-                let read = tokio::time::timeout(Duration::from_secs(5), sock.read(&mut buf[n..])).await;
-                match read {
-                    Ok(Ok(0)) | Err(_) => break,
-                    Ok(Ok(k)) => {
-                        n += k;
-                        if buf[..n].windows(4).any(|w| w == b"\r\n\r\n") || n == buf.len() {
-                            break;
-                        }
-                    }
-                    Ok(Err(_)) => break,
-                }
-            }
-            let head = String::from_utf8_lossy(&buf[..n]).to_string();
-            let target = head.lines().next().and_then(|l| {
-                let mut p = l.split(' ');
-                match (p.next(), p.next()) {
-                    (Some("GET"), Some(t)) => Some(t.to_string()),
-                    _ => None,
-                }
-            });
-            let Some(target) = target else {
-                let _ = respond(&mut sock, 400, "Bad request").await;
-                continue;
-            };
-            let u = match Url::parse(&format!("http://127.0.0.1{target}")) {
-                Ok(u) if u.path() == "/" && u.query().is_some() => u,
-                _ => {
-                    let _ = respond(&mut sock, 404, "Not found").await;
-                    continue;
-                }
-            };
-            let q: std::collections::HashMap<String, String> = u.query_pairs().into_owned().collect();
-            let state_ok = q.get("state").map(|s| ct_eq(s.as_bytes(), self.state.as_bytes())).unwrap_or(false);
-            if !state_ok {
-                let _ = respond(&mut sock, 400, "This sign-in response does not belong to Office Unbound Desktop.").await;
-                return Err(OidcError::StateMismatch);
-            }
-            if let Some(err) = q.get("error") {
-                let _ = respond(&mut sock, 200, "Sign-in was not completed. You can close this window.").await;
-                return Err(OidcError::Denied(sanitize_short(err)));
-            }
-            return match q.get("code") {
-                Some(c) if !c.is_empty() && c.len() < 4096 => {
-                    let _ = respond(&mut sock, 200, "Signed in to Office Unbound Desktop. You can close this window.").await;
-                    Ok(c.clone())
-                }
-                _ => {
-                    let _ = respond(&mut sock, 400, "No authorization code.").await;
-                    Err(OidcError::Denied("no code".into()))
-                }
-            };
+        let query = self.loopback.wait_query(&self.state, timeout).await?;
+        let q: std::collections::HashMap<String, String> = url::form_urlencoded::parse(query.as_bytes()).into_owned().collect();
+        if let Some(err) = q.get("error") {
+            return Err(OidcError::Denied(sanitize_short(err)));
+        }
+        match q.get("code") {
+            Some(c) if !c.is_empty() && c.len() < 4096 => Ok(c.clone()),
+            _ => Err(OidcError::Denied("no code".into())),
         }
     }
 }

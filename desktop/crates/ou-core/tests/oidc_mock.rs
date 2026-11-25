@@ -55,8 +55,9 @@ async fn forged_state_never_reaches_token_endpoint() {
     let http = ou_core::http::test_client();
     let base = s.lock().unwrap().base.clone();
     let meta = ProviderMetadata::discover(&http, &base).await.unwrap();
-    let r = oidc::sign_in(&http, &meta, &client(), None, Duration::from_secs(10), browser(http.clone())).await;
-    assert!(matches!(r, Err(OidcError::StateMismatch)), "{r:?}");
+    let r = oidc::sign_in(&http, &meta, &client(), None, Duration::from_secs(2), browser(http.clone())).await;
+    // A forged state is refused and the listener keeps waiting for the real redirect (here: until the timeout).
+    assert!(matches!(r, Err(OidcError::Timeout)), "{r:?}");
     assert_eq!(s.lock().unwrap().token_calls, 0, "code not redeemed");
 }
 
@@ -117,4 +118,21 @@ async fn session_token_provider_contract() {
     let sess2 = Session::new("aa01", KEYCLOAK_SECRET, "ou-desktop", sess.metadata().clone(), sess.origins().clone(), http.clone(), store.clone());
     assert!(matches!(sess2.access_token(&files).await, Err(TokenError::SignedOut)));
     assert!(!sess2.has_refresh_token());
+}
+
+#[tokio::test]
+async fn loopback_with_path_for_chat() {
+    let lb = oidc::Loopback::bind("/callback").await.unwrap();
+    assert!(lb.redirect_uri().ends_with("/callback"));
+    assert!(oidc::Loopback::bind("callback").await.is_err());
+    assert!(oidc::Loopback::bind("/a b").await.is_err());
+    let http = ou_core::http::test_client();
+    let base = lb.redirect_uri();
+    tokio::spawn(async move {
+        assert_eq!(http.get(format!("{}?code=x&state=s1", base.trim_end_matches("/callback"))).send().await.unwrap().status(), 404, "wrong path");
+        assert_eq!(http.get(format!("{base}?code=x&state=forged")).send().await.unwrap().status(), 400);
+        assert_eq!(http.get(format!("{base}?code=abc&state=s1")).send().await.unwrap().status(), 200);
+    });
+    let q = lb.wait_query("s1", Duration::from_secs(5)).await.unwrap();
+    assert_eq!(q, "code=abc&state=s1");
 }

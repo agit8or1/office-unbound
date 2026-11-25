@@ -1369,9 +1369,11 @@
           "evidence": [
             "docs/adr/0022-desktop-app-architecture.md",
             "docs/requirements/desktop-app-brief.md",
-            "desktop/crates/ou-core/examples/live_check.rs"
+            "desktop/crates/ou-core/examples/live_check.rs",
+            "docs/desktop/files-decision.md",
+            "docs/desktop/chat-architecture.md"
           ],
-          "note": "Owner brief 2026-11-25, branch desktop-windows (not on main, not released). Phase 1 foundation: e-mail discovery, system-browser PKCE sign-in, Credential Manager store, background agent, tray, settings, unsigned NSIS installer cross-built on Linux. Tested on Linux only (Rust unit/integration, vitest) plus a live sign-in from Linux against the reference deployment; nothing has run on Windows yet. File sync, chat, meetings and the mapped drive are not in the app yet."
+          "note": "Owner brief 2026-11-25, branch desktop-windows (not on main, not released). Phase 1 foundation: e-mail discovery, system-browser PKCE sign-in, Credential Manager store, background agent, tray, settings, unsigned NSIS installer cross-built on Linux. Tested on Linux only (Rust unit/integration, vitest) plus a live sign-in from Linux against the reference deployment; nothing has run on Windows yet. Merged modules (code + Linux tests, not wired end to end on Windows): ou-files (supervised opencloudcmd sync with delete guard, rclone/WinFsp drive) and ou-chat (matrix-rust-sdk via MAS; live-verified from Linux by its agent; agent IPC Chat* requests and a basic chat view). Meetings: link only, no meetings host on the reference deployment."
         }
       ]
     },

@@ -22,8 +22,6 @@ use base64::Engine;
 use matrix_sdk::{Client, SessionChange, SqliteStoreConfig};
 use ou_core::secrets::{AccountSecrets, SecretStore};
 use serde::{Deserialize, Serialize};
-use tokio::io::{AsyncReadExt, AsyncWriteExt};
-use tokio::net::TcpListener;
 use url::Url;
 
 use crate::ChatError;
@@ -139,87 +137,26 @@ pub(crate) async fn build_client(account: &ChatAccount, http: matrix_sdk::reqwes
         .map_err(|e| ChatError::Matrix(e.to_string()))
 }
 
-/// One-shot RFC 8252 loopback listener for the MAS redirect. Only `GET /callback?...` carrying our `state` completes;
-/// other requests get 404 and the wait continues. Requests are capped at 8 KiB.
-pub struct Loopback {
-    listener: TcpListener,
-    port: u16,
-}
+/// MAS redirect listener: ou-core's shared loopback listener on `/callback` (same rules as the Keycloak sign-in: state check in
+/// constant time, stray requests ignored, 8 KiB cap, no-store/no-script page).
+pub struct Loopback(ou_core::oidc::Loopback);
 
 impl Loopback {
     pub async fn bind() -> Result<Self, ChatError> {
-        let listener = TcpListener::bind("127.0.0.1:0").await.map_err(|e| ChatError::Login(format!("loopback: {e}")))?;
-        let port = listener.local_addr().map_err(|e| ChatError::Login(format!("loopback: {e}")))?.port();
-        Ok(Self { listener, port })
+        ou_core::oidc::Loopback::bind(REDIRECT_PATH).await.map(Self).map_err(|e| ChatError::Login(format!("loopback: {e}")))
     }
 
     pub fn redirect_uri(&self) -> Url {
-        Url::parse(&format!("http://127.0.0.1:{}{REDIRECT_PATH}", self.port)).expect("loopback url")
+        Url::parse(&self.0.redirect_uri()).expect("loopback url")
     }
 
     /// Returns the redirect's query string (`code=...&state=...` or `error=...&state=...`).
     pub async fn wait(&self, state: &str, timeout: Duration) -> Result<String, ChatError> {
-        let deadline = tokio::time::Instant::now() + timeout;
-        loop {
-            let accepted = tokio::time::timeout_at(deadline, self.listener.accept()).await.map_err(|_| ChatError::Login("sign-in timed out".into()))?;
-            let (mut sock, _) = accepted.map_err(|e| ChatError::Login(format!("loopback: {e}")))?;
-            let mut buf = vec![0u8; 8192];
-            let mut n = 0;
-            while n < buf.len() {
-                match tokio::time::timeout(Duration::from_secs(5), sock.read(&mut buf[n..])).await {
-                    Ok(Ok(k)) if k > 0 => {
-                        n += k;
-                        if buf[..n].windows(4).any(|w| w == b"\r\n\r\n") {
-                            break;
-                        }
-                    }
-                    _ => break,
-                }
-            }
-            let head = String::from_utf8_lossy(&buf[..n]).to_string();
-            let target = head.lines().next().and_then(|l| {
-                let mut p = l.split(' ');
-                match (p.next(), p.next()) {
-                    (Some("GET"), Some(t)) => Some(t.to_owned()),
-                    _ => None,
-                }
-            });
-            let parsed = target.and_then(|t| Url::parse(&format!("http://127.0.0.1{t}")).ok());
-            let Some(u) = parsed.filter(|u| u.path() == REDIRECT_PATH && u.query().is_some()) else {
-                let _ = respond(&mut sock, 404, "Not found").await;
-                continue;
-            };
-            let got_state = u.query_pairs().find(|(k, _)| k == "state").map(|(_, v)| v.into_owned()).unwrap_or_default();
-            if !ct_eq(got_state.as_bytes(), state.as_bytes()) {
-                let _ = respond(&mut sock, 400, "This sign-in response does not belong to Office Unbound Desktop.").await;
-                continue;
-            }
-            let failed = u.query_pairs().any(|(k, _)| k == "error");
-            let msg = if failed { "Chat sign-in was not completed. You can close this window." } else { "Signed in to chat. You can close this window." };
-            let _ = respond(&mut sock, 200, msg).await;
-            return Ok(u.query().unwrap_or_default().to_owned());
-        }
+        self.0.wait_query(state, timeout).await.map_err(|e| match e {
+            ou_core::oidc::OidcError::Timeout => ChatError::Login("sign-in timed out".into()),
+            e => ChatError::Login(format!("loopback: {e}")),
+        })
     }
-}
-
-fn ct_eq(a: &[u8], b: &[u8]) -> bool {
-    a.len() == b.len() && a.iter().zip(b).fold(0u8, |acc, (x, y)| acc | (x ^ y)) == 0
-}
-
-async fn respond(sock: &mut tokio::net::TcpStream, status: u16, msg: &str) -> std::io::Result<()> {
-    let body = format!("<!doctype html><meta charset=utf-8><title>Office Unbound</title><body style=\"font:15px system-ui;margin:3em\"><p>{msg}</p>");
-    let reason = match status {
-        200 => "OK",
-        400 => "Bad Request",
-        _ => "Not Found",
-    };
-    let resp = format!(
-        "HTTP/1.1 {status} {reason}\r\nContent-Type: text/html; charset=utf-8\r\nContent-Length: {}\r\nCache-Control: no-store\r\n\
-         Content-Security-Policy: default-src 'none'; style-src 'unsafe-inline'\r\nReferrer-Policy: no-referrer\r\nConnection: close\r\n\r\n{body}",
-        body.len()
-    );
-    sock.write_all(resp.as_bytes()).await?;
-    sock.shutdown().await
 }
 
 /// Interactive sign-in. `open_browser` gets the MAS authorization URL (https, MAS's origin) and opens the system browser.

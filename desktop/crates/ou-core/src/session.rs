@@ -5,8 +5,9 @@
 //! rotated refresh token to the `SecretStore` before handing out the new access token, and reports `SignedOut` when the IdP
 //! refuses the refresh (revoked device/user). Modules must treat `SignedOut` as "pause", never as "delete local data".
 //!
-//! Matrix uses its own OAuth issuer (MAS); `ou-chat` builds a second `Session` for the MAS issuer with the same store and a
-//! different secret name, so both sessions are revoked independently and shown separately in the UI.
+//! Matrix is not served through this type: Synapse delegates auth to MAS, and ou-chat lets matrix-sdk own the MAS tokens (it must
+//! refresh them during sync and handle soft logout), persisting each rotation through the same `SecretStore` under the account's
+//! prefix (`matrix-*`). `TokenProvider` is for the Keycloak-protected services (files, and later mail/calendar APIs).
 
 use std::future::Future;
 use std::pin::Pin;
@@ -42,7 +43,7 @@ pub trait TokenProvider: Send + Sync {
     fn origins(&self) -> &OriginSet;
 }
 
-/// Name of the refresh-token secret for a session (`refresh` for Keycloak, `refresh-matrix` for MAS, ...).
+/// Name of the refresh-token secret for a session (`refresh` for Keycloak; Matrix/MAS tokens are owned by matrix-sdk in ou-chat, not by a `Session`).
 pub const KEYCLOAK_SECRET: &str = "refresh";
 
 pub struct Session {

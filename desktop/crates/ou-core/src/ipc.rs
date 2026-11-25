@@ -8,6 +8,8 @@ use crate::discovery::Deployment;
 
 pub const MAX_LINE: usize = 64 * 1024;
 pub const PROTOCOL: u32 = 1;
+/// Longest `PollEvents` wait; below the client's 30 s read timeout.
+pub const MAX_POLL_MS: u32 = 25_000;
 
 #[derive(Debug, Clone, Copy, Serialize, Deserialize, PartialEq, Eq)]
 #[serde(rename_all = "snake_case")]
@@ -39,6 +41,24 @@ pub enum Request {
     ApprovePlan { account_id: String, plan_id: String },
     /// Discards the held plan; nothing is deleted or overwritten.
     RejectPlan { account_id: String, plan_id: String },
+    // --- Chat (ou-chat in the agent; payload shapes: desktop/app/src/chat/types.ts). Tokens never cross IPC. ---
+    /// Signs in to chat through MAS in the system browser (silent when the browser's Keycloak session is alive).
+    ChatSignIn { account_id: String },
+    ChatSignOut { account_id: String },
+    ChatRooms { account_id: String },
+    /// Newest `limit` (1..=200) messages, decrypted where possible.
+    ChatHistory { account_id: String, room_id: String, limit: u32 },
+    ChatSend { account_id: String, room_id: String, body: String },
+    /// Uploads a local file the user picked or dropped (regular file only; size limit from the server).
+    ChatSendFile { account_id: String, room_id: String, path: String },
+    /// Saves an attachment into the user's Downloads folder (never overwrites) and returns the path.
+    ChatDownload { account_id: String, room_id: String, event_id: String },
+    ChatSearch { account_id: String, query: String },
+    ChatMarkRead { account_id: String, room_id: String, event_id: String },
+    /// Posts a meeting link into the room and opens it in the browser; only when the deployment announces a meetings host.
+    ChatStartMeeting { account_id: String, room_id: String },
+    /// Long poll for agent events after sequence number `since` (wait at most `wait_ms`, capped at 25 s).
+    PollEvents { since: u64, wait_ms: u32 },
     /// Exits the agent (tray "Quit Office Unbound"); closing the window does not send this.
     Shutdown {},
 }
@@ -109,6 +129,20 @@ pub struct AccountStatus {
     pub held: Option<HeldPlan>,
     #[serde(default)]
     pub drive: Option<DriveStatus>,
+    /// Chat session of this account (`None`: chat not available or not compiled in).
+    #[serde(default)]
+    pub chat: Option<SessionState>,
+}
+
+/// Agent events for the GUI (delivered through `PollEvents`). Chat payloads are ou-chat's serialised types.
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
+#[serde(tag = "event", rename_all = "snake_case")]
+pub enum Event {
+    ChatNotification { account_id: String, notification: serde_json::Value },
+    ChatBadge { account_id: String, count: u64 },
+    ChatSignedIn { account_id: String },
+    ChatSignedOut { account_id: String },
+    AccountChanged { account_id: String },
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
@@ -120,6 +154,13 @@ pub enum Response {
     SignInStarted,
     SignedIn { account: AccountStatus },
     AccessToken { token: SecretString },
+    ChatRooms { rooms: serde_json::Value, badge: u64 },
+    ChatHistory { messages: serde_json::Value },
+    ChatSent { event_id: String },
+    ChatDownloaded { path: String },
+    ChatSearch { result: serde_json::Value },
+    ChatMeeting { url: String },
+    Events { next: u64, events: Vec<(u64, Event)> },
     Ok,
     Error { message: String },
 }
@@ -152,6 +193,16 @@ pub fn encode<T: Serialize>(m: &T) -> String {
     s
 }
 
+/// Matrix room id (`!opaque:server`) as received over IPC.
+pub fn valid_room_id(id: &str) -> bool {
+    id.starts_with('!') && id.len() <= 255 && id.contains(':') && !id.chars().any(|c| c.is_control() || c.is_whitespace())
+}
+
+/// Matrix event id (`$opaque`, room v3+).
+pub fn valid_event_id(id: &str) -> bool {
+    id.starts_with('$') && id.len() <= 255 && !id.chars().any(|c| c.is_control() || c.is_whitespace())
+}
+
 /// Validates ids received over IPC before they are used as map keys or path components.
 pub fn valid_id(id: &str) -> bool {
     !id.is_empty() && id.len() <= 64 && id.chars().all(|c| c.is_ascii_hexdigit() || c == '-')
@@ -176,6 +227,17 @@ mod tests {
         let r = Response::AccessToken { token: SecretString("eyJsecret".into()) };
         assert!(!format!("{r:?}").contains("eyJsecret"));
         assert!(encode(&r).contains("eyJsecret"), "serialised for the same-user CLI only");
+    }
+
+    #[test]
+    fn matrix_ids() {
+        assert!(valid_room_id("!abc:matrix.example.com"));
+        assert!(!valid_room_id("#alias:matrix.example.com"));
+        assert!(!valid_room_id("!abc"));
+        assert!(valid_event_id("$Abc_123"));
+        assert!(!valid_event_id("$a b"));
+        let e = Event::ChatBadge { account_id: "aa".into(), count: 3 };
+        assert_eq!(serde_json::to_value(&e).unwrap()["event"], "chat_badge");
     }
 
     #[test]

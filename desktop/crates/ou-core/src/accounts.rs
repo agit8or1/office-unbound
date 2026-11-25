@@ -50,7 +50,7 @@ impl Account {
     pub fn origins(&self) -> OriginSet {
         let mut s = OriginSet::new();
         let d = &self.deployment;
-        for u in [Some(&d.issuer), Some(&d.files_url), d.portal_url.as_ref(), d.matrix_url.as_ref(), d.chat_web_url.as_ref(), d.mail_web_url.as_ref()].into_iter().flatten() {
+        for u in [Some(&d.issuer), Some(&d.files_url), d.portal_url.as_ref(), d.matrix_url.as_ref(), d.chat_web_url.as_ref(), d.mail_web_url.as_ref(), d.meet_url.as_ref()].into_iter().flatten() {
             if let Ok(u) = url::Url::parse(u) {
                 s.add(&u);
             }
@@ -153,6 +153,7 @@ pub(crate) mod tests {
             matrix_url: Some(format!("https://matrix.{domain}/")),
             chat_web_url: Some(format!("https://chat.{domain}/")),
             mail_web_url: Some(format!("https://mail.{domain}/")),
+            meet_url: Some(format!("https://meet.{domain}/")),
             source: Source::WebFinger,
             login_hint: None,
             foreign_hosts: vec![],
@@ -187,6 +188,7 @@ pub(crate) mod tests {
         let oa = a.origins();
         assert!(oa.contains(&url::Url::parse("https://cloud.a.example/x").unwrap()));
         assert!(!oa.contains(&url::Url::parse("https://cloud.b.example/x").unwrap()), "A's token never goes to B");
+        assert!(oa.contains(&url::Url::parse("https://meet.a.example/room").unwrap()), "meetings host allowed for links");
         let raw = std::fs::read_to_string(Registry::path(&dir)).unwrap();
         assert!(!raw.to_lowercase().contains("token") && !raw.to_lowercase().contains("password"), "no secrets in settings");
         std::fs::remove_dir_all(&dir).unwrap();

@@ -161,7 +161,7 @@ Added 2026-11-15. Components that make up the Office Unbound package build. Vers
 
 Licences as declared in each crate's/package's manifest (`cargo metadata` for the x86_64 Windows target, 2026-11-25): 292 crates in the
 shipped binaries, all permissive or weak-copyleft (MIT/Apache-2.0 dual 171, MIT 58, Unicode-3.0 18, Unlicense/MIT 14, MPL-2.0 5
-(file-level copyleft, compatible), BSD-3-Clause, ISC, Zlib, 0BSD/CC0 alternatives); **no GPL/AGPL crate is linked**. Re-run before release.
+(file-level copyleft, compatible), BSD-3-Clause, ISC, Zlib, 0BSD/CC0 alternatives); **no GPL/AGPL crate is linked**. Re-run before release: the count predates ou-chat (matrix-sdk tree, merged 2026-11-25, rows below).
 
 | Component | Repository | Pinned version | License (as found in source) | Build method | Runtime/user/connection restrictions | Branding obligations | Commercial use / redistribution | Update source | Fork/patch status | Maintenance owner | Gate |
 |---|---|---|---|---|---|---|---|---|---|---|---|
@@ -177,6 +177,11 @@ shipped binaries, all permissive or weak-copyleft (MIT/Apache-2.0 dual 171, MIT 
 | NSIS (installer stub + makensis) | archive.ubuntu.com `nsis` | 3.09-4ubuntu1 | zlib/libpng (+ bzip2 for stubs) | build tool | None | None | Permitted | Ubuntu archive | None | OU-UNASSIGNED | PASS |
 | mingw-w64 runtime / GCC runtime (dev cross-builds only) | archive.ubuntu.com | 13.2.0 / 11.0.1 | ZPL 2.1 + MIT-style; libgcc with GCC Runtime Library Exception | build tool, static runtime | None | None | Permitted | Ubuntu archive | None | OU-UNASSIGNED | PASS |
 | axum (tests only, not shipped) | crates.io | 0.8.9 | MIT | dev-dependency | None | None | Permitted | crates.io | None | OU-UNASSIGNED | PASS |
+| matrix-sdk, matrix-sdk-crypto, matrix-sdk-sqlite (ou-chat) | github.com/matrix-org/matrix-rust-sdk | 0.20.0 | Apache-2.0 | crates.io, compiled into ou-agent | None | Matrix/Element names not used as branding | Permitted (NOTICE handling per Apache-2.0) | crates.io | None | OU-UNASSIGNED | PASS |
+| vodozemac (Olm/Megolm, via matrix-sdk-crypto) | github.com/matrix-org/vodozemac | 0.11.2 | Apache-2.0 | crates.io | None | None | Permitted | crates.io | None | OU-UNASSIGNED | PASS |
+| ruma (Matrix types, via matrix-sdk) | github.com/ruma/ruma | 0.18.0 | MIT | crates.io | None | None | Permitted | crates.io | None | OU-UNASSIGNED | PASS |
+| rusqlite + libsqlite3-sys (bundled SQLite, encrypted chat store) | github.com/rusqlite/rusqlite; sqlite.org | 0.41.1 / 0.39.1 | MIT (crates); SQLite: public domain | crates.io, `bundled` (cc-built C) | None | None | Permitted | crates.io | None | OU-UNASSIGNED | PASS |
+| wiremock (ou-chat tests only, not shipped) | crates.io | 0.6.5 | MIT OR Apache-2.0 | dev-dependency | None | None | Permitted | crates.io | None | OU-UNASSIGNED | PASS |
 
 ## Not yet inventoried
 

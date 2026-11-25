@@ -4012,6 +4012,7 @@ dependencies = [
 name = "ou-agent"
 version = "0.1.0-alpha.1"
 dependencies = [
+ "ou-chat",
  "ou-core",
  "serde_json",
  "tokio",

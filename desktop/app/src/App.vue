@@ -7,6 +7,7 @@ import Welcome from './views/Welcome.vue'
 import Home from './views/Home.vue'
 import Launch from './views/Launch.vue'
 import Settings from './views/Settings.vue'
+import Chat from './views/Chat.vue'
 
 const props = withDefaults(defineProps<{ api?: Backend; pollMs?: number }>(), { api: () => tauriBackend, pollMs: 2000 })
 const store = createStore(props.api)
@@ -56,6 +57,7 @@ onBeforeUnmount(() => clearInterval(timer))
       <div class="statusbar" role="status"><span class="dot" :class="overall.cls"></span>{{ overall.text }}</div>
       <Home v-if="page === 'home'" :store="store" />
       <Settings v-else-if="page === 'settings'" :store="store" :api="api" />
+      <Chat v-else-if="page === 'chat'" :store="store" :api="api" />
       <Launch v-else :store="store" :title="launch[page].title" :service="launch[page].service" :note="launch[page].note" />
     </main>
   </div>

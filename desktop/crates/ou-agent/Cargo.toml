@@ -11,10 +11,15 @@ serde_json = "1.0.154"
 tokio = { version = "1.54.1", features = ["rt-multi-thread", "net", "io-util", "time", "macros", "sync", "signal", "fs"] }
 url = "2.5.9"
 
+ou-chat = { path = "../ou-chat", optional = true }
+
 [target."cfg(windows)".dependencies]
 windows-sys = { version = "0.61.2", features = ["Win32_Security", "Win32_Security_Authorization", "Win32_Foundation", "Win32_UI_Shell", "Win32_UI_WindowsAndMessaging", "Win32_System_Pipes"] }
 
 [features]
+default = ["chat"]
+# Chat in the background agent (matrix-rust-sdk via ou-chat). Off: the agent answers chat requests with "not available".
+chat = ["dep:ou-chat"]
 # Test builds only: the "browser" writes the sign-in URL to $OU_TEST_BROWSER_FILE for a test harness instead of opening one.
 test-support = ["ou-core/test-support"]
 

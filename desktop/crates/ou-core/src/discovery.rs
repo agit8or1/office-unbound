@@ -117,6 +117,10 @@ pub struct ClientDocument {
     /// Chat web app (Element), for "open in browser".
     #[serde(default)]
     pub chat_web: Option<String>,
+    /// Meetings (Jitsi) base URL. Only announced by the client document: there is no fallback guess, because meetings are an
+    /// optional component (not deployed on the reference deployment, 2026-11-25).
+    #[serde(default)]
+    pub meet: Option<String>,
 }
 
 #[derive(Debug, Clone, Copy, Serialize, Deserialize, PartialEq, Eq)]
@@ -140,6 +144,8 @@ pub struct Deployment {
     pub chat_web_url: Option<String>,
     #[serde(default)]
     pub mail_web_url: Option<String>,
+    #[serde(default)]
+    pub meet_url: Option<String>,
     pub source: Source,
     pub login_hint: Option<String>,
     /// Hosts outside `domain` (allowed only after explicit confirmation; shown in the UI).
@@ -185,6 +191,7 @@ fn finish(domain: &str, doc: ClientDocument, source: Source, login_hint: Option<
     let matrix_url = doc.matrix.as_deref().map(|m| check(m, "matrix")).transpose()?;
     let chat_web_url = doc.chat_web.as_deref().map(|m| check(m, "chat_web")).transpose()?;
     let mail_web_url = doc.mail.as_deref().map(|m| check(m, "mail")).transpose()?;
+    let meet_url = doc.meet.as_deref().map(|m| check(m, "meet")).transpose()?;
     if doc.client_id.is_empty() || doc.client_id.len() > 128 || !doc.client_id.chars().all(|c| c.is_ascii_alphanumeric() || "-_.".contains(c)) {
         return Err(DiscoveryError::Invalid("client_id".into()));
     }
@@ -198,6 +205,7 @@ fn finish(domain: &str, doc: ClientDocument, source: Source, login_hint: Option<
         matrix_url,
         chat_web_url,
         mail_web_url,
+        meet_url,
         source,
         login_hint,
         foreign_hosts: foreign,
@@ -287,6 +295,7 @@ pub async fn discover(f: &impl Fetcher, input: &Input) -> Result<Deployment, Dis
                     chat_web: matrix.as_ref().map(|_| base_of(&domain, "chat").to_string()),
                     matrix,
                     mail: Some(base_of(&domain, "mail").to_string()),
+                    meet: None,
                 };
                 return finish(&domain, doc, Source::WebFinger, hint);
             }
@@ -348,6 +357,7 @@ mod tests {
         assert_eq!(d.matrix_url.as_deref(), Some("https://matrix.company.com/"));
         assert_eq!(d.login_hint.as_deref(), Some("doc@company.com"));
         assert!(d.foreign_hosts.is_empty());
+        assert_eq!(d.meet_url, None, "no guessed meetings host");
     }
 
     #[tokio::test]
@@ -356,13 +366,14 @@ mod tests {
         m.insert(
             "https://autodiscover.company.com/.well-known/office-unbound/client.json".into(),
             serde_json::json!({"version": 1, "name": "Company", "issuer": "https://auth.company.com/realms/ou", "client_id": "ou-desktop",
-                "files": "https://cloud.company.com", "matrix": "https://matrix.elsewhere.example"}),
+                "files": "https://cloud.company.com", "matrix": "https://matrix.elsewhere.example", "meet": "https://meet.company.com"}),
         );
         let d = discover(&Fake(m), &parse_input("doc@company.com").unwrap()).await.unwrap();
         assert_eq!(d.source, Source::ClientDocument);
         assert_eq!(d.client_id, "ou-desktop");
         assert_eq!(d.name, "Company");
         assert_eq!(d.foreign_hosts, vec!["matrix.elsewhere.example".to_string()]);
+        assert_eq!(d.meet_url.as_deref(), Some("https://meet.company.com/"));
     }
 
     #[tokio::test]
