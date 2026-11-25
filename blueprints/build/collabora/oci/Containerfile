@@ -9,7 +9,11 @@ ARG DEBIAN_FRONTEND=noninteractive
 # ou5 (2026-11-23): the onboarding tour never starts by itself (Help > tour still opens it). The source build reads the "seen" preference with
 # default false, and inside OpenCloud's frame the browser kept no record of it, so the tour opened on every document (owner report). Same
 # change as patches/0004 for the next source build; here the one expression in the built bundle, checked to occur exactly once.
-ARG OU_VERSION=26.04.6-ou5
+# ou6 (2026-11-25): a new image reaches browsers. coolwsd serves the editor from /browser/<upstream commit hash>/ with a 128-day cache and that
+# hash as ETag, so every image built from the same tag had the same URLs: browsers kept ou4's bundle (tour and all) after ou5 shipped
+# (owner report 2026-11-25: the "Welcome to Office Unbound Docs" tour on every new document). cool.html is served no-store; its asset
+# links now carry ?v=<image version>, so each Office Unbound image revision is fetched fresh once. Checked: every link is rewritten.
+ARG OU_VERSION=26.04.6-ou6
 # runtime libs only (set verified by `ldd` of coolwsd/coolforkit-ns); versions are whatever the noble archive serves
 # on the build day and are recorded by build-image.sh (dpkg -l) - apt is the non-reproducible part of this image.
 RUN apt-get -o APT::Sandbox::User=root update \
@@ -26,6 +30,11 @@ RUN B=/usr/share/coolwsd/browser/dist/bundle.js; T='getBooleanDocTypePref("onboa
  && [ "$(grep -oF "$T" "$B" | wc -l)" = 1 ] \
  && sed -i 's/getBooleanDocTypePref("onboardingTourSeen",!1)/getBooleanDocTypePref("onboardingTourSeen",!0)/' "$B" \
  && [ "$(grep -oF 'getBooleanDocTypePref("onboardingTourSeen",!0)' "$B" | wc -l)" = 1 ] \
+ && H=/usr/share/coolwsd/browser/dist/cool.html \
+ && n=$(grep -oE '%VERSION%/[A-Za-z0-9_./-]+\.(js|css|json)"' "$H" | wc -l) && [ "$n" -ge 6 ] \
+ && sed -i -E "s#(%VERSION%/[A-Za-z0-9_./-]+\\.(js|css|json))\"#\\1?v=$OU_VERSION\"#g" "$H" \
+ && [ "$(grep -oE "%VERSION%/[A-Za-z0-9_./-]+\\.(js|css|json)\\?v=$OU_VERSION\"" "$H" | wc -l)" = "$n" ] \
+ && ! grep -qE '%VERSION%/[A-Za-z0-9_./-]+\.(js|css|json)"' "$H" \
  && rm -rf /etc/nginx /etc/apache2 \
  && chmod 0755 /usr/local/bin/ou-docs-entrypoint /usr/local/bin/ou-docs-healthcheck /usr/libexec/ou-docs/ou-docs-ready \
  && setcap cap_fowner,cap_chown,cap_sys_chroot=ep /usr/bin/coolforkit-caps \
