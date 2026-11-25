@@ -47,7 +47,7 @@ const ROLE: Record<string, string> = { admin: 'Administrator', user: 'User', non
   <Card title="People" :hint="data.data.value?.available ? `${data.data.value.people.length} in ${data.data.value.domain}` : 'From the deployment directory'" flush data-testid="people-panel">
     <template #actions><Button size="sm" variant="ghost" @click="data.reload()">Refresh</Button></template>
     <ErrorBox :error="err" />
-    <p v-if="data.data.value && !data.data.value.available" class="muted small pad" data-testid="people-unavailable">{{ data.data.value.reason }}
+    <p v-if="data.data.value && !data.data.value.available" class="muted small pad" data-testid="people-unavailable">{{ String(data.data.value.reason ?? '').replace(/[.\s]*$/, '.') }}
       People can be managed once the deployment's identity VM answers (deployments created before 0.8.0 need recreating).</p>
     <table v-if="data.data.value?.people.length" class="dense"><thead><tr><th>User</th><th>Name</th><th>Role</th><th>Status</th><th></th></tr></thead>
       <tbody><tr v-for="p in data.data.value.people" :key="p.username">

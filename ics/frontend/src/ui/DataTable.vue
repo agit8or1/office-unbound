@@ -11,7 +11,7 @@ function open(r: T) { const h = props.href?.(r); if (h) location.hash = '#' + h 
       <thead><tr><th v-for="c in cols" :key="c.key" :class="{ num: c.num }" scope="col">{{ c.label }}</th></tr></thead>
       <tbody>
         <tr v-for="r in rows" :key="rowKey(r)" :class="{ click: !!href, sel: selected === rowKey(r) }" @click="open(r)">
-          <td v-for="(c, i) in cols" :key="c.key" :class="{ num: c.num, mono: c.mono }">
+          <td v-for="(c, i) in cols" :key="c.key" :class="{ num: c.num, mono: c.mono, ident: i === 0 }">
             <slot :name="'cell-' + c.key" :row="r">
               <a v-if="i === 0 && href?.(r)" :href="'#' + href(r)" @click.stop>{{ r[c.key] ?? '-' }}</a>
               <template v-else>{{ r[c.key] ?? '-' }}</template>

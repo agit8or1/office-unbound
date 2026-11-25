@@ -77,6 +77,24 @@ const notReady = computed(() => ready.data.value && !ready.data.value.ready ? Ob
     <ErrorBox :error="err" />
     <div v-if="notReady.length" class="alert warn" role="alert"><Icon name="alert" /><span>ICS service component not ready: {{ notReady.join(', ').replace('_', ' ') }}. Operations may be delayed.</span></div>
 
+    <section class="statgrid" aria-label="Status summary">
+      <StatCard label="Infrastructure health" :value="health.text" :sub="health.sub" icon="shield" to="/monitoring/infrastructure" :tone="health.tone" :loading="!loaded" />
+      <StatCard label="Clusters" :value="i.clusters.length" :sub="i.clusters.length ? i.clusters.filter((c) => isUp(c.status)).length + ' online' : 'None connected'" icon="cluster" :tone="i.clusters.some((c) => isDown(c.status)) ? 'bad' : i.clusters.length ? 'ok' : 'idle'" to="/infrastructure/clusters" :loading="!loaded" />
+      <StatCard label="Nodes" :value="nodesUp" :of="i.nodes.length" :sub="!i.nodes.length ? 'None connected' : i.nodes.length - nodesUp ? i.nodes.length - nodesUp + ' not online' : 'All online'" icon="server" :tone="!i.nodes.length ? 'idle' : nodesUp < i.nodes.length ? 'bad' : 'ok'" to="/infrastructure/nodes" :loading="!loaded" />
+      <StatCard label="Virtual machines" :value="runningGuests(vms).length" :of="vms.length" :sub="visNote ? 'running · Office Unbound guests only' : 'running'" icon="vm" :tone="vms.length ? 'info' : 'idle'" to="/infrastructure/vms" :loading="!loaded" />
+      <StatCard label="Containers" :value="runningGuests(lxc).length" :of="lxc.length" :sub="visNote ? 'running · Office Unbound guests only' : 'running'" icon="box" :tone="lxc.length ? 'info' : 'idle'" to="/infrastructure/containers" :loading="!loaded" />
+      <StatCard label="Active deployments" :value="deployments.data.value?.state === 'ok' ? activeDeploys.length : '-'" :sub="deployments.data.value?.state === 'ok' ? 'in progress' : 'None yet'" icon="rocket" :tone="activeDeploys.length ? 'info' : 'idle'" to="/deployments" :loading="!loaded" />
+      <StatCard label="Pending operations" :value="pendingOps" :sub="`${pendingPlans.length} awaiting approval, ${activeJobs.length} running`" icon="list" :tone="pendingPlans.length ? 'warn' : 'idle'" to="/plans" :loading="!loaded" />
+      <StatCard label="Active incidents" :value="inc.length" :sub="inc.length ? inc.filter((x) => x.severity === 'critical').length + ' critical' : 'All clear'" icon="bell" :tone="inc.some((x) => x.severity === 'critical') ? 'bad' : inc.length ? 'warn' : 'ok'" to="/incidents" :loading="!loaded" />
+    </section>
+    <p v-if="visNote" class="muted small vis-note" data-testid="guest-visibility-note"><Icon name="info" />{{ visNote.text }} <router-link :to="visNote.to">Manage access</router-link></p>
+
+    <Card title="Active incidents" :hint="inc.length ? 'Most severe first. Each shows the affected resource, how long it has lasted, and what to do next.' : undefined">
+      <template #actions><Button size="sm" variant="ghost" to="/incidents">All incidents</Button></template>
+      <IncidentList v-if="inc.length" :incidents="inc" :now="now" :limit="5" />
+      <div v-else class="allclear"><Icon name="check" />No active incidents. All monitored services are healthy.</div>
+    </Card>
+
     <div v-if="loaded && !i.connected" class="card">
       <EmptyState icon="cluster" title="Connect your first Proxmox cluster" text="Sign in to Proxmox once, tick exactly what Office Unbound may use, and it sets up its own restricted access. You see every change before anything is saved. Afterwards this dashboard fills with live node, VM and storage status, utilization charts and a health matrix.">
         <Button variant="primary" icon="plus" to="/infrastructure/providers/proxmox/connect">Start guided setup</Button>
@@ -92,25 +110,7 @@ const notReady = computed(() => ready.data.value && !ready.data.value.ready ? Ob
         <Button variant="primary" icon="plus" to="/deployments/new">Start deployment wizard</Button>
       </EmptyState>
     </div>
-
-    <section class="statgrid" aria-label="Status summary">
-      <StatCard label="Infrastructure health" :value="health.text" :sub="health.sub" icon="shield" to="/monitoring/infrastructure" :tone="health.tone" :loading="!loaded" />
-      <StatCard label="Clusters" :value="i.clusters.length" :sub="i.clusters.length ? i.clusters.filter((c) => isUp(c.status)).length + ' online' : 'None connected'" icon="cluster" :tone="i.clusters.some((c) => isDown(c.status)) ? 'bad' : i.clusters.length ? 'ok' : 'idle'" to="/infrastructure/clusters" :loading="!loaded" />
-      <StatCard label="Nodes" :value="nodesUp" :of="i.nodes.length" :sub="i.nodes.length - nodesUp ? i.nodes.length - nodesUp + ' not online' : 'All online'" icon="server" :tone="!i.nodes.length ? 'idle' : nodesUp < i.nodes.length ? 'bad' : 'ok'" to="/infrastructure/nodes" :loading="!loaded" />
-      <StatCard label="Virtual machines" :value="runningGuests(vms).length" :of="vms.length" :sub="visNote ? 'running · Office Unbound guests only' : 'running'" icon="vm" :tone="vms.length ? 'info' : 'idle'" to="/infrastructure/vms" :loading="!loaded" />
-      <StatCard label="Containers" :value="runningGuests(lxc).length" :of="lxc.length" :sub="visNote ? 'running · Office Unbound guests only' : 'running'" icon="box" :tone="lxc.length ? 'info' : 'idle'" to="/infrastructure/containers" :loading="!loaded" />
-      <StatCard label="Active deployments" :value="deployments.data.value?.state === 'ok' ? activeDeploys.length : '-'" :sub="deployments.data.value?.state === 'ok' ? 'in progress' : 'None yet'" icon="rocket" :tone="activeDeploys.length ? 'warn' : 'idle'" to="/deployments" :loading="!loaded" />
-      <StatCard label="Pending operations" :value="pendingOps" :sub="`${pendingPlans.length} awaiting approval, ${activeJobs.length} running`" icon="list" :tone="pendingPlans.length ? 'warn' : 'idle'" to="/plans" :loading="!loaded" />
-      <StatCard label="Active incidents" :value="inc.length" :sub="inc.length ? inc.filter((x) => x.severity === 'critical').length + ' critical' : 'All clear'" icon="bell" :tone="inc.some((x) => x.severity === 'critical') ? 'bad' : inc.length ? 'warn' : 'ok'" to="/incidents" :loading="!loaded" />
-    </section>
     <AppsDashboard />
-    <p v-if="visNote" class="muted small vis-note" data-testid="guest-visibility-note"><Icon name="info" />{{ visNote.text }} <router-link :to="visNote.to">Manage access</router-link></p>
-
-    <Card title="Active incidents" :hint="inc.length ? 'Most severe first. Each shows the affected resource, how long it has lasted, and what to do next.' : undefined">
-      <template #actions><Button size="sm" variant="ghost" to="/incidents">All incidents</Button></template>
-      <IncidentList v-if="inc.length" :incidents="inc" :now="now" :limit="5" />
-      <div v-else class="allclear"><Icon name="check" />No active incidents. All monitored services are healthy.</div>
-    </Card>
 
     <div v-if="i.connected" class="grid main-side">
       <UtilizationPanel :scopes="scopes" :connected="i.connected" />

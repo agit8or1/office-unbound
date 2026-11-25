@@ -93,5 +93,5 @@
 .wz .wz-pick { display: flex; flex-direction: column; align-items: stretch; justify-content: flex-start; min-height: 0; text-align: left; font-weight: 400; gap: 6px; }
 .wz .wz-pick > * { min-width: 0; }
 .wz .wz-pick .wz-row { justify-content: space-between; flex-wrap: wrap; }
-.wz .wz-btn { min-height: 0; }
+.wz .wz-btn { min-height: 36px; } /* same height as console buttons (kit.css); wrapped labels grow the button */
 .wz .pv-table .wz-chip, .wz .wz-pick .wz-chip, .wz .wz-checks .wz-chip { white-space: nowrap; }

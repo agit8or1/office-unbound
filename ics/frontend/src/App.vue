@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { computed, onMounted, onUnmounted, ref, watch } from 'vue'
+import { computed, nextTick, onMounted, onUnmounted, ref, watch } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
 import { get, type BuildInfo, type Incident, type Plan } from './api'
 import { hasRole, loadSession, logout, session } from './store'
@@ -67,13 +67,30 @@ watch(() => route.fullPath, () => { navOpen.value = false; crumbLabel.value = ''
 
 const denied = computed(() => !!route.meta.min && !hasRole(route.meta.min))
 const navOpen = ref(false)
+// off-canvas navigation (narrow screens): focus moves into it when opened, Escape closes it and returns focus to the menu button
+const menuBtn = ref<HTMLButtonElement | null>(null)
+const sideNav = ref<HTMLElement | null>(null)
+async function toggleNav() {
+  navOpen.value = !navOpen.value
+  if (navOpen.value) { await nextTick(); sideNav.value?.querySelector<HTMLElement>('a.navitem')?.focus() }
+}
+function closeNav() { if (!navOpen.value) return; navOpen.value = false; menuBtn.value?.focus() }
+// the navigation scrolls on short screens: keep the current page's item in view (Health checks sat below the fold at 900 px)
+function revealActive() {
+  const nav = sideNav.value?.querySelector('nav'), item = nav?.querySelector<HTMLElement>('.navitem.active')
+  if (!nav || !item) return
+  const top = item.offsetTop - nav.offsetTop, bottom = top + item.offsetHeight
+  if (top < nav.scrollTop) nav.scrollTop = top - 8
+  else if (bottom > nav.scrollTop + nav.clientHeight) nav.scrollTop = bottom - nav.clientHeight + 8
+}
+watch([() => route.path, () => session.user, () => session.ready], async () => { await nextTick(); revealActive() })
 const groups = computed(() => NAV.map((g) => ({ ...g, items: g.items.filter((i) => (!i.min || hasRole(i.min)) && (!i.ifPath || hasPath(i.ifPath))) })).filter((g) => g.items.length))
 const count = (i: NavItem) => (i.badge ? badges.value[i.badge] : 0)
 
 const crumbs = computed(() => {
   const out: { label: string; to?: string }[] = []
   const m = route.meta
-  if (m.section) out.push({ label: m.section })
+  if (m.section && m.section !== m.parent?.label) out.push({ label: m.section })  // "Deployments / Deployments / x" read as a stutter
   if (m.parent) { out.push({ label: m.parent.label, to: m.parent.to }); out.push({ label: crumbLabel.value || (route.params.id ? String(route.params.id).slice(0, 8) : String(m.title ?? '')) }) }
   else if (route.params.id && typeof route.params.id === 'string') { out.push({ label: String(m.title), to: route.path.split('/').slice(0, 2).join('/') }); out.push({ label: crumbLabel.value || route.params.id.slice(0, 8) }) }
   else out.push({ label: m.title ?? '' })
@@ -87,7 +104,7 @@ watch(() => route.meta.title, (t) => { document.title = (t ? t + ' - ' : '') + '
   <main v-if="!session.ready" class="center muted" role="status">Loading…</main>
   <router-view v-else-if="bare || !session.user" />
   <div v-else class="shell">
-    <aside class="side" :class="{ open: navOpen }">
+    <aside ref="sideNav" class="side" :class="{ open: navOpen }" @keydown.esc="closeNav">
       <div class="brand"><BrandMark /><span>Office Unbound</span><small>Infrastructure</small></div>
       <nav aria-label="Main">
         <div v-for="(g, gi) in groups" :key="gi" class="navgroup">
@@ -102,11 +119,11 @@ watch(() => route.meta.title, (t) => { document.title = (t ? t + ' - ' : '') + '
       </nav>
       <div class="foot">Signed in as {{ session.user.username }} ({{ session.user.role }})<div class="build" data-testid="build-label">{{ buildLabel(build) }}</div></div>
     </aside>
-    <div class="scrim" :class="{ open: navOpen }" @click="navOpen = false"></div>
+    <div class="scrim" :class="{ open: navOpen }" @click="closeNav"></div>
     <div class="main-col">
       <ControllerBanner />
       <header class="top">
-        <button class="iconbtn menu-btn" aria-label="Open navigation" :aria-expanded="navOpen" @click="navOpen = !navOpen"><Icon name="menu" /></button>
+        <button ref="menuBtn" class="iconbtn menu-btn" aria-label="Open navigation" :aria-expanded="navOpen" @click="toggleNav"><Icon name="menu" /></button>
         <nav class="crumbs grow" aria-label="Breadcrumb">
           <router-link to="/overview">Console</router-link>
           <template v-for="(c, i) in crumbs" :key="i"><span class="sep">/</span>

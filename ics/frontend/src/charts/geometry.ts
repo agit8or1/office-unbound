@@ -58,6 +58,8 @@ export const RANGES = [
 
 export function fmtAxisTime(t: number, rangeMs: number): string {
   const d = new Date(t)
-  if (rangeMs <= 24 * 3600e3) return d.toLocaleTimeString(undefined, { hour: '2-digit', minute: '2-digit' })
+  if (rangeMs <= 3600e3) return d.toLocaleTimeString(undefined, { hour: '2-digit', minute: '2-digit' })
+  // a 24 h axis starts and ends at the same clock time: the weekday tells the two ends apart
+  if (rangeMs <= 24 * 3600e3) return d.toLocaleString(undefined, { weekday: 'short', hour: 'numeric' })
   return d.toLocaleDateString(undefined, { month: 'short', day: 'numeric' })
 }

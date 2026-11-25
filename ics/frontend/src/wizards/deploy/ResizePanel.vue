@@ -63,5 +63,5 @@ function submit() { if (r.value && canSubmitChange(r.value, override.value)) voi
 </template>
 
 <style>
-.dw-resize { max-width: none; margin-top: 14px; }
+.dw-resize { max-width: none; margin: 0; width: 100%; } /* a .wz block centres itself (margin: auto); inside the page column it spans the full width like every card */
 </style>

@@ -56,9 +56,9 @@ async function decide(kind: 'approve' | 'reject') {
             <thead><tr><th>Action</th><th>Target</th><th>Risk</th><th>Status</th><th>Created</th></tr></thead>
             <tbody>
               <tr v-for="p in rows" :key="p.id" :class="{ sel: p.id === selId }">
-                <td><a :href="'#/plans/' + p.id" class="mono">{{ p.action }}</a></td>
-                <td>{{ p.params.name ?? p.params.username ?? short(String(p.params.endpoint_id ?? ''), 8) }}</td>
-                <td><Status :s="p.risk" /></td><td><Status :s="p.status" /></td><td>{{ fmtTime(p.created_at) }}</td>
+                <td class="ident"><a :href="'#/plans/' + p.id" class="mono">{{ p.action }}</a></td>
+                <td class="ident">{{ p.params.name ?? p.params.username ?? short(String(p.params.endpoint_id ?? ''), 8) }}</td>
+                <td><Status :s="p.risk" /></td><td><Status :s="p.status" /></td><td class="nowrap">{{ fmtTime(p.created_at) }}</td>
               </tr>
             </tbody>
           </table>
@@ -85,7 +85,7 @@ async function decide(kind: 'approve' | 'reject') {
             <div class="tablewrap"><table class="dense" data-testid="release-diff" aria-label="Release diff">
               <thead><tr><th>Package</th><th>Change</th><th>SHA-256</th><th>Test record</th></tr></thead>
               <tbody><tr v-for="r in diff" :key="r.file" :data-kind="r.kind">
-                <td class="mono">{{ r.name }}</td><td>{{ KIND[r.kind] }}<span v-if="r.was"> (was {{ r.was }})</span></td>
+                <td class="mono ident">{{ r.name }}</td><td>{{ KIND[r.kind] }}<span v-if="r.was"> (was {{ r.was }})</span></td>
                 <td class="mono small" :title="r.sha256">{{ shortHash(r.sha256, 16) }}...</td><td class="mono small">{{ r.evidence ? shortHash(r.evidence, 12) + '...' : 'none (source file)' }}</td></tr></tbody>
             </table></div>
           </template>
