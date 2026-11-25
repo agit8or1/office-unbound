@@ -143,3 +143,43 @@ widened the `.stack` grid), fixed with `grid-template-columns: minmax(0, 1fr)`.
 Apps (officeunbound8, signed in as the `doctest` user, 1600x900): `docs/screenshots/apps-v5/` (`before-*` = the deployed skin;
 `after-*` = the stage-2 `brand.css` added in the browser only, the deployment unchanged; dark = the webmail's own `dark-mode`
 class, as when the user picks Dark in its settings).
+
+## UI audit 2026-11-25: groupware (Mail, Calendar, Contacts)
+
+Calendar root cause (P0, "hour labels but no day columns or dates"): not the skin, not dark mode, not the selected view. The portal's
+Calendar tile opens `/web/?action=context&view=calendar`; Office Unbound's patch 0002 handled it with `container.switchContext(context)`
+and no folder, so the appointment store was never loaded (no `appointmentlistmodule` request) and upstream's `CalendarMultiView`, which
+creates its day views only when the store loads, drew the time strip alone. A click on the Calendar tab passes the folders
+(`MainTab#selectContext`) and always rendered. Fixed in the package (5.2-ou6): the deep link opens the context with its folders or
+default folder, exactly as the tab does. Reproduced on officeunbound8 with the deployed skin, without it, light and dark; the patched
+handler was run in the live client (browser only): 5 date headers and 240 grid cells. Contacts loaded either way.
+
+Skin (same hook and rules as stage 2: colours, borders, shadows, background and mask sizes only; no measured geometry):
+
+| Area | Change | Why |
+|---|---|---|
+| Calendar | `--theme-primary-color` = the action teal inside the calendar panel: today's header, the rules around today's column, the selected calendar's stroke, today in the month view | upstream draws them in the brand copper; 0.13 painted today's title teal on that copper (unreadable) |
+| Calendar | today's column: a translucent inset wash over the calendar's own cell colours | the opaque 0.13 background hid the working-hours shading and, under dark mode's invert filter on the grid cells, became a light grey column |
+| Calendar, dark | today's column rules and wash in `#005e56`, the colour the cell filter turns into the dark action teal | upstream's pre-inverted green; the pre-image is checked against the token by `test_uiaudit_groupware.py` |
+| Dark mode | upstream's `--dm-*` surfaces, text, borders, hover and selection point at the shared dark tokens | month grid, calendar headers, reminders, menus and dialogs were neutral greys (#121212/#1e1e1e) beside the navy layers |
+| Toolbar | the 32px "large" icons drawn at 20px inside the same 36px buttons | heavier than every other icon in the suite |
+| Lists | column titles in sentence case without tracking; unread rows' border in the action teal | uppercase tracking and a copper unread bar, unlike the rest of the suite |
+| Empty states | the folder drawing at 48px (was 96px) in the list and the reading pane | two large drawings side by side in an empty folder |
+
+Not changed: the calendar colours (the day headers and appointments use each calendar's own colour scheme), the grid's dark rendering
+(upstream inverts the inline-coloured cells; overriding them would lose the working-hours shading), message reading and compose.
+The toolbar does not mark the chosen view: upstream's Day/Work week/Week/Month/List buttons carry no pressed or active class (checked
+in the live DOM), so there is no stylesheet hook; the date-range label beside the arrows says which range is shown.
+
+Views verified with real appointments (7 `[OU-TEST]` items in the doctest account, including an all-day, a multi-day and two
+overlapping ones): Day, Work week, Week, Month, List; creation by selecting a range and typing, and moving an appointment by drag.
+
+Phones: grommunio-web 5.2 has no narrow layout. Its page has no viewport meta, so a phone lays the desktop client out at 980 CSS px and
+shows it at about 0.4 scale (no sideways scrolling, but text too small without zooming); with a device-width viewport ExtJS lays the
+three panes out at 390 px and clips them (`docs/screenshots/live-0.13.6/mail-light-phone.png`). Neither is fixable through the skin
+without changing ExtJS geometry. The supported paths on a phone are the native mail, calendar and contacts apps over ActiveSync,
+CalDAV and CardDAV (portal device setup); in the browser, the navigation pane can be collapsed into upstream's folder rail.
+
+Evidence: `docs/screenshots/uiaudit-groupware/` (`before-*` = the deployed 5.2-ou5 skin as served; `after-*` = this skin rendered by
+`brand.skin` and swapped in the browser only; calendar reached by its tab, which is what the 5.2-ou6 deep link does; `deeplink-*` =
+the deployed deep link, empty).
