@@ -2,6 +2,7 @@ name: files
 version: 1.0.0
 title: Files (OpenCloud)
 description: File sync and share (OpenCloud + collaboration service), OIDC against identity. ADR-0005.
+config_revision: 2   # 2: app-registry.yaml (new documents in Microsoft Office formats, 0.13.7)
 artifacts:
   # same-VM TLS proxy (the proven topology: OpenCloud plain HTTP on 127.0.0.1:9200 behind nginx on this VM); the deployment's edge reaches it over HTTPS. FIRST: packages install before the configuration
   # (cfg.nginx_site) that the engine inserts ahead of the first unit

@@ -68,8 +68,8 @@ What not to promise yet. Updated 2026-11-24 (0.13); each line says where it is t
 - Console: wide tables scroll inside their card without a visual cue; at 2560 px the content is centred with wide margins; the node detail
   list shows raw field names. Portal menus close by a second click or by moving focus, not by Escape or an outside click (the portal
   ships no script, by its content security policy).
-- A changed sign-in skin reaches browsers only after Keycloak restarts (it caches its theme settings); since 0.13.7 the skin's file name
-  follows its content, so no cache can serve the old one afterwards.
+- Since 0.13.7 a changed sign-in skin restarts Keycloak during the change that brings it (about a minute without sign-in), and the skin's
+  file name follows its content, so no cache serves the old one.
 - Chat's dark accent: white text on its accent buttons is 3:1 (large-text level, not 4.5:1), the accent as text on menus about 4.3:1.
 
 ## Apps and clients

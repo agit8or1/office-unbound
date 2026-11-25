@@ -10,6 +10,7 @@ right before the component's unit is deployed, with values from:
   * the plan's DNS records and the enrolled nodes' addresses (name resolution inside the deployment: no public DNS is touched).
 
 Secrets travel only inside the signed, TLS-pinned agent request; `agentcall` audits cfg runbooks without their values (`redact()`)."""
+import hashlib
 import datetime
 import json
 import secrets
@@ -620,6 +621,7 @@ def files_runbooks(ctx, vm: str) -> list[dict]:
         {"runbook": "cfg.volume_files", "params": {"component": "files", "volume": "config", "image": img, "owner": OPENCLOUD_UID,
                                                    "files": [{"path": "ou.env", "mode": 0o640, "content": _template("files/opencloud.env", **hosts)},
                                                              {"path": "csp.yaml", "mode": 0o644, "content": _template("files/csp.yaml", **hosts)},
+                                                             {"path": "app-registry.yaml", "mode": 0o644, "content": _template("files/app-registry.yaml")},
                                                              *brand.opencloud_files(portal)]}},
         {"runbook": "cfg.volume_files", "params": {"component": "files", "volume": "data", "image": img, "owner": OPENCLOUD_UID,
                                                    "files": [{"path": "ou-volume", "mode": 0o644, "content": "Office Unbound files data volume\n"}]}},
@@ -868,8 +870,27 @@ def expand(ctx, vm: str, component: str, runbooks: list[dict]) -> list[dict]:
     # every image of the component is pulled and verified BEFORE its configuration: cfg.volume_files names one of them (chat: element-web, the
     # first container by name) and the agent refuses a volume for an image it has not verified (officeunbound8 job 1a635703, 2026-11-24)
     pulls = [r for r in runbooks[i:] if r["runbook"] == "podman.pull_verified"]
-    rest = [r for r in runbooks[i:] if r["runbook"] != "podman.pull_verified"]
+    rest = [_with_config_digest(r, cfg) for r in runbooks[i:] if r["runbook"] != "podman.pull_verified"]
     return list(runbooks[:i]) + pulls + cfg + rest + late
+
+
+CONFIG_DIGEST_ENV = "OU_CONFIG_DIGEST"
+
+
+def _with_config_digest(r: dict, cfg: list[dict]) -> dict:
+    """A unit that mounts a volume the configuration writes gets a digest of those files in its environment. Services read such files at
+    start (OpenCloud's app-registry.yaml, Keycloak's theme.properties) and cfg.volume_files does not restart anything: a changed digest
+    changes the unit file, and podman.deploy_unit restarts a unit whose file changed (agent guesthelper.deploy_unit). Same content, same
+    digest: an unchanged configuration restarts nothing. The value is a hash, never file content."""
+    if r["runbook"] != "podman.deploy_unit":
+        return r
+    mounted = {v["name"] for v in r["params"].get("volumes", [])}
+    files = [(c["params"]["volume"], f["path"], f["mode"], f["content"]) for c in cfg
+             if c["runbook"] == "cfg.volume_files" and c["params"].get("volume") in mounted for f in c["params"]["files"]]
+    if not files:
+        return r
+    d = hashlib.sha256(json.dumps(sorted(files)).encode()).hexdigest()[:16]
+    return {**r, "params": {**r["params"], "env": {**r["params"].get("env", {}), CONFIG_DIGEST_ENV: d}}}
 
 
 def redact(runbook: str, params: dict) -> dict:

@@ -36,6 +36,14 @@ isolated lab; nothing is production supported ([ROADMAP.md](ROADMAP.md)).
 - Experimental features are off unless the host owner lists them in `ICS_EXPERIMENTAL`: meetings and telephony (lab prototypes), the
   multi-tenant mode, and ActiveSync remote wipe. Asking for one is refused with the reason when the plan is made
   ([installing-the-ics.md](docs/admin/installing-the-ics.md), `ics/tests/test_experimental.py`).
+- New documents in Files are Word, Excel and PowerPoint files (.docx, .xlsx, .pptx); the Files "New" menu offered only OpenDocument
+  formats. OpenDocument files still open and save in their own format. The portal's "Start a document" already used the Office formats
+  (`ics/tests/test_config_restart.py`).
+- A configuration change now reaches services that read their configuration only at start: a unit that mounts configured files carries
+  a digest of them, so a changed configuration restarts it and an unchanged one does not. This covers OpenCloud's file types and
+  Keycloak's sign-in theme, which used to keep the old settings until a restart. The first change after this release restarts each such
+  unit once.
+- Devices page: MailCraft is in the apps comparison as its own project (mail, calendar and contacts; not tested by the project).
 - Portal 0.5.3.
 
 ### Security
