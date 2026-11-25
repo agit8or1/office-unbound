@@ -33,8 +33,8 @@ export const SERVICE_INFO: Record<string, { label: string; blurb: string }> = {
   files: { label: 'Files', blurb: 'File storage and sharing.' },
   office: { label: 'Office editing', blurb: 'Edit documents in the browser (needs Files).' },
   chat: { label: 'Chat', blurb: 'Team chat.' },
-  meetings: { label: 'Video meetings', blurb: 'Browser video meetings.' },
-  telephony: { label: 'Telephony', blurb: 'Internal phone system with a browser softphone; no outside line.' },
+  meetings: { label: 'Video meetings (experimental)', blurb: 'Browser video meetings. Lab prototype: the plan is refused unless the host owner enabled it (ICS_EXPERIMENTAL=meetings).' },
+  telephony: { label: 'Telephony (experimental)', blurb: 'Internal phone system with a browser softphone; no outside line. Lab prototype: refused unless the host owner enabled it (ICS_EXPERIMENTAL=telephony).' },
 }
 export const KNOWN_SERVICES = Object.keys(SERVICE_INFO)
 export const serviceLabel = (id: string) => SERVICE_INFO[id]?.label ?? id
