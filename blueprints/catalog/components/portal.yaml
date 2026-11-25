@@ -7,7 +7,7 @@ description: >-
   behind the edge (portal/, docs/status/portal-results.md).
 alongside: identity          # placed on every VM that runs identity, so each tenant has its own portal and Keycloak client
 artifacts:
-  - {name: portal, kind: package, package: ou-portal, version: "0.5.2-ou1", repo: ob-apt-dev}
+  - {name: portal, kind: package, package: ou-portal, version: "0.5.3-ou1", repo: ob-apt-dev}
 resources:
   cores:     {base: 0,   per_user: 0,    source: "portal-results.md: one uvicorn worker, ~45 MB RSS"}
   memory_mb: {base: 128, per_user: 0.1,  source: "portal-results.md: ~45 MB RSS; per-user session memory is an assumption"}

@@ -57,6 +57,19 @@ What not to promise yet. Updated 2026-11-24 (0.13); each line says where it is t
 - **The dashboard shows only what it can read.** Inbox, unread counts, the next meeting and mail/calendar reminders need a mailbox data
   source that is not verified yet: those widgets offer working actions instead of data. Notifications in the bell are the Files ones only.
   No tasks or notes app exists, so none is shown.
+- **Webmail on phones:** grommunio-web 5.2 has no phone layout (its page sets no viewport), so a phone shows the desktop layout scaled
+  down. There is no sideways scrolling, but it needs zooming. Use the phone's own mail, calendar and contacts apps (ActiveSync,
+  CalDAV/CardDAV; portal **Devices**). Changing the webmail's measured layout is not done: ExtJS measures its panels itself.
+- The calendar toolbar does not mark the chosen view (upstream's view buttons carry no pressed state); the date range shows it. In dark
+  mode the day and week grid keeps upstream's inverted calendar colours (neutral grey, not the suite navy). Contacts' empty columns are
+  hidden per person through the column chooser.
+- Files (OpenCloud): text-file thumbnails stay white in dark mode; the phone search placeholder is cut short at 768 px; disabled buttons
+  keep upstream's style.
+- Console: wide tables scroll inside their card without a visual cue; at 2560 px the content is centred with wide margins; the node detail
+  list shows raw field names. Portal menus close by a second click or by moving focus, not by Escape or an outside click (the portal
+  ships no script, by its content security policy).
+- A changed sign-in skin reaches browsers only after Keycloak restarts (it caches its theme settings); since 0.13.7 the skin's file name
+  follows its content, so no cache can serve the old one afterwards.
 - Chat's dark accent: white text on its accent buttons is 3:1 (large-text level, not 4.5:1), the accent as text on menus about 4.3:1.
 
 ## Apps and clients

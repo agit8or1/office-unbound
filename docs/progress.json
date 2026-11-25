@@ -3,10 +3,24 @@
   "schema_doc": "docs/progress-schema.md",
   "project": "Office Unbound",
   "repository": "https://github.com/agit8or1/office-unbound",
-  "updated": "2026-11-24",
+  "updated": "2026-11-25",
   "stage": "alpha",
-  "current_version": "0.13.6",
+  "current_version": "0.13.7",
   "releases": [
+    {
+      "version": "0.13.7",
+      "date": "2026-11-25",
+      "status": "prepared",
+      "codename": "Meridian",
+      "channel": "alpha",
+      "highlights": [
+        "0.13.7: the calendar opened from the dashboard shows its days and dates again (webmail 5.2-ou6: the deep link loads the calendar's folder)",
+        "0.13.7: UI audit across portal, organization admin, console, Files, webmail, sign-in and chat: phone layouts without sideways scrolling, calmer status colours, readable dense metadata",
+        "0.13.7: experimental features (meetings, telephony, multi-tenant, device remote wipe) are off unless the host owner turns them on"
+      ],
+      "notes_url": "https://github.com/agit8or1/office-unbound/releases/tag/v0.13.7",
+      "changelog": "CHANGELOG.md#0137---2026-11-25"
+    },
     {
       "version": "0.13.6",
       "date": "2026-11-24",
@@ -1095,9 +1109,14 @@
             "ics/tests/test_brand.py",
             "portal/tests/test_portal.py",
             "docs/admin/known-limitations.md",
-            "docs/screenshots/live-0.13.6"
+            "docs/screenshots/live-0.13.6",
+            "docs/screenshots/uiaudit-portal",
+            "docs/screenshots/uiaudit-console",
+            "docs/screenshots/uiaudit-groupware",
+            "docs/screenshots/uiaudit-files",
+            "docs/screenshots/uiaudit-system"
           ],
-          "note": "Done in code and on officeunbound8 (in-place change 2026-11-25, job 9dbe8139): portal shell and dashboard, webmail/calendar/contacts skin, sign-in, chat themes, Files stage 2, field border token. Live screenshots (docs/screenshots/live-0.13.6): portal, Files and webmail (person on System) follow the browser's light/dark; chat signs in through Keycloak and MAS and shows its light theme; chat's names on the public certificate. Open polish: webmail's dark folder tree is a warmer grey than the navy panes; Element's identity-confirmation background is not themed."
+          "note": "Done in code and on officeunbound8 (in-place change 2026-11-25, job 9dbe8139): portal shell and dashboard, webmail/calendar/contacts skin, sign-in, chat themes, Files stage 2, field border token. Live screenshots (docs/screenshots/live-0.13.6): portal, Files and webmail (person on System) follow the browser's light/dark; chat signs in through Keycloak and MAS and shows its light theme; chat's names on the public certificate. UI audit 2026-11-25 (0.13.7, five areas, docs/screenshots/uiaudit-*): calendar deep link fixed at its root (webmail 5.2-ou6), calendar today/selection and dark surfaces on the shared tokens, portal and organization admin usable at 320 px (record cards, section menu), console calmer KPIs and readable releases, Files top bar and empty states, sign-in teal actions and a content-versioned skin, Element navy auth backdrop. Open: webmail on phones (upstream has no phone layout; native apps recommended), no selected-view marker in the calendar toolbar."
         }
       ]
     },

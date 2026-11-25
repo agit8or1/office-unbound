@@ -10,6 +10,38 @@ isolated lab; nothing is production supported ([ROADMAP.md](ROADMAP.md)).
 
 ## [Unreleased]
 
+## [0.13.7] - 2026-11-25
+
+### Fixed
+- The calendar opened from the dashboard showed only the hour labels: no dates, day columns or grid. The portal's Calendar tile opens
+  webmail's `?action=context&view=calendar`, and Office Unbound's deep-link patch switched to the calendar without its folder, so no
+  appointments were requested and upstream draws the day columns only once they load. Webmail 5.2-ou6 opens the calendar with its folder,
+  as a click on the Calendar tab does (`ics/tests/test_uiaudit_groupware.py`; checked in the live app, [design-system.md](docs/design/design-system.md)).
+- Portal: blank app names on the admin person, invite and groups pages (a template variable shadowed them); the file search box showed the
+  storage page's data; unknown session times shown as "1 Jan 1970" now say "Unknown" (`portal/tests/test_ui_audit.py`).
+- Console: the off-canvas navigation on phones kept keyboard focus in hidden links and ignored Escape; the menu button showed on desktop;
+  an installation without nodes said "0 / 0 All online" (`ics/frontend/src/uiaudit.test.ts`, `ics/e2e/specs/08b-console-widths.spec.ts`).
+
+### Changed
+- UI audit across the suite (owner brief 2026-11-25), through each app's supported theming only:
+  - Portal and organization admin: tables become record cards and the admin tabs a section menu on phones; no sideways scrolling from
+    320 to 2560 px; a balanced dashboard grid.
+  - Console: neutral KPIs with colour only for real problems; incidents as neutral rows with a severity bar; release badges and hashes
+    readable; sentence-case labels.
+  - Files: readable top-bar search on phones, one logo, compact empty states.
+  - Webmail: calendar today and selection in the action teal, dark surfaces on the suite's tokens, 20 px toolbar icons.
+  - Sign-in: teal primary buttons, one focus ring, and a content-versioned stylesheet, so a browser or Keycloak cache cannot serve an old skin.
+  - Chat: a navy sign-in backdrop, the Office Unbound mark and a link back to the portal.
+  - Evidence: `docs/screenshots/uiaudit-*`. Shared tokens: focus, link, hover, info and scrim roles, plus type, spacing and radius scales.
+- Experimental features are off unless the host owner lists them in `ICS_EXPERIMENTAL`: meetings and telephony (lab prototypes), the
+  multi-tenant mode, and ActiveSync remote wipe. Asking for one is refused with the reason when the plan is made
+  ([installing-the-ics.md](docs/admin/installing-the-ics.md), `ics/tests/test_experimental.py`).
+- Portal 0.5.3.
+
+### Security
+- Full-history secret scan clean: one gitleaks false positive (PEM header literals in the Office image's proof-key check) allowed with
+  its reason. The CI `security` workflow had failed on it since 0.9.1.
+
 ## [0.13.6] - 2026-11-24
 
 ### Fixed
@@ -707,6 +739,7 @@ editing, chat/meetings, telephony prototype, migration tooling and package pipel
 - `SECURITY.md` (private reporting) and `CONTRIBUTING.md` (DCO sign-off) added; AGPL-3.0 license. [SECURITY](SECURITY.md)
 
 [Unreleased]: https://github.com/agit8or1/office-unbound/compare/v0.4.7...HEAD
+[0.13.7]: https://github.com/agit8or1/office-unbound/compare/v0.13.6...v0.13.7
 [0.13.6]: https://github.com/agit8or1/office-unbound/compare/v0.13.5...v0.13.6
 [0.13.5]: https://github.com/agit8or1/office-unbound/compare/v0.13.4...v0.13.5
 [0.13.4]: https://github.com/agit8or1/office-unbound/compare/v0.13.3...v0.13.4
