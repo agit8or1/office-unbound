@@ -111,8 +111,10 @@ def query(name: str, rtype: str, servers: list[str] | None = None, timeout: floa
     raise DnsError(f"no resolver answered ({last})")
 
 
-def check_domain(domain: str, mail_host: str | None, dkim_selector: str, resolver=query) -> list[dict]:
-    """Records the customer's DNS must carry. status: ok | missing | differs | unknown (resolver failed)."""
+def check_domain(domain: str, mail_host: str | None, dkim_selector: str, resolver=query, *, dkim_available: bool = True) -> list[dict]:
+    """Records the customer's DNS must carry. status: ok | missing | differs | unknown (resolver failed) | not_available.
+
+    dkim_available=False: the mail server does not sign outgoing mail (no DKIM key exists), so DKIM is not queried and the row says so."""
     mail_host = (mail_host or "").lower().rstrip(".")
     spf_want = "v=spf1 mx -all"
     rows = []
@@ -131,9 +133,15 @@ def check_domain(domain: str, mail_host: str | None, dkim_selector: str, resolve
         lambda f: (not mail_host) or mail_host in f)
     row("spf", "Sender policy (SPF)", domain, "TXT", spf_want, "Add one TXT record on the domain. If you already have an SPF record, merge into it; a domain may have only one.",
         lambda f: any(x.lower().startswith("v=spf1") for x in f) and sum(x.lower().startswith("v=spf1") for x in f) == 1)
-    row("dkim", "Message signing (DKIM)", f"{dkim_selector}._domainkey.{domain}", "TXT", "v=DKIM1; k=rsa; p=<public key from your mail server>",
-        "Publish the DKIM public key generated for your mail server as a TXT record at this name. Ask your service provider for the key value.",
-        lambda f: any("v=dkim1" in x.lower() and "p=" in x.lower() for x in f))
+    if dkim_available:
+        row("dkim", "Message signing (DKIM)", f"{dkim_selector}._domainkey.{domain}", "TXT", "v=DKIM1; k=rsa; p=<public key from your mail server>",
+            "Publish the DKIM public key generated for your mail server as a TXT record at this name. Ask your service provider for the key value.",
+            lambda f: any("v=dkim1" in x.lower() and "p=" in x.lower() for x in f))
+    else:
+        rows.append({"key": "dkim", "title": "Message signing (DKIM)", "name": f"{dkim_selector}._domainkey.{domain}", "type": "TXT", "expected": "-",
+                     "how": "This mail server does not sign outgoing mail yet, so there is no DKIM record to publish now. "
+                            "Signing is planned together with internet mail.",
+                     "optional": True, "found": [], "status": "not_available"})
     row("dmarc", "Spoofing protection (DMARC)", f"_dmarc.{domain}", "TXT", f"v=DMARC1; p=quarantine; rua=mailto:postmaster@{domain}",
         "Add a TXT record. Start with p=none to observe, then move to quarantine or reject once reports look clean.",
         lambda f: any(x.lower().startswith("v=dmarc1") for x in f))

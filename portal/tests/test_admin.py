@@ -90,6 +90,8 @@ class IcsMock(Mock):
             d = {"domains": [{"name": "example.test", "primary": True}], "managed_by": "Your service provider adds or removes domains."}
             if "check" in r.url.params:
                 d["dns"] = {"example.test": [{"key": "spf", "title": "Sender policy (SPF)", "name": "example.test", "type": "TXT", "expected": "v=spf1 mx -all", "found": [], "status": "missing", "how": "Add one TXT record."},
+                                                   {"key": "dkim", "title": "Message signing (DKIM)", "name": "default._domainkey.example.test", "type": "TXT",
+                                                    "expected": "-", "found": [], "status": "not_available", "how": "This mail server does not sign outgoing mail yet.", "optional": True},
                                                    {"key": "srv_imaps", "title": "Incoming mail setup (IMAP SRV)", "name": "_imaps._tcp.example.test", "type": "SRV",
                                                     "expected": "0 1 993 mail.example.test", "found": [], "status": "missing", "how": "Optional.", "optional": True}]}
             return httpx.Response(200, json=d)
@@ -163,12 +165,14 @@ def test_admin_pages_render_and_forward_both_proofs(env):
     signin(c, m)
     assert ">Organisation admin<" in c.get("/").text
     for path, needle in (("/admin", "Acme Brothers Ltd"), ("/admin/users", "Anna Meyer"), ("/admin/users/anna", "Anna Meyer"), ("/admin/users/new", "Invite someone"),
-                         ("/admin/groups", "Groups"), ("/admin/domains", "Check my DNS now"), ("/admin/domains?check=1", "Missing"), ("/admin/domains?check=1", "Optional, not set"), ("/admin/branding", "Look and feel"),
+                         ("/admin/groups", "Groups"), ("/admin/domains", "Check my DNS now"), ("/admin/domains?check=1", "Missing"), ("/admin/domains?check=1", "Optional, not set"), ("/admin/domains?check=1", "Not available yet"), ("/admin/branding", "Look and feel"),
                          ("/admin/requests", "Delete Olga"), ("/admin/requests/11111111-1111-1111-1111-111111111111", "Done")):
         r = c.get(path)
         assert r.status_code == 200 and needle in r.text, (path, r.status_code)
         low = r.text.lower()
         assert "<script" not in low and " style=" not in low and not re.search(r"\son[a-z]+=", low), path        # strict CSP: no script, no inline style/handlers
+    dns = c.get("/admin/domains?check=1").text
+    assert '<span class="pill">Not available yet</span>' in dns and "<code>-</code>" not in dns          # neutral pill, no "Should be -" noise
     sent = [x for x in m.ics_calls if x[1].endswith("/tenant/users") and x[0] == "GET"][0]
     assert sent[2]["x-ou-tenant-key"] == KEY and sent[2]["x-ou-user-token"] == "AT1"          # service credential + the admin's own token
     assert "Planned" not in c.get("/admin/users/anna").text and "Planned" in c.get("/admin").text   # only what is really unavailable stays labelled

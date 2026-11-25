@@ -199,6 +199,25 @@ def test_a_deployed_portal_reads_with_its_key_and_an_org_admin_token(client, dep
     assert r.status_code == 409 and "service provider" in r.json()["detail"]                     # changes stay in the console for now
 
 
+def test_a_deployed_portals_dns_check_says_dkim_is_not_available_and_never_asks_for_it(client, deployed, monkeypatch):
+    from ics.tenant_admin import service
+    asked = []
+
+    def fake(name, rtype):
+        asked.append(name)
+        return []
+    monkeypatch.setitem(service.HOOKS, "dns", fake)
+    hd = {"X-OU-Tenant-Key": deployed["key"], "X-OU-User-Token": _token(deployed["realm"], deployed["iss"])}
+    r = client.get(f"{T}/domains?check=true", headers=hd)
+    assert r.status_code == 200, r.text
+    rows = {x["key"]: x for x in r.json()["dns"]["acme.example"]}
+    dk = rows["dkim"]
+    assert dk["status"] == "not_available" and dk["optional"] and dk["expected"] == "-" and dk["found"] == []
+    assert "does not sign outgoing mail yet" in dk["how"] and "service provider" not in dk["how"]
+    assert asked and not any("_domainkey" in n for n in asked)                                     # DKIM is never queried
+    assert rows["mx"]["status"] == "missing" and not rows["mx"]["optional"]                        # the other rows are still checked
+
+
 def test_a_deployed_portal_is_refused_without_the_right_proofs(client, deployed, rt):
     good = _token(deployed["realm"], deployed["iss"])
     k = deployed["key"]

@@ -369,6 +369,20 @@ def test_the_client_setup_srv_records_are_checked_and_optional():
     assert not rows["mx"]["optional"]
 
 
+def test_without_dkim_signing_the_dkim_row_is_not_available_and_not_queried():
+    asked = []
+
+    def fake(name, rtype):
+        asked.append(name)
+        return []
+    rows = {r["key"]: r for r in dnscheck.check_domain("acme.test", "mail.example.test", "default", resolver=fake, dkim_available=False)}
+    assert rows["dkim"]["status"] == "not_available" and rows["dkim"]["optional"] and rows["dkim"]["expected"] == "-" and rows["dkim"]["found"] == []
+    assert not any("_domainkey" in n for n in asked)
+    assert {k: r["status"] for k, r in rows.items() if k != "dkim"} == {k: "missing" for k in rows if k != "dkim"}
+    with_dkim = {r["key"]: r for r in dnscheck.check_domain("acme.test", "mail.example.test", "default", resolver=fake)}
+    assert with_dkim["dkim"]["status"] == "missing" and "default._domainkey.acme.test" in asked     # the default still checks it
+
+
 def test_the_srv_wire_format_parses_target_and_port():
     import struct
     q = b"\x12\x34\x81\x80" + struct.pack(">HHHH", 1, 1, 0, 0) + b"\x06_imaps\x04_tcp\x04acme\x04test\x00" + struct.pack(">HH", 33, 1)
