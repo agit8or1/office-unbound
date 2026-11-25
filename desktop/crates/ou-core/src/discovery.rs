@@ -121,6 +121,11 @@ pub struct ClientDocument {
     /// optional component (not deployed on the reference deployment, 2026-11-25).
     #[serde(default)]
     pub meet: Option<String>,
+    /// Documents (Collabora) and the sign-in service's base; informational (the issuer is what sign-in uses).
+    #[serde(default)]
+    pub office: Option<String>,
+    #[serde(default)]
+    pub auth: Option<String>,
 }
 
 #[derive(Debug, Clone, Copy, Serialize, Deserialize, PartialEq, Eq)]
@@ -146,6 +151,8 @@ pub struct Deployment {
     pub mail_web_url: Option<String>,
     #[serde(default)]
     pub meet_url: Option<String>,
+    #[serde(default)]
+    pub office_url: Option<String>,
     pub source: Source,
     pub login_hint: Option<String>,
     /// Hosts outside `domain` (allowed only after explicit confirmation; shown in the UI).
@@ -192,6 +199,10 @@ fn finish(domain: &str, doc: ClientDocument, source: Source, login_hint: Option<
     let chat_web_url = doc.chat_web.as_deref().map(|m| check(m, "chat_web")).transpose()?;
     let mail_web_url = doc.mail.as_deref().map(|m| check(m, "mail")).transpose()?;
     let meet_url = doc.meet.as_deref().map(|m| check(m, "meet")).transpose()?;
+    let office_url = doc.office.as_deref().map(|m| check(m, "office")).transpose()?;
+    if let Some(a) = doc.auth.as_deref() {
+        check(a, "auth")?;
+    }
     if doc.client_id.is_empty() || doc.client_id.len() > 128 || !doc.client_id.chars().all(|c| c.is_ascii_alphanumeric() || "-_.".contains(c)) {
         return Err(DiscoveryError::Invalid("client_id".into()));
     }
@@ -206,6 +217,7 @@ fn finish(domain: &str, doc: ClientDocument, source: Source, login_hint: Option<
         chat_web_url,
         mail_web_url,
         meet_url,
+        office_url,
         source,
         login_hint,
         foreign_hosts: foreign,
@@ -296,6 +308,8 @@ pub async fn discover(f: &impl Fetcher, input: &Input) -> Result<Deployment, Dis
                     matrix,
                     mail: Some(base_of(&domain, "mail").to_string()),
                     meet: None,
+                    office: None,
+                    auth: None,
                 };
                 return finish(&domain, doc, Source::WebFinger, hint);
             }
@@ -374,6 +388,27 @@ mod tests {
         assert_eq!(d.name, "Company");
         assert_eq!(d.foreign_hosts, vec!["matrix.elsewhere.example".to_string()]);
         assert_eq!(d.meet_url.as_deref(), Some("https://meet.company.com/"));
+    }
+
+    /// The exact document the ICS serves (ics/ics/deploy/configure.py client_document; ics/tests/test_desktop_server.py): the app prefers
+    /// the `ou-desktop` client it names; without a document it falls back to OpenCloudDesktop (test above).
+    #[tokio::test]
+    async fn the_ics_document_selects_the_ou_desktop_client() {
+        let mut m = HashMap::new();
+        m.insert(
+            "https://autodiscover.e2e.example/.well-known/office-unbound/client.json".into(),
+            serde_json::json!({"version": 1, "name": "e2e.example", "issuer": "https://auth.e2e.example/realms/ou", "client_id": "ou-desktop",
+                "auth": "https://auth.e2e.example/", "files": "https://cloud.e2e.example/", "portal": "https://portal.e2e.example/",
+                "office": "https://office.e2e.example/", "mail": "https://mail.e2e.example/web/", "matrix": "https://matrix.e2e.example/",
+                "chat_web": "https://chat.e2e.example/"}),
+        );
+        let d = discover(&Fake(m), &parse_input("ann@e2e.example").unwrap()).await.unwrap();
+        assert_eq!((d.source, d.client_id.as_str()), (Source::ClientDocument, "ou-desktop"));
+        assert_eq!(d.issuer, "https://auth.e2e.example/realms/ou");
+        assert_eq!(d.mail_web_url.as_deref(), Some("https://mail.e2e.example/web/"));
+        assert_eq!(d.office_url.as_deref(), Some("https://office.e2e.example/"));
+        assert_eq!(d.meet_url, None);
+        assert!(d.foreign_hosts.is_empty());
     }
 
     #[tokio::test]
