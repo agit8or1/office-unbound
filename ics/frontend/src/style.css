@@ -342,7 +342,7 @@ button.help { min-height: 24px; min-width: 24px; padding: 3px; border: 0; backgr
 button.help:hover { background: var(--sunken); color: var(--text); }
 .helptext { margin: 6px 0 0; padding: 8px 12px; max-width: 70ch; background: var(--info-bg); color: var(--info); border-radius: var(--radius-sm); font-size: 13px; }
 /* links inside running text are underlined, so colour is never the only cue */
-p a, li a, dd a, .sub a, .hint a, .alert a, td > a:not(.ux-user):not(.ux-btn):not(.btn) { text-decoration: underline; text-underline-offset: 2px; }
+p a, li a, dd a, .head .small a, .sub a, .hint a, .alert a, td > a:not(.ux-user):not(.ux-btn):not(.btn) { text-decoration: underline; text-underline-offset: 2px; }
 a.btn, a.ux-btn, a.stat, a.cell, .crumbs a, .navitem, .ux-tabs a { text-decoration: none; }
 .techd { margin: 4px 0 0; font-size: 12.5px; } .techd summary { font-weight: 550; color: inherit; min-height: 24px; }
 .techd code { display: block; margin-top: 4px; padding: 8px 10px; background: var(--sunken); color: var(--text); border-radius: var(--radius-sm); }
