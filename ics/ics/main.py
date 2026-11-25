@@ -654,6 +654,8 @@ def create_app(settings: Settings | None = None, runtime: Runtime | None = None)
     tenant_api.mount(app)
     from . import tenants_api
     tenants_api.mount(app)   # ADR-0021: tenants in the console, DNS checker
+    from . import downloads_api
+    downloads_api.mount(app)   # Office Unbound Desktop for Windows from the ICS itself
 
     if STATIC_DIR.is_dir():
         @app.get("/", include_in_schema=False)

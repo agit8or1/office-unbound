@@ -51,6 +51,8 @@ class Settings:
     admin_role: str = "org-admin"     # Keycloak realm role that opens the Admin area (the ICS verifies it again from the signed token)
     # team chat (Element Web) of the deployment: shown as the chat bubble on every page when it answers (services.chat_available); "" = never
     chat_url: str = ""
+    # Office Unbound Desktop for Windows (package ou-desktop-windows): installer + manifest.json, served by /download/windows
+    desktop_dir: str = "/usr/share/ou-desktop/windows"
 
     @property
     def chat_origin(self) -> str:
@@ -117,4 +119,5 @@ def load() -> Settings:
         admin_role=_env("PORTAL_ADMIN_ROLE", "org-admin"),
         # the deployment's chat name by convention (ICS catalog: chat.<domain>); PORTAL_CHAT_URL overrides, "off" disables
         chat_url=_chat_url(os.environ.get("PORTAL_CHAT_URL"), mail_domain),
+        desktop_dir=_env("PORTAL_DESKTOP_DIR", "/usr/share/ou-desktop/windows"),
     )

@@ -1,6 +1,7 @@
 {% from "_icons.html" import icon %}
 <details class="card plat" id="windows" {% if hint == 'windows' %}open{% endif %}>
   <summary><span class="pt">{{ icon('devices') }}Windows</span><span class="ps">Outlook, Thunderbird, Files</span></summary>
+  {% if desktop_app %}<p>Or use <a href="#desktop-windows">Office Unbound Desktop for Windows</a>, downloaded from this server.</p>{% endif %}
   <h3>Outlook (classic, Microsoft 365 Apps or Office 2019 and later)</h3>
   <ol class="steps">
     <li>Open <b>File &gt; Add Account</b> and type your e-mail address{% if email %} (<b>{{ email }}</b>){% endif %}.</li>

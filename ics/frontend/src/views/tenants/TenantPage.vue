@@ -12,6 +12,7 @@ import ErrorBox from '../../components/ErrorBox.vue'
 import PeoplePanel from '../../components/PeoplePanel.vue'
 import DnsCheck from './DnsCheck.vue'
 import DeploymentCard from './DeploymentCard.vue'
+import DesktopDownload from './DesktopDownload.vue'
 import { MODE_LABEL, tenantsApi } from './tenants'
 
 const props = defineProps<{ id: string; tab?: string }>()
@@ -42,6 +43,7 @@ const isAdmin = computed(() => hasRole('admin'))
         <EmptyState v-if="!t.data.value.deployments.length" title="No deployments yet">
           <router-link v-if="hasRole('operator')" class="btn" to="/deployments/new">New deployment</router-link>
         </EmptyState>
+        <DesktopDownload />
       </template>
 
       <template v-else-if="tab === 'domains'">

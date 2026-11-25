@@ -12,11 +12,12 @@ from urllib.parse import urlsplit
 
 import httpx
 from fastapi import FastAPI, Form, Request
-from fastapi.responses import HTMLResponse, RedirectResponse, Response
+from fastapi.responses import HTMLResponse, RedirectResponse, Response, StreamingResponse
+from starlette.concurrency import run_in_threadpool
 from fastapi.staticfiles import StaticFiles
 from fastapi.templating import Jinja2Templates
 
-from . import admin, devices, office_apps, services
+from . import admin, desktop_download, devices, office_apps, services
 from .config import Settings, load
 from .version import PORTAL_VERSION, build_info
 from .icsclient import parse_time as admin_time
@@ -430,7 +431,8 @@ def create_app(cfg: Settings | None = None, transport: httpx.AsyncBaseTransport 
                   "cols": office_apps.MATRIX_COLS, "verified": office_apps.VERIFIED}
         return render(request, "devices.html", {"hint": hint, "desktop": devices.DESKTOP_DOWNLOADS, "release": devices.DESKTOP_RELEASE, "office": office,
                                                 "releases_page": devices.DESKTOP_RELEASES_PAGE, "apps": devices.MOBILE_APPS,
-                                                "email": s.claims.get("email", "")}, sess=s)
+                                                "email": s.claims.get("email", ""), "desktop_app": desktop_download.manifest(cfg.desktop_dir),
+                                                "human_size": desktop_download.human_size}, sess=s)
 
     @app.get("/devices/apple.mobileconfig")
     async def apple_profile(request: Request) -> Response:
@@ -451,6 +453,29 @@ def create_app(cfg: Settings | None = None, transport: httpx.AsyncBaseTransport 
             return login_redirect(request)
         return Response(devices.autoconfig_xml(cfg), media_type="application/xml",
                         headers={"Content-Disposition": 'attachment; filename="config-v1.1.xml"'})
+
+    @app.get("/download/windows")
+    async def download_windows(request: Request) -> Response:
+        """Office Unbound Desktop for Windows from this deployment (package ou-desktop-windows), never from another site. Only the file the
+        manifest names, and only when its bytes hash to the manifest's sha256 (desktop_download.open_verified)."""
+        s = await current(request)
+        if not s:
+            return login_redirect(request)
+        try:
+            m, fd = await run_in_threadpool(desktop_download.open_verified, cfg.desktop_dir)
+        except desktop_download.Unavailable:
+            return render(request, "error.html", {"title": "Not available yet",
+                                                  "text": "Office Unbound Desktop for Windows is not available on this server yet.",
+                                                  "back": "/devices"}, 404, s)
+        except desktop_download.Mismatch as e:
+            log.error("desktop installer refused: %s", e)
+            return render(request, "error.html", {"title": "Download unavailable",
+                                                  "text": "The installer on this server failed its integrity check, so it is not offered. "
+                                                          "Please tell your administrator.", "back": "/devices"}, 500, s)
+        return StreamingResponse(desktop_download.chunks(fd, m["size"]), media_type=m["content_type"], headers={
+            "Content-Disposition": f'attachment; filename="{m["file"]}"', "Content-Length": str(m["size"]),
+            "X-Content-Type-Options": "nosniff", "Cache-Control": "private, no-cache", "ETag": f'"{m["sha256"]}"',
+            "Content-Security-Policy": "default-src 'none'; sandbox"})
 
     # ---- organisation branding for the OTHER apps (sign-in pages, Files, Docs, webmail: ics/ics/deploy/brand.py skins @import this) ----
     @app.get("/brand/org.css", include_in_schema=False)
