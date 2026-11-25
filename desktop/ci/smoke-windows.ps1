@@ -104,7 +104,7 @@ function Seed-UserData([string]$tag) {
   return $f
 }
 
-function Scan-Secrets([string[]]$dirs) {
+function Count-SecretHits([string[]]$dirs) {
   # Look for token/credential material in plain files. Credential Manager is the only allowed store.
   $patterns = @('eyJ[A-Za-z0-9_-]{10,}\.[A-Za-z0-9_-]{10,}', '"?(access|refresh|id)_token"?\s*[:=]\s*"?[A-Za-z0-9._-]{8,}',
                 'client_secret', '(?i)password\s*[:=]\s*\S+', '-----BEGIN [A-Z ]*PRIVATE KEY-----')
@@ -117,13 +117,25 @@ function Scan-Secrets([string[]]$dirs) {
       $files++
       foreach ($pat in $patterns) {
         if (Select-String -Path $f.FullName -Pattern $pat -Quiet -ErrorAction SilentlyContinue) {
-          Write-Host "::error::secret-like pattern in $($f.FullName) (pattern index hidden content not printed)"
+          Write-Host "::error::secret-like pattern in $($f.FullName) (content not printed)"
           $hits++
         }
       }
     }
   }
-  Check ($hits -eq 0) "no secret-like strings in $files config/data/log file(s) under install dir and $DataRoot"
+  return @($hits, $files)
+}
+
+function Scan-Secrets([string[]]$dirs) {
+  # Self-test first: the scanner must flag a planted fake token, or a clean result means nothing.
+  $canary = Join-Path $env:RUNNER_TEMP "secret-scan-canary"
+  New-Item -ItemType Directory -Force -Path $canary | Out-Null
+  Set-Content -Path (Join-Path $canary "settings.json") -Value ('{"refresh_token": "' + ("ci" * 8) + '"}')
+  $c = Count-SecretHits @($canary)
+  Remove-Item -Recurse -Force $canary
+  Check ($c[0] -ge 1) "secret scanner self-test flags a planted fake token"
+  $r = Count-SecretHits $dirs
+  Check ($r[0] -eq 0) "no secret-like strings in $($r[1]) config/data/log file(s) under install dir and $DataRoot (no sign-in happens in CI)"
 }
 
 function Launch-Check([string]$exe, [string]$label, [int]$seconds) {
