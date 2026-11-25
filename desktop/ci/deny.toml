@@ -2,8 +2,9 @@
 # Run locally: cargo deny --manifest-path desktop/Cargo.toml --config desktop/ci/deny.toml check
 
 [graph]
-# The shipped product is Windows x64; Linux is checked too because CI and dev builds run there.
-targets = ["x86_64-pc-windows-msvc", "x86_64-unknown-linux-gnu"]
+# The shipped product is Windows x64 only. Linux-only GUI dependencies (gtk/glib/zbus via Tauri) are not shipped and
+# are out of scope here; add "x86_64-unknown-linux-gnu" when a Linux client is built (roadmap only).
+targets = ["x86_64-pc-windows-msvc"]
 all-features = false
 
 [advisories]
@@ -38,7 +39,9 @@ ignore = false
 
 [bans]
 multiple-versions = "warn"
-wildcards = "deny"
+# Workspace crates use path dependencies without a version; that only matters for crates.io publishing, which never happens.
+# Back to "deny" once every workspace crate sets publish = false (then allow-wildcard-paths applies).
+wildcards = "warn"
 allow-wildcard-paths = true
 
 [sources]
