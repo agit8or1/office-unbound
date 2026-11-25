@@ -12,7 +12,13 @@ pub mod redact;
 pub mod safety;
 pub mod secrets;
 pub mod session;
+#[cfg(feature = "test-support")]
+pub mod testing;
 pub mod urlpolicy;
+
+/// Re-exported so feature crates use the same HTTP stack (and TLS policy) as the core.
+pub use reqwest;
+pub use url;
 
 /// Product version reported to the agent/GUI and in diagnostics.
 pub const VERSION: &str = env!("CARGO_PKG_VERSION");

@@ -678,6 +678,10 @@ name = "ou-agent"
 version = "0.1.0-alpha.1"
 dependencies = [
  "ou-core",
+ "serde_json",
+ "tokio",
+ "url",
+ "windows-sys 0.61.2",
 ]
 
 [[package]]

@@ -111,8 +111,12 @@ pub struct ClientDocument {
     pub portal: Option<String>,
     #[serde(default)]
     pub matrix: Option<String>,
+    /// Webmail / calendar / contacts web app.
     #[serde(default)]
     pub mail: Option<String>,
+    /// Chat web app (Element), for "open in browser".
+    #[serde(default)]
+    pub chat_web: Option<String>,
 }
 
 #[derive(Debug, Clone, Copy, Serialize, Deserialize, PartialEq, Eq)]
@@ -132,6 +136,10 @@ pub struct Deployment {
     pub files_url: String,
     pub portal_url: Option<String>,
     pub matrix_url: Option<String>,
+    #[serde(default)]
+    pub chat_web_url: Option<String>,
+    #[serde(default)]
+    pub mail_web_url: Option<String>,
     pub source: Source,
     pub login_hint: Option<String>,
     /// Hosts outside `domain` (allowed only after explicit confirmation; shown in the UI).
@@ -175,6 +183,8 @@ fn finish(domain: &str, doc: ClientDocument, source: Source, login_hint: Option<
     let files_url = check(&doc.files, "files")?;
     let portal_url = doc.portal.as_deref().map(|p| check(p, "portal")).transpose()?;
     let matrix_url = doc.matrix.as_deref().map(|m| check(m, "matrix")).transpose()?;
+    let chat_web_url = doc.chat_web.as_deref().map(|m| check(m, "chat_web")).transpose()?;
+    let mail_web_url = doc.mail.as_deref().map(|m| check(m, "mail")).transpose()?;
     if doc.client_id.is_empty() || doc.client_id.len() > 128 || !doc.client_id.chars().all(|c| c.is_ascii_alphanumeric() || "-_.".contains(c)) {
         return Err(DiscoveryError::Invalid("client_id".into()));
     }
@@ -186,6 +196,8 @@ fn finish(domain: &str, doc: ClientDocument, source: Source, login_hint: Option<
         files_url,
         portal_url,
         matrix_url,
+        chat_web_url,
+        mail_web_url,
         source,
         login_hint,
         foreign_hosts: foreign,
@@ -272,8 +284,9 @@ pub async fn discover(f: &impl Fetcher, input: &Input) -> Result<Deployment, Dis
                     client_id: FALLBACK_CLIENT_ID.into(),
                     files: b.to_string(),
                     portal: Some(portal),
+                    chat_web: matrix.as_ref().map(|_| base_of(&domain, "chat").to_string()),
                     matrix,
-                    mail: None,
+                    mail: Some(base_of(&domain, "mail").to_string()),
                 };
                 return finish(&domain, doc, Source::WebFinger, hint);
             }

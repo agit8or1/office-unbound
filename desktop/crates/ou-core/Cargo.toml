@@ -18,6 +18,8 @@ thiserror = "2.0.21"
 tokio = { version = "1.54.1", features = ["net", "io-util", "time", "macros", "rt", "sync"] }
 url = "2.5.9"
 
+axum = { version = "0.8.9", optional = true }
+
 [target."cfg(windows)".dependencies]
 windows-sys = { version = "0.61.2", features = ["Win32_Security_Credentials", "Win32_Foundation"] }
 
@@ -28,4 +30,4 @@ tokio = { version = "1.54.1", features = ["full"] }
 
 [features]
 # Enables http:// to loopback for mock servers. Only dev-dependencies turn it on; release builds never do.
-test-support = []
+test-support = ["dep:axum"]

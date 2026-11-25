@@ -50,7 +50,7 @@ impl Account {
     pub fn origins(&self) -> OriginSet {
         let mut s = OriginSet::new();
         let d = &self.deployment;
-        for u in [Some(&d.issuer), Some(&d.files_url), d.portal_url.as_ref(), d.matrix_url.as_ref()].into_iter().flatten() {
+        for u in [Some(&d.issuer), Some(&d.files_url), d.portal_url.as_ref(), d.matrix_url.as_ref(), d.chat_web_url.as_ref(), d.mail_web_url.as_ref()].into_iter().flatten() {
             if let Ok(u) = url::Url::parse(u) {
                 s.add(&u);
             }
@@ -151,6 +151,8 @@ pub(crate) mod tests {
             files_url: format!("https://cloud.{domain}/"),
             portal_url: Some(format!("https://app.{domain}/")),
             matrix_url: Some(format!("https://matrix.{domain}/")),
+            chat_web_url: Some(format!("https://chat.{domain}/")),
+            mail_web_url: Some(format!("https://mail.{domain}/")),
             source: Source::WebFinger,
             login_hint: None,
             foreign_hosts: vec![],

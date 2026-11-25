@@ -87,6 +87,13 @@ pub fn decode_request(line: &str) -> Result<Request, IpcError> {
     serde_json::from_str(line).map_err(|_| IpcError::Invalid)
 }
 
+pub fn decode_line<T: serde::de::DeserializeOwned>(line: &str) -> Result<T, IpcError> {
+    if line.len() > MAX_LINE {
+        return Err(IpcError::TooLarge);
+    }
+    serde_json::from_str(line).map_err(|_| IpcError::Invalid)
+}
+
 pub fn encode<T: Serialize>(m: &T) -> String {
     let mut s = serde_json::to_string(m).expect("serialisable");
     s.push('\n');

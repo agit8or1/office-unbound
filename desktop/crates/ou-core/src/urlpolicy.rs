@@ -59,7 +59,8 @@ pub fn open_external(raw: &str, allowed: &OriginSet) -> Result<Url, UrlPolicyErr
         return Err(UrlPolicyError::Invalid);
     }
     let u = Url::parse(raw).map_err(|_| UrlPolicyError::Invalid)?;
-    if u.scheme() != "https" {
+    // https only (plus loopback http in test builds, for mock servers).
+    if !crate::http::allowed_scheme(&u) {
         return Err(UrlPolicyError::Scheme);
     }
     if !u.username().is_empty() || u.password().is_some() {
