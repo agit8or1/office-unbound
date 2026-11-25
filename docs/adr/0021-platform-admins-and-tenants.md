@@ -122,8 +122,10 @@ Users section.
    "Platform admins". Executed: `ics/tests/test_tenants_api.py` 6 passed, vitest 218 passed, vue-tsc clean. The DNS checker was run read-only
    against officeunbound8's real zone. Differences from section 2a found while building it:
    - the deployments do not sign mail with DKIM yet, so the DKIM row reads "Not available" instead of comparing a key;
-   - queries use the ICS host's resolver (as Network & domains does); querying the authoritative servers directly is still to do;
    - an A record to the public address is accepted in place of a CNAME;
+   - the zone's records are asked of the domain's authoritative servers (found from its NS records via the ICS host's resolver,
+     authorised in `docs/status/authorized-endpoints.md` 2026-11-25); a row falls back to the host's resolver, with a note, when they
+     do not answer; reverse DNS stays on the host's resolver; the result names the servers used;
    - `/administration/customers` stays as the policy editor (linked from the Policy tab) until step 2 moves its writes, so it is not a
      redirect yet.
 2. **Tenant settings writes** through `ConsoleTenantCtx` (users, groups, aliases, shared, quotas, apps, branding), with the tests above.

@@ -89,6 +89,80 @@ def test_no_caa_anywhere_allows_issuance_and_without_a_public_address_web_names_
     assert ("PTR", IP) not in b
 
 
+def _no_network_factory(addresses):
+    raise AssertionError(f"unexpected authoritative resolver for {addresses}")
+
+
+# ---------------------------------------------------------------- authoritative servers (public view), fakes only
+NS = {(DOM, "NS"): ["ns2.dnshost.test.", "ns1.dnshost.test."], ("ns1.dnshost.test", "A"): ["192.0.2.53"],
+      ("ns2.dnshost.test", "A"): ["192.0.2.54"], ("ns2.dnshost.test", "AAAA"): ["2001:db8::53"]}
+
+
+class TimeoutResolver(FakeResolver):
+    def resolve(self, name, rtype):
+        import dns.exception
+        self.asked.append((name, rtype))
+        raise dns.exception.Timeout()
+
+
+class Factory:
+    def __init__(self, auth):
+        self.auth, self.calls = auth, []
+
+    def __call__(self, addresses):
+        self.calls.append(list(addresses))
+        return self.auth
+
+
+def test_the_zone_is_asked_of_its_own_servers_and_ptr_stays_local():
+    stale = {**GOOD, **NS, (f"app.{DOM}", "A"): ["198.51.100.9"]}          # the local resolver still caches an old address
+    local, auth = FakeResolver(stale), FakeResolver(GOOD)
+    f, info = Factory(auth), {}
+    b = _by(tenants_api.dns_rows(_plan(), IP, local, f, info))
+    assert info["zone"] == DOM and info["servers"] == ["ns1.dnshost.test", "ns2.dnshost.test"] and info["servers_answered"]
+    assert f.calls == [["192.0.2.53", "192.0.2.54", "2001:db8::53"]]          # IPv4 first
+    assert b[("A", f"app.{DOM}")]["status"] == "ok"                           # the authoritative answer wins
+    assert all(tenants_api.FALLBACK_NOTE not in r["how"] for r in b.values())
+    # the domain's servers get only allowed types for names inside the zone; never PTR, NS, ANY or transfers
+    assert auth.asked and all(t in tenants_api.AUTH_TYPES and (n == DOM or n.endswith("." + DOM)) for n, t in auth.asked), auth.asked
+    assert ("7.113.0.203.in-addr.arpa", "PTR") in local.asked and b[("PTR", IP)]["status"] == "ok"
+    # the local resolver only found the servers (NS/A/AAAA), answered PTR, and the CAA names above the zone
+    assert all(t in ("NS", "A", "AAAA", "PTR") or (t == "CAA" and n == "example.com") for n, t in local.asked), local.asked
+    assert not any(t in ("ANY", "AXFR", "IXFR") for _, t in local.asked + auth.asked)
+
+
+def test_the_zone_is_found_by_walking_up_from_the_domain():
+    z = {**GOOD, ("example.com", "NS"): ["ns1.dnshost.test."], ("ns1.dnshost.test", "A"): ["192.0.2.53"]}
+    local, f, info = FakeResolver(z), Factory(FakeResolver(GOOD)), {}
+    tenants_api.dns_rows(_plan(), IP, local, f, info)
+    assert info["zone"] == "example.com" and info["servers"] == ["ns1.dnshost.test"]
+    assert [n for n, t in local.asked if t == "NS"] == [DOM, "example.com"]     # never the TLD
+    assert tenants_api.find_authoritative("acme.example", FakeResolver({})) == (None, [], [])
+
+
+def test_silent_authoritative_servers_fall_back_to_the_local_resolver_with_a_note():
+    local, auth = FakeResolver({**GOOD, **NS}), TimeoutResolver({})
+    info = {}
+    rows = tenants_api.dns_rows(_plan(), IP, local, Factory(auth), info)
+    b = _by(rows)
+    assert len(auth.asked) == 1                                               # gives up after the first failure, no retry storm
+    assert b[("A", f"app.{DOM}")]["status"] == "ok" and tenants_api.FALLBACK_NOTE in b[("A", f"app.{DOM}")]["how"]
+    assert tenants_api.FALLBACK_NOTE not in b[("PTR", IP)]["how"]
+    assert info["servers"] and info["servers_answered"] is False
+
+
+def test_no_nameservers_found_checks_locally_and_notes_it():
+    info = {}
+    b = _by(tenants_api.dns_rows(_plan(), IP, FakeResolver(GOOD), _no_network_factory, info))
+    assert info["servers"] == [] and b[("MX", DOM)]["status"] == "ok" and tenants_api.FALLBACK_NOTE in b[("MX", DOM)]["how"]
+
+
+def test_the_authoritative_resolver_asks_only_the_given_addresses_with_the_standard_timeout():
+    from ics import netsettings
+    r = tenants_api._auth_resolver(["192.0.2.53"])                            # built, not used: no query is sent
+    assert r.nameservers == ["192.0.2.53"] and r.lifetime == netsettings.TIMEOUT
+
+
 @pytest.fixture()
 def tenants(rt, world, monkeypatch):  # noqa: F811
     with rt.session() as db:
@@ -104,6 +178,7 @@ def tenants(rt, world, monkeypatch):  # noqa: F811
     monkeypatch.setattr(netsettings, "get", lambda db: real(db).model_copy(update={"public_ipv4": IP}))
     fake = FakeResolver(GOOD)
     monkeypatch.setitem(tenants_api.HOOKS, "resolver", fake)
+    monkeypatch.setitem(tenants_api.HOOKS, "authoritative", _no_network_factory)
     tenants_api._cache.clear()
     return fake
 
@@ -136,3 +211,15 @@ def test_a_viewer_without_customers_sees_no_tenant(world, tenants):  # noqa: F81
     c, _ = world["sessions"]["none"]
     assert c.get(f"{H}/tenants").json()["tenants"] == []
     assert c.get(f"{H}/tenants/{world['ca']}").status_code == 404
+
+
+def test_the_result_names_the_authoritative_servers_used(world, tenants, monkeypatch):  # noqa: F811
+    tenants.zone.update(NS)
+    auth = FakeResolver(GOOD)
+    monkeypatch.setitem(tenants_api.HOOKS, "authoritative", Factory(auth))
+    c, _ = world["sessions"]["all"]
+    r = c.get(f"{H}/tenants/{world['ca']}/dns", params={"deployment": "dep-a", "refresh": "true"}).json()
+    assert r["servers"] == ["ns1.dnshost.test", "ns2.dnshost.test"] and r["zone"] == DOM
+    assert "own name servers" in r["note"] and auth.asked
+    n = len(auth.asked)
+    assert c.get(f"{H}/tenants/{world['ca']}/dns", params={"deployment": "dep-a"}).json()["cached"] is True and len(auth.asked) == n

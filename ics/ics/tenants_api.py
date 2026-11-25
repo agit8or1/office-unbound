@@ -6,7 +6,12 @@ that is the customer's id still matches). Every route checks the operator's cust
 The DNS checker is read-only and checks ONLY names derived from the deployment's applied plan and the installation's public address
 (never a caller-supplied name). It reuses Network & domains' expected records (netsettings.requirements_for) and lookups
 (netsettings.check_record), and adds what a domain owner also needs: DMARC, the client-setup SRV records, CAA and reverse DNS. Results
-are kept for 24 hours per deployment, so the page opens without new queries; `refresh=true` checks again."""
+are kept for 24 hours per deployment, so the page opens without new queries; `refresh=true` checks again.
+
+Public view (authorized-endpoints.md, 2026-11-25): the zone's records are asked of the domain's own authoritative servers, found from
+its NS records through this server's resolver (walking up from the domain). Only A/AAAA/CNAME/MX/TXT/SRV/CAA for names inside that
+zone go to them; discovery uses NS/A/AAAA on the local resolver; PTR always stays local. No zone transfers, no ANY. When no
+authoritative server answers, the row is checked with the local resolver and says so."""
 from __future__ import annotations
 
 import time
@@ -22,7 +27,10 @@ from .tenancy import scope as tscope
 API = "/api/v1"
 CACHE_SECONDS = 24 * 3600
 _cache: dict[str, tuple[float, dict]] = {}
-HOOKS = {"resolver": None}   # tests replace the dnspython resolver
+HOOKS = {"resolver": None, "authoritative": None}   # tests replace the local resolver and the authoritative-resolver factory
+AUTH_TYPES = frozenset({"A", "AAAA", "CNAME", "MX", "TXT", "SRV", "CAA"})   # the only types sent to a domain's own servers
+MAX_NS = 4
+FALLBACK_NOTE = "The domain's own name servers did not answer, so this was checked with this server's resolver (it may show older, cached data)."
 
 
 def _iso(v):
@@ -79,15 +87,83 @@ def _lookup(r, name: str, rtype: str) -> tuple[str, list[str]]:
         return "error", [type(e).__name__]
 
 
+def _auth_resolver(addresses: list[str]):
+    """A dnspython resolver that asks only the given (authoritative) addresses, with the standard timeout."""
+    import dns.resolver
+    from . import netsettings
+    r = dns.resolver.Resolver(configure=False)
+    r.nameservers = list(addresses)
+    r.lifetime = netsettings.TIMEOUT
+    r.timeout = netsettings.TIMEOUT
+    return r
+
+
+def find_authoritative(dom: str, local) -> tuple[str | None, list[str], list[str]]:
+    """(zone, NS names, their addresses), walking up from the plan's domain with NS queries on the local resolver.
+    Stops before the top-level label: a TLD's servers are not the domain's. Addresses come from A/AAAA on the local resolver."""
+    labels = dom.rstrip(".").split(".")
+    for i in range(len(labels) - 1):
+        name = ".".join(labels[i:])
+        st, ns = _lookup(local, name, "NS")
+        if st == "ok" and ns:
+            names = sorted({n.rstrip(".").lower() for n in ns})[:MAX_NS]
+            v4, v6 = [], []
+            for n in names:
+                for rtype, acc in (("A", v4), ("AAAA", v6)):
+                    s2, ips = _lookup(local, n, rtype)
+                    if s2 == "ok":
+                        acc.extend(ip for ip in ips if ip not in acc)
+            return name, names, v4 + v6      # IPv4 first: the ICS host may have no IPv6 route
+        if st == "error":
+            return None, [], []
+    return None, [], []
+
+
+class _ZoneResolver:
+    """Sends in-zone A/AAAA/CNAME/MX/TXT/SRV/CAA queries to the zone's own servers, everything else to the local resolver.
+    If the authoritative servers fail (timeout, refused, no server), it stops asking them and records the names checked locally."""
+
+    def __init__(self, zone: str | None, auth, local):
+        self.zone, self.auth, self.local = zone, auth, local
+        self.dead = auth is None
+        self.fell_back: set[str] = set()
+
+    def in_zone(self, name: str) -> bool:
+        n = name.rstrip(".").lower()
+        return bool(self.zone) and (n == self.zone or n.endswith("." + self.zone))
+
+    def resolve(self, name, rtype):
+        import dns.exception
+        import dns.resolver
+        if rtype not in AUTH_TYPES or not self.zone or not self.in_zone(name):
+            return self.local.resolve(name, rtype)
+        if not self.dead:
+            try:
+                return self.auth.resolve(name, rtype)
+            except (dns.resolver.NXDOMAIN, dns.resolver.NoAnswer):
+                raise
+            except dns.exception.DNSException:
+                self.dead = True
+        self.fell_back.add(name.rstrip(".").lower())
+        return self.local.resolve(name, rtype)
+
+
 def _row(group, name, rtype, expected, status, found, why, how="", required=True):
     return {"group": group, "name": name, "type": rtype, "expected": expected, "status": status, "found": found, "why": why,
             "how": how, "required": required}
 
 
-def dns_rows(plan: dict, public_ipv4: str | None, resolver) -> list[dict]:
-    """Pure apart from the resolver: every record a deployment's domain needs, checked."""
+def dns_rows(plan: dict, public_ipv4: str | None, local, make_auth=None, info: dict | None = None) -> list[dict]:
+    """Pure apart from the resolvers: every record a deployment's domain needs, checked. The zone's records go to the domain's
+    authoritative servers (`make_auth(addresses)` builds that resolver); PTR and discovery use `local`. `info` receives the zone and
+    the authoritative server names used."""
     from . import netsettings
     dom = plan["input"]["domain"]
+    zone, servers, addrs = find_authoritative(dom, local)
+    auth = (make_auth or _auth_resolver)(addrs) if addrs else None
+    resolver = _ZoneResolver(zone or dom.lower(), auth, local)
+    if info is not None:
+        info.update({"zone": zone, "servers": servers if auth is not None else []})
     req = netsettings.requirements_for(plan, {}, public_ipv4)
     rows: list[dict] = []
     mail_host = next((r["name"] for r in req["records"] if r["type"] == "A" and r.get("component") == "groupware"), None)
@@ -140,10 +216,15 @@ def dns_rows(plan: dict, public_ipv4: str | None, resolver) -> list[dict]:
                      "Let's Encrypt may issue the public certificate only if CAA allows it", required=True))
     if public_ipv4 and mail_host:
         import dns.reversename
-        st, found = _lookup(resolver, dns.reversename.from_address(public_ipv4).to_text().rstrip("."), "PTR")
+        st, found = _lookup(local, dns.reversename.from_address(public_ipv4).to_text().rstrip("."), "PTR")   # PTR stays local
         rows.append(_row("Mail", public_ipv4, "PTR", mail_host, "ok" if mail_host in found else ("unknown" if st == "error" else ("differs" if found else "missing")),
                          found, "reverse DNS of the public address: receivers trust mail more when it names the mail server. Set by whoever "
                          "provides the address (your internet provider), not in your DNS zone", required=False))
+    for r in rows:
+        if r["type"] != "PTR" and r["name"].lower() in resolver.fell_back:
+            r["how"] = (r["how"] + " " if r["how"] else "") + FALLBACK_NOTE
+    if info is not None:
+        info["servers_answered"] = auth is not None and not resolver.dead
     return rows
 
 
@@ -162,11 +243,22 @@ def check_deployment(db, d, refresh: bool = False) -> dict:
         return {"deployment": d.slug, "domain": dom, "rows": [], "checked_at": None, "available": False,
                 "reason": f"{dom} is a reserved test name: it never has public DNS records"}
     s = netsettings.get(db)
-    rows = dns_rows(plan, s.public_ipv4, HOOKS["resolver"] or netsettings._resolver())
+    info: dict = {}
+    rows = dns_rows(plan, s.public_ipv4, HOOKS["resolver"] or netsettings._resolver(), HOOKS["authoritative"], info)
+    if info.get("servers") and info.get("servers_answered"):
+        note = (f"Checked with the domain's own name servers ({', '.join(info['servers'])}), so changes show at once. Reverse DNS "
+                "is checked with this server's resolver.")
+    elif info.get("servers"):
+        note = ("The domain's own name servers did not answer every question; those rows were checked with this server's resolver, "
+                "where a record you just changed can take up to its TTL to show.")
+    else:
+        note = ("The domain's name servers could not be found, so this was checked with this server's resolver: a record you just "
+                "changed can take up to its TTL to show.")
     out = {"deployment": d.slug, "domain": dom, "public_ipv4": s.public_ipv4, "available": True, "rows": rows,
+           "zone": info.get("zone"), "servers": info.get("servers", []),
            "checked_at": time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime()),
            "summary": {k: sum(1 for r in rows if r["status"] == k) for k in ("ok", "missing", "differs", "unknown", "not_available")},
-           "note": "Checked from this server with its own resolver. A record you just changed can take up to its TTL to show."}
+           "note": note}
     _cache[d.slug] = (time.time(), out)
     return {**out, "cached": False}
 
