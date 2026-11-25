@@ -1,0 +1,146 @@
+[
+ {
+  "size": "desktop",
+  "scheme": "light",
+  "app": "portal",
+  "url": "https://app.officeunbound.com/",
+  "bg": "rgb(247, 245, 240)",
+  "dark": false,
+  "overflow": false
+ },
+ {
+  "size": "desktop",
+  "scheme": "light",
+  "app": "mail",
+  "url": "https://mail.officeunbound.com/web/",
+  "bg": "rgb(255, 255, 255)",
+  "dark": false,
+  "overflow": false
+ },
+ {
+  "size": "desktop",
+  "scheme": "light",
+  "app": "calendar",
+  "url": "https://mail.officeunbound.com/web/",
+  "bg": "rgb(255, 255, 255)",
+  "dark": false,
+  "overflow": false
+ },
+ {
+  "size": "desktop",
+  "scheme": "light",
+  "app": "contacts",
+  "url": "https://mail.officeunbound.com/web/",
+  "bg": "rgb(255, 255, 255)",
+  "dark": false,
+  "overflow": false
+ },
+ {
+  "size": "desktop",
+  "scheme": "light",
+  "app": "files",
+  "url": "https://cloud.officeunbound.com/files/spaces/personal/doctest",
+  "bg": "rgb(255, 255, 255)",
+  "dark": false,
+  "overflow": false
+ },
+ {
+  "size": "desktop",
+  "scheme": "light",
+  "app": "chat",
+  "url": "chrome-error://chromewebdata/",
+  "bg": "transparent",
+  "dark": null,
+  "overflow": false
+ },
+ {
+  "size": "desktop",
+  "scheme": "dark",
+  "app": "portal",
+  "url": "https://app.officeunbound.com/",
+  "bg": "rgb(14, 21, 31)",
+  "dark": true,
+  "overflow": false
+ },
+ {
+  "size": "desktop",
+  "scheme": "dark",
+  "app": "mail",
+  "url": "https://mail.officeunbound.com/web/",
+  "bg": "rgb(255, 255, 255)",
+  "dark": false,
+  "overflow": false
+ },
+ {
+  "size": "desktop",
+  "scheme": "dark",
+  "app": "calendar",
+  "url": "https://mail.officeunbound.com/web/",
+  "bg": "rgb(255, 255, 255)",
+  "dark": false,
+  "overflow": false
+ },
+ {
+  "size": "desktop",
+  "scheme": "dark",
+  "app": "contacts",
+  "url": "https://mail.officeunbound.com/web/",
+  "bg": "rgb(255, 255, 255)",
+  "dark": false,
+  "overflow": false
+ },
+ {
+  "size": "desktop",
+  "scheme": "dark",
+  "app": "files",
+  "url": "https://cloud.officeunbound.com/files/spaces/personal/doctest",
+  "bg": "rgb(26, 37, 52)",
+  "dark": true,
+  "overflow": false
+ },
+ {
+  "size": "desktop",
+  "scheme": "dark",
+  "app": "chat",
+  "url": "chrome-error://chromewebdata/",
+  "bg": "transparent",
+  "dark": null,
+  "overflow": false
+ },
+ {
+  "size": "phone",
+  "scheme": "light",
+  "app": "portal",
+  "url": "https://app.officeunbound.com/",
+  "bg": "rgb(247, 245, 240)",
+  "dark": false,
+  "overflow": false
+ },
+ {
+  "size": "phone",
+  "scheme": "light",
+  "app": "mail",
+  "url": "https://mail.officeunbound.com/web/",
+  "bg": "rgb(255, 255, 255)",
+  "dark": false,
+  "overflow": false
+ },
+ {
+  "size": "phone",
+  "scheme": "dark",
+  "app": "portal",
+  "url": "https://app.officeunbound.com/",
+  "bg": "rgb(14, 21, 31)",
+  "dark": true,
+  "overflow": false
+ },
+ {
+  "size": "phone",
+  "scheme": "dark",
+  "app": "mail",
+  "url": "https://mail.officeunbound.com/web/",
+  "bg": "rgb(255, 255, 255)",
+  "dark": false,
+  "overflow": false
+ }
+]

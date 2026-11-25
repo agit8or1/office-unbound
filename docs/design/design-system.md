@@ -129,7 +129,8 @@ the accent is `brand.fill_shade(action)`: the lightest shade of the action teal 
 components), dark `#4ea29b`; as text it stays at 4.5:1 or more on the timeline and the room list (`test_brand.py`). Light keeps the
 action teal (white 6.2:1). Known gap: normal-size white text on the dark accent is below 4.5:1, and the accent as text on Element's
 menus and the selected room is about 4.3:1 and 3.6:1. Element's compound text and focus colours keep the brighter action teal.
-Not yet seen in a browser: chat reaches officeunbound8 with the in-place change; screenshots then.
+Seen in a browser on officeunbound8 (2026-11-25, `docs/screenshots/live-0.13.6/`): sign-in through Keycloak and MAS, Element home in the
+light theme with the action teal. Element's identity-confirmation screen keeps its stock background image (not themed).
 
 ## Evidence
 
