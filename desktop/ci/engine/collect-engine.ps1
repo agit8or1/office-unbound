@@ -45,10 +45,10 @@ $queue.Enqueue($cmd.FullName)
 
 # Run-time loaded pieces: Qt network plugins, OpenSSL (dynamically loaded by the TLS backend), qt.conf.
 $extra = @()
-foreach ($p in @("tls", "networkinformation")) {
-  $pd = Get-ChildItem $x -Recurse -Directory -Filter $p | Where-Object { $_.Parent.Name -eq "plugins" } | Select-Object -First 1
-  if ($pd) { Get-ChildItem $pd.FullName -Filter "*.dll" | ForEach-Object { $extra += $_.FullName } }
-}
+$pluginDirs = @(Get-ChildItem $x -Recurse -Directory | Where-Object { $_.Name -in @("tls", "networkinformation") })
+Write-Host "plugin dirs: $(($pluginDirs | ForEach-Object { [IO.Path]::GetRelativePath($x, $_.FullName) }) -join ', ')"
+foreach ($pd in $pluginDirs) { Get-ChildItem $pd.FullName -Filter "*.dll" | ForEach-Object { $extra += $_.FullName } }
+if (-not $pluginDirs) { Write-Host "::warning::no Qt tls/networkinformation plugin dirs in the package" }
 $extra += @(Get-ChildItem $root -Filter "lib*ssl*.dll") + @(Get-ChildItem $root -Filter "lib*crypto*.dll") | ForEach-Object { $_.FullName }
 foreach ($e in $extra) { $queue.Enqueue($e) }
 
@@ -59,7 +59,10 @@ while ($queue.Count) {
   if ($seen.ContainsKey($key)) { continue }
   $seen[$key] = $true
   $rel = [IO.Path]::GetRelativePath($root, $f)
-  if ($rel.StartsWith("..")) { $rel = Join-Path "plugins" ([IO.Path]::GetRelativePath((Split-Path (Split-Path $f)), $f)) }
+  # Plugins live outside bin/ in the portable layout: put them in plugins/<type>/ next to the exe (qt.conf below).
+  if ($rel.StartsWith("..") -or (Split-Path $f -Parent | Split-Path -Leaf) -in @("tls", "networkinformation")) {
+    $rel = Join-Path "plugins" ([IO.Path]::GetRelativePath((Split-Path (Split-Path $f)), $f))
+  }
   $dest = Join-Path $OutDir $rel
   New-Item -ItemType Directory -Force -Path (Split-Path $dest) | Out-Null
   Copy-Item $f $dest -Force
@@ -68,9 +71,8 @@ while ($queue.Count) {
     if ($shipped.ContainsKey($n)) { $queue.Enqueue($shipped[$n]) } else { $system++ }
   }
 }
-$qtconf = Join-Path $root "qt.conf"
-if (Test-Path $qtconf) { Copy-Item $qtconf $OutDir }
-# Without a qt.conf, Qt looks for plugins next to the exe in plugins/ (the layout used above).
+# Our own qt.conf: the upstream one points at the portable layout (bin/ + ../plugins), ours is flat.
+Set-Content -Path (Join-Path $OutDir "qt.conf") -Value "[Paths]`nPrefix = .`nPlugins = plugins"
 
 $files = Get-ChildItem $OutDir -Recurse -File
 Write-Host "collected $($files.Count) files, $((($files | Measure-Object Length -Sum).Sum)) bytes; $system import(s) resolved by Windows itself"
@@ -88,5 +90,8 @@ foreach ($a in @("--version", "--help")) {
   if ($code -ne -1073741515 -and $o.Trim().Length -gt 0) { $ok = $true }   # 0xC0000135 = DLL not found
 }
 if (-not $ok) { throw "collected opencloudcmd.exe does not start in isolation" }
+$tls = @(Get-ChildItem (Join-Path $OutDir "plugins\tls") -Filter "*.dll" -ErrorAction SilentlyContinue | ForEach-Object { $_.Name })
+Write-Host "TLS backends shipped: $($tls -join ', ')"
+if (-not $tls) { throw "no Qt TLS backend collected: HTTPS would fail at run time" }
 @("opencloudcmd $Tag ($Commit) for Windows x64, built by .github/workflows/desktop-engine-windows.yml (unsigned).",
   "Collected from upstream's PortablePackager output $($pkg.Name).") | Set-Content (Join-Path $OutDir "BUILDINFO.txt")
