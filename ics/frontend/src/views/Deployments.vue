@@ -23,7 +23,7 @@ const split = computed(() => splitDeployments(dep.data.value?.data ?? []))
 const live = computed(() => split.value.live)
 const gone = computed(() => split.value.gone)
 const rows = computed(() => (showGone.value ? [...live.value, ...gone.value] : live.value))
-const cols2 = [...cols, { key: 'people', label: '' }]
+const cols2 = [...cols, { key: 'people', label: 'People' }]  // a header with text (axe: empty-table-header)
 </script>
 <template>
   <div class="page">
