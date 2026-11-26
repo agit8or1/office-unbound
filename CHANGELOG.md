@@ -10,6 +10,25 @@ isolated lab; nothing is production supported ([ROADMAP.md](ROADMAP.md)).
 
 ## [Unreleased]
 
+## [0.13.12] - 2026-11-26
+
+### Added
+- **DKIM signing** of outgoing mail (owner 2026-11-26: the DNS checker must give the DKIM record): each deployment gets its own RSA 2048
+  signing key, made by the ICS and kept vault-encrypted; only the mail VM receives it (redacted in the audit log). The mail server runs
+  OpenDKIM (Ubuntu `opendkim` 2.11.0~beta2-9build4) as Postfix's milter and signs mail handed over on the server (webmail, ActiveSync,
+  Outlook) and authenticated submission; mail arriving from the internet is not signed. Selector `ou1`.
+- Both DNS checkers (console tenant page and the tenant portal's Domains page) show the exact record to publish,
+  `ou1._domainkey.<domain> TXT "v=DKIM1; k=rsa; p=…"`, and compare the published key with the deployment's key, also when a DNS
+  provider splits the value into several strings (`ics/tests/test_dkim.py`, `ics/tests/test_tenants_api.py`).
+- Node agent **0.10.4** (feature `dkim`); groupware configuration revision 3, so running deployments get signing with their next change.
+
+### Changed
+- The catalog accepts Debian versions with `~` (a pre-release, as in `2.11.0~beta2`); `~>`-style ranges are still refused.
+
+### Note
+- Internet mail out stays disabled on deployments (PA-40/OA-6: outbound TCP 25, PTR, an external test mailbox): signing is in place so
+  the DNS record can be published before outgoing internet mail is turned on.
+
 ## [0.13.11] - 2026-11-26
 
 ### Fixed
@@ -802,6 +821,7 @@ editing, chat/meetings, telephony prototype, migration tooling and package pipel
 - `SECURITY.md` (private reporting) and `CONTRIBUTING.md` (DCO sign-off) added; AGPL-3.0 license. [SECURITY](SECURITY.md)
 
 [Unreleased]: https://github.com/agit8or1/office-unbound/compare/v0.4.7...HEAD
+[0.13.12]: https://github.com/agit8or1/office-unbound/compare/v0.13.11...v0.13.12
 [0.13.11]: https://github.com/agit8or1/office-unbound/compare/v0.13.10...v0.13.11
 [0.13.10]: https://github.com/agit8or1/office-unbound/compare/v0.13.9...v0.13.10
 [0.13.9]: https://github.com/agit8or1/office-unbound/compare/v0.13.8...v0.13.9

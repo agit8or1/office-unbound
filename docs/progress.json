@@ -5,8 +5,21 @@
   "repository": "https://github.com/agit8or1/office-unbound",
   "updated": "2026-11-25",
   "stage": "alpha",
-  "current_version": "0.13.11",
+  "current_version": "0.13.12",
   "releases": [
+    {
+      "version": "0.13.12",
+      "date": "2026-11-26",
+      "status": "prepared",
+      "codename": "Meridian",
+      "channel": "alpha",
+      "highlights": [
+        "0.13.12: outgoing mail is signed with the deployment's own DKIM key, and the DNS checkers show the exact DKIM record to publish and check it",
+        "0.13.12: node agent 0.10.4"
+      ],
+      "notes_url": "https://github.com/agit8or1/office-unbound/releases/tag/v0.13.12",
+      "changelog": "CHANGELOG.md#01312---2026-11-26"
+    },
     {
       "version": "0.13.11",
       "date": "2026-11-26",
