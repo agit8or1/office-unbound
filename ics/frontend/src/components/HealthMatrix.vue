@@ -23,6 +23,15 @@ const tree = computed(() => {
   }))
 })
 const MAXG = 14
+// nodes with nothing of ours on them: one line, not a row each saying "No resources reported"
+const busy = (x: { storage: Res[]; networks: Res[]; guests: Res[] }) => x.storage.length + x.networks.length + x.guests.length > 0
+// health checks grouped by their owner (the deployment or cluster the name starts with), full names without that prefix
+const checkGroups = computed(() => {
+  const g = new Map<string, Check[]>()
+  for (const c of props.checks ?? []) { const k = c.name.split('-')[0] || c.name; g.set(k, [...(g.get(k) ?? []), c]) }
+  return [...g.entries()].map(([k, list]) => ({ k, list, ok: list.filter((c) => c.state === 'ok').length }))
+})
+const rest = (c: Check, k: string) => (c.name.startsWith(k + '-') ? c.name.slice(k.length + 1) : c.name)
 </script>
 <template>
   <Card title="Health matrix" hint="Cluster, node, storage, network and guests. Select any item to drill down.">
@@ -30,7 +39,7 @@ const MAXG = 14
     <div v-else class="matrix">
       <div v-for="t in (infra.connected ? tree : [])" :key="t.c.id" class="mcluster">
         <div class="mh"><StatusDot :s="t.c.status" /><router-link v-if="t.c.id" :to="link(t.c)">{{ t.c.name }}</router-link><span v-else>{{ t.c.name }}</span><span class="muted small">{{ t.nodes.length }} node{{ t.nodes.length === 1 ? '' : 's' }}</span></div>
-        <div v-for="x in t.nodes" :key="x.n.id" class="mnode">
+        <div v-for="x in t.nodes.filter(busy)" :key="x.n.id" class="mnode">
           <div class="nm"><StatusDot :s="x.n.status" /><router-link :to="link(x.n)">{{ x.n.name }}</router-link></div>
           <div class="mlayers">
             <div v-if="x.storage.length" class="mlayer"><span class="lt">Storage</span><router-link v-for="s in x.storage" :key="s.id" :to="link(s)" class="cell" :class="cellTone(s)"><StatusDot :s="(s.disk ?? 0) >= 90 ? 'critical' : (s.disk ?? 0) >= 80 ? 'warning' : s.status" /><span>{{ s.name }}<template v-if="s.disk !== null"> <b>{{ Math.round(s.disk) }}%</b></template></span></router-link></div>
@@ -39,14 +48,24 @@ const MAXG = 14
               <router-link v-for="g in x.guests.slice(0, MAXG)" :key="g.id" :to="link(g)" class="cell" :class="cellTone(g)"><StatusDot :s="g.status" /><span>{{ g.name }}</span></router-link>
               <router-link v-if="x.guests.length > MAXG" :to="'/infrastructure/vms'" class="cell"><span>+{{ x.guests.length - MAXG }} more</span></router-link>
             </div>
-            <div v-if="!x.storage.length && !x.networks.length && !x.guests.length" class="muted small">No resources reported for this node.</div>
           </div>
+        </div>
+        <div v-if="t.nodes.some((x) => !busy(x))" class="mnode idle">
+          <div class="nm muted small">No guests of ours</div>
+          <div class="mlayer"><router-link v-for="x in t.nodes.filter((y) => !busy(y))" :key="x.n.id" :to="link(x.n)" class="cell" :class="cellTone(x.n)"><StatusDot :s="x.n.status" /><span>{{ x.n.name }}</span></router-link></div>
         </div>
       </div>
       <div v-if="checks?.length" class="mcluster">
-        <div class="mh"><span class="muted">Services</span><span class="muted small">health checks</span></div>
-        <div class="mlayer"><router-link v-for="c in checks" :key="c.id" :to="'/checks/' + c.id" class="cell" :class="cellTone({ status: c.state } as Res)"><StatusDot :s="c.state" /><span>{{ c.name }}</span></router-link></div>
+        <div class="mh"><span>Health checks</span><span class="muted small">{{ (checks ?? []).filter((c) => c.state === 'ok').length }} of {{ checks.length }} passing</span></div>
+        <div v-for="g in checkGroups" :key="g.k" class="mnode">
+          <div class="nm"><StatusDot :s="g.ok === g.list.length ? 'ok' : 'warning'" /><span>{{ g.k }}</span><span class="muted small">{{ g.ok }}/{{ g.list.length }}</span></div>
+          <div class="mlayer chks"><router-link v-for="c in g.list" :key="c.id" :to="'/checks/' + c.id" class="cell" :class="cellTone({ status: c.state } as Res)" :title="c.name + (c.last_message ? ': ' + c.last_message : '')"><StatusDot :s="c.state" /><span>{{ rest(c, g.k) }}</span></router-link></div>
+        </div>
       </div>
     </div>
   </Card>
 </template>
+<style scoped>
+.chks .cell { max-width: 100%; }   /* full check names on one line; the 200px cap is for guest names */
+.mnode.idle { align-items: center; }
+</style>

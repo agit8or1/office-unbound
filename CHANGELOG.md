@@ -22,6 +22,10 @@ isolated lab; nothing is production supported ([ROADMAP.md](ROADMAP.md)).
   health checks, last change; each opens its tab) and tabs (Overview, People, DNS records, Activity, Resources, Diagnostics, Sizing) instead
   of one 4,300-pixel column; Resources are grouped by kind with a filter and aligned columns, including each check's detail; the guest
   start-up card shows one line per enrolled VM; the mail-app settings and the tab bar fit a phone screen.
+- **Overview layout**: two columns that fill independently (utilization and the health matrix left; distribution and deployment
+  activity right), so no card is stretched half-empty; distribution as compact bars instead of two large rings; the health matrix lists
+  nodes without our guests on one line and groups health checks by deployment or cluster with full names and a passing count; a failed
+  job stays under "Failed" only until the same action succeeds again.
 - Portal configuration revision 2: running deployments get the tenant admin area (Domains with the DKIM record, People, ...) with their
   next change once Settings → Network & domains has the console's public name.
 

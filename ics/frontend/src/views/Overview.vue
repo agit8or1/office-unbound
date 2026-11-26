@@ -10,7 +10,6 @@ import HealthMatrix from '../components/HealthMatrix.vue'
 import IncidentList from '../components/IncidentList.vue'
 import AppsDashboard from '../components/AppsDashboard.vue'
 import UtilizationPanel from '../components/UtilizationPanel.vue'
-import Donut from '../charts/Donut.vue'
 import Card from '../ui/Card.vue'
 import StatCard from '../ui/StatCard.vue'
 import StatusBadge from '../ui/StatusBadge.vue'
@@ -52,7 +51,13 @@ const activeDeploys = computed(() => (deployments.data.value?.data ?? []).filter
 const pendingPlans = computed(() => (plans.data.value ?? []).filter((p) => p.status === 'pending_approval'))
 const activeJobs = computed(() => (jobs.data.value ?? []).filter((j) => j.status === 'running' || j.status === 'queued'))
 const pendingOps = computed(() => pendingPlans.value.length + activeJobs.value.length)
-const failedJobs = computed(() => (jobs.data.value ?? []).filter((j) => j.status === 'failed' && now.value - +new Date(j.created_at) < 7 * 86400e3).slice(0, 5))
+// a failure stays listed only until the same action succeeds again (owner 2026-11-26 overview clean-up: five long-fixed failures read as an outage)
+const failedJobs = computed(() => {
+  const all = jobs.data.value ?? []
+  const lastOk = new Map<string, number>()
+  for (const j of all) if (j.status === 'succeeded') lastOk.set(j.action, Math.max(lastOk.get(j.action) ?? 0, +new Date(j.created_at)))
+  return all.filter((j) => j.status === 'failed' && now.value - +new Date(j.created_at) < 7 * 86400e3 && +new Date(j.created_at) > (lastOk.get(j.action) ?? 0)).slice(0, 5)
+})
 const failedDeploys = computed(() => (deployments.data.value?.data ?? []).filter((d) => d.status === 'failed'))
 const recent = computed(() => (jobs.data.value ?? []).filter((j) => j.status === 'succeeded' || j.status === 'failed').slice(0, 6))
 const activeWindows = computed(() => (windows.data.value ?? []).filter((w) => w.active))
@@ -112,21 +117,25 @@ const notReady = computed(() => ready.data.value && !ready.data.value.ready ? Ob
     </div>
     <AppsDashboard />
 
-    <div v-if="i.connected" class="grid main-side">
-      <UtilizationPanel :scopes="scopes" :connected="i.connected" />
-      <Card title="Distribution" hint="Where your guests live">
-        <div v-if="i.guests.length">
-          <p class="subhead">By state</p>
-          <Donut :items="guestDist" caption="guests" />
-          <p v-if="perNode.length" class="subhead">By node</p>
-          <Donut v-if="perNode.length" :items="perNode" caption="guests" />
+    <!-- two columns that fill independently: metrics and health on the left, the short cards stacked on the right (no stretched, half-empty cards) -->
+    <div class="grid main-side ovcols">
+      <div class="ovcol">
+        <UtilizationPanel v-if="i.connected" :scopes="scopes" :connected="i.connected" />
+        <HealthMatrix :infra="i" :checks="checks.data.value ?? []" />
+      </div>
+      <div class="ovcol">
+      <Card v-if="i.connected" title="Distribution" hint="Where your guests live">
+        <div v-if="i.guests.length" class="dist">
+          <template v-for="grp in [{ t: 'By state', items: guestDist }, { t: 'By node', items: perNode }]" :key="grp.t">
+            <p v-if="grp.items.length" class="subhead">{{ grp.t }}</p>
+            <ul v-if="grp.items.length" class="bars">
+              <li v-for="x in grp.items" :key="x.label"><span class="bl">{{ x.label }}</span>
+                <span class="bt"><span class="bf" :style="{ width: Math.max(4, Math.round(100 * x.value / i.guests.length)) + '%' }" /></span><b>{{ x.value }}</b></li>
+            </ul>
+          </template>
         </div>
         <EmptyState v-else compact icon="vm" title="No guests yet" text="Virtual machines and containers show up here once discovered or deployed." />
       </Card>
-    </div>
-
-    <div class="grid main-side">
-      <HealthMatrix :infra="i" :checks="checks.data.value ?? []" />
       <Card title="Deployment activity">
         <template #actions><Button size="sm" variant="ghost" to="/deployments">Deployments</Button></template>
         <p class="subhead">In progress</p>
@@ -157,10 +166,19 @@ const notReady = computed(() => ready.data.value && !ready.data.value.ready ? Ob
         </ul>
         <p v-else class="muted small">No completed jobs yet.</p>
       </Card>
+      </div>
     </div>
   </div>
 </template>
 <style scoped>
+.ovcols { align-items: start; }
+.ovcol { display: flex; flex-direction: column; gap: 18px; min-width: 0; }
+.bars { list-style: none; margin: 0 0 6px; padding: 0; display: grid; gap: 8px; }
+.bars li { display: grid; grid-template-columns: minmax(64px, 30%) 1fr auto; gap: 10px; align-items: center; font-size: 13px; }
+.bars .bl { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; color: var(--muted); }
+.bars .bt { height: 8px; border-radius: 4px; background: var(--surface2); overflow: hidden; }
+.bars .bf { display: block; height: 100%; border-radius: 4px; background: var(--teal); }
+.bars b { font-variant-numeric: tabular-nums; min-width: 2ch; text-align: right; }
 .vis-note { display: flex; flex-wrap: wrap; align-items: center; gap: 6px; margin: -4px 0 0; }
 .vis-note svg { width: 16px; height: 16px; flex: none; }
 </style>
