@@ -57,3 +57,11 @@ regexTarget = "match"
 regexes = ['''^-----BEGIN (RSA )?PRIVATE KEY-----"\) end="-----END (RSA )?PRIVATE KEY-----''']
 paths = ['''^blueprints/build/collabora/oci/entrypoint\.sh$''']
 condition = "AND"
+
+[[allowlists]]
+description = "fake JWT in the desktop redaction unit test (header {alg:RS256}, payload {sub:doctest}, signature 'signat'): proves Bearer/JWT values are redacted; no real token"
+targetRules = ["jwt"]
+regexTarget = "line"
+regexes = ['''^\s*const JWT: &str = "eyJ''']
+paths = ['''^desktop/crates/ou-core/src/redact\.rs$''']
+condition = "AND"
