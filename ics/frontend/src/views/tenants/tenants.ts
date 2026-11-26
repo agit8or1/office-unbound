@@ -25,6 +25,8 @@ export interface DnsResult {
 export const tenantsApi = {
   list: () => get<{ mode: 'single' | 'multi' | null; tenants: Tenant[] }>('tenants'),
   one: (id: string) => get<Tenant>(`tenants/${encodeURIComponent(id)}`),
+  deploymentDns: (deployment: string, refresh = false) =>
+    get<DnsResult>(`deployments/${encodeURIComponent(deployment)}/dns${refresh ? '?refresh=true' : ''}`),
   dns: (id: string, deployment: string, refresh = false) =>
     get<DnsResult>(`tenants/${encodeURIComponent(id)}/dns?deployment=${encodeURIComponent(deployment)}${refresh ? '&refresh=true' : ''}`),
 }

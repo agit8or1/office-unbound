@@ -114,6 +114,14 @@ def register_routes(app: FastAPI, rt) -> None:
         return {**_clean(d, "desired_spec"), "desired_spec": d.desired_spec, "revisions": [_clean(r) for r in revs],
                 "resource_summary": [{"kind": c.kind, "state": c.state, "count": c.n} for c in counts]}
 
+    @app.get(f"{API}/deployments/{{slug}}/dns")
+    def deployment_dns(slug: str, request: Request, refresh: bool = False, user: User = Depends(require("viewer")),
+                       db: Session = Depends(get_db)):
+        """The DNS records the deployment's domain needs (incl. its DKIM key) and what public DNS holds now: the tenant checker, per
+        deployment (owner 2026-11-26: "dns records should be under the deployment"). Read-only; scope-checked like every deployment read."""
+        from .. import tenants_api
+        return tenants_api.check_deployment(db, _get(db, slug), refresh, request.app.state.rt)
+
     @app.get(f"{API}/deployments/{{slug}}/resources")
     def resources(slug: str, user: User = Depends(require("viewer")), db: Session = Depends(get_db)):
         d = _get(db, slug)

@@ -178,7 +178,7 @@ def tenants(rt, world, monkeypatch):  # noqa: F811
     from ics import netsettings
     real = netsettings.get
     monkeypatch.setattr(netsettings, "get", lambda db: real(db).model_copy(update={"public_ipv4": IP}))
-    fake = FakeResolver(GOOD)
+    fake = FakeResolver(dict(GOOD))   # a copy: tests add records to their own zone (zone.update), never to GOOD
     monkeypatch.setitem(tenants_api.HOOKS, "resolver", fake)
     monkeypatch.setitem(tenants_api.HOOKS, "authoritative", _no_network_factory)
     tenants_api._cache.clear()
@@ -293,3 +293,20 @@ def test_the_dkim_record_is_read_only_and_matches_the_key_sent_to_the_mail_serve
     with rt.session() as db:
         configure.wipe(db, dep)
         db.commit()
+
+
+def test_the_deployment_page_has_the_same_dns_check_with_its_dkim_record(rt, world, tenants):  # noqa: F811
+    from ics.deploy import configure
+    c, _ = world["sessions"]["all"]
+    r = c.get(f"{H}/deployments/dep-a/dns").json()
+    dk = next(x for x in r["rows"] if "_domainkey" in x["name"])
+    assert r["available"] and r["domain"] == DOM and dk["status"] == "not_available"          # no key made yet
+    with rt.session() as db:
+        dep = str(db.execute(text("SELECT id FROM deployments WHERE slug = 'dep-a'")).scalar())
+    pem = configure.dkim_key(rt, dep)
+    r = c.get(f"{H}/deployments/dep-a/dns", params={"refresh": "true"}).json()
+    dk = next(x for x in r["rows"] if "_domainkey" in x["name"])
+    assert dk["name"] == f"ou1._domainkey.{DOM}" and dk["expected"] == configure.dkim_txt(pem) and dk["status"] == "missing"
+    assert c.get(f"{H}/deployments/nope/dns").status_code == 404
+    n, _ = world["sessions"]["none"]
+    assert n.get(f"{H}/deployments/dep-a/dns").status_code == 404                               # outside the operator's scope

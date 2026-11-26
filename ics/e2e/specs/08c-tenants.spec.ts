@@ -232,3 +232,33 @@ test('overview: each deployment lists its VMs (location, size, agent, health) an
   for (const i of issues) finding('console/network', 'tenants/<id>/overview', i, info)
   expect(issues).toEqual([])
 })
+
+test('deployment page: the DNS records card shows the DKIM record to publish, copyable, without sideways scrolling', async ({ page, context }) => {
+  await context.grantPermissions(['clipboard-read', 'clipboard-write'])
+  const KEY = 'v=DKIM1; k=rsa; p=' + 'MIIBIjANBgkqhkiG9w0BAQEFAAOCAQ8AMIIBCgKCAQEA'.repeat(9) + 'IDAQAB'
+  const rows = [ROWS[0], row('Mail', `ou1._domainkey.${DOM}`, 'TXT', KEY, 'differs', ['v=DKIM1; p='], 'DKIM: receivers check the signature', false)]
+  const calls: string[] = []
+  await page.route((u) => u.pathname === '/api/v1/deployments/e2e-dns', (r) => r.fulfill({ status: 200, contentType: 'application/json',
+    body: JSON.stringify({ slug: 'e2e-dns', status: 'active', profile: 'small', desired_spec: {}, revisions: [], resource_summary: [] }) }))
+  await page.route((u) => u.pathname === '/api/v1/deployments/e2e-dns/dns', (r) => {
+    calls.push(r.request().url())
+    return r.fulfill({ status: 200, contentType: 'application/json', body: JSON.stringify({ deployment: 'e2e-dns', domain: DOM, public_ipv4: IP,
+      available: true, rows, checked_at: '2026-11-26T09:00:00Z', cached: false, summary: { ok: 1, missing: 0, differs: 1, unknown: 0, not_available: 0 }, note: '' }) })
+  })
+  await gotoRoute(page, 'deployments/e2e-dns')
+  const card = page.getByTestId('deployment-dns')
+  await expect(card).toContainText('DNS records')
+  await card.getByTestId('dns-check').click()
+  await expect(card.getByTestId('dns-check')).toHaveText('Check again')
+  await expect(card).toContainText(DOM)
+  const copy = card.getByRole('button', { name: `Copy the value for ou1._domainkey.${DOM}` })
+  await copy.click()
+  expect(await page.evaluate(() => navigator.clipboard.readText())).toBe(KEY)
+  expect(calls.length).toBe(1)
+  for (const w of [320, 1366]) {
+    await page.setViewportSize({ width: w, height: 900 })
+    await page.waitForTimeout(150)
+    const sw = await page.evaluate(() => ({ sw: document.documentElement.scrollWidth, iw: innerWidth }))
+    expect.soft(sw.sw, `deployment DNS card at ${w}px`).toBeLessThanOrEqual(sw.iw)
+  }
+})

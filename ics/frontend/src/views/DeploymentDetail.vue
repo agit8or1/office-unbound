@@ -16,6 +16,7 @@ import AppsPanel from '../components/AppsPanel.vue'
 import PeoplePanel from '../components/PeoplePanel.vue'
 import DiagnosticsPanel from '../components/DiagnosticsPanel.vue'
 import ResizePanel from '../wizards/deploy/ResizePanel.vue'
+import DnsCheck from './tenants/DnsCheck.vue'
 import { hasRole } from '../store'
 
 const props = defineProps<{ id: string }>()
@@ -43,6 +44,11 @@ const s = (v: unknown) => (v === undefined || v === null ? '-' : String(v))
       <AppsPanel v-if="hasRole('admin')" :slug="props.id" />
       <BootstrapPanel :slug="props.id" />
       <DiagnosticsPanel v-if="hasRole('admin')" :slug="props.id" />
+      <Card title="DNS records" data-testid="deployment-dns">
+        <p class="muted">The records this deployment's domain needs at its DNS provider, including the DKIM key that signs its mail,
+          compared with what public DNS holds now.</p>
+        <DnsCheck :deployment="props.id" :domain="null" />
+      </Card>
       <div class="grid cols-2">
         <Card title="Resources" flush>
           <EmptyState v-if="!resources.data.value?.length" compact title="No resources recorded" />

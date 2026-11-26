@@ -7,14 +7,15 @@ import ErrorBox from '../../components/ErrorBox.vue'
 import { ApiError } from '../../api'
 import { DNS_GROUPS, dnsTone, tenantsApi, type DnsResult } from './tenants'
 
-const props = defineProps<{ tenant: string; deployment: string; domain: string | null }>()
+// tenant: the tenant page's checker; without it (deployment page) the deployment's own endpoint answers
+const props = defineProps<{ tenant?: string; deployment: string; domain: string | null }>()
 const res = ref<DnsResult | null>(null)
 const err = ref<ApiError | null>(null)
 const busy = ref(false)
 const copied = ref('')
 async function run(refresh: boolean) {
   busy.value = true
-  try { res.value = await tenantsApi.dns(props.tenant, props.deployment, refresh); err.value = null }
+  try { res.value = props.tenant ? await tenantsApi.dns(props.tenant, props.deployment, refresh) : await tenantsApi.deploymentDns(props.deployment, refresh); err.value = null }
   catch (e) { err.value = e instanceof ApiError ? e : new ApiError(0, String(e)) }
   finally { busy.value = false }
 }
@@ -28,7 +29,7 @@ const when = (s: string | null) => (s ? new Date(s).toLocaleString() : '')
 <template>
   <div class="dnscheck">
     <div class="row between">
-      <p class="muted small">Checks every record <strong class="mono">{{ domain }}</strong> needs for this deployment, from this server.</p>
+      <p class="muted small">Checks every record <strong class="mono">{{ domain ?? res?.domain ?? "the domain" }}</strong> needs for this deployment, from this server.</p>
       <div class="row">
         <Button size="sm" :loading="busy" data-testid="dns-check" @click="run(!!res)">{{ res ? 'Check again' : 'Check DNS' }}</Button>
       </div>
