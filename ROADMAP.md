@@ -1,6 +1,6 @@
 # Office Unbound roadmap & progress
 
-> Generated from [`docs/progress.json`](docs/progress.json) by `scripts/render_roadmap.py` — edit the JSON, not this file. Last updated **2026-11-25** · stage: **alpha** · current version: **0.13.12**.
+> Generated from [`docs/progress.json`](docs/progress.json) by `scripts/render_roadmap.py` — edit the JSON, not this file. Last updated **2026-11-25** · stage: **alpha** · current version: **0.13.13**.
 
 Alpha (0.10.0 "Juniper"): an administrator installs the Infrastructure Control Server from the release tag, connects Proxmox VE and deploys the full stack (Keycloak sign-in, user portal, Exchange-compatible mail with webmail, calendar and contacts, file sync, browser document editing) onto real VMs, reachable from the internet with a Let's Encrypt certificate the ICS keeps across rebuilds. Proven on one reference installation; not for production data. Chat, meetings, telephony, anti-spam and migration are lab prototypes or planned.
 
@@ -194,6 +194,7 @@ Alpha (0.10.0 "Juniper"): an administrator installs the Infrastructure Control S
 
 | Version | Date | Status | Highlights |
 |---|---|---|---|
+| [0.13.13](https://github.com/agit8or1/office-unbound/releases/tag/v0.13.13) | 2026-11-26 | prepared | 0.13.13: the deployment page shows the DNS records its domain needs, including the DKIM record, with a live check |
 | [0.13.12](https://github.com/agit8or1/office-unbound/releases/tag/v0.13.12) | 2026-11-26 | released | 0.13.12: outgoing mail is signed with the deployment's own DKIM key, and the DNS checkers show the exact DKIM record to publish and check it<br>0.13.12: node agent 0.10.4 |
 | [0.13.11](https://github.com/agit8or1/office-unbound/releases/tag/v0.13.11) | 2026-11-26 | released | 0.13.11: a change that sends the desktop discovery document to the mail server records its result instead of failing in the audit step |
 | [0.13.10](https://github.com/agit8or1/office-unbound/releases/tag/v0.13.10) | 2026-11-26 | released | 0.13.10: the desktop sign-in client and discovery document reach running deployments (identity and groupware configuration revision 2) |

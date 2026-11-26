@@ -5,8 +5,20 @@
   "repository": "https://github.com/agit8or1/office-unbound",
   "updated": "2026-11-25",
   "stage": "alpha",
-  "current_version": "0.13.12",
+  "current_version": "0.13.13",
   "releases": [
+    {
+      "version": "0.13.13",
+      "date": "2026-11-26",
+      "status": "prepared",
+      "codename": "Meridian",
+      "channel": "alpha",
+      "highlights": [
+        "0.13.13: the deployment page shows the DNS records its domain needs, including the DKIM record, with a live check"
+      ],
+      "notes_url": "https://github.com/agit8or1/office-unbound/releases/tag/v0.13.13",
+      "changelog": "CHANGELOG.md#01313---2026-11-26"
+    },
     {
       "version": "0.13.12",
       "date": "2026-11-26",

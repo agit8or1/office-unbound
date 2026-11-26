@@ -10,6 +10,17 @@ isolated lab; nothing is production supported ([ROADMAP.md](ROADMAP.md)).
 
 ## [Unreleased]
 
+## [0.13.13] - 2026-11-26
+
+### Added
+- **DNS records on the deployment page** (owner 2026-11-26: "dns records should be under the deployment"): a DNS records card on
+  Deployments → a deployment runs the same checker as the tenant page (`GET /api/v1/deployments/{slug}/dns`, viewer, scope-checked,
+  read-only), including the deployment's DKIM record with its Copy button.
+
+### Fixed
+- `test_tenants_api`: the tenant fixture's fake resolver works on a copy of the shared zone, so one test's added records no longer leak
+  into later tests.
+
 ## [0.13.12] - 2026-11-26
 
 ### Added
@@ -824,6 +835,7 @@ editing, chat/meetings, telephony prototype, migration tooling and package pipel
 - `SECURITY.md` (private reporting) and `CONTRIBUTING.md` (DCO sign-off) added; AGPL-3.0 license. [SECURITY](SECURITY.md)
 
 [Unreleased]: https://github.com/agit8or1/office-unbound/compare/v0.4.7...HEAD
+[0.13.13]: https://github.com/agit8or1/office-unbound/compare/v0.13.12...v0.13.13
 [0.13.12]: https://github.com/agit8or1/office-unbound/compare/v0.13.11...v0.13.12
 [0.13.11]: https://github.com/agit8or1/office-unbound/compare/v0.13.10...v0.13.11
 [0.13.10]: https://github.com/agit8or1/office-unbound/compare/v0.13.9...v0.13.10
