@@ -121,7 +121,7 @@ def test_an_unchanged_plan_has_no_steps_and_old_plans_without_revisions_compare_
         x.pop("brand", None)             # and before 0.13.1: the first change after the upgrade rolls the current brand out once
     k = _keys(diff_plans(legacy, _plan(c, _layout()), c))
     assert {x for x in k if x.startswith("comp.upgrade:")} == {"comp.upgrade:acme-prod-gateway:identity", "comp.upgrade:acme-prod-files:files",
-                                                             "comp.upgrade:acme-prod-mail:groupware"}
+                                                             "comp.upgrade:acme-prod-mail:groupware", "comp.upgrade:acme-prod-gateway:portal"}
     current = _plan(c, _layout())
     assert diff_plans(current, _plan(c, _layout()), c)["steps"] == []
 

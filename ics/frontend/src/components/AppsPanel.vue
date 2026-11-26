@@ -110,7 +110,7 @@ const portal = computed(() => a.value?.apps.find((x) => x.id === 'portal') ?? a.
 
       <template v-if="a.clients">
         <h4>Mail apps (Outlook, Thunderbird, phones)</h4>
-        <table class="dense small"><tbody>
+        <table class="dense small mailapps"><tbody>
           <tr><td>Incoming (IMAP)</td><td><code>{{ a.clients.imap.host }}</code> port {{ a.clients.imap.port }}, {{ a.clients.imap.security }}</td></tr>
           <tr><td>Outgoing (SMTP)</td><td><code>{{ a.clients.smtp.host }}</code> port {{ a.clients.smtp.port }}, {{ a.clients.smtp.security }}, normal password</td></tr>
           <tr><td>Exchange ActiveSync</td><td><code>{{ a.clients.activesync }}</code></td></tr>
@@ -124,6 +124,8 @@ const portal = computed(() => a.value?.apps.find((x) => x.id === 'portal') ?? a.
   </Card>
 </template>
 <style scoped>
+/* long URLs wrap inside the card instead of pushing it wider (phones) */
+.mailapps { table-layout: fixed; } .mailapps td:first-child { width: 38%; } .mailapps td:last-child { overflow-wrap: anywhere; } .mailapps code { overflow-wrap: anywhere; word-break: break-all; }
 .ap-apps { list-style: none; margin: 0 0 8px; padding: 0; display: grid; gap: 8px; }
 .ap-apps li { display: flex; flex-wrap: wrap; gap: 4px 12px; align-items: baseline; }
 .ap-apps code { overflow-wrap: anywhere; }

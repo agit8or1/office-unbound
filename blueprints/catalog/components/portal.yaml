@@ -1,5 +1,6 @@
 name: portal
 version: 1.0.0
+config_revision: 2   # 2: the admin area (Domains, People, ...) for deployments once the console's public name is set (0.13.13)
 title: User portal (single sign-on start page)
 description: >-
   What employees open first: one Keycloak sign-in, then mail, calendar, contacts, files and new documents, recent files, account and device

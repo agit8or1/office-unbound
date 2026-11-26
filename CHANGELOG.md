@@ -17,6 +17,14 @@ isolated lab; nothing is production supported ([ROADMAP.md](ROADMAP.md)).
   Deployments → a deployment runs the same checker as the tenant page (`GET /api/v1/deployments/{slug}/dns`, viewer, scope-checked,
   read-only), including the deployment's DKIM record with its Copy button.
 
+### Changed
+- **Deployment page layout** (owner 2026-11-26: "cleanup the pages/cards layout. needs to look better"): a summary row (VMs, services,
+  health checks, last change; each opens its tab) and tabs (Overview, People, DNS records, Activity, Resources, Diagnostics, Sizing) instead
+  of one 4,300-pixel column; Resources are grouped by kind with a filter and aligned columns, including each check's detail; the guest
+  start-up card shows one line per enrolled VM; the mail-app settings and the tab bar fit a phone screen.
+- Portal configuration revision 2: running deployments get the tenant admin area (Domains with the DKIM record, People, ...) with their
+  next change once Settings → Network & domains has the console's public name.
+
 ### Fixed
 - `test_tenants_api`: the tenant fixture's fake resolver works on a copy of the shared zone, so one test's added records no longer leak
   into later tests.

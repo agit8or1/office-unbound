@@ -21,8 +21,11 @@ const badge = { ok: 'ok', warn: 'warning', bad: 'failed', idle: 'idle' } as cons
     <ul v-else class="bs-list">
       <li v-for="r in rows" :key="r.v.vm + r.v.vmid" class="bs-item" :data-state="r.view.key">
         <div class="bs-head"><b>{{ r.v.vm }}</b><span class="muted small">VM {{ r.v.vmid }}</span><StatusBadge :s="badge[r.view.tone]" :text="r.view.label" /></div>
-        <p class="small">{{ r.view.detail }}</p>
-        <p class="small"><b>Next step:</b> {{ r.view.next }}</p>
+        <!-- an enrolled VM needs nothing: one line each, so a healthy deployment's card stays short -->
+        <template v-if="r.view.key !== 'enrolled'">
+          <p class="small">{{ r.view.detail }}</p>
+          <p class="small"><b>Next step:</b> {{ r.view.next }}</p>
+        </template>
         <p v-if="r.view.key === 'pending'" class="muted small">The one-time secret is valid until {{ fmtTime(r.v.expires_at) }}.</p>
       </li>
     </ul>
@@ -31,6 +34,6 @@ const badge = { ok: 'ok', warn: 'warning', bad: 'failed', idle: 'idle' } as cons
 </template>
 <style scoped>
 .bs-list { list-style: none; margin: 0; padding: 0; display: grid; gap: 4px; }
-.bs-item { padding: 10px 0; border-top: 1px solid var(--line); } .bs-item:first-child { border-top: 0; }
+.bs-item { padding: 8px 0; border-top: 1px solid var(--line); } .bs-item:first-child { border-top: 0; }
 .bs-item p { margin: 4px 0 0; } .bs-head { display: flex; gap: 10px; align-items: center; flex-wrap: wrap; }
 </style>

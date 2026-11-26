@@ -246,6 +246,7 @@ test('deployment page: the DNS records card shows the DKIM record to publish, co
       available: true, rows, checked_at: '2026-11-26T09:00:00Z', cached: false, summary: { ok: 1, missing: 0, differs: 1, unknown: 0, not_available: 0 }, note: '' }) })
   })
   await gotoRoute(page, 'deployments/e2e-dns')
+  await page.getByRole('tab', { name: 'DNS records' }).click()
   const card = page.getByTestId('deployment-dns')
   await expect(card).toContainText('DNS records')
   await card.getByTestId('dns-check').click()
