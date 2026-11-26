@@ -5,8 +5,20 @@
   "repository": "https://github.com/agit8or1/office-unbound",
   "updated": "2026-11-25",
   "stage": "alpha",
-  "current_version": "0.13.10",
+  "current_version": "0.13.11",
   "releases": [
+    {
+      "version": "0.13.11",
+      "date": "2026-11-26",
+      "status": "prepared",
+      "codename": "Meridian",
+      "channel": "alpha",
+      "highlights": [
+        "0.13.11: a change that sends the desktop discovery document to the mail server records its result instead of failing in the audit step"
+      ],
+      "notes_url": "https://github.com/agit8or1/office-unbound/releases/tag/v0.13.11",
+      "changelog": "CHANGELOG.md#01311---2026-11-26"
+    },
     {
       "version": "0.13.10",
       "date": "2026-11-26",
@@ -22,7 +34,7 @@
     {
       "version": "0.13.9",
       "date": "2026-11-25",
-      "status": "prepared",
+      "status": "released",
       "codename": "Meridian",
       "channel": "alpha",
       "highlights": [

@@ -10,6 +10,15 @@ isolated lab; nothing is production supported ([ROADMAP.md](ROADMAP.md)).
 
 ## [Unreleased]
 
+## [0.13.11] - 2026-11-26
+
+### Fixed
+- A deployment change that configures the mail server with the desktop discovery document no longer fails after the agent has applied it:
+  the audit redaction took the document's `files` address for a list of files and crashed (`AttributeError`) while recording the step,
+  so the step was marked failed and the change's revision was not recorded. The address is now kept as it is, and a list of files is
+  still logged by path, mode and size only (`ics/tests/test_desktop_server.py`). Seen on officeunbound8 on 2026-11-26; the configuration
+  itself had been applied.
+
 ## [0.13.10] - 2026-11-26
 
 ### Fixed
@@ -793,6 +802,7 @@ editing, chat/meetings, telephony prototype, migration tooling and package pipel
 - `SECURITY.md` (private reporting) and `CONTRIBUTING.md` (DCO sign-off) added; AGPL-3.0 license. [SECURITY](SECURITY.md)
 
 [Unreleased]: https://github.com/agit8or1/office-unbound/compare/v0.4.7...HEAD
+[0.13.11]: https://github.com/agit8or1/office-unbound/compare/v0.13.10...v0.13.11
 [0.13.10]: https://github.com/agit8or1/office-unbound/compare/v0.13.9...v0.13.10
 [0.13.9]: https://github.com/agit8or1/office-unbound/compare/v0.13.8...v0.13.9
 [0.13.8]: https://github.com/agit8or1/office-unbound/compare/v0.13.7...v0.13.8

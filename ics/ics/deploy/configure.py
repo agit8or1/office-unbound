@@ -930,8 +930,9 @@ def redact(runbook: str, params: dict) -> dict:
     for k, v in params.items():
         if k in SECRET_PARAM_KEYS:
             out[k] = "[redacted]"
-        elif k == "files":
-            out[k] = [{"path": f.get("path"), "mode": f.get("mode"), "bytes": len(str(f.get("content", "")).encode())} for f in v]
+        elif k == "files" and isinstance(v, list):   # a file list; cfg.gromox client_document also has a "files" key, which is a URL
+            out[k] = [{"path": f.get("path"), "mode": f.get("mode"), "bytes": len(str(f.get("content", "")).encode())} if isinstance(f, dict)
+                      else "[file]" for f in v]
         elif k in ("css", "mark_svg", "fonts_css"):   # cfg.gromox brand: generated skin, no secret; logged by size only
             out[k] = f"[{len(str(v).encode())} bytes]"
         elif k == "realm_json":

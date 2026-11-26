@@ -202,3 +202,15 @@ def test_running_deployments_get_the_desktop_client_and_document_with_their_next
     cat = load_catalog()
     assert cat.components["identity"].config_revision >= 2
     assert cat.components["groupware"].config_revision >= 2
+
+
+def test_the_audit_redaction_keeps_the_client_documents_files_url():
+    """2026-11-26: the officeunbound8 change crashed after the agent had applied cfg.gromox: redact() took client_document's "files" (a URL)
+    for a file list and failed with AttributeError while recording the audit entry, so the step was marked failed."""
+    from ics.deploy.configure import redact
+    doc = {"version": 1, "name": "example.com", "issuer": "https://auth.example.com/realms/ou", "client_id": "ou-desktop",
+           "auth": "https://auth.example.com/", "files": "https://cloud.example.com/"}
+    out = redact("cfg.gromox", {"domain": "example.com", "db_password": "s3cret", "client_document": doc,
+                                "files": [{"path": "a", "mode": 0o600, "content": "secret-content"}]})
+    assert out["client_document"]["files"] == "https://cloud.example.com/"
+    assert out["db_password"] == "[redacted]" and out["files"] == [{"path": "a", "mode": 0o600, "bytes": 14}]
