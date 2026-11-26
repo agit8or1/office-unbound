@@ -1,6 +1,6 @@
 name: groupware
 version: 1.0.0
-config_revision: 2   # 2: cfg.gromox serves the desktop discovery document /.well-known/office-unbound/client.json (0.13.10, agent 0.10.3 feature client_document)
+config_revision: 3   # 3: outgoing mail signed with the deployment's DKIM key (OpenDKIM milter, agent 0.10.4 feature dkim, 0.13.12). 2: cfg.gromox serves the desktop discovery document /.well-known/office-unbound/client.json (0.13.10, agent 0.10.3 feature client_document)
 title: Groupware (gromox stack, package-based)
 description: Mail/calendar/contacts (gromox + web + postfix + MariaDB), built by Office Unbound and installed from the OB apt repo (ADR-0003/0008).
 artifacts:
@@ -21,6 +21,7 @@ artifacts:
   - {name: mariadb, kind: package, package: mariadb-server, version: "1:10.11.14-0ubuntu0.24.04.1", repo: ubuntu-noble}
   - {name: postfix, kind: package, package: postfix, version: "3.8.6-1ubuntu0.1", repo: ubuntu-noble}
   - {name: postfix-mysql, kind: package, package: postfix-mysql, version: "3.8.6-1ubuntu0.1", repo: ubuntu-noble}
+  - {name: opendkim, kind: package, package: opendkim, version: "2.11.0~beta2-9build4", repo: ubuntu-noble}   # DKIM signing milter (cfg.gromox dkim)
   - {name: saslauthd, kind: package, package: sasl2-bin, version: "2.1.28+dfsg1-5ubuntu3.1", repo: ubuntu-noble}
   - {name: sasl-modules, kind: package, package: libsasl2-modules, version: "2.1.28+dfsg1-5ubuntu3.1", repo: ubuntu-noble}
   - {name: nginx, kind: package, package: nginx, version: "1.24.0-2ubuntu7.19", repo: ubuntu-noble}

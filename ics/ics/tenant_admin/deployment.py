@@ -172,8 +172,9 @@ def domains(ctx: DeploymentCtx, check: bool) -> dict:
     out = {"domains": [{"name": ctx.domain, "primary": True}], "managed_by": "Your service provider adds or removes domains."}
     if check:
         mail = configure.fq(ctx.plan, None, "mail") if configure.vm_of(ctx.plan, "groupware", None) else None
-        out["dns"] = {ctx.domain: dnscheck.check_domain(ctx.domain, mail, "default", resolver=service.HOOKS.get("dns", dnscheck.query),
-                                                            dkim_available=False)}   # no DKIM key is generated yet
+        dk = configure.dkim_record(ctx.rt, str(ctx.d.id), ctx.domain) if mail else None   # None until the mail server's configuration made the key
+        out["dns"] = {ctx.domain: dnscheck.check_domain(ctx.domain, mail, configure.DKIM_SELECTOR, resolver=service.HOOKS.get("dns", dnscheck.query),
+                                                            dkim_available=dk is not None, dkim_value=dk and dk["value"])}
     return out
 
 

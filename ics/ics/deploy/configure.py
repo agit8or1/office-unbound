@@ -285,6 +285,34 @@ def realm_key(rt, dep: str, tenant: str | None = None) -> str:
     return secret(rt, dep, sname(tenant, "realm-signing-key"), _rsa_key)
 
 
+DKIM_SELECTOR = "ou1"   # the selector of the deployment's DKIM key: <selector>._domainkey.<mail domain>; a new key gets a new selector
+
+
+def dkim_key(rt, dep: str, tenant: str | None = None) -> str:
+    """The deployment's (scope's) DKIM signing key: RSA 2048, made once by the ICS, vault-encrypted; only the mail VM gets it (cfg.gromox
+    `dkim`, redacted in the audit log). The public half is what the customer publishes in DNS (dkim_txt)."""
+    return secret(rt, dep, sname(tenant, "dkim-private-key"), _rsa_key)
+
+
+def dkim_txt(pem: str) -> str:
+    """The DKIM TXT record value for a private key: v=DKIM1; k=rsa; p=<base64 DER SubjectPublicKeyInfo>."""
+    import base64
+    k = serialization.load_pem_private_key(pem.encode(), password=None)
+    der = k.public_key().public_bytes(serialization.Encoding.DER, serialization.PublicFormat.SubjectPublicKeyInfo)
+    return "v=DKIM1; k=rsa; p=" + base64.b64encode(der).decode()
+
+
+def dkim_record(rt, dep: str, domain: str, tenant: str | None = None) -> dict | None:
+    """{name, value} of the DKIM record to publish, or None while no key exists yet (it is made by the mail server's next configuration).
+    Read-only: never creates the key."""
+    name = sname(tenant, "dkim-private-key")
+    with rt.session() as db:
+        row = db.execute(text("SELECT value_enc FROM deployment_secrets WHERE deployment_id = :d AND name = :n"), {"d": dep, "n": name}).first()
+    if row is None:
+        return None
+    return {"name": f"{DKIM_SELECTOR}._domainkey.{domain}", "value": dkim_txt(rt.vault.decrypt(row.value_enc, _ctx(dep, name)).decode())}
+
+
 def _proof_key() -> str:
     """An RSA key in the format Collabora's own tooling makes (`ssh-keygen -t rsa -m PEM`: PKCS#1 "RSA PRIVATE KEY"); coolwsd loads it with
     Poco's RSAKey (wsd/ProofKey.cpp) and signs every WOPI request with it (X-WOPI-Proof/X-WOPI-TimeStamp)."""
@@ -692,10 +720,14 @@ def groupware_runbooks(ctx, vm: str) -> list[dict]:
                                                                             agent_features(ctx, vm, "cfg.gromox")),
                                              # an older agent's closed schema refuses the parameter: it is sent only to agents that serve it
                                              **({"client_document": client_document(ctx.plan, t)}
-                                                if CLIENT_DOC_FEATURE in agent_features(ctx, vm, "cfg.gromox") else {})}},
+                                                if CLIENT_DOC_FEATURE in agent_features(ctx, vm, "cfg.gromox") else {}),
+                                             # outgoing-mail signing (OpenDKIM); an older agent's closed schema refuses it, so only agents that sign
+                                             **({"dkim": {"domain": domain, "selector": DKIM_SELECTOR, "key_pem": dkim_key(ctx.rt, ctx.deployment_id, t)}}
+                                                if DKIM_FEATURE in agent_features(ctx, vm, "cfg.gromox") else {})}},
     ]
 
 
+DKIM_FEATURE = "dkim"   # cfg.gromox feature of agents that run the OpenDKIM milter (ou_agent cfgspec.FEATURES, agent 0.10.4)
 CLIENT_DOC_FEATURE = "client_document"   # cfg.gromox feature of agents that serve /.well-known/office-unbound/client.json (ou_agent cfgspec.FEATURES)
 
 

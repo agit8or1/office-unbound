@@ -67,7 +67,7 @@ def test_a_correct_zone_checks_ok_and_every_name_comes_from_the_plan():
         assert b[k]["status"] == "ok", (k, b[k])
     assert b[("SRV", f"_caldavs._tcp.{DOM}")]["status"] == "missing" and not b[("SRV", f"_caldavs._tcp.{DOM}")]["required"]
     dk = next(x for x in rows if "_domainkey" in x["name"])
-    assert dk["status"] == "not_available" and "does not sign" in dk["why"]     # honest: no DKIM key exists to publish
+    assert dk["status"] == "not_available" and "next configuration" in dk["why"]     # honest: no DKIM key exists yet
     assert all(n == DOM or n.endswith("." + DOM) or n in ("example.com", "com", "7.113.0.203.in-addr.arpa") for n, _ in r.asked), r.asked
 
 
@@ -249,3 +249,47 @@ def test_the_tenant_page_lists_each_deployments_vms_with_location_size_agent_and
     assert vms["gw"]["state"] == "planned" and vms["gw"]["agent"] is None and vms["gw"]["health"]["status"] == "unknown"
     lst = next(t for t in c.get(f"{H}/tenants").json()["tenants"] if t["id"] == world["ca"])
     assert "vms" not in lst["deployments"][0]     # the list stays light
+
+
+def _dkim():
+    from ics.deploy import configure
+    pem = configure._rsa_key()
+    return {"name": f"ou1._domainkey.{DOM}", "value": configure.dkim_txt(pem)}
+
+
+def test_the_dkim_row_shows_the_exact_record_and_checks_the_published_key():
+    dk = _dkim()
+    assert dk["value"].startswith("v=DKIM1; k=rsa; p=MII")
+    p = dk["value"].split("p=", 1)[1]
+    split = f'"v=DKIM1; k=rsa; p={p[:200]}" "{p[200:]}"'          # how DNS returns a record longer than 255 characters
+    for zone, want in (({(dk["name"], "TXT"): [split]}, "ok"), ({}, "missing"),
+                       ({(dk["name"], "TXT"): [f'"v=DKIM1; k=rsa; p={_dkim()["value"].split("p=", 1)[1]}"']}, "differs")):
+        rows = tenants_api.dns_rows(_plan(), IP, FakeResolver({**GOOD, **zone}), dkim=dk)
+        row = next(x for x in rows if "_domainkey" in x["name"])
+        assert row["name"] == dk["name"] and row["expected"] == dk["value"] and row["status"] == want, (want, row)
+
+
+def test_the_tenant_portal_dkim_row_compares_the_key_not_just_its_presence():
+    from ics.tenant_admin import dnscheck
+    dk = _dkim()
+    other = _dkim()["value"]
+    for found, want in (([dk["value"]], "ok"), ([other], "differs"), ([], "missing")):
+        rows = dnscheck.check_domain(DOM, f"mail.{DOM}", "ou1", resolver=lambda n, t, f=found: f if t == "TXT" and "_domainkey" in n else [],
+                                     dkim_available=True, dkim_value=dk["value"])
+        row = next(r for r in rows if r["key"] == "dkim")
+        assert row["status"] == want and row["expected"] == dk["value"] and row["name"] == f"ou1._domainkey.{DOM}"
+
+
+def test_the_dkim_record_is_read_only_and_matches_the_key_sent_to_the_mail_server(rt):
+    from ics.deploy import configure
+    with rt.session() as db:
+        dep = str(db.execute(text("INSERT INTO deployments (slug, customer_id, profile, profile_version, status, desired_spec) "
+                                  "VALUES ('dkim-dep', 'msp', 'small', '1', 'active', '{}'::jsonb) RETURNING id")).scalar())
+        db.commit()
+    assert configure.dkim_record(rt, dep, DOM) is None                      # reading never creates a key
+    pem = configure.dkim_key(rt, dep)
+    rec = configure.dkim_record(rt, dep, DOM)
+    assert rec == {"name": f"ou1._domainkey.{DOM}", "value": configure.dkim_txt(pem)} and configure.dkim_key(rt, dep) == pem
+    with rt.session() as db:
+        configure.wipe(db, dep)
+        db.commit()

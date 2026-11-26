@@ -17,11 +17,12 @@ from __future__ import annotations
 import time
 from uuid import UUID
 
-from fastapi import Depends, FastAPI, HTTPException
+from fastapi import Depends, FastAPI, HTTPException, Request
 from sqlalchemy import text
 from sqlalchemy.orm import Session
 
 from .auth import User, get_db, require
+from .deploy import configure
 from .tenancy import scope as tscope
 
 API = "/api/v1"
@@ -187,7 +188,7 @@ def _row(group, name, rtype, expected, status, found, why, how="", required=True
             "how": how, "required": required}
 
 
-def dns_rows(plan: dict, public_ipv4: str | None, local, make_auth=None, info: dict | None = None) -> list[dict]:
+def dns_rows(plan: dict, public_ipv4: str | None, local, make_auth=None, info: dict | None = None, dkim: dict | None = None) -> list[dict]:
     """Pure apart from the resolvers: every record a deployment's domain needs, checked. The zone's records go to the domain's
     authoritative servers (`make_auth(addresses)` builds that resolver); PTR and discovery use `local`. `info` receives the zone and
     the authoritative server names used."""
@@ -228,9 +229,20 @@ def dns_rows(plan: dict, public_ipv4: str | None, local, make_auth=None, info: d
         rows.append(_row("Mail", f"_dmarc.{dom}", "TXT", f"v=DMARC1; p=quarantine; rua=mailto:postmaster@{dom}",
                          "ok" if dm else ("unknown" if st == "error" else "missing"), dm or found,
                          "DMARC: tells receivers what to do with mail that fails SPF (start with p=none to observe)", required=False))
-        rows.append(_row("Mail", f"<selector>._domainkey.{dom}", "TXT", "-", "not_available", [],
-                         "DKIM: this deployment does not sign outgoing mail yet, so there is no key to publish (planned with internet mail)",
-                         required=False))
+        if dkim:
+            from .tenant_admin.dnscheck import dkim_p
+            st, found = _lookup(resolver, dkim["name"], "TXT")
+            joined = ["".join(x.split('" "')) for x in found]   # a long record comes back as several quoted strings
+            want = dkim_p(dkim["value"])
+            ok = any(dkim_p(x) == want for x in joined)
+            rows.append(_row("Mail", dkim["name"], "TXT", dkim["value"],
+                             "ok" if ok else ("unknown" if st == "error" else ("differs" if joined else "missing")), joined,
+                             "DKIM: receivers check the signature on this deployment's outgoing mail against this key; publish it exactly "
+                             "(a DNS tool may split it into several quoted strings)", required=False))
+        else:
+            rows.append(_row("Mail", f"{configure.DKIM_SELECTOR}._domainkey.{dom}", "TXT", "-", "not_available", [],
+                             "DKIM: the signing key is created by the mail server's next configuration (a deployment change); "
+                             "the record to publish appears here then", required=False))
         for svc, port, why in SRV:
             want = f"0 1 {port} {mail_host}"
             st, found = _lookup(resolver, f"{svc}.{dom}", "SRV")
@@ -262,7 +274,7 @@ def dns_rows(plan: dict, public_ipv4: str | None, local, make_auth=None, info: d
     return rows
 
 
-def check_deployment(db, d, refresh: bool = False) -> dict:
+def check_deployment(db, d, refresh: bool = False, rt=None) -> dict:
     from . import netsettings
     from .deploy import appaccess
     hit = _cache.get(d.slug)
@@ -278,7 +290,10 @@ def check_deployment(db, d, refresh: bool = False) -> dict:
                 "reason": f"{dom} is a reserved test name: it never has public DNS records"}
     s = netsettings.get(db)
     info: dict = {}
-    rows = dns_rows(plan, s.public_ipv4, HOOKS["resolver"] or netsettings._resolver(), HOOKS["authoritative"], info)
+    dk = None
+    if rt is not None and configure.vm_of(plan, "groupware", None):
+        dk = configure.dkim_record(rt, str(d.id), configure.scope(plan, None)["domain"])
+    rows = dns_rows(plan, s.public_ipv4, HOOKS["resolver"] or netsettings._resolver(), HOOKS["authoritative"], info, dk)
     if info.get("servers") and info.get("servers_answered"):
         note = (f"Checked with the domain's own name servers ({', '.join(info['servers'])}), so changes show at once. Reverse DNS "
                 "is checked with this server's resolver.")
@@ -309,9 +324,10 @@ def mount(app: FastAPI) -> None:
         return _tenant(db, _customer(db, user, tenant_id), detail=True)
 
     @app.get(f"{API}/tenants/{{tenant_id}}/dns")
-    def tenant_dns(tenant_id: UUID, deployment: str, refresh: bool = False, user: User = Depends(require("viewer")), db: Session = Depends(get_db)):
+    def tenant_dns(tenant_id: UUID, deployment: str, request: Request, refresh: bool = False, user: User = Depends(require("viewer")),
+                   db: Session = Depends(get_db)):
         c = _customer(db, user, tenant_id)
         d = next((x for x in _deployments(db, c) if x.slug == deployment), None)
         if d is None:
             raise HTTPException(404, "deployment not found for this tenant")
-        return check_deployment(db, d, refresh)
+        return check_deployment(db, d, refresh, request.app.state.rt)

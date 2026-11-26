@@ -99,7 +99,8 @@ class PackageArtifact(_M):
     @field_validator("version")
     @classmethod
     def _pinned(cls, v: str) -> str:
-        if v in ("latest", "*") or any(c in v for c in "^~<>="):
+        # "~" is part of real Debian versions (2.11.0~beta2-9build4: a pre-release sorts before 2.11.0); only "~>"-style ranges are refused
+        if v in ("latest", "*") or "~>" in v or any(c in v for c in "^<>="):
             raise ValueError("version must be an exact pin")
         return v
 

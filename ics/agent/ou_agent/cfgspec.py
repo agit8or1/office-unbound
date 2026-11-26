@@ -338,11 +338,24 @@ def check_client_document(p, domain):
     return out
 
 
+DKIM_SELECTOR_RE = re.compile(r"^[a-z0-9][a-z0-9-]{0,62}$")
+
+
+def check_dkim(p, domain):
+    """Outgoing-mail signing (OpenDKIM milter): the mail domain, the selector and the deployment's DKIM private key, made by the ICS
+    (configure.dkim_key). The domain must be the mail domain: the agent never signs for another one."""
+    _exact(p, ("domain", "selector", "key_pem"), ("domain", "selector", "key_pem"))
+    d = _s(p["domain"], FQDN_RE, "dkim.domain")
+    if d != domain:
+        raise Reject("bad_params", "dkim.domain must be the mail domain")
+    return {"domain": d, "selector": _s(p["selector"], DKIM_SELECTOR_RE, "dkim.selector"), "key_pem": _pem(p["key_pem"], "key")}
+
+
 def check_gromox(p, cfg):
     """The groupware node (gromox + Postfix + MariaDB + grommunio web/sync/dav behind nginx): mail domain, the VM's mail host name, the
     deployment TLS material (cfg.tls), the database password, the read-only directory bind (cfg.ldap_init's svc-bind) and the entitlement
     group. `mailboxes` are directory addresses whose mailbox is created when the directory entry exists and is in the group."""
-    _exact(p, ("domain", "hostname", "tls_name", "db_password", "ldap_host", "bind_password", "group", "mailboxes", "sso", "brand", "client_document"),
+    _exact(p, ("domain", "hostname", "tls_name", "db_password", "ldap_host", "bind_password", "group", "mailboxes", "sso", "brand", "client_document", "dkim"),
            ("domain", "hostname", "tls_name", "db_password", "ldap_host", "bind_password", "group", "mailboxes"))
     domain = _s(p["domain"], FQDN_RE, "domain")
     host = _s(p["hostname"], FQDN_RE, "hostname")      # the mail host may be any name (name settings), the directory is the deployment's own
@@ -357,7 +370,8 @@ def check_gromox(p, cfg):
             "bind_password": _password(p["bind_password"], "bind_password"), "group": _s(p["group"], GROUP_RE, "group"), "mailboxes": boxes,
             **({"sso": check_sso(p["sso"])} if p.get("sso") is not None else {}),
             **({"brand": check_brand(p["brand"])} if p.get("brand") is not None else {}),
-            **({"client_document": check_client_document(p["client_document"], domain)} if p.get("client_document") is not None else {})}
+            **({"client_document": check_client_document(p["client_document"], domain)} if p.get("client_document") is not None else {}),
+            **({"dkim": check_dkim(p["dkim"], domain)} if p.get("dkim") is not None else {})}
 
 
 def check_nginx_default(p, cfg):
@@ -429,7 +443,7 @@ def check_acme(p, cfg):
 # the portal's credential for the ICS tenant-admin API of ITS deployment (configure.portal_key): tdk_<deployment id>.<secret>
 PORTAL_ICS_KEY_RE = re.compile(r"^tdk_[0-9a-f]{32}\.[A-Za-z0-9_-]{43}$")
 PORTAL_KEYS = ("base_url", "issuer", "client_id", "client_secret", "files_url", "mail_web_url", "mail_host", "mail_domain", "org_name")
-FEATURES = {"cfg.portal": ["admin"], "cfg.gromox": ["brand_fonts", "client_document"], "cfg.acme": ["reuse"], "cfg.ldap_init": ["writer"]}   # optional parameters this agent understands, reported in its capabilities (the ICS sends them only then)
+FEATURES = {"cfg.portal": ["admin"], "cfg.gromox": ["brand_fonts", "client_document", "dkim"], "cfg.acme": ["reuse"], "cfg.ldap_init": ["writer"]}   # optional parameters this agent understands, reported in its capabilities (the ICS sends them only then)
 
 
 def check_portal_admin(a):
