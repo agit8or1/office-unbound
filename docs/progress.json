@@ -23,7 +23,7 @@
     {
       "version": "0.13.11",
       "date": "2026-11-26",
-      "status": "prepared",
+      "status": "released",
       "codename": "Meridian",
       "channel": "alpha",
       "highlights": [
@@ -35,7 +35,7 @@
     {
       "version": "0.13.10",
       "date": "2026-11-26",
-      "status": "prepared",
+      "status": "released",
       "codename": "Meridian",
       "channel": "alpha",
       "highlights": [

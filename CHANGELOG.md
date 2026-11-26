@@ -25,6 +25,9 @@ isolated lab; nothing is production supported ([ROADMAP.md](ROADMAP.md)).
 ### Changed
 - The catalog accepts Debian versions with `~` (a pre-release, as in `2.11.0~beta2`); `~>`-style ranges are still refused.
 
+### Fixed
+- `test_release_signer`: the check that the caller's Valid-Until is dropped no longer fails when a random file hash contains "2100".
+
 ### Note
 - Internet mail out stays disabled on deployments (PA-40/OA-6: outbound TCP 25, PTR, an external test mailbox): signing is in place so
   the DNS record can be published before outgoing internet mail is turned on.

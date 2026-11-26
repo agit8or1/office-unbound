@@ -164,7 +164,8 @@ def test_sign_happy_path_rebuilds_release(box):
     r = box.run(["sign", "dev"], tar_of({**f, "Release": release(f, "stable", "Valid-Until: Fri, 01 Jan 2100 00:00:00 UTC\n").encode()}))
     assert r.returncode == 0, r.stderr
     out = tarfile.open(fileobj=io.BytesIO(r.stdout)).extractfile("Release").read().decode()
-    assert "Suite: dev\nCodename: dev\n" in out and "stable" not in out and "2100" not in out   # the caller's header is not kept
+    assert "Suite: dev\nCodename: dev\n" in out and "stable" not in out and "01 Jan 2100" not in out   # the caller's header is not kept
+    # ("01 Jan 2100", not "2100": a random file hash in the Release may contain 2100 - gate 0144, 2026-11-26)
     assert "Packages.gz" in out and "Valid-Until:" in out
 
 
