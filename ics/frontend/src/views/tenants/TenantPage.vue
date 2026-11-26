@@ -1,6 +1,8 @@
 <script setup lang="ts">
 // ADR-0021 §2: one tenant's settings. Step 1: Overview, Domains (with the DNS checker), Users (per deployment), Policy.
-import { computed, watch } from 'vue'
+import { computed, watch, watchEffect } from 'vue'
+import { crumbLabel } from '../../format'
+import StatCard from '../../ui/StatCard.vue'
 import { useRoute, useRouter } from 'vue-router'
 import { hasRole, useLoad } from '../../store'
 import PageHeader from '../../ui/PageHeader.vue'
@@ -26,6 +28,11 @@ const t = useLoad(() => tenantsApi.one(props.id))
 watch(() => props.id, () => { void t.reload() })   // another tenant opened from this page: load it
 const withDomain = computed(() => (t.data.value?.deployments ?? []).filter((d) => d.domain))
 const isAdmin = computed(() => hasRole('admin'))
+watchEffect(() => { crumbLabel.value = t.data.value?.name ?? '' })   // the breadcrumb names the tenant, not the first 8 characters of its id
+const vms = computed(() => (t.data.value?.deployments ?? []).flatMap((d) => d.vms ?? []))
+const checks = computed(() => vms.value.reduce((n, v) => n + (v.health?.checks ?? 0), 0))
+const failing = computed(() => vms.value.reduce((n, v) => n + (v.health?.failing?.length ?? 0), 0))
+const base = computed(() => `/tenants/${props.id}`)
 </script>
 <template>
   <div class="page">
@@ -35,6 +42,13 @@ const isAdmin = computed(() => hasRole('admin'))
       <PageHeader :title="t.data.value.name" :sub="t.data.value.domains.join(', ') || 'No domain yet'">
         <template #actions><StatusBadge v-if="t.data.value.disabled" s="disabled" text="Disabled" /></template>
       </PageHeader>
+      <section class="statgrid tstats" aria-label="Tenant summary">
+        <StatCard label="Deployments" :value="t.data.value.deployments.length" :sub="t.data.value.deployments.filter((d) => d.status === 'active').length + ' active'" icon="rocket" tone="info" :to="base + '/overview'" />
+        <StatCard label="Virtual machines" :value="vms.length" :sub="vms.filter((v) => v.agent).length + ' with a node agent'" icon="vm" tone="info" :to="base + '/overview'" />
+        <StatCard label="Health checks" :value="checks - failing" :of="checks" :sub="!checks ? 'none yet' : failing ? failing + ' failing' : 'all passing'" icon="shield"
+                  :tone="!checks ? 'idle' : failing ? 'bad' : 'ok'" :to="base + '/overview'" />
+        <StatCard label="Domains" :value="t.data.value.domains.length" :sub="t.data.value.domains.join(', ') || 'none yet'" icon="network" tone="info" :to="base + '/domains'" />
+      </section>
       <Tabs v-model="tab" :tabs="TABS" />
 
       <template v-if="tab === 'overview'">
@@ -53,9 +67,11 @@ const isAdmin = computed(() => hasRole('admin'))
 
       <template v-else-if="tab === 'users'">
         <template v-if="isAdmin">
-          <Card v-for="d in t.data.value.deployments" :key="d.slug" :title="`People of ${d.domain ?? d.slug}`" :hint="`Directory of deployment ${d.slug}`">
+          <!-- one directory per deployment; PeoplePanel is its own card, so no card around it (a heading only when there are several) -->
+          <section v-for="d in t.data.value.deployments" :key="d.slug" class="tsect">
+            <h2 v-if="t.data.value.deployments.length > 1" class="h2like">People of {{ d.domain ?? d.slug }} <span class="muted small">deployment {{ d.slug }}</span></h2>
             <PeoplePanel :slug="d.slug" />
-          </Card>
+          </section>
           <EmptyState v-if="!t.data.value.deployments.length" title="No users yet" text="Users live in a deployment's directory: create a deployment first." icon="users" />
         </template>
         <EmptyState v-else title="Admins only" text="Reading a tenant's people needs the admin role." icon="shield" />
@@ -68,9 +84,15 @@ const isAdmin = computed(() => hasRole('admin'))
             <dt>Contact</dt><dd>{{ t.data.value.contact_name || 'Not set' }}<span v-if="t.data.value.contact_email" class="muted"> · {{ t.data.value.contact_email }}</span></dd>
             <dt>Run by the platform owner</dt><dd>{{ t.data.value.msp_owned ? 'Yes' : 'No' }}</dd>
           </dl>
-          <p v-if="isAdmin"><router-link to="/administration/customers">Edit approval policy and contact</router-link></p>
+          <p v-if="isAdmin" class="tedit"><router-link class="btn sm" to="/administration/customers">Edit approval policy and contact</router-link></p>
         </Card>
       </template>
     </template>
   </div>
 </template>
+<style scoped>
+.tstats { margin-bottom: 18px; }
+.tsect + .tsect { margin-top: 18px; }
+.tsect .h2like { display: flex; gap: 10px; align-items: baseline; margin: 0 0 10px; }
+.tedit { margin: 16px 0 0; }
+</style>
