@@ -308,6 +308,27 @@ def human_size(n: int | None) -> str:
     return ""
 
 
+GW_MAX = 512_000
+
+
+async def groupware_summary(cfg: Settings, http: httpx.AsyncClient, token: str, start: datetime, end: datetime):
+    """The signed-in user's calendar window and mail attention items from the groupware reader (contract: docs/design/design-system.md
+    "Portal"), with the user's OWN access token: the reader logs on to that token's mailbox only (gromox mapi_logon_token checks signature,
+    issuer, audience and expiry). Never a service account. Returns the parsed JSON (validated by dashboard.normalise) or raises."""
+    if not cfg.groupware_reader_url:
+        raise ServiceError("groupware reader not configured")
+    r = await http.get(cfg.groupware_reader_url + "/summary", params={"from": start.isoformat(), "to": end.isoformat()},
+                       headers={**_h(token), "Accept": "application/json"}, timeout=4.0)
+    if r.status_code != 200:
+        raise ServiceError(f"groupware: summary answered {r.status_code}")
+    if len(r.content) > GW_MAX:
+        raise ServiceError("groupware: summary too large")
+    try:
+        return r.json()
+    except ValueError as e:
+        raise ServiceError("groupware: unreadable summary") from e
+
+
 _CHAT = {"at": 0.0, "ok": False}
 CHAT_RECHECK = 300.0
 

@@ -51,6 +51,10 @@ class Settings:
     admin_role: str = "org-admin"     # Keycloak realm role that opens the Admin area (the ICS verifies it again from the signed token)
     # team chat (Element Web) of the deployment: shown as the chat bubble on every page when it answers (services.chat_available); "" = never
     chat_url: str = ""
+    # groupware reader (docs/design/design-system.md "Portal"): a read-only endpoint on the groupware node that answers the dashboard's
+    # calendar/mail summary for the bearer of a user's own access token. "" = not deployed: the agenda, meetings and mail attention items
+    # say they are not available. https only.
+    groupware_reader_url: str = ""
 
     @property
     def chat_origin(self) -> str:
@@ -88,6 +92,12 @@ def _chat_url(v: str | None, domain: str) -> str:
     return url if url.startswith("https://") and "/" not in url[len("https://"):] else ""
 
 
+def _https_url(v: str | None) -> str:
+    """An https:// URL without query or fragment, trailing slash removed; anything else = not configured."""
+    url = (v or "").strip().rstrip("/")
+    return url if url.startswith("https://") and len(url) > len("https://") and not any(c in url for c in "?#@ \\") else ""
+
+
 def load() -> Settings:
     base = _env("PORTAL_BASE_URL").rstrip("/")
     host = base.split("://", 1)[1]
@@ -117,4 +127,5 @@ def load() -> Settings:
         admin_role=_env("PORTAL_ADMIN_ROLE", "org-admin"),
         # the deployment's chat name by convention (ICS catalog: chat.<domain>); PORTAL_CHAT_URL overrides, "off" disables
         chat_url=_chat_url(os.environ.get("PORTAL_CHAT_URL"), mail_domain),
+        groupware_reader_url=_https_url(os.environ.get("PORTAL_GROUPWARE_READER_URL")),
     )

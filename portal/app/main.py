@@ -1,12 +1,14 @@
 """Office Unbound user portal: BFF with OIDC (code + PKCE), server-rendered, no JavaScript, strict CSP."""
 from __future__ import annotations
 
+import asyncio
 import hmac
 import logging
 import re
 import secrets
 import time
 from contextlib import asynccontextmanager
+from datetime import datetime, timedelta
 from pathlib import Path
 from urllib.parse import urlsplit
 
@@ -16,7 +18,7 @@ from fastapi.responses import HTMLResponse, RedirectResponse, Response
 from fastapi.staticfiles import StaticFiles
 from fastapi.templating import Jinja2Templates
 
-from . import admin, devices, office_apps, services
+from . import admin, dashboard, devices, office_apps, services
 from .config import Settings, load
 from .version import PORTAL_VERSION, build_info
 from .icsclient import parse_time as admin_time
@@ -38,28 +40,9 @@ def css_string(text: str) -> str:
 
 PREFS_COOKIE = "ou_prefs"
 NOTES_TTL = 60   # seconds between two reads of the Files notifications for one session (the bell in the top bar)
-THEMES = ("system", "light", "dark")
-WIDGETS = {"inbox": "Inbox", "calendar": "Calendar", "recent": "Recent files", "favorites": "Favourites", "shared": "Shared with me",
-           "create": "Quick create"}
-
-
-def parse_prefs(raw: str | None) -> dict:
-    """The appearance cookie, `<theme>:<hidden widget>.<...>` (cookie-safe characters only): anything else is ignored, it is only a
-    preference and never trusted."""
-    theme, _, hidden = (raw or "")[:200].partition(":")
-    return {"theme": theme if theme in THEMES else "system", "hidden": [w for w in hidden.split(".") if w in WIDGETS]}
-
-
-def dump_prefs(p: dict) -> str:
-    return f"{p['theme']}:{'.'.join(p['hidden'])}"
-
-
-def week_days(now: float | None = None) -> list[dict]:
-    """Today and the six days after it, for the dashboard's week strip (dates only: no events are shown that were not read)."""
-    t = time.localtime(now if now is not None else time.time())
-    base = time.mktime((t.tm_year, t.tm_mon, t.tm_mday, 12, 0, 0, 0, 0, -1))
-    days = [time.localtime(base + i * 86400) for i in range(7)]
-    return [{"wd": time.strftime("%a", d), "day": d.tm_mday, "today": i == 0} for i, d in enumerate(days)]
+THEMES = dashboard.THEMES
+WIDGETS = {k: v[0] for k, v in dashboard.WIDGETS.items()}
+parse_prefs, dump_prefs = dashboard.parse_prefs, dashboard.dump_prefs
 
 
 def safe_next(p: str | None) -> str:
@@ -92,6 +75,7 @@ def create_app(cfg: Settings | None = None, transport: httpx.AsyncBaseTransport 
     templates.env.globals.update(cfg=cfg, version=VERSION)
     templates.env.filters["ago"] = lambda d: services.ago(d)
     templates.env.filters["size"] = services.human_size
+    templates.env.filters["initials"] = dashboard.initials
     templates.env.filters["isoago"] = lambda v: services.ago(admin_time(v)) if v else "never"
     app.state.store, app.state.state = store, state
 
@@ -125,8 +109,12 @@ def create_app(cfg: Settings | None = None, transport: httpx.AsyncBaseTransport 
     # ---- helpers --------------------------------------------------------------------------------------------------
     def render(request: Request, name: str, ctx: dict | None = None, status: int = 200, sess: Session | None = None) -> Response:
         b = getattr(request.state, "brand", None) or {}
-        brand = {"name": b.get("display_name") or cfg.org_name, "accent": b.get("accent") if HEXRE.match(b.get("accent") or "") else None,
-                 "logo": bool(b.get("has_logo")), "apps": b.get("apps")}
+        org = (b.get("display_name") or cfg.org_name or "").strip()
+        brand = {"name": org or "Office Unbound", "accent": b.get("accent") if HEXRE.match(b.get("accent") or "") else None,
+                 "logo": bool(b.get("has_logo")), "apps": b.get("apps"),
+                 # the bar's product name: the organisation's own name, or Office Unbound when it has none (a mail domain is not a name,
+                 # the same rule as /brand/org.css for the other apps)
+                 "bar": org if org and org.lower() != (cfg.mail_domain or "").lower() else "Office Unbound"}
         c = {"request": request, "sess": sess, "user": user_ctx(sess) if sess else None, "brand": brand,
              "prefs": parse_prefs(request.cookies.get(PREFS_COOKIE)), "widgets": WIDGETS,
              "chat": bool(sess and getattr(request.state, "chat", False)), "notes": sess.notes if sess else [],
@@ -137,7 +125,7 @@ def create_app(cfg: Settings | None = None, transport: httpx.AsyncBaseTransport 
         c = s.claims
         name = c.get("name") or c.get("preferred_username") or c.get("email") or "there"
         return {"name": name, "first": (c.get("given_name") or name.split(" ")[0]), "username": c.get("preferred_username", ""),
-                "email": c.get("email", ""), "initial": name[:1].upper()}
+                "email": c.get("email", ""), "initial": name[:1].upper(), "initials": dashboard.initials(name)}
 
     def set_cookie(resp: Response, name: str, value: str, max_age: int) -> None:
         # __Host- prefix: Secure, Path=/, no Domain; HttpOnly; Lax so the top-level redirect back from Keycloak carries it.
@@ -275,6 +263,31 @@ def create_app(cfg: Settings | None = None, transport: httpx.AsyncBaseTransport 
         return resp
 
     # ---- signed in -------------------------------------------------------------------------------------------------
+    async def _files(what: str, coro):
+        try:
+            return await coro
+        except (services.ServiceError, httpx.HTTPError) as e:
+            log.warning("%s unavailable: %s", what, e)
+            return None
+
+    async def _summary(s: Session, now: datetime) -> dict | None:
+        """The user's calendar and mail summary from the groupware reader with THEIR token; None when it is not deployed or did not answer."""
+        if not cfg.groupware_reader_url:
+            return None
+        start = now.replace(hour=0, minute=0, second=0, microsecond=0)
+        try:
+            raw = await services.groupware_summary(cfg, state["http"], s.access_token, start, start + timedelta(days=8))
+        except (services.ServiceError, httpx.HTTPError) as e:
+            log.warning("groupware summary unavailable: %s", e)
+            return None
+        got = dashboard.normalise(raw, s.claims.get("email", ""), now.tzinfo)
+        if got is None:
+            log.warning("groupware summary refused: wrong version, mailbox or shape")
+        return got
+
+    async def _none():
+        return None
+
     @app.get("/", response_class=HTMLResponse)
     async def home(request: Request) -> Response:
         s = await current(request)
@@ -282,29 +295,48 @@ def create_app(cfg: Settings | None = None, transport: httpx.AsyncBaseTransport 
             # owner 2026-11-20: "https://app.<domain>/ should go right to auth": no intermediate page, straight to the sign-in service
             return RedirectResponse("/login", status_code=303)
         prefs = parse_prefs(request.cookies.get(PREFS_COOKIE))
-        notices, recent, shared, favorites = [], [], [], []
-        user = s.claims.get("preferred_username", "")
-        if "recent" not in prefs["hidden"]:
-            try:
-                recent = await services.recent_files(cfg, state["http"], s.access_token, user, limit=8)
-            except (services.ServiceError, httpx.HTTPError) as e:
-                log.warning("recent files unavailable: %s", e)
-                recent = None
-        if "shared" not in prefs["hidden"]:
-            try:
-                shared = await services.shared_with_me(cfg, state["http"], s.access_token)
-            except (services.ServiceError, httpx.HTTPError) as e:
-                log.warning("shared-with-me unavailable: %s", e)
-                shared = None
-        if "favorites" not in prefs["hidden"]:
-            try:
-                favorites = await services.favorite_files(cfg, state["http"], s.access_token, user)
-            except (services.ServiceError, httpx.HTTPError) as e:
-                log.warning("favourites unavailable: %s", e)
-                favorites = None
-        return render(request, "home.html", {"recent": recent, "shared": shared, "favorites": favorites, "notices": notices, "kinds": KINDS,
-                                             "today": time.strftime("%A, %d %B %Y"), "week": week_days(),
-                                             "flash": request.query_params.get("flash")}, sess=s)
+        cols = dashboard.columns(prefs)
+        shown = {w for ws in cols.values() for w in ws}
+        b = getattr(request.state, "brand", None) or {}
+        apps = b.get("apps") or {}
+        has_mail, has_files = apps.get("mail", True), apps.get("files", True)
+        user, h = s.claims.get("preferred_username", ""), state["http"]
+        now = datetime.now().astimezone()
+        want_gw = has_mail and bool(shown & {"agenda", "meetings", "attention"})
+        recent, shared, favorites, summary = await asyncio.gather(
+            _files("recent files", services.recent_files(cfg, h, s.access_token, user, limit=8)) if has_files and "recent" in shown else _none(),
+            # the attention feed lists recent shares too
+            _files("shared-with-me", services.shared_with_me(cfg, h, s.access_token, limit=12))
+            if has_files and shown & {"shared", "attention"} else _none(),
+            _files("favourites", services.favorite_files(cfg, h, s.access_token, user)) if has_files and "favorites" in shown else _none(),
+            _summary(s, now) if want_gw else _none())
+        ag = dashboard.agenda(summary, now)
+        return render(request, "home.html", {
+            "recent": recent, "shared": shared[:6] if shared else shared, "favorites": favorites, "kinds": KINDS, "cols": cols,
+            "summary": summary, "agenda": ag, "attention": dashboard.attention_feed(summary, shared, now),
+            "greeting": dashboard.greeting(now), "headline": dashboard.headline(now.date(), ag), "now": now,
+            "gw_configured": bool(cfg.groupware_reader_url), "has_mail": has_mail, "has_files": has_files, "flash": request.query_params.get("flash")}, sess=s)
+
+    @app.get("/docs", response_class=HTMLResponse)
+    async def docs_home(request: Request) -> Response:
+        """Docs in the rail: create a document, spreadsheet or presentation (opens in the online editor) and the office files changed
+        recently (the same Files search as the dashboard, office kinds only)."""
+        s = await current(request)
+        if not s:
+            return login_redirect(request)
+        recent = await _files("recent files", services.recent_files(cfg, state["http"], s.access_token, s.claims.get("preferred_username", ""), limit=60))
+        if recent is not None:
+            recent = [f for f in recent if f["kind"] in KINDS][:12]
+        return render(request, "docs.html", {"recent": recent, "kinds": KINDS}, sess=s)
+
+    @app.get("/settings", response_class=HTMLResponse)
+    async def settings_page(request: Request) -> Response:
+        s = await current(request)
+        if not s:
+            return login_redirect(request)
+        p = parse_prefs(request.cookies.get(PREFS_COOKIE))
+        return render(request, "settings.html", {"zones": {z: [w for w in p["order"] if dashboard.WIDGETS[w][1] == z] for z in dashboard.ZONES},
+                                                 "flash": request.query_params.get("flash")}, sess=s)
 
     @app.get("/search", response_class=HTMLResponse)
     async def search(request: Request, q: str = "") -> Response:
@@ -331,9 +363,18 @@ def create_app(cfg: Settings | None = None, transport: httpx.AsyncBaseTransport 
         p = parse_prefs(request.cookies.get(PREFS_COOKIE))
         if str(form.get("theme", "")) in THEMES:
             p["theme"] = str(form["theme"])
-        if form.get("widgets_form"):                     # the Customise panel lists every widget: an unticked one is hidden
+        if str(form.get("rail", "")) in ("expanded", "collapsed"):
+            p["rail"] = str(form["rail"])
+        if str(form.get("density", "")) in dashboard.DENSITIES:
+            p["density"] = str(form["density"])
+        if form.get("widgets_form"):                     # the widget list names every widget: an unticked one is hidden
             shown = {str(v) for v in form.getlist("show")}
             p["hidden"] = [w for w in WIDGETS if w not in shown]
+        key, _, direction = str(form.get("move", "")).partition(":")
+        if key:
+            p["order"] = dashboard.move(p["order"], key, direction)
+        if form.get("reset"):                            # restore the default dashboard (theme and navigation stay as chosen)
+            p.update(hidden=[], order=list(dashboard.DEFAULT_ORDER), density="comfortable")
         resp = RedirectResponse(safe_next(str(form.get("next", "/"))), status_code=303)
         resp.set_cookie(PREFS_COOKIE, dump_prefs(p), max_age=400 * 86400, secure=True, httponly=True, samesite="lax", path="/")
         return resp

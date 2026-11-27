@@ -9,7 +9,7 @@ const SESSION = process.env.SESSION;
 if (!SESSION) { console.error('SESSION is required'); process.exit(2); }
 const PAGES = ['/', '/account', '/devices', '/about', '/search?q=budget', '/admin', '/admin/users', '/admin/users/new', '/admin/groups',
   '/admin/addresses', '/admin/shared', '/admin/storage', '/admin/domains?check=1', '/admin/branding', '/admin/requests'];
-const MENUS = ['details.switcher', 'details.create', 'details.notes', 'details.profile'];
+const MENUS = ['details.launcher', 'details.help', 'details.notes', 'details.profile', 'details.qmore'];
 const WIDTHS = (process.env.WIDTHS || '320,390,768,1366').split(',').map(Number);
 let pass = 0, fail = 0;
 (async () => {

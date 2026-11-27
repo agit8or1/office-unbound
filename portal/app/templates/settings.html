@@ -1,0 +1,65 @@
+{% extends "base.html" %}
+{% from "_icons.html" import icon %}
+{% block title %}Settings · {{ brand.name }}{% endblock %}
+{#- Personal settings of the portal: appearance, navigation and the dashboard. Stored in this browser (ou_prefs cookie): the portal keeps no
+    database of its own. Account and security live with the sign-in service (/account). -#}
+{% block main %}
+<div class="pagehead"><h1>Settings</h1></div>
+<p class="sub">These choices are kept in this browser. Your password and two-step sign-in are under <a href="/account">Account and security</a>.</p>
+{% if flash == 'saved' %}<p class="notice ok" role="status">Saved.</p>{% endif %}
+
+<section class="card" aria-labelledby="h-appearance">
+  <h2 id="h-appearance">Appearance</h2>
+  <form class="segform" method="post" action="/prefs">
+    <input type="hidden" name="csrf" value="{{ sess.csrf }}"><input type="hidden" name="next" value="/settings">
+    <fieldset class="seg"><legend>Theme</legend>
+    {% for t, label in (("system", "Same as this device"), ("light", "Light"), ("dark", "Dark")) %}
+    <button type="submit" name="theme" value="{{ t }}" aria-pressed="{{ 'true' if prefs.theme == t else 'false' }}">{{ label }}</button>
+    {% endfor %}
+    </fieldset>
+  </form>
+</section>
+
+<section class="card" aria-labelledby="h-nav">
+  <h2 id="h-nav">Navigation</h2>
+  <form class="segform" method="post" action="/prefs">
+    <input type="hidden" name="csrf" value="{{ sess.csrf }}"><input type="hidden" name="next" value="/settings">
+    <fieldset class="seg"><legend>App rail</legend>
+    <button type="submit" name="rail" value="collapsed" aria-pressed="{{ 'true' if prefs.rail == 'collapsed' else 'false' }}">Icons with short labels</button>
+    <button type="submit" name="rail" value="expanded" aria-pressed="{{ 'true' if prefs.rail == 'expanded' else 'false' }}">Wide, labels beside icons</button>
+    </fieldset>
+  </form>
+  <p class="hint">On a phone the apps are a bar at the bottom of the screen.</p>
+</section>
+
+<section class="card" aria-labelledby="h-dashboard">
+  <h2 id="h-dashboard">Dashboard</h2>
+  <form class="segform" method="post" action="/prefs">
+    <input type="hidden" name="csrf" value="{{ sess.csrf }}"><input type="hidden" name="next" value="/settings#h-dashboard">
+    <fieldset class="seg"><legend>Density</legend>
+    <button type="submit" name="density" value="comfortable" aria-pressed="{{ 'true' if prefs.density == 'comfortable' else 'false' }}">Comfortable</button>
+    <button type="submit" name="density" value="compact" aria-pressed="{{ 'true' if prefs.density == 'compact' else 'false' }}">Compact</button>
+    </fieldset>
+  </form>
+  <form method="post" action="/prefs" class="wform">
+    <input type="hidden" name="csrf" value="{{ sess.csrf }}"><input type="hidden" name="next" value="/settings#h-dashboard"><input type="hidden" name="widgets_form" value="1">
+    {% for zone, title in (("side", "Left column"), ("main", "Middle column"), ("aside", "Right column")) %}
+    <fieldset class="wzone"><legend>{{ title }}</legend>
+      <ol class="wlist">
+      {% for w in zones[zone] %}
+      <li data-widget="{{ w }}">
+        <label class="check"><input type="checkbox" name="show" value="{{ w }}" {% if w not in prefs.hidden %}checked{% endif %}><span>{{ widgets[w] }}</span></label>
+        <span class="mv">
+          <button class="btn sm" type="submit" name="move" value="{{ w }}:up" {% if loop.first %}disabled{% endif %} aria-label="Move {{ widgets[w] }} up" title="Move up">↑</button>
+          <button class="btn sm" type="submit" name="move" value="{{ w }}:down" {% if loop.last %}disabled{% endif %} aria-label="Move {{ widgets[w] }} down" title="Move down">↓</button>
+        </span>
+      </li>
+      {% endfor %}
+      </ol>
+    </fieldset>
+    {% endfor %}
+    <div class="row2"><button class="btn copper" type="submit">Save</button><button class="btn" type="submit" name="reset" value="1">Restore defaults</button></div>
+  </form>
+  <p class="hint">Moving a widget also saves which widgets are shown.</p>
+</section>
+{% endblock %}

@@ -1,0 +1,31 @@
+{% extends "base.html" %}
+{% from "_icons.html" import icon %}
+{% block title %}Docs · {{ brand.name }}{% endblock %}
+{% block mainclass %}wrap wide{% endblock %}
+{#- Docs in the rail: new office files open in the online editor and are saved to the user's own Files; the list is their office files
+    changed recently (OpenCloud search with their token). -#}
+{% block main %}
+<div class="pagehead"><h1>Docs</h1></div>
+<p class="sub">Documents, spreadsheets and presentations open in the online editor and are saved to your files. Prefer desktop software? <a href="/devices#office-apps">Choose how you work</a>.</p>
+<ul class="qc docnew" aria-label="Create">
+  {% for k in kinds %}
+  <li><form method="post" action="/new/{{ k }}"><input type="hidden" name="csrf" value="{{ sess.csrf }}">
+    <button class="qcb k-{{ k }}" type="submit" data-new="{{ k }}">{{ icon(k) }}<span>New {{ k }}</span></button></form></li>
+  {% endfor %}
+</ul>
+<section class="widget" aria-labelledby="h-docs">
+  <header class="wh"><h2 id="h-docs">Recent documents</h2><a class="wlink" href="{{ cfg.files_url }}/">Open Files</a></header>
+  {% if recent is none %}
+  <div class="wempty"><p class="et">Not available right now</p><p>Files did not answer. Files itself may still work.</p></div>
+  {% elif recent %}
+  <ul class="flist">
+    {% for f in recent %}
+    <li><a class="frow" href="{{ f.url }}" data-file="{{ f.name }}"><span class="ficon k-{{ f.kind }}">{{ icon(f.kind) }}</span><span class="fname">{{ f.name }}</span>
+      <span class="fmeta"><time datetime="{{ f.mtime.isoformat() }}">{{ f.mtime | ago }}</time>{% if f.size %} · {{ f.size | size }}{% endif %}</span></a></li>
+    {% endfor %}
+  </ul>
+  {% else %}
+  <div class="wempty"><p class="et">No documents yet</p><p>Documents, spreadsheets and presentations you create or change show up here.</p></div>
+  {% endif %}
+</section>
+{% endblock %}

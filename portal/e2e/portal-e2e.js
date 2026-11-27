@@ -51,7 +51,7 @@ async function lab_token() {            // lab-only direct grant client, used ON
   await page.fill('#password', PW);
   await page.click('#kc-login');
   await page.waitForURL(PORTAL + '/', { timeout: 30000 });
-  check('signed in, back on the portal', (await page.locator('h1.greet').innerText()).startsWith('Hello,'), await page.locator('h1.greet').innerText());
+  check('signed in, back on the portal', /^Good (morning|afternoon|evening),/.test(await page.locator('h1.greet').innerText()), await page.locator('h1.greet').innerText());
 
   // 2. session is a BFF cookie, tokens never reach the browser -------------------------------------------------------
   const cookies = (await ctx.cookies(PORTAL)).filter(c => c.name.startsWith('__Host-'));

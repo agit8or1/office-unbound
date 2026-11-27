@@ -170,7 +170,7 @@ def test_full_login_session_and_token_exchange(env):
     basic = [h for (mth, u, h) in m.calls if u.endswith("/token")][0]["authorization"]
     assert basic.startswith("Basic ")                                          # confidential client authentication
     page = c.get("/")
-    assert page.status_code == 200 and "Hello, Bob" in page.text
+    assert page.status_code == 200 and re.search(r"Good (morning|afternoon|evening), Bob", page.text)
     assert "AT1" not in page.text and "RT1" not in page.text and SECRET not in page.text
 
 
@@ -365,7 +365,7 @@ def test_mail_calendar_contacts_tiles_use_sso_deep_links_and_no_separate_passwor
     _, q = login(c, m)
     finish(c, q)
     html = c.get("/").text
-    found = re.findall(r'<a class="apptile" href="([^"]+)" data-app="(mail|calendar|contacts)"', html)
+    found = re.findall(r'<a class="ri[^"]*" href="([^"]+)" data-app="(mail|calendar|contacts)"', html)     # the app rail
     assert {app: href for href, app in found} == {"mail": "https://mail.test/web/",
                                                   "calendar": "https://mail.test/web/?action=context&amp;view=calendar",
                                                   "contacts": "https://mail.test/web/?action=context&amp;view=contacts"}
@@ -597,10 +597,13 @@ def test_dashboard_shows_live_files_and_shares_and_no_invented_mail_or_events(en
     assert 'data-file="new.xlsx"' in html and 'data-file="Budget 2027.xlsx"' in html and "Anna Meyer" in html
     assert "hidden.txt" not in html                                                            # a share the user hid stays hidden
     assert f'href="{FILES}/f/s%24b%217"' in html                                               # opened through OUR files host
-    # mail and calendar: honest cards with working actions, never a made-up count or event
-    assert "Message previews on the dashboard are not available yet" in html and "An agenda on the dashboard is not available yet" in html
+    # mail and calendar without a groupware reader: said plainly with working actions, never a made-up count, meeting or event
+    assert html.count("This deployment does not connect the dashboard to your calendar yet") == 2               # agenda + meetings
+    assert "Invitations and flagged mail are not on the dashboard yet" in html
+    assert 'class="nextcard' not in html and 'class="ev' not in html and 'class="nowline' not in html and 'class="badge' not in html
     assert 'href="https://mail.test/web/?action=mailto&amp;to="' in html
-    assert len(re.findall(r'<li(?: class="today" aria-current="date")?><span class="wd">', html)) == 7 and html.count('aria-current="date"') == 1
+    att = html.split('id="h-attention"', 1)[1].split("</section>", 1)[0]                                    # recent shares are real items
+    assert "Anna Meyer shared a file with you" in att and "Budget 2027.xlsx" in att
     assert 'data-theme=' not in html.split(">", 2)[1]                                          # system theme by default
 
 
@@ -615,7 +618,7 @@ def test_theme_and_widgets_are_saved_per_browser_and_need_csrf(env):
     assert c.post("/prefs", data={"csrf": tok, "theme": "neon", "next": "//evil.test"}).headers["location"] == "/"   # bad values ignored
     assert '<html lang="en" data-theme="dark">' in c.get("/").text
     m.report_bodies = []
-    c.post("/prefs", data={"csrf": tok, "widgets_form": "1", "show": ["inbox", "calendar", "create", "shared"]})
+    c.post("/prefs", data={"csrf": tok, "widgets_form": "1", "show": ["inbox", "calendar", "create", "shared", "agenda"]})
     html = c.get("/").text
     assert 'id="h-recent"' not in html and m.report_bodies == []                               # hidden: not even asked for
     assert 'id="h-shared"' in html
@@ -660,10 +663,11 @@ def test_bell_shows_files_notifications_escaped_and_asks_files_at_most_once_a_mi
 
 def test_prefs_cookie_parser_accepts_only_known_values():
     from app.main import WIDGETS, dump_prefs, parse_prefs
-    assert parse_prefs(None) == {"theme": "system", "hidden": []}
-    assert parse_prefs("light:recent.bogus.inbox") == {"theme": "light", "hidden": ["recent", "inbox"]}
-    assert parse_prefs("<script>:") == {"theme": "system", "hidden": []}
-    assert dump_prefs({"theme": "dark", "hidden": ["shared", "inbox"]}) == "dark:shared.inbox"
+    default = {"theme": "system", "hidden": [], "order": list(WIDGETS), "rail": "collapsed", "density": "comfortable"}
+    assert parse_prefs(None) == default
+    assert parse_prefs("light:recent.bogus.inbox") == {**default, "theme": "light", "hidden": ["recent"]}     # 0.13 cookie: theme and hidden kept
+    assert parse_prefs("<script>:") == default
+    assert dump_prefs({"theme": "dark", "hidden": ["shared", "recent"]}) == "dark:shared.recent"
     assert re.fullmatch(r"[a-z:.]+", dump_prefs({"theme": "light", "hidden": list(WIDGETS)}))      # RFC 6265 cookie-octets only
 
 
