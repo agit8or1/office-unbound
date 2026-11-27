@@ -36,6 +36,7 @@
   --ou-bar-line: #33475f;
   --ou-bar-text: #e7ecf2;
   --ou-bar-muted: #9daabb;
+  --ou-bar-field: #223550;
   --ou-raised: #fbfaf7;
   --ou-action: #2d6a68;
   --ou-action-ink: #ffffff;
@@ -128,6 +129,7 @@
     --ou-bar-2: #18222f;
     --ou-bar-line: #283445;
     --ou-bar-muted: #a3afbf;
+    --ou-bar-field: #161f2c;
     --ou-app-mail: #7fa8dc;
     --ou-app-calendar: #6cb8b2;
     --ou-app-contacts: #b49ad8;
@@ -179,6 +181,7 @@
   --ou-bar-2: #18222f;
   --ou-bar-line: #283445;
   --ou-bar-muted: #a3afbf;
+  --ou-bar-field: #161f2c;
   --ou-app-mail: #7fa8dc;
   --ou-app-calendar: #6cb8b2;
   --ou-app-contacts: #b49ad8;
