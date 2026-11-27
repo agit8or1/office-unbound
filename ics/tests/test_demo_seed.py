@@ -419,10 +419,10 @@ def test_full_seed_is_idempotent_and_reset_removes_it(rt, client, admin, demo_de
     assert sum(len(b["INBOX"]) + len(b["Sent Items"]) for b in imap.boxes.values()) == 101
     assert {h_ for h_, _p in imap.logins} == {f"mail.{DOMAIN}"}
     # calendar: organizer copies, server scheduling copies for attendees, the team calendar, tasks
-    assert f"ou-demo-m02.ics" in apps.cal[f"priya.raghunathan@{DOMAIN}"]["Calendar"]
+    assert any(k.startswith("ou-demo-m02@") for k in apps.cal[f"priya.raghunathan@{DOMAIN}"]["Calendar"])   # stored under its UID
     assert any("ou-demo-m02" in k for k in apps.cal[f"tomas.brandvik@{DOMAIN}"]["Calendar"])
     assert len(apps.cal[f"grace.abernathy@{DOMAIN}"][org.TEAM_CALENDAR["slug"]]) == 6
-    assert "ou-demo-k01.ics" in apps.cal[f"tomas.brandvik@{DOMAIN}"]["Tasks"]
+    assert any(k.startswith("ou-demo-k01@") for k in apps.cal[f"tomas.brandvik@{DOMAIN}"]["Tasks"])
     # files: generated documents in the owners' spaces, shares from the server's role list
     assert apps.dav["priya.raghunathan"]["Projects/Brightwater Foods/brightwater-proposal.docx"] == officefiles.render(org.FILES["brightwater-proposal.docx"])
     perms = apps.perms[("priya.raghunathan", "Projects%2FBrightwater%20Foods")]

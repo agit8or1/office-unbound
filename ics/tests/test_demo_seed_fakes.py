@@ -6,6 +6,8 @@ from __future__ import annotations
 
 import json
 import re
+from urllib.parse import quote
+from xml.sax.saxutils import escape as xml_escape
 from email import message_from_bytes
 from urllib.parse import parse_qs, quote, unquote, urlencode
 
@@ -165,16 +167,23 @@ class Apps:
         if req.method == "PUT":
             if col not in cals:
                 return httpx.Response(409)
-            if obj in cals[col] and req.headers.get("if-none-match") == "*":
+            # grommunio-dav (first real run 2026-11-27): the object is stored under a name derived from its UID, not the requested
+            # one, so If-None-Match on the requested name never matches an existing object
+            uid = re.search(r"^UID:(\S+)", req.content.decode(), re.M).group(1)
+            name = uid + ".ics"   # kept decoded here; REPORT answers the doubly encoded href grommunio-dav gives
+            if name in cals[col] and req.headers.get("if-none-match") == "*" and name == obj:
                 return httpx.Response(412)
-            cals[col][obj] = req.content.decode()
+            cals[col][name] = req.content.decode()
             self._schedule(user, req.content.decode())
             return httpx.Response(201)
         if req.method == "REPORT":
-            m = re.search(r'comp-filter name="(VEVENT|VTODO)"><c:prop-filter name="UID"><c:text-match[^>]*>([^<]+)<', req.content.decode())
-            comp, needle = m.group(1), m.group(2)
-            return self._ms([(f"{home}{col}/{h}", "<d:getetag>\"1\"</d:getetag>") for h, ics in cals.get(col, {}).items()
-                             if f"BEGIN:{comp}" in ics and re.search(r"^UID:" + re.escape(needle), ics, re.M)])
+            b = req.content.decode()
+            if "text-match" in b:   # grommunio-dav answers a UID text-match with no objects (first real run 2026-11-27)
+                return self._ms([])
+            comp = re.search(r'comp-filter name="VCALENDAR"><c:comp-filter name="(VEVENT|VTODO)"', b).group(1)
+            data = "calendar-data" in b
+            return self._ms([(f"{home}{col}/{quote(quote(h, safe=''), safe='')}", "<d:getetag>\"1\"</d:getetag>" + (f"<c:calendar-data>{xml_escape(ics)}</c:calendar-data>" if data else ""))
+                             for h, ics in cals.get(col, {}).items() if f"BEGIN:{comp}" in ics])
         if req.method == "DELETE":
             if obj:
                 return httpx.Response(204) if cals.get(col, {}).pop(obj, None) is not None else httpx.Response(404)

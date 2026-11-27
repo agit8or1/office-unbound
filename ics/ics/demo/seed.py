@@ -289,8 +289,13 @@ class Seeder:
             if uid == org.TEAM_CALENDAR["owner"]:
                 if dav.mkcalendar(dav.collection(org.TEAM_CALENDAR["slug"]), org.TEAM_CALENDAR["name"]):
                     self._c("calendar", "calendars_created")
+            have: dict[str, dict[str, str]] = {}
             for o in (x for x in objs if x.owner == uid):
-                created = dav.put_once(dav.collection(o.collection) + o.href, o.ics)
+                col = dav.collection(o.collection)
+                if col not in have:
+                    have[col] = dav.uids(col)
+                # an existing UID is kept: re-sending it would make the server re-send every invitation (first real run 2026-11-27)
+                created = o.uid not in have[col] and dav.put_once(col + o.href, o.ics)
                 self._c("calendar", "created" if created else "kept")
 
     def reset_calendar(self) -> None:

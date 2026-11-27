@@ -214,7 +214,8 @@ class Dav:
         return r.status_code == 201
 
     def put_once(self, url: str, ics: str) -> bool:
-        """Create only (If-None-Match: *): an existing object is kept, so a re-run never re-sends invitations. True = created."""
+        """PUT with If-None-Match: *. Callers check uids() first: grommunio-dav stores an object under a name derived from its UID,
+        not the requested one, so this header alone never sees an existing object there (first real run 2026-11-27). True = created."""
         r = self._req("PUT", url, content=ics.encode(), headers={"Content-Type": "text/calendar; charset=utf-8", "If-None-Match": "*"})
         if r.status_code in (201, 204):
             return True
@@ -222,19 +223,27 @@ class Dav:
             return False
         raise SeedError(f"CalDAV PUT answered {r.status_code}")
 
-    def demo_hrefs(self, collection: str) -> list[str]:
-        """Objects in the collection whose UID starts with ou-demo- (this tool's own and the server's scheduling copies)."""
-        body = ('<?xml version="1.0"?><c:calendar-query xmlns:d="DAV:" xmlns:c="urn:ietf:params:xml:ns:caldav"><d:prop><d:getetag/></d:prop>'
-                '<c:filter><c:comp-filter name="VCALENDAR">{}</c:comp-filter></c:filter></c:calendar-query>')
-        out = []
+    def uids(self, collection: str) -> dict[str, str]:
+        """UID -> href of every event and task in the collection, read from the objects themselves (a plain calendar-query with
+        calendar-data: grommunio-dav does not answer UID text-match filters)."""
+        body = ('<?xml version="1.0"?><c:calendar-query xmlns:d="DAV:" xmlns:c="urn:ietf:params:xml:ns:caldav"><d:prop><d:getetag/>'
+                '<c:calendar-data/></d:prop><c:filter><c:comp-filter name="VCALENDAR"><c:comp-filter name="{}"/></c:comp-filter></c:filter>'
+                '</c:calendar-query>')
+        out: dict[str, str] = {}
         for comp in ("VEVENT", "VTODO"):
-            f = (f'<c:comp-filter name="{comp}"><c:prop-filter name="UID"><c:text-match collation="i;octet">{org.UID_PREFIX}'
-                 "</c:text-match></c:prop-filter></c:comp-filter>")
-            r = self._req("REPORT", collection, content=body.format(f), headers={"Depth": "1", "Content-Type": "application/xml"})
+            r = self._req("REPORT", collection, content=body.format(comp), headers={"Depth": "1", "Content-Type": "application/xml"})
             if r.status_code != 207:
                 continue
-            out += [h.text for h in ET.fromstring(r.content).findall("d:response/d:href", NS) if h.text and not h.text.endswith("/")]
-        return sorted(set(out))
+            for resp in ET.fromstring(r.content).findall("d:response", NS):
+                href, data = resp.findtext("d:href", namespaces=NS), resp.findtext(".//c:calendar-data", namespaces=NS) or ""
+                m = re.search(r"^UID:(.+?)\r?$", data.replace("\r\n ", "").replace("\n ", ""), re.M)
+                if href and m and not href.endswith("/"):
+                    out.setdefault(m.group(1).strip(), href)
+        return out
+
+    def demo_hrefs(self, collection: str) -> list[str]:
+        """Objects in the collection whose UID starts with ou-demo- (this tool's own and the server's scheduling copies)."""
+        return sorted({h for u, h in self.uids(collection).items() if u.startswith(org.UID_PREFIX)})
 
     def delete(self, url: str) -> bool:
         return self._req("DELETE", url).status_code in (200, 204)
