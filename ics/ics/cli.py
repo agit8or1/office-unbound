@@ -51,7 +51,12 @@ def main(argv=None) -> int:
     ea = sub.add_parser("epoch-attest", help="CURRENT primary only: print a signed re-seed document for one agent whose epoch file was lost (ou-agent reseed-epoch)")
     ea.add_argument("--node", required=True, help="node id (uuid) of the agent")
     sub.add_parser("controller-status", help="print role, controller epoch and replication position")
+    ds = sub.add_parser("demo-seed", help="fill a deployment MARKED as a demo with the fictional Northstar Advisory Group (docs/admin/demo-organization.md)")
+    from .demo import seed as demo_seed
+    demo_seed.add_arguments(ds)
     args = ap.parse_args(argv)
+    if args.cmd == "demo-seed":
+        return demo_seed.main(args)
     if args.cmd == "promote":
         from . import promote
         return promote.promote(args)
