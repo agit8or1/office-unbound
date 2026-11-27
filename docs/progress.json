@@ -9,8 +9,8 @@
   "releases": [
     {
       "version": "0.13.13",
-      "date": "2026-11-26",
-      "status": "prepared",
+      "date": "2026-11-27",
+      "status": "released",
       "codename": "Meridian",
       "channel": "alpha",
       "highlights": [

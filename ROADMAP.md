@@ -194,7 +194,7 @@ Alpha (0.10.0 "Juniper"): an administrator installs the Infrastructure Control S
 
 | Version | Date | Status | Highlights |
 |---|---|---|---|
-| [0.13.13](https://github.com/agit8or1/office-unbound/releases/tag/v0.13.13) | 2026-11-26 | prepared | 0.13.13: the deployment page shows the DNS records its domain needs, including the DKIM record, with a live check |
+| [0.13.13](https://github.com/agit8or1/office-unbound/releases/tag/v0.13.13) | 2026-11-27 | released | 0.13.13: the deployment page shows the DNS records its domain needs, including the DKIM record, with a live check |
 | [0.13.12](https://github.com/agit8or1/office-unbound/releases/tag/v0.13.12) | 2026-11-26 | released | 0.13.12: outgoing mail is signed with the deployment's own DKIM key, and the DNS checkers show the exact DKIM record to publish and check it<br>0.13.12: node agent 0.10.4 |
 | [0.13.11](https://github.com/agit8or1/office-unbound/releases/tag/v0.13.11) | 2026-11-26 | released | 0.13.11: a change that sends the desktop discovery document to the mail server records its result instead of failing in the audit step |
 | [0.13.10](https://github.com/agit8or1/office-unbound/releases/tag/v0.13.10) | 2026-11-26 | released | 0.13.10: the desktop sign-in client and discovery document reach running deployments (identity and groupware configuration revision 2) |
