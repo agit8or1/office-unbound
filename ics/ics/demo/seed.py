@@ -352,7 +352,10 @@ class Seeder:
                 c = s[r.creator]
                 room = c.alias_room(self._alias(r.key))
                 if room is None:
-                    room = c.create_room(org.UID_PREFIX + r.key, r.name, r.topic, [self._mx(u) for u in r.members if u != r.creator], r.direct)
+                    # only a direct chat invites in createRoom: Synapse refuses larger invite lists at creation ("Cannot invite so many users at
+                    # once", first real run 2026-11-27); the members are invited one by one below
+                    room = c.create_room(org.UID_PREFIX + r.key, r.name, r.topic,
+                                         [self._mx(u) for u in r.members if u != r.creator] if r.direct else [], r.direct)
                     self._c("chat", "rooms_created")
                 else:
                     self._c("chat", "rooms_kept")

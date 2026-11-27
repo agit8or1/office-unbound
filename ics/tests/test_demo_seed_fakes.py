@@ -325,6 +325,8 @@ class Apps:
             alias = f"#{b['room_alias_name']}:matrix.{self.d}"
             if alias in self.aliases:
                 return httpx.Response(400, json={"errcode": "M_ROOM_IN_USE"})
+            if len(b.get("invite", [])) > 1:   # Synapse: "Cannot invite so many users at once" (seen on the first real run)
+                return httpx.Response(400, json={"errcode": "M_UNKNOWN", "error": "Cannot invite so many users at once"})
             rid = f"!r{len(self.rooms)}:matrix.{self.d}"
             self.rooms[rid] = {"members": {me: "join", **{u: "invite" for u in b["invite"]}}, "events": [], "body": b}
             self.aliases[alias] = rid

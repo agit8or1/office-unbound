@@ -422,6 +422,15 @@ def pick_role(allowed: list[dict], role: str) -> str:
 
 
 # ================================================================ Matrix
+def _mx_err(r: httpx.Response) -> str:
+    """Matrix error code and text (never request content): makes a refusal diagnosable from the seed's output."""
+    try:
+        j = r.json()
+    except ValueError:
+        return ""
+    return f"{j.get('errcode', '')}: {str(j.get('error', ''))[:160]}" if isinstance(j, dict) else ""
+
+
 class Matrix:
     def __init__(self, h: httpx.Client, base: str, token: str):
         self.h, self.base = h, base.rstrip("/")
@@ -466,7 +475,7 @@ class Matrix:
             body["topic"] = topic
         r = self._r("POST", "/createRoom", json=body)
         if r.status_code != 200:
-            raise SeedError(f"createRoom answered {r.status_code}")
+            raise SeedError(f"createRoom answered {r.status_code} {_mx_err(r)}")
         return r.json()["room_id"]
 
     def members(self, room: str) -> dict[str, str]:
