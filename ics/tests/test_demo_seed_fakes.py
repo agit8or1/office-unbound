@@ -169,12 +169,17 @@ class Apps:
                 return httpx.Response(409)
             # grommunio-dav (first real run 2026-11-27): the object is stored under a name derived from its UID, not the requested
             # one, so If-None-Match on the requested name never matches an existing object
-            uid = re.search(r"^UID:(\S+)", req.content.decode(), re.M).group(1)
+            body = req.content.decode()
+            if "BEGIN:VTODO" in body:   # grommunio-dav gives a task its own UID and drops X- properties (first real run 2026-11-27)
+                self.n_todo = getattr(self, "n_todo", 0) + 1
+                body = re.sub(r"^UID:\S+", f"UID:040000008200E00074C5B7101A82E008{self.n_todo:032X}", body, flags=re.M)
+                body = re.sub(r"^X-[^\r\n]*\r?\n", "", body, flags=re.M)
+            uid = re.search(r"^UID:(\S+)", body, re.M).group(1)
             name = uid + ".ics"   # kept decoded here; REPORT answers the doubly encoded href grommunio-dav gives
             if name in cals[col] and req.headers.get("if-none-match") == "*" and name == obj:
                 return httpx.Response(412)
-            cals[col][name] = req.content.decode()
-            self._schedule(user, req.content.decode())
+            cals[col][name] = body
+            self._schedule(user, body)
             return httpx.Response(201)
         if req.method == "REPORT":
             b = req.content.decode()
@@ -185,6 +190,8 @@ class Apps:
             return self._ms([(f"{home}{col}/{quote(quote(h, safe=''), safe='')}", "<d:getetag>\"1\"</d:getetag>" + (f"<c:calendar-data>{xml_escape(ics)}</c:calendar-data>" if data else ""))
                              for h, ics in cals.get(col, {}).items() if f"BEGIN:{comp}" in ics])
         if req.method == "DELETE":
+            if obj and "%2540" in req.url.raw_path.decode():   # grommunio-dav: 204, nothing deleted (first real run 2026-11-27)
+                return httpx.Response(204)
             if obj:
                 return httpx.Response(204) if cals.get(col, {}).pop(obj, None) is not None else httpx.Response(404)
             return httpx.Response(204) if cals.pop(col, None) is not None else httpx.Response(404)

@@ -12,6 +12,7 @@ encrypted secret like any People-panel password."""
 from __future__ import annotations
 
 import datetime as dt
+import re
 import json
 import os
 import secrets
@@ -25,6 +26,12 @@ from . import clients, guard, officefiles, org, planner
 MANIFEST_KEY = "demo.manifest"
 OC_CLIENT = "OpenCloudDesktop"      # public PKCE client of the realm template (loopback redirect)
 PHASES = ("mail", "calendar", "files", "chat")
+TASK_TITLES = frozenset(t.title for t in org.TASKS)   # how the seed's tasks are recognised (their UIDs are replaced by the server)
+
+
+def _summary(ics: str) -> str:
+    m = re.search(r"^SUMMARY:(.+?)\r?$", ics.replace("\r\n ", ""), re.M)
+    return clients.unescape_text(m.group(1).strip()) if m else ""
 
 
 def secret_name(uid: str) -> str:
@@ -289,13 +296,14 @@ class Seeder:
             if uid == org.TEAM_CALENDAR["owner"]:
                 if dav.mkcalendar(dav.collection(org.TEAM_CALENDAR["slug"]), org.TEAM_CALENDAR["name"]):
                     self._c("calendar", "calendars_created")
-            have: dict[str, dict[str, str]] = {}
+            have: dict[str, set[str]] = {}
             for o in (x for x in objs if x.owner == uid):
                 col = dav.collection(o.collection)
-                if col not in have:
-                    have[col] = dav.uids(col)
-                # an existing UID is kept: re-sending it would make the server re-send every invitation (first real run 2026-11-27)
-                created = o.uid not in have[col] and dav.put_once(col + o.href, o.ics)
+                if col not in have:   # UIDs and titles already there (grommunio-dav replaces a task's UID: tasks match by title)
+                    have[col] = {k for u, _h, s in dav.objects(col) for k in (u, "title:" + s)}
+                # an existing object is kept: re-sending a meeting makes the server re-send its invitations (first real run 2026-11-27)
+                exists = o.uid in have[col] or (o.collection == "tasks" and "title:" + _summary(o.ics) in have[col])
+                created = not exists and dav.put_once(col + o.href, o.ics)
                 self._c("calendar", "created" if created else "kept")
 
     def reset_calendar(self) -> None:
@@ -303,7 +311,7 @@ class Seeder:
         for uid in owners:
             dav = self._dav(uid)
             for cal in dav.calendars():
-                for href in dav.demo_hrefs(cal):
+                for href in dav.demo_hrefs(cal, TASK_TITLES):
                     self._c("calendar", "removed", int(dav.delete(href)))
             if uid == org.TEAM_CALENDAR["owner"]:
                 url = dav.collection(org.TEAM_CALENDAR["slug"])

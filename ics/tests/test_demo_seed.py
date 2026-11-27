@@ -422,7 +422,8 @@ def test_full_seed_is_idempotent_and_reset_removes_it(rt, client, admin, demo_de
     assert any(k.startswith("ou-demo-m02@") for k in apps.cal[f"priya.raghunathan@{DOMAIN}"]["Calendar"])   # stored under its UID
     assert any("ou-demo-m02" in k for k in apps.cal[f"tomas.brandvik@{DOMAIN}"]["Calendar"])
     assert len(apps.cal[f"grace.abernathy@{DOMAIN}"][org.TEAM_CALENDAR["slug"]]) == 6
-    assert any(k.startswith("ou-demo-k01@") for k in apps.cal[f"tomas.brandvik@{DOMAIN}"]["Tasks"])
+    k01 = next(x for x in org.TASKS if x.id == "k01")   # the server replaced its UID: found by title
+    assert any(f"SUMMARY:{k01.title}" in v.replace("\\,", ",") for v in apps.cal[f"{k01.owner}@{DOMAIN}"]["Tasks"].values())
     # files: generated documents in the owners' spaces, shares from the server's role list
     assert apps.dav["priya.raghunathan"]["Projects/Brightwater Foods/brightwater-proposal.docx"] == officefiles.render(org.FILES["brightwater-proposal.docx"])
     perms = apps.perms[("priya.raghunathan", "Projects%2FBrightwater%20Foods")]

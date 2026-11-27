@@ -19,7 +19,7 @@ import secrets
 import ssl
 import time
 from html.parser import HTMLParser
-from urllib.parse import parse_qs, quote, urlencode, urljoin, urlsplit
+from urllib.parse import unquote, parse_qs, quote, urlencode, urljoin, urlsplit
 from xml.etree import ElementTree as ET
 from xml.sax.saxutils import escape as _xesc
 
@@ -223,29 +223,44 @@ class Dav:
             return False
         raise SeedError(f"CalDAV PUT answered {r.status_code}")
 
-    def uids(self, collection: str) -> dict[str, str]:
-        """UID -> href of every event and task in the collection, read from the objects themselves (a plain calendar-query with
-        calendar-data: grommunio-dav does not answer UID text-match filters)."""
+    def objects(self, collection: str) -> list[tuple[str, str, str]]:
+        """(UID, href, SUMMARY) of every event and task in the collection, read from the objects themselves: a plain calendar-query
+        with calendar-data (grommunio-dav answers UID text-match filters with nothing; first real run 2026-11-27)."""
         body = ('<?xml version="1.0"?><c:calendar-query xmlns:d="DAV:" xmlns:c="urn:ietf:params:xml:ns:caldav"><d:prop><d:getetag/>'
                 '<c:calendar-data/></d:prop><c:filter><c:comp-filter name="VCALENDAR"><c:comp-filter name="{}"/></c:comp-filter></c:filter>'
                 '</c:calendar-query>')
-        out: dict[str, str] = {}
+        out = []
         for comp in ("VEVENT", "VTODO"):
             r = self._req("REPORT", collection, content=body.format(comp), headers={"Depth": "1", "Content-Type": "application/xml"})
             if r.status_code != 207:
                 continue
             for resp in ET.fromstring(r.content).findall("d:response", NS):
-                href, data = resp.findtext("d:href", namespaces=NS), resp.findtext(".//c:calendar-data", namespaces=NS) or ""
-                m = re.search(r"^UID:(.+?)\r?$", data.replace("\r\n ", "").replace("\n ", ""), re.M)
-                if href and m and not href.endswith("/"):
-                    out.setdefault(m.group(1).strip(), href)
+                href = resp.findtext("d:href", namespaces=NS)
+                data = (resp.findtext(".//c:calendar-data", namespaces=NS) or "").replace("\r\n ", "").replace("\n ", "")
+                uid = re.search(r"^UID:(.+?)\r?$", data, re.M)
+                summ = re.search(r"^SUMMARY:(.+?)\r?$", data, re.M)
+                if href and uid and not href.endswith("/"):
+                    out.append((uid.group(1).strip(), href, unescape_text(summ.group(1).strip()) if summ else ""))
         return out
 
-    def demo_hrefs(self, collection: str) -> list[str]:
-        """Objects in the collection whose UID starts with ou-demo- (this tool's own and the server's scheduling copies)."""
-        return sorted({h for u, h in self.uids(collection).items() if u.startswith(org.UID_PREFIX)})
+    def uids(self, collection: str) -> dict[str, str]:
+        """UID -> href of every event and task in the collection."""
+        out: dict[str, str] = {}
+        for uid, href, _ in self.objects(collection):
+            out.setdefault(uid, href)
+        return out
+
+    def demo_hrefs(self, collection: str, titles: frozenset[str] = frozenset()) -> list[str]:
+        """Objects in the collection this tool created: UID starting with ou-demo- (its own and the server's scheduling copies), or a
+        task whose title is one of the seed's task titles (grommunio-dav replaces a task's UID and drops X- properties)."""
+        return sorted({h for u, h, s in self.objects(collection) if u.startswith(org.UID_PREFIX) or (titles and s in titles)})
 
     def delete(self, url: str) -> bool:
+        """grommunio-dav lists an object whose UID holds "@" under a doubly encoded name (%2540) and answers DELETE on that name with
+        204 without deleting; the singly encoded name deletes it (first real run 2026-11-27)."""
+        head, _, last = url.rstrip("/").rpartition("/")
+        if "%25" in last and not url.endswith("/"):
+            url = head + "/" + unquote(last)
         return self._req("DELETE", url).status_code in (200, 204)
 
     def calendars(self) -> list[str]:
@@ -431,6 +446,11 @@ def pick_role(allowed: list[dict], role: str) -> str:
 
 
 # ================================================================ Matrix
+def unescape_text(s: str) -> str:
+    """iCalendar TEXT unescaping (RFC 5545 3.3.11)."""
+    return re.sub(r"\\([\\;,nN])", lambda m: "\n" if m.group(1) in "nN" else m.group(1), s)
+
+
 def _mx_err(r: httpx.Response) -> str:
     """Matrix error code and text (never request content): makes a refusal diagnosable from the seed's output."""
     try:
