@@ -10,6 +10,20 @@ isolated lab; nothing is production supported ([ROADMAP.md](ROADMAP.md)).
 
 ## [Unreleased]
 
+### Changed
+- **Mail and calendar (grommunio-web) after the concepts**: a neutral calendar grid with today and the current time in the accent,
+  events as a colour bar and tint with dark text, dark mode from the tokens (upstream's invert filter dropped); "New message / New
+  event / ..." at the top of the side column (oudashboard plugin, package 5.2-ou7). Previews only until the package is built and rolled out.
+- **Files and Chat after the concepts**: Files with the 48 px Office Unbound bar, centred search, copper New, list view by default
+  (files configuration revision 3); Chat with an Office Unbound home page, the mark on the consent page and all rooms in one list (chat
+  configuration revision 2). Encryption and recovery unchanged.
+
+### Fixed
+- **Demo seed on a real deployment** (first run on northstar-demo 2026-11-27): group rooms are created without invites (Synapse refuses
+  large invite lists); calendar objects are recognised by UID read from the server and tasks by title (grommunio-dav stores objects
+  under UID-derived names, replaces task UIDs and has no UID search), and deleted under the singly encoded name (it answers 204 to its
+  own doubly encoded name without deleting). A re-run now keeps all 26 calendar objects and re-sends no invitation.
+
 ## [0.13.14] - 2026-11-27
 
 ### Added
