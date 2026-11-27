@@ -129,7 +129,9 @@ class DbChecks:
                 out.append((n, False, "check is not registered"))
                 continue
             state, o = monitor.run_and_record(rt, row.id, remediate=False)
-            out.append((n, state == "ok", o.message[:200]))
+            # the recorded state is damped (a check stays "ok" through one failed probe), so verification also needs THIS probe to
+            # have passed: a refused connection right after an upgrade must fail the step (0.13.12 finding, wopi-discovery)
+            out.append((n, state == "ok" and o.status == "ok", o.message[:200]))
         return out
 
 

@@ -855,3 +855,18 @@ def test_re_registering_a_deployments_own_check_corrects_its_configuration(clien
     assert r2.config != old and r2.kind == "agent_probe" and r2.config["probe"] == probe
     with pytest.raises(StepFailed):
         DbChecks().register(rt, new, "files.acme.example", None, "t", str(uuid.uuid4()))
+
+
+def test_health_verify_fails_when_this_probe_failed_even_if_the_damped_state_is_still_ok(client, actors, rt, env, monkeypatch):
+    """0.13.12 finding: wopi-discovery recorded ConnectionRefusedError while its damped state stayed 'ok', and health.verify passed.
+    Verification needs the probe it just ran to pass, not only the recorded state."""
+    from ics import checks, monitor
+    from ics.deploy.ports import DbChecks
+    _active(actors, rt)
+    with rt.session() as db:
+        name = db.execute(text("SELECT name FROM checks LIMIT 1")).scalar()
+    assert name
+    seq = iter([("ok", checks.Outcome("critical", "ConnectionRefusedError")), ("ok", checks.Outcome("ok", "HTTP 200")),
+                ("critical", checks.Outcome("critical", "HTTP 503"))])
+    monkeypatch.setattr(monitor, "run_and_record", lambda rt_, cid, remediate=False: next(seq))
+    assert [ok for _, ok, _ in DbChecks().verify(rt, [name, name, name])] == [False, True, False]

@@ -10,6 +10,34 @@ isolated lab; nothing is production supported ([ROADMAP.md](ROADMAP.md)).
 
 ## [Unreleased]
 
+## [0.13.14] - 2026-11-27
+
+### Added
+- **Demonstration organization** (owner brief 2026-11-26, section 18; [docs/admin/demo-organization.md](docs/admin/demo-organization.md)):
+  `ics.cli demo-seed` fills an isolated demo deployment with the fictional "Northstar Advisory Group" (20 people, mail, calendars,
+  tasks, files, chat) through the applications' own APIs as each user. It refuses any deployment without the new typed, audited
+  `demo.deployment.mark` (admin, high risk, bound to the deployment's id and domain), a demo label in slug and domain and an exact
+  confirmation argument; it never sends mail outside the deployment and stores generated passwords only in the vault. 44 unit tests
+  against fakes; not yet run against a real deployment.
+- **Portal app shell and dashboard** (source, portal 0.5.x; reaches deployments only with the next portal package): the shared bar and
+  app rail of [docs/design/app-shell.md](docs/design/app-shell.md), a dashboard after the Home concept (agenda, needs your attention,
+  upcoming meetings, recent files, notifications) with per-user layout and density; calendar and mail widgets stay honestly empty until
+  a per-user groupware reader exists.
+- UI concept-alignment audit [docs/design/CONCEPT-ALIGNMENT.md](docs/design/CONCEPT-ALIGNMENT.md) and the owner brief
+  [docs/requirements/ui-concept-alignment-brief.md](docs/requirements/ui-concept-alignment-brief.md).
+
+### Changed
+- **Tenant page layout** (owner 2026-11-26: "clean up the tenants page too"): the tenant's name in the breadcrumb, a summary row
+  (deployments, VMs, health checks, domains), VM rows with short names, size and health on one line and the agent version, Users
+  without a card in a card, nothing scrolls sideways from 320 px.
+
+### Fixed
+- **health.verify passed a probe that had just failed**: verification used the damped recorded state, which stays "ok" through one
+  failed probe (officeunbound8 wopi-discovery recorded ConnectionRefusedError and the step passed). It now also needs the probe it ran
+  to pass (`ics/tests/test_deploy_exec.py`).
+- Security workflow on main: gitleaks flagged the fake JWT fixture of the desktop redaction unit test; allowlisted for that one line
+  and file only (`.gitleaks.toml`), gitleaks 8.30.1: no leaks in 638 commits.
+
 ## [0.13.13] - 2026-11-26
 
 ### Added

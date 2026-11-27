@@ -5,8 +5,20 @@
   "repository": "https://github.com/agit8or1/office-unbound",
   "updated": "2026-11-25",
   "stage": "alpha",
-  "current_version": "0.13.13",
+  "current_version": "0.13.14",
   "releases": [
+    {
+      "version": "0.13.14",
+      "date": "2026-11-27",
+      "status": "prepared",
+      "codename": "Meridian",
+      "channel": "alpha",
+      "highlights": [
+        "0.13.14: demonstration organization tool (Northstar Advisory Group) with a typed demo marker; health verification needs the probe it ran to pass"
+      ],
+      "notes_url": "https://github.com/agit8or1/office-unbound/releases/tag/v0.13.14",
+      "changelog": "CHANGELOG.md#01314---2026-11-27"
+    },
     {
       "version": "0.13.13",
       "date": "2026-11-27",
