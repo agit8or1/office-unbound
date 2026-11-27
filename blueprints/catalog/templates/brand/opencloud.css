@@ -45,6 +45,46 @@ body { font-family: var(--ou-font); }
      is dropped by the option's omitempty, so the link is hidden here. */
 #web-nav-sidebar .text-xs > span:first-child { display: none; }
 a[href^="https://docs.opencloud.eu"] { display: none !important; }
+/* Concept alignment (2026-11-26): the shared app shell of docs/design/app-shell.md and the Files concept (docs/design/concepts/files.webp),
+   through OpenCloud Web's supported hooks only: this sheet, the theme, custom translations (themes/ou/translations.json: "My files",
+   "Shared", the search placeholder) and home.js (the lockup "Office Unbound | Files", the list view as the first default). OpenCloud
+   Web lays itself out with CSS (Vue + Tailwind; nothing is measured in script), so heights and gaps are safe; no control is removed. This
+   block sits before the audit block because the stage-2 block after it is held to colours only (ics/tests/test_brand.py). */
+/* top bar: 48px navy (was 52px plus 4px margins), the mark at 20px */
+#oc-topbar { height: 48px; grid-template-rows: 48px auto; padding-inline: 12px 16px; }
+#oc-topbar .oc-logo-image { height: 20px; }
+/* the lockup: mark + "Office Unbound" (the link back to the portal) + divider + the app name; the upstream logo link (the same mark,
+   to the personal folder, which the side column's "My files" also is) only where home.js found no portal */
+#oc-topbar .oc-logo-wrapper { gap: 0; }
+#oc-topbar .oc-logo-wrapper:has(.ou-home) > a:not(.ou-home) { display: none; }
+#oc-topbar .ou-home { height: 32px; padding: 0 6px 0 2px; gap: 10px; border-color: transparent; background: transparent; font-size: 14px; font-weight: 600; }
+#oc-topbar .ou-home:hover { border-color: var(--ou-bar-line); }
+#oc-topbar .ou-app-name { display: inline-flex; align-items: center; height: 20px; margin-inline-start: 8px; padding-inline-start: 12px;
+  border-inline-start: 1px solid var(--ou-bar-line); color: var(--ou-bar-muted); font: 400 14px/1 var(--ou-font); white-space: nowrap; }
+@media (max-width: 640px) { #oc-topbar .ou-app-name { display: none; } #oc-topbar .ou-home { font-size: 0; gap: 0; } }
+/* the search field: centred, at most 520px wide, 30px high, radius 6, on the bar's lighter navy (AA: tests/test_concept_files_chat.py) */
+@media (min-width: 640px) {
+  #oc-topbar #files-global-search { width: 100%; max-width: 520px; }
+  #oc-topbar #files-global-search-bar { width: 100%; max-width: 520px; height: 30px; }
+  #oc-topbar #files-global-search-bar .oc-search-input { height: 30px; border-radius: var(--ou-radius-lg); }
+}
+#oc-topbar .oc-search-input { background: var(--ou-bar-field, var(--ou-bar-2)); font-size: 13px; }
+/* right side: 32px hit areas, the avatar 30px with its initials on the accent like the portal's */
+#oc-topbar .col-3 { gap: 8px; }
+#oc-topbar .col-3 > div > .oc-button, #oc-topbar .col-3 > .oc-button, #oc-topbar #applications-menu > .oc-button {
+  min-width: 32px; min-height: 32px; margin: 0; padding: 6px; border-radius: var(--ou-radius-lg); }
+#oc-topbar .col-3 .oc-button:hover { background: var(--ou-bar-2); }
+#oc-topbar .oc-topbar-personal-avatar { width: 30px !important; height: 30px !important; line-height: 30px !important; font-size: 12px !important;
+  font-family: var(--ou-font) !important; background: var(--ou-a) !important; }
+#oc-topbar .oc-topbar-personal-avatar .avatar-initials { color: var(--ou-a-ink) !important; font-weight: 600; }
+/* the page under the bar: no extra gutter between bar and content */
+#web-content-main { padding-top: 0; }
+/* the app's own column: the primary action full width at the top, copper, 36px, radius 6, 13/600 (app-shell.md "App column") */
+#web-nav-sidebar .oc-sidebar-nav > div:first-child .oc-button-primary {
+  width: 100%; min-height: 36px; height: 36px; border-radius: var(--ou-radius-lg); font: 600 13px/1 var(--ou-font); }
+#web-nav-sidebar .oc-sidebar-nav-item-link { border-radius: var(--ou-radius-lg); }
+/* an empty folder: a quiet drop zone that says what to do, not a blank page */
+.no-content-message { margin: 24px; border: 1px dashed var(--ou-line-2); border-radius: 8px; background: var(--ou-raised); }
 /* Files UI audit (2026-11-25): density and hierarchy. OpenCloud Web lays itself out with CSS (Vue + Tailwind; nothing is measured in
    script), so these few spacing and size rules are safe; they are scoped to OpenCloud's own component classes and keep every control.
    OpenCloud's theme.json carries colours (roles) and the font only, so none of this can be a theme token. */

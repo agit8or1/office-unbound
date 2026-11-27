@@ -166,7 +166,8 @@ def test_opencloud_theme_is_complete_and_its_config_is_what_opencloud_reads():
     assert t["clients"]["web"]["defaults"]["logo"] == "themes/ou/ou-mark.svg"
     web = yaml.safe_load(f["web.yaml"])
     assert web == {"web": {"config": {"styles": [{"href": "/themes/ou/ou-fonts.css"}, {"href": "/themes/ou/ou.css"}],
-                                      "scripts": [{"src": "/themes/ou/home.js"}]}}}
+                                      "scripts": [{"src": "/themes/ou/home.js"}],
+                                      "custom_translations": [{"url": "/themes/ou/translations.json"}]}}}
     assert f["themes/ou/ou-fonts.css"] == brand.fonts_css() and "#oc-topbar {" in f["themes/ou/ou.css"]          # navy top bar
     assert t["clients"]["web"]["themes"][0]["designTokens"]["fontFamily"].startswith('"Plex Sans"')
     assert f'var HOME = "{PORTAL}";' in f["themes/ou/home.js"] and "@PORTAL_URL@" not in f["themes/ou/home.js"]
