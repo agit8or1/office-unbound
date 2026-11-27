@@ -386,3 +386,18 @@ apps, utilization + distribution, health matrix + deployment activity (no audit 
 Evidence: `docs/screenshots/uiaudit-console/` (`before-*` = 8cea4b7, `after-*` = this branch; real console against the e2e
 backend and seed; pages marked `infra` answer `/api/v1/infra/*` in the browser with a fixed test fixture so populated
 layouts can be seen; no product data is invented).
+
+## groupware (concept alignment 2026-11-26)
+
+Calendar (`grommunio.css`, calendar block; details and upgrade notes in `upstream-modifications.md`, grommunio-web): the grid on the content
+surface with non-working hours and days outside the month on the canvas (`--ou-cal-off`), lines `--ou-line` with a quieter half-hour rule,
+date headers on the surface (ink, 500) with **today in the accent** (`--ou-a`: a 3 px bar over its title, a 5 % wash over its column, the date
+picker's today, the month view's frame) and the current-time line plus dot in the accent, like `calendar.webp`. Appointments and calendar
+tabs keep their calendar's colour as a 6 px bar and a tint (`--ou-cal-tint`, 80 % surface light / 72 % dark) under ink text, so every
+calendar colour stays readable and colour-coded. Dark mode paints the same tokens; upstream's invert filter on the cells is dropped. This
+replaces the 2026-11-25 rule "today in the action teal" (the concept uses the accent for today and now).
+
+Primary action: "New message" / "New event" / "New contact" / "New task" / "New note" at the top of the side column (plugin, 5.2-ou7),
+accent background, white 600, `--ou-radius-btn`, 36 px; the toolbar's New split button (menu of all item types) becomes navy while it is
+present. Not achievable through supported hooks (evidence in `upstream-modifications.md`): 48 px bar, 64 px rail, bar search, mail-row
+initials and preview text. Evidence: `docs/screenshots/concept-groupware/` (`after-*` are browser-injected previews).
