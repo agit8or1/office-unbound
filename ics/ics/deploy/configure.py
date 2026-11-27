@@ -891,7 +891,8 @@ def chat_runbooks(ctx, vm: str) -> list[dict]:
                                                              {"path": "trust.crt", "mode": 0o644, "content": office_trust(ca_pem)}]}},
         {"runbook": "cfg.volume_files", "params": {"component": "chat", "volume": "front", "image": img, "owner": ELEMENT_UID,
                                                    "files": [{"path": "nginx.conf", "mode": 0o644, "content": _template("chat/front.conf", **hosts)},
-                                                             {"path": "config.json", "mode": 0o644, "content": element_config(hosts, portal)}]}},
+                                                             {"path": "config.json", "mode": 0o644, "content": element_config(hosts, portal)},
+                                                             *brand.element_files(portal)]}},
         *_local_sites(ctx, vm, domain, ("chat", "matrix", "mas")),
     ]
 
@@ -900,11 +901,18 @@ def element_config(hosts: dict, portal: str | None = None) -> str:
     """Element's config.json: the template plus the suite's custom themes (brand.element_themes), the light one by default. Element applies
     a custom theme only with its system-theme setting off, so the default follows the suite, not the browser; each user can pick
     "Office Unbound Dark" (or Element's own themes) under Settings, Appearance. `branding` (brand.element_branding): the navy backdrop of
-    the sign-in and identity pages instead of Element's photo, the mark, a footer link back to the portal."""
+    the sign-in and identity pages instead of Element's photo, the mark, a footer link back to the portal. The concept alignment (2026-11-26):
+    the Office Unbound home page (brand.element_home_html, served from the front volume under /ou/) instead of Element's welcome cards, the
+    mark on the sign-in consent page (oidc_metadata.logo_uri: the same origin as Element, or Element leaves it out), and every room in one
+    list (Spaces.allRoomsInHome: rooms inside a space are listed under Home too, like the concept's single chat column)."""
     c = json.loads(_template("chat/element.json", **hosts))
+    base = f"https://{hosts['CHAT_HOST']}/"
     c["branding"] = brand.element_branding(portal)
     c["default_theme"] = f"custom-{brand.ELEMENT_THEME}"
-    c["setting_defaults"] = {**c.get("setting_defaults", {}), "custom_themes": brand.element_themes(), "use_system_theme": False}
+    c["embedded_pages"] = {"home_url": base + brand.ELEMENT_HOME}
+    c["oidc_metadata"] = {"logo_uri": base + brand.ELEMENT_MARK}
+    c["setting_defaults"] = {**c.get("setting_defaults", {}), "custom_themes": brand.element_themes(), "use_system_theme": False,
+                             "Spaces.allRoomsInHome": True}
     return json.dumps(c, indent=2) + "\n"
 
 
