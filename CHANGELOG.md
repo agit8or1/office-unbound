@@ -10,10 +10,14 @@ isolated lab; nothing is production supported ([ROADMAP.md](ROADMAP.md)).
 
 ## [Unreleased]
 
+## [0.13.15] - 2026-11-27
+
 ### Changed
+- **Portal 0.5.5** (pin 0.5.5-ou1): the app shell (48 px bar, app rail) and the concept dashboard from 0.13.14's source now ship as a
+  package; calendar and mail widgets stay honestly empty until a per-user groupware reader exists.
 - **Mail and calendar (grommunio-web) after the concepts**: a neutral calendar grid with today and the current time in the accent,
   events as a colour bar and tint with dark text, dark mode from the tokens (upstream's invert filter dropped); "New message / New
-  event / ..." at the top of the side column (oudashboard plugin, package 5.2-ou7). Previews only until the package is built and rolled out.
+  event / ..." at the top of the side column (oudashboard plugin, package 5.2-ou7).
 - **Files and Chat after the concepts**: Files with the 48 px Office Unbound bar, centred search, copper New, list view by default
   (files configuration revision 3); Chat with an Office Unbound home page, the mark on the consent page and all rooms in one list (chat
   configuration revision 2). Encryption and recovery unchanged.
@@ -889,6 +893,7 @@ editing, chat/meetings, telephony prototype, migration tooling and package pipel
 - `SECURITY.md` (private reporting) and `CONTRIBUTING.md` (DCO sign-off) added; AGPL-3.0 license. [SECURITY](SECURITY.md)
 
 [Unreleased]: https://github.com/agit8or1/office-unbound/compare/v0.4.7...HEAD
+[0.13.15]: https://github.com/agit8or1/office-unbound/compare/v0.13.14...v0.13.15
 [0.13.14]: https://github.com/agit8or1/office-unbound/compare/v0.13.13...v0.13.14
 [0.13.13]: https://github.com/agit8or1/office-unbound/compare/v0.13.12...v0.13.13
 [0.13.12]: https://github.com/agit8or1/office-unbound/compare/v0.13.11...v0.13.12

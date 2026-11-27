@@ -3,10 +3,22 @@
   "schema_doc": "docs/progress-schema.md",
   "project": "Office Unbound",
   "repository": "https://github.com/agit8or1/office-unbound",
-  "updated": "2026-11-25",
+  "updated": "2026-11-27",
   "stage": "alpha",
-  "current_version": "0.13.14",
+  "current_version": "0.13.15",
   "releases": [
+    {
+      "version": "0.13.15",
+      "date": "2026-11-27",
+      "status": "released",
+      "codename": "Meridian",
+      "channel": "alpha",
+      "highlights": [
+        "0.13.15: portal app shell and concept dashboard (portal 0.5.5), mail/calendar, Files and Chat restyled after the concepts (webmail 5.2-ou7, files config 3, chat config 2); demo seed fixes from the first real run"
+      ],
+      "notes_url": "https://github.com/agit8or1/office-unbound/releases/tag/v0.13.15",
+      "changelog": "CHANGELOG.md#01315---2026-11-27"
+    },
     {
       "version": "0.13.14",
       "date": "2026-11-27",

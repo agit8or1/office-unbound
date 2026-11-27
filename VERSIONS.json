@@ -3,7 +3,7 @@
   "_note": "Per-component versions for independently shipped parts. The product version is the VERSION file (ADR-0011). ICS core always equals the product version.",
   "components": {
     "node_agent": "0.10.4",
-    "portal": "0.5.4",
+    "portal": "0.5.5",
     "migration_toolkit": "0.1.0",
     "docs_engine": "cp-26.04.6-1+ou2"
   },
