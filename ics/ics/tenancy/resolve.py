@@ -64,6 +64,7 @@ REFS: dict[str, list[tuple[str, str]]] = {
     "directory.account.set": [("deployment", "deployment")],
     "directory.account.lock": [("deployment", "deployment")],
     "directory.account.delete": [("deployment", "deployment")],
+    "demo.deployment.mark": [("deployment", "deployment")],
     "endpoint.disable": [("endpoint_id", "endpoint")],
     "endpoint.enable": [("endpoint_id", "endpoint")],
     "endpoint.register": [("customer_id", "customer")],

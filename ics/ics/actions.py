@@ -23,6 +23,7 @@ from . import imageimport
 from . import console_access, netsettings
 from . import gateway as gateway_ops
 from .deploy import accounts as deploy_accounts
+from .demo import marker as demo_marker
 from . import experimental, tenancy_mode
 from .provisioning import operate as guest_operate
 from .provisioning import leftovers as guest_leftovers
@@ -142,6 +143,7 @@ class ActionType(StrEnum):
     msp_client_rotate = "msp.client.rotate"
     msp_client_revoke = "msp.client.revoke"
     msp_stack_link = "msp.stack.link"
+    demo_deployment_mark = "demo.deployment.mark"
 
 
 class EndpointRegister(endpoint_actions.ScopeLists):
@@ -477,6 +479,7 @@ from .sshonboard import actions as ssh_actions, session as ssh_session  # noqa: 
 CATALOG.update({ActionType(k): v for k, v in ssh_actions.CATALOG.items()})
 _SSH = {ActionType(k) for k in ssh_actions.CATALOG}
 CATALOG.update({ActionType(k): v for k, v in {**cred_actions.SPECS, **ten_actions.SPECS, **msp_actions.SPECS}.items()})
+CATALOG.update({ActionType(k): v for k, v in demo_marker.SPECS.items()})   # the demo marker (ics/demo/marker.py)
 _IDM = {a for a in ActionType if a.value.startswith("idm.")}
 _DEPLOY = {a for a in ActionType if a.value.startswith("deployment.")}
 _BACKUP = {a for a in ActionType if a.value.startswith("backup.")}
@@ -650,7 +653,7 @@ _PRECHECK = {ActionType.node_enroll: _pre_node_enroll, ActionType.check_create: 
              ActionType.node_decommission: removal.pre_node_decommission, ActionType.maintenance_cancel: removal.pre_maintenance_cancel,
              ActionType.maintenance_delete: removal.pre_maintenance_delete, ActionType.plan_archive: removal.pre_plan_archive, ActionType.release_promote: release_ops.precheck,
              ActionType.image_import: imageimport.precheck, ActionType.guest_power: guest_operate.precheck, ActionType.guest_remove: guest_leftovers.precheck,
-**{ActionType(k): v for k, v in {**cred_actions.PRECHECK, **ten_actions.PRECHECK, **msp_actions.PRECHECK}.items()}}
+**{ActionType(k): v for k, v in {**cred_actions.PRECHECK, **ten_actions.PRECHECK, **msp_actions.PRECHECK, **demo_marker.PRECHECK}.items()}}
 
 
 _USER_TARGET_ACTIONS = {ActionType.user_set_role, ActionType.user_revoke_invite, ActionType.user_disable, ActionType.user_enable,
@@ -1567,4 +1570,5 @@ _EXEC = {**{ActionType(k): v for k, v in ssh_actions.EXECUTORS.items()}, ActionT
          ActionType.directory_account_lock: deploy_accounts.exec_lock, ActionType.directory_account_delete: deploy_accounts.exec_delete,
          ActionType.settings_tenancy_set: tenancy_mode.exec_set,
          **{ActionType(k): v for k, v in {**cred_actions.EXECUTORS, **ten_actions.EXECUTORS, **msp_actions.EXECUTORS}.items()},
-         **{ActionType(k): v for k, v in backup_ops.EXECUTORS.items()}}
+         **{ActionType(k): v for k, v in backup_ops.EXECUTORS.items()},
+         **{ActionType(k): v for k, v in demo_marker.EXECUTORS.items()}}
