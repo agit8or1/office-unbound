@@ -386,3 +386,22 @@ apps, utilization + distribution, health matrix + deployment activity (no audit 
 Evidence: `docs/screenshots/uiaudit-console/` (`before-*` = 8cea4b7, `after-*` = this branch; real console against the e2e
 backend and seed; pages marked `infra` answer `/api/v1/infra/*` in the browser with a fixed test fixture so populated
 layouts can be seen; no product data is invented).
+
+## files-chat (concept alignment 2026-11-26)
+
+Files (OpenCloud Web) and Chat (Element Web) follow `docs/design/app-shell.md` as far as their supported hooks allow; every change and every
+gap is listed in `docs/design/upstream-modifications.md` (sections OpenCloud and Element).
+
+- **Files top bar:** 48 px navy; mark 20 px + "Office Unbound" (14/600, the link back to the portal) + 1 px `--ou-bar-line` divider +
+  "Files" (14/400, `--ou-bar-muted`); phones show the mark only. Search centred, max 520 x 30, radius `--ou-radius-lg`, background
+  `var(--ou-bar-field, var(--ou-bar-2))` (AA for text and placeholder in both themes, tested). Icons in 32 px hit areas; avatar 30 px,
+  initials in `--ou-a-ink` on `--ou-a`.
+- **Files column:** "+ New" full width, 36 px, radius 6, 13/600 on the primary (copper); "My files", "Favorites", "Shared", "Spaces",
+  "Deleted files" (custom translations). List view is the first default per browser; the user's choice is kept.
+- **Files empty state:** the upstream illustration and message inside a dashed `--ou-line-2` drop zone on `--ou-raised`, radius 8.
+- **Chat:** custom themes from the tokens (colours + compound overrides), font stacks Plex -> Inter (Element's bundled face; font files
+  cannot be shipped without disabling the compound overrides), the Office Unbound home page instead of Element's three accent cards, the
+  mark on the consent page, all rooms in one list.
+- Not reachable by configuration (documented, not faked): the 64 px rail in both apps, Owner/Sharing columns in Files, Teams/Channels
+  grouping and the channel tabs in Chat.
+
