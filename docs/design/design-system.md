@@ -357,6 +357,55 @@ Known limits: menus do not close on Escape or on a click outside (no script allo
 menus can be open at once. A CSS `display` change on a table can drop its table semantics in some screen readers (WebKit); Chromium
 and Firefox keep them.
 
+## Portal: app shell and dashboard (concept alignment 2026-11-26)
+
+Supersedes the sections "App shell (portal `base.html`)" and "Dashboard (`home.html`)" above and the dashboard bullet of "Portal (UI audit
+2026-11-25)". Concept: `docs/design/concepts/home.webp`, frame `docs/design/app-shell.md` (the portal is its canonical implementation).
+Evidence: `docs/screenshots/concept-portal/` (`after-*` local preview of this branch against the test mocks, calendar/mail from a mock
+groupware reader, all items titled `[OU-TEST]`; `after-noreader-*` the same without a reader = today's deployments; `before-mock-*` the
+0.13 portal against the same mocks; `before-live-*` the deployed portal on officeunbound8, read-only).
+
+Shell (`base.html`, no script):
+- Bar 48 px `--ou-bar-bg`: mark 20 px + product name (the organisation's name, or "Office Unbound" when it has none: a mail domain is not
+  a name) + divider + app name (Home, Docs, Settings, Search, Administration); centred search (max 520, height 30, `--ou-bar-field`),
+  placeholder "Search files and folders" (what the portal really searches); launcher (all apps + Create), help, notifications (bell,
+  count badge `--ou-accent`, Files notifications), avatar 30 px with two initials on `--ou-accent`. No `/` key hint: a shortcut needs script.
+- Rail 64 px `--ou-side`, `nav aria-label="Apps"`: Home, Mail, Calendar, Contacts (mail deployed), Files, Docs (files deployed), Chat
+  (when it answers); expand/collapse toggle and Settings at the bottom. Active: `--ou-surface`, radius 8, 3 px `--ou-accent` bar. No
+  badges: the portal reads no unread counts (the reader contract has `unread`, kept for a later badge). Expanded (200 px, labels beside
+  icons) is per user in `ou_prefs`. Admin pages (`/admin`) keep bar + their own tab navigation, no rail. Account and Devices sit under
+  Settings.
+- Below 768 px the rail is a fixed bottom bar: the first five items and More (the rest and Settings). The help menu hides below 768 px,
+  the launcher below 420 px (both reachable from the avatar menu and More).
+
+Dashboard (`home.html`, model `portal/app/dashboard.py`):
+- Header: time-of-day greeting with the given name; date and, when the calendar is readable, "N meetings today, the next in M minutes".
+  Quick actions: New message (copper), New event, New document, More (spreadsheet, presentation, folder in Files, start a chat, desktop
+  office apps, customise).
+- Columns 272 | fluid | 272 px: Today's agenda (next-meeting card with attendees and Join, all-day chips, timed events, now-line,
+  conflicts, "not answered yet") | Needs your attention, Recent files, Shared with me | Upcoming meetings (next 7 days, events with
+  attendees or a join link), Notifications, Favourites. Below 1280 px the right column goes under, below 1024 px one column.
+- Attention feed: invitations awaiting a response, flagged and important unread mail (reader), files shared with the user in the last 14
+  days (OpenCloud). Chat mentions, document comments and tasks are not shown: no source the portal may read with the user's token.
+- Customisation (Settings > Dashboard): show/hide each widget, move up/down inside its column, compact/comfortable density, restore
+  defaults. Stored in the `ou_prefs` cookie (`<theme>:<hidden>:<order>:<flags>`, a 0.13 cookie still parses). Why a cookie: the portal
+  has no database (sessions are in memory) and the directory/Keycloak user profile accepts no unmanaged attributes; the cookie is
+  HttpOnly, Secure, 400 days. Limit: per browser, not synchronised across devices.
+- Honest states: a widget whose source is not deployed says "Not on the dashboard yet"; a source that failed says "Not available right
+  now"; "You're all caught up" only when the source was read. A hidden widget's source is not called.
+
+Groupware reader contract (v1). gromox accepts an OIDC bearer token only through zcore `mapi_logon_token` (exch/authmgr.cpp, our patch
+`blueprints/build/gromox/patches/0001-authmgr-bearer-claims.patch` checks signature, `iss`, `aud`, `exp`); grommunio-dav (Sabre Basic
+→ `mapi_logon_zarafa`), grommunio-sync, IMAP and EWS take passwords only. So calendar and mail need a small read-only endpoint on the
+groupware node that logs on with the caller's own token (never a service account):
+`GET <PORTAL_GROUPWARE_READER_URL>/summary?from=<iso>&to=<iso>`, `Authorization: Bearer <user access token>` →
+`{"version":1, "mailbox":"<email of the token>", "unread":int|null, "events":[{"subject","start","end" (ISO 8601 with offset),"all_day",
+"location","organizer","attendees":[names],"join_url" (https only),"response":"organizer|accepted|tentative|declined|none","busy":"busy|free|..."}],
+"attention":[{"kind":"invitation|flagged|important","from","subject","received","due"?,"unread","attachments"}]}`.
+The portal refuses an answer for another mailbox, another version or a malformed body (shown as not available), caps sizes (512 kB,
+200 events, 100 items), drops floating times and non-https links. Not built yet; see the portal report for the deploy steps
+(reader on the mail node, `aud` mapper `ou-webmail` on the `ou-portal` client, `PORTAL_GROUPWARE_READER_URL`).
+
 ## Console (ICS) — UI audit 2026-11-25
 
 The console keeps its own concept (graphite top bar, paper navigation, copper primary buttons) on the shared tokens; its copy
