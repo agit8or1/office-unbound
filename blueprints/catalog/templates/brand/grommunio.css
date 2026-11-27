@@ -109,31 +109,116 @@ body.grommunio-webclient .x-grid-empty, body.grommunio-webclient .grommunio-prev
 /* the gaps between panes show the canvas, so list, reading pane and folders read as separate surfaces */
 body.grommunio-webclient .x-layout-split, body.grommunio-webclient .x-border-layout-ct { background-color: var(--ou-bg); }
 body.grommunio-webclient .grommunio-previewpanel { border-left: 1px solid var(--ou-line); }
-/* calendar (UI audit 2026-11-25): today and the selected calendar in the action teal, like selection everywhere in the suite. The calendar
-   draws today's header, the rules around today's column and the selected calendar's tab stroke in its own --theme-primary-color (the
-   brand copper through --brand-primary), so the property is redefined for the calendar panel only. The 0.13 rules painted today's title
-   teal on that copper header (unreadable) and gave today's cells an opaque background, which hid the working-hours shading and, under
-   upstream dark mode's invert filter on the grid cells (darkmode.css), turned into a light grey column. */
-body.grommunio-webclient #grommunio-mainpanel-contentpanel-calendar { --theme-primary-color: var(--ou-action); }
-body.grommunio-webclient .grommunio-calendar-container-header .k-html-header-background .k-today .k-cal-header-title,
-body.grommunio-webclient .grommunio-calendar-boxview .grommunio-calendar-container-body .k-html-body-background .k-today .k-header {
-  background: var(--ou-action) !important; color: var(--ou-action-ink) !important; text-shadow: none !important; font-weight: 600;
+/* calendar (concept alignment 2026-11-26, docs/design/concepts/calendar.webp): a neutral grid on the content surface, restrained lines,
+   date headers on the surface with today in the accent (a 3px bar over its title, a light wash over its column, the accent now-line), event
+   blocks as a tint of their calendar's colour with a solid bar of that colour on the left, so colour coding survives for every calendar.
+   The calendar paints its cells, headers and appointments with inline colours from the calendar's colour scheme (CalendarDaysView,
+   CalendarBoxView, AppointmentDaysView), so these rules use !important against inline styles; they change colours, borders as colours,
+   inset shadows and background images only. Upstream dark mode turned the light inline cell colours dark with `filter: invert(.85)
+   hue-rotate(180deg)` (darkmode.css), which made a warm grey grid beside the navy panes; the cells are painted from the tokens instead and
+   the filter is dropped. Working hours are the cells the scheme paints with its fixed `stripworking` colour (#ffffff, ColorSchemes.js). */
+body.grommunio-webclient #grommunio-mainpanel-contentpanel-calendar {
+  --theme-primary-color: var(--ou-a);
+  --ou-cal-line: var(--ou-line);
+  --ou-cal-half: color-mix(in srgb, var(--ou-line) 45%, var(--ou-surface));
+  --ou-cal-off: var(--ou-bg);
+  --ou-cal-today: color-mix(in srgb, var(--ou-a) 5%, transparent);
+  --ou-cal-tint: color-mix(in srgb, var(--ou-surface) 80%, transparent);
 }
-/* today's column: a translucent wash over the calendar's own cell colours (working hours stay distinguishable) */
-body.grommunio-webclient .grommunio-calendar-container-body .k-html-body-background > div.k-today[class*="k-line-"] {
-  box-shadow: inset 0 0 0 100vmax color-mix(in srgb, var(--ou-action) 9%, transparent);
+body.grommunio-webclient.dark-mode #grommunio-mainpanel-contentpanel-calendar {
+  --ou-cal-off: color-mix(in srgb, var(--ou-bg) 65%, var(--ou-surface));
+  --ou-cal-today: color-mix(in srgb, var(--ou-a) 10%, transparent);
+  --ou-cal-tint: color-mix(in srgb, var(--ou-surface) 72%, transparent);
 }
-/* dark: upstream inverts every grid cell (filter: invert(.85) hue-rotate(180deg)), so colours inside a cell are given as what the filter
-   turns into the dark action teal #6cb8b2: #005e56 (checked against the token by test_uiaudit_groupware.py). Replaces upstream's
-   pre-inverted green rules of today's column. */
-body.grommunio-webclient.dark-mode .grommunio-calendar-container-body .k-html-body-background > div[class*="k-line-"].k-active-border { border-right-color: #005e56 !important; }
-body.grommunio-webclient.dark-mode .grommunio-calendar-container-body .k-html-body-background > div[class*="k-line-"].k-today.k-day-0 { border-left-color: #005e56 !important; }
-body.grommunio-webclient.dark-mode .grommunio-calendar-container-body .k-html-body-background > div.k-today[class*="k-line-"] {
-  box-shadow: inset 0 0 0 100vmax rgba(0, 94, 86, .16);
+/* the calendar tabs: a colour key like the appointments (tint + bar of the calendar's colour, ink title); a lone calendar's tab is selected
+   but has no close icon, so upstream left it at its "inactive" 0.6 opacity; the full-width selection stroke under the tabs as a rule */
+body.grommunio-webclient #grommunio-mainpanel-contentpanel-calendar .grommunio-calendar-tab-contents {
+  background-image: linear-gradient(90deg, transparent 4px, var(--ou-cal-tint) 4px) !important; border-radius: var(--ou-radius-sm) var(--ou-radius-sm) 0 0;
 }
-body.grommunio-webclient .x-date-picker .x-date-inner td.x-date-today a { background: var(--ou-action) !important; color: var(--ou-action-ink) !important; border-radius: 4px; }
+body.grommunio-webclient #grommunio-mainpanel-contentpanel-calendar .grommunio-calendar-tab-contents .grommunio-calendar-tab-title { color: var(--ou-ink) !important; }
+body.grommunio-webclient #grommunio-mainpanel-contentpanel-calendar .grommunio-calendar.grommunio-calendar-tab-selected { opacity: 1 !important; }
+body.grommunio-webclient #grommunio-mainpanel-contentpanel-calendar .grommunio-calendar-tabarea-stroke,
+body.grommunio-webclient #grommunio-mainpanel-contentpanel-calendar .grommunio-calendar-tabarea-stroke.grommunio-calendar-tab-selected { border-top-color: var(--ou-cal-line) !important; }
+body.grommunio-webclient #grommunio-mainpanel-contentpanel-calendar .grommunio-calendar-border { background-color: var(--ou-cal-line) !important; border-color: var(--ou-cal-line) !important; }
+/* day, work week, week: the grid */
+body.grommunio-webclient #grommunio-mainpanel-contentpanel-calendar .k-html-body-background > div[class*="k-line-"] {
+  border-color: var(--ou-cal-line) !important; background-color: var(--ou-cal-off) !important; filter: none !important;
+}
+body.grommunio-webclient #grommunio-mainpanel-contentpanel-calendar .k-html-body-background > div[class*="k-line-"][style*="#ffffff" i] {
+  background-color: var(--ou-surface) !important;
+}
+/* the half-hour rule (the bottom of each hour's first line, default zoom of 30 minutes) quieter than the hour rule */
+body.grommunio-webclient #grommunio-mainpanel-contentpanel-calendar .k-html-body-background > div:is(.k-line-0, .k-line-2, .k-line-4, .k-line-6,
+  .k-line-8, .k-line-10, .k-line-12, .k-line-14, .k-line-16, .k-line-18, .k-line-20, .k-line-22, .k-line-24, .k-line-26, .k-line-28, .k-line-30,
+  .k-line-32, .k-line-34, .k-line-36, .k-line-38, .k-line-40, .k-line-42, .k-line-44, .k-line-46) { border-bottom-color: var(--ou-cal-half) !important; }
+body.grommunio-webclient #grommunio-mainpanel-contentpanel-calendar .k-html-body-background > div.k-today[class*="k-line-"] {
+  box-shadow: inset 0 0 0 100vmax var(--ou-cal-today);
+}
+/* the date headers and the all-day lane under them */
+body.grommunio-webclient #grommunio-mainpanel-contentpanel-calendar .k-html-header-background {
+  background: var(--ou-surface) !important; color: var(--ou-ink); box-shadow: inset 0 -1px 0 var(--ou-cal-line);
+}
+body.grommunio-webclient #grommunio-mainpanel-contentpanel-calendar .k-html-header-background > div {
+  border-color: var(--ou-cal-line) !important; box-shadow: inset -1px 0 0 var(--ou-cal-line);
+}
+body.grommunio-webclient #grommunio-mainpanel-contentpanel-calendar .k-html-header-background > div.k-today { background: var(--ou-cal-today); }
+body.grommunio-webclient #grommunio-mainpanel-contentpanel-calendar .k-html-header-background .k-cal-header-title {
+  background: transparent !important; color: var(--ou-ink) !important; text-shadow: none !important; font-weight: 500;
+  box-shadow: inset 0 -1px 0 var(--ou-cal-half);
+}
+body.grommunio-webclient #grommunio-mainpanel-contentpanel-calendar .k-html-header-background .k-today .k-cal-header-title {
+  color: var(--ou-a) !important; font-weight: 600; box-shadow: inset 0 3px 0 var(--ou-a), inset 0 -1px 0 var(--ou-cal-half);
+}
+/* the time strip and the now-line (CalendarDaysView#drawCurrentTimeIndicator): the accent, the sprite arrow as a dot */
+body.grommunio-webclient #grommunio-mainpanel-contentpanel-calendar .grommunio-calendar-timestrip-element div { color: var(--ou-muted); font-variant-numeric: tabular-nums; }
+body.grommunio-webclient #grommunio-mainpanel-contentpanel-calendar .grommunio-calendar-timestrip-line { background-color: var(--ou-cal-line) !important; }
+body.grommunio-webclient #grommunio-mainpanel-contentpanel-calendar .k-calendar-timestrip-indicator-line { background-color: var(--ou-a) !important; box-shadow: 0 0 0 .5px var(--ou-a); }
+body.grommunio-webclient #grommunio-mainpanel-contentpanel-calendar .k-calendar-timestrip-indicator-icon {
+  background: radial-gradient(circle, var(--ou-a) 0 4px, transparent 4.5px) !important;
+}
+/* appointments: a tint of the calendar's colour (the inline background shows through the first 6px, under the busy-status strip) */
+body.grommunio-webclient #grommunio-mainpanel-contentpanel-calendar .k-appointment-box {
+  background-image: linear-gradient(90deg, transparent 6px, var(--ou-cal-tint) 6px) !important;
+  color: var(--ou-ink) !important; border-color: var(--ou-surface) !important; font-weight: 500;
+}
+body.grommunio-webclient #grommunio-mainpanel-contentpanel-calendar .k-appointment-box.k-selected { border-color: var(--ou-ink) !important; }
+/* the white icon variants of dark calendar colours (AppointmentDaysView) sit on the light tint: drawn dark; dark mode: the light tint is dark */
+body.grommunio-webclient:not(.dark-mode) #grommunio-mainpanel-contentpanel-calendar .k-appointment-box.k-dark [class*="icon_"] { filter: brightness(0) opacity(.7) !important; }
+body.grommunio-webclient.dark-mode #grommunio-mainpanel-contentpanel-calendar .k-appointment-box.k-light [class*="icon_"] { filter: invert(1) !important; }
+/* month: the same surfaces; days outside the month on the off-hours shade, today's frame and date in the accent */
+body.grommunio-webclient #grommunio-mainpanel-contentpanel-calendar .grommunio-calendar-boxview .k-html-body-background > div {
+  border-color: var(--ou-cal-line) !important; background-color: var(--ou-cal-off) !important; filter: none !important;
+}
+body.grommunio-webclient #grommunio-mainpanel-contentpanel-calendar .grommunio-calendar-boxview .k-html-body-background > div:is([style*="background-color:white" i], [style*="#ffffff" i]) {
+  background-color: var(--ou-surface) !important;
+}
+body.grommunio-webclient #grommunio-mainpanel-contentpanel-calendar .grommunio-calendar-boxview .k-html-body-background .k-header {
+  background: transparent !important; color: var(--ou-muted) !important; font-weight: 500;
+}
+body.grommunio-webclient #grommunio-mainpanel-contentpanel-calendar .grommunio-calendar-boxview .k-html-body-background > div.k-today {
+  border-color: var(--ou-a) !important; box-shadow: inset 0 0 0 100vmax var(--ou-cal-today);
+}
+body.grommunio-webclient #grommunio-mainpanel-contentpanel-calendar .grommunio-calendar-boxview .k-html-body-background .k-today .k-header {
+  background: transparent !important; color: var(--ou-a) !important; font-weight: 600;
+}
+/* the app's primary action at the top of its side column (app-shell.md "App column"; oudashboard plugin from 5.2-ou7, navigation.north):
+   the accent, white 600 text, the shared button radius; ExtJS sizes it (36px high, 12px inset). While it is there, the toolbar's New split
+   button (the menu of every item type) steps back to the bar's navy, so the side column holds the one copper action, like the concept. */
+body.grommunio-webclient #grommunio-navigationpanel .ou-primary-new {
+  background: var(--ou-a); border-radius: var(--ou-radius-btn); cursor: pointer; text-align: center; line-height: 34px;   /* centres the inline button */
+}
+body.grommunio-webclient #grommunio-navigationpanel .ou-primary-new .x-btn-small { vertical-align: middle; line-height: normal; }
+body.grommunio-webclient #grommunio-navigationpanel .ou-primary-new.x-btn-over { background: color-mix(in srgb, var(--ou-a) 88%, #000); }
+body.grommunio-webclient #grommunio-navigationpanel .ou-primary-new.x-btn-focus { box-shadow: 0 0 0 2px var(--ou-side), 0 0 0 4px var(--ou-focus); }
+body.grommunio-webclient #grommunio-navigationpanel .ou-primary-new :is(.x-btn-small, em) { background: transparent !important; border-color: transparent !important; box-shadow: none !important; }
+body.grommunio-webclient #grommunio-navigationpanel .ou-primary-new button.x-btn-text { color: var(--ou-a-ink) !important; font-weight: 600; background: transparent !important; }
+body.grommunio-webclient #grommunio-navigationpanel .ou-primary-new button.x-btn-text::before { content: "+\00a0"; font-weight: 600; }
+body.grommunio-webclient:has(.ou-primary-new) #grommunio-maintoolbar-newitem :is(.x-btn-small, .x-btn-medium, .x-btn-large) { background: var(--ou-bar-bg) !important; }
+body.grommunio-webclient.dark-mode:has(.ou-primary-new) #grommunio-maintoolbar-newitem :is(.x-btn-small, .x-btn-medium, .x-btn-large) { background: var(--ou-raised) !important; box-shadow: inset 0 0 0 1px var(--ou-line-2) !important; }
+/* the date picker: today in the accent like the grid, the selected range in the selection colour */
+body.grommunio-webclient .x-date-picker .x-date-inner td.x-date-today a { background: var(--ou-a) !important; color: var(--ou-a-ink) !important; border-radius: 4px; }
 body.grommunio-webclient .x-date-picker .x-date-inner td.x-date-selected:not(.x-date-today) a { background: var(--ou-sel) !important; color: var(--ou-ink) !important; }
-body.grommunio-webclient .x-date-picker .x-date-inner td.x-date-today a *, body.grommunio-webclient .x-date-picker .x-date-inner td.x-date-today .x-date-date { color: var(--ou-action-ink) !important; }
+body.grommunio-webclient .x-date-picker .x-date-inner td.x-date-today a *, body.grommunio-webclient .x-date-picker .x-date-inner td.x-date-today .x-date-date { color: var(--ou-a-ink) !important; }
 body.grommunio-webclient .grommunio-body-tabbar .x-tab-panel-header, body.grommunio-webclient .grommunio-body-tabbar .x-tab-strip-wrap,
 body.grommunio-webclient #grommunio-mainpanel .x-tab-strip.x-tab-strip-top { background-color: var(--ou-bg2) !important; }
 body.grommunio-webclient .x-date-picker td.x-date-weeknumber a, body.grommunio-webclient .x-date-picker td.x-date-weeknumber a * { color: var(--ou-muted) !important; }
