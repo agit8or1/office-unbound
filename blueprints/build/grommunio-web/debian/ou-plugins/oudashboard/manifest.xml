@@ -5,12 +5,12 @@
 -->
 <plugin version="2">
 	<info>
-		<version>1.0</version>
+		<version>1.1</version>
 		<name>oudashboard</name>
-		<title>Dashboard link</title>
+		<title>Office Unbound integration</title>
 		<author>Office Unbound</author>
 		<authorURL>https://officeunbound.com</authorURL>
-		<description>Adds a "Dashboard" button to the left of the top tab bar that returns to the Office Unbound user portal.</description>
+		<description>Adds a "Dashboard" button to the left of the top tab bar that returns to the Office Unbound user portal, and the primary "New ..." action at the top of the side column.</description>
 	</info>
 	<config>
 		<configfile>config.php</configfile>
